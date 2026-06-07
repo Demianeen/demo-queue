@@ -10,6 +10,7 @@ import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken, shuffled } from "@/lib/tokens";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { makeSamplePerson } from "@/lib/sampleData";
 
 type AdminSubmission = {
   id: Id<"submissions">;
@@ -47,6 +48,7 @@ export default function AdminPage() {
   const hideSubmission = useMutation(api.events.hideSubmission);
   const restoreSubmission = useMutation(api.events.restoreSubmission);
   const pickNext = useMutation(api.events.pickNext);
+  const resetQueue = useMutation(api.events.resetQueue);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const updateSubmission = useMutation(api.events.updateSubmission);
   const [draggedId, setDraggedId] = useState<Id<"submissions"> | null>(null);
@@ -149,26 +151,40 @@ export default function AdminPage() {
     }
 
     const safeCount = Math.min(count, 30);
-    const batchId = Date.now().toString().slice(-5);
 
     await Promise.all(
-      Array.from({ length: safeCount }, async (_, index) => {
-        const number = index + 1;
+      Array.from({ length: safeCount }, async () => {
+        const person = makeSamplePerson();
 
         await adminAddSubmission({
           slug: params.slug,
           adminToken: params.token,
           participantToken: randomToken(32),
-          name: `Test Person ${batchId}-${number}`,
-          demoTitle: `Test Demo ${batchId}-${number}`,
-          description: `Temporary seeded demo ${number} for queue testing.`,
-          phone: `+155501${String(number).padStart(4, "0")}`,
-          email: `test-${batchId}-${number}@example.com`,
-          category: ["AI", "Devtools", "Consumer", "Hardware"][index % 4],
+          name: person.name,
+          demoTitle: person.demoTitle,
+          description: person.description,
+          phone: person.phone,
+          email: person.email,
+          twitter: person.twitter,
+          linkedin: person.linkedin,
+          category: person.category,
           queueOrder: randomQueueOrder(),
         });
       }),
     );
+  }
+
+  async function reset() {
+    const confirmed = window.confirm(
+      "Reset the queue back to draft? Everyone (including hidden, no-show, and withdrawn people) returns to the draft list, current/up next/done are cleared, and the stage goes back to its pre-publish state.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setEditingId(null);
+    setIsAdding(false);
+    await resetQueue({ slug: params.slug, adminToken: params.token });
   }
 
   async function saveEdit(id: Id<"submissions">, values: SubmissionFields) {
@@ -319,6 +335,11 @@ export default function AdminPage() {
                 <Button variant="ghost" size="sm" onClick={addTestPeople} type="button">
                   Add test people
                 </Button>
+                {queueIsLive || queue.length > 0 || admin.hidden.length > 0 || admin.inactive.length > 0 ? (
+                  <Button variant="destructive" size="sm" onClick={reset} type="button">
+                    Reset to draft
+                  </Button>
+                ) : null}
               </div>
             )}
           </div>

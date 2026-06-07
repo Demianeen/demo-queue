@@ -553,3 +553,32 @@ export const pickNext = mutation({
     await logAction(ctx, event._id, "pick_next", "admin");
   },
 });
+
+export const resetQueue = mutation({
+  args: { slug: v.string(), adminToken: v.string() },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+
+    // Stable draft order: oldest submissions first, then re-numbered 1..N.
+    const ordered = [...submissions].sort((a, b) => a.createdAt - b.createdAt);
+
+    let order = 1;
+    for (const submission of ordered) {
+      await ctx.db.patch(submission._id, {
+        status: "queued",
+        queueOrder: order,
+        updatedAt: Date.now(),
+      });
+      order += 1;
+    }
+
+    await ctx.db.patch(event._id, { queuePublished: false, updatedAt: Date.now() });
+    await logAction(ctx, event._id, "queue_reset", "admin");
+  },
+});

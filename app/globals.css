@@ -376,6 +376,28 @@ h3 {
   opacity: 0.55;
 }
 
+.drag-handle {
+  align-self: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--app-muted);
+  cursor: grab;
+  font-size: 18px;
+  line-height: 1;
+  padding: 6px;
+  touch-action: none;
+}
+
+.drag-handle:hover {
+  background: #eff4f0;
+  color: var(--app-ink);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
 .queue-row {
   align-items: center;
   display: flex;

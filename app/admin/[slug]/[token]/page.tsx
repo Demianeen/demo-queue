@@ -11,6 +11,23 @@ import { randomQueueOrder, randomToken, shuffled } from "@/lib/tokens";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { makeSamplePerson } from "@/lib/sampleData";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 type AdminSubmission = {
   id: Id<"submissions">;
@@ -44,16 +61,34 @@ export default function AdminPage() {
     adminToken: params.token,
   });
   const publishQueue = useMutation(api.events.publishQueue);
-  const shuffleQueue = useMutation(api.events.shuffleQueue);
+  const shuffleQueue = useMutation(api.events.shuffleQueue).withOptimisticUpdate(
+    (localStore, args) => {
+      const queryArgs = { slug: args.slug, adminToken: args.adminToken };
+      const current = localStore.getQuery(api.events.getAdmin, queryArgs);
+      if (!current) {
+        return;
+      }
+
+      const byId = new Map(current.queue.map((entry) => [entry.id, entry]));
+      const reordered = args.orderedIds
+        .map((id) => byId.get(id))
+        .filter((entry): entry is (typeof current.queue)[number] => Boolean(entry));
+
+      localStore.setQuery(api.events.getAdmin, queryArgs, { ...current, queue: reordered });
+    },
+  );
   const hideSubmission = useMutation(api.events.hideSubmission);
   const restoreSubmission = useMutation(api.events.restoreSubmission);
   const pickNext = useMutation(api.events.pickNext);
   const clearQueue = useMutation(api.events.clearQueue);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const updateSubmission = useMutation(api.events.updateSubmission);
-  const [draggedId, setDraggedId] = useState<Id<"submissions"> | null>(null);
   const [editingId, setEditingId] = useState<Id<"submissions"> | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const queue = useMemo(() => admin?.queue ?? [], [admin?.queue]);
 
@@ -80,27 +115,21 @@ export default function AdminPage() {
     await shuffleQueue({ slug: params.slug, adminToken: params.token, orderedIds });
   }
 
-  async function moveDragged(beforeId: Id<"submissions">) {
-    if (!draggedId || draggedId === beforeId) {
+  async function onDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
       return;
     }
 
-    const remaining = queue.filter((item) => item.id !== draggedId);
-    const dragged = queue.find((item) => item.id === draggedId);
-    if (!dragged) {
+    const ids = queue.map((item) => item.id);
+    const oldIndex = ids.indexOf(active.id as Id<"submissions">);
+    const newIndex = ids.indexOf(over.id as Id<"submissions">);
+    if (oldIndex < 0 || newIndex < 0) {
       return;
     }
 
-    const beforeIndex = remaining.findIndex((item) => item.id === beforeId);
-    const reordered = [...remaining];
-    reordered.splice(beforeIndex, 0, dragged);
-
-    await shuffleQueue({
-      slug: params.slug,
-      adminToken: params.token,
-      orderedIds: reordered.map((item) => item.id),
-    });
-    setDraggedId(null);
+    const orderedIds = arrayMove(ids, oldIndex, newIndex);
+    await shuffleQueue({ slug: params.slug, adminToken: params.token, orderedIds });
   }
 
   async function hide(id: Id<"submissions">) {
@@ -254,69 +283,34 @@ export default function AdminPage() {
               <SpeakerCard label="Up next" item={admin.upNext} />
             </div>
 
-            <div className="queue-list">
-              {queue.map((item: AdminSubmission, index: number) => {
-                const isEditing = editingId === item.id;
-
-                return (
-                  <article
-                    className={`queue-item ${draggedId === item.id ? "dragging" : ""}`}
-                    draggable={!isEditing}
-                    key={item.id}
-                    onDragStart={() => {
-                      if (!isEditing) setDraggedId(item.id);
-                    }}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={() => {
-                      if (!isEditing) moveDragged(item.id);
-                    }}
-                  >
-                    {isEditing ? (
-                      <SubmissionForm
-                        initial={item}
-                        submitLabel="Save changes"
-                        onSave={(values) => saveEdit(item.id, values)}
-                        onCancel={() => setEditingId(null)}
-                      />
-                    ) : (
-                      <>
-                        <div className="queue-row">
-                          <div>
-                            <span className="pill">#{index + 1}</span>
-                            <div className="queue-title" style={{ marginTop: 8 }}>
-                              {item.demoTitle}
-                            </div>
-                            <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
-                          </div>
-                          <span className="pill green">{item.category || "demo"}</span>
-                        </div>
-
-                        <p className="muted" style={{ marginBottom: 0 }}>{item.description}</p>
-                        <Contact item={item} />
-                        <div className="actions" style={{ marginTop: 0 }}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setEditingId(item.id)}
-                            type="button"
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => hide(item.id)}
-                            type="button"
-                          >
-                            Hide
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={onDragEnd}
+            >
+              <SortableContext
+                items={queue.map((item) => item.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="queue-list">
+                  {queue.length === 0 ? (
+                    <p className="muted">No one in the queue yet.</p>
+                  ) : null}
+                  {queue.map((item: AdminSubmission, index: number) => (
+                    <SortableQueueRow
+                      key={item.id}
+                      item={item}
+                      index={index}
+                      isEditing={editingId === item.id}
+                      onEdit={() => setEditingId(item.id)}
+                      onCancelEdit={() => setEditingId(null)}
+                      onSaveEdit={(values) => saveEdit(item.id, values)}
+                      onHide={() => hide(item.id)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
 
             {isAdding ? (
               <article className="queue-item" style={{ marginTop: 14 }}>
@@ -441,6 +435,85 @@ function SpeakerCard({ label, item }: { label: string; item: AdminSubmission | n
         {item?.name ?? "Make the queue live, then advance."}
       </p>
     </section>
+  );
+}
+
+function SortableQueueRow({
+  item,
+  index,
+  isEditing,
+  onEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onHide,
+}: {
+  item: AdminSubmission;
+  index: number;
+  isEditing: boolean;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (values: SubmissionFields) => Promise<void> | void;
+  onHide: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: item.id,
+    disabled: isEditing,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    zIndex: isDragging ? 1 : undefined,
+    position: "relative" as const,
+  };
+
+  return (
+    <article ref={setNodeRef} style={style} className="queue-item">
+      {isEditing ? (
+        <SubmissionForm
+          initial={item}
+          submitLabel="Save changes"
+          onSave={onSaveEdit}
+          onCancel={onCancelEdit}
+        />
+      ) : (
+        <>
+          <div className="queue-row">
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <button
+                className="drag-handle"
+                type="button"
+                aria-label={`Reorder ${item.demoTitle}`}
+                {...attributes}
+                {...listeners}
+              >
+                <span aria-hidden>⠿</span>
+              </button>
+              <div>
+                <span className="pill">#{index + 1}</span>
+                <div className="queue-title" style={{ marginTop: 8 }}>
+                  {item.demoTitle}
+                </div>
+                <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
+              </div>
+            </div>
+            <span className="pill green">{item.category || "demo"}</span>
+          </div>
+
+          <p className="muted" style={{ marginBottom: 0 }}>{item.description}</p>
+          <Contact item={item} />
+          <div className="actions" style={{ marginTop: 0 }}>
+            <Button variant="ghost" size="sm" onClick={onEdit} type="button">
+              Edit
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onHide} type="button">
+              Hide
+            </Button>
+          </div>
+        </>
+      )}
+    </article>
   );
 }
 

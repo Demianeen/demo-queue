@@ -554,7 +554,7 @@ export const pickNext = mutation({
   },
 });
 
-export const resetQueue = mutation({
+export const clearQueue = mutation({
   args: { slug: v.string(), adminToken: v.string() },
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
@@ -565,20 +565,16 @@ export const resetQueue = mutation({
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
 
-    // Stable draft order: oldest submissions first, then re-numbered 1..N.
-    const ordered = [...submissions].sort((a, b) => a.createdAt - b.createdAt);
-
-    let order = 1;
-    for (const submission of ordered) {
-      await ctx.db.patch(submission._id, {
-        status: "queued",
-        queueOrder: order,
-        updatedAt: Date.now(),
-      });
-      order += 1;
+    // Permanently remove every submission and any uploaded screenshot blob,
+    // returning the event to its blank, pre-publish state.
+    for (const submission of submissions) {
+      if (submission.screenshotId) {
+        await ctx.storage.delete(submission.screenshotId);
+      }
+      await ctx.db.delete(submission._id);
     }
 
     await ctx.db.patch(event._id, { queuePublished: false, updatedAt: Date.now() });
-    await logAction(ctx, event._id, "queue_reset", "admin");
+    await logAction(ctx, event._id, "queue_cleared", "admin");
   },
 });

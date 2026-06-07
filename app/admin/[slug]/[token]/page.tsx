@@ -48,7 +48,7 @@ export default function AdminPage() {
   const hideSubmission = useMutation(api.events.hideSubmission);
   const restoreSubmission = useMutation(api.events.restoreSubmission);
   const pickNext = useMutation(api.events.pickNext);
-  const resetQueue = useMutation(api.events.resetQueue);
+  const clearQueue = useMutation(api.events.clearQueue);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const updateSubmission = useMutation(api.events.updateSubmission);
   const [draggedId, setDraggedId] = useState<Id<"submissions"> | null>(null);
@@ -174,9 +174,9 @@ export default function AdminPage() {
     );
   }
 
-  async function reset() {
+  async function clearAll() {
     const confirmed = window.confirm(
-      "Reset the queue back to draft? Everyone (including hidden, no-show, and withdrawn people) returns to the draft list, current/up next/done are cleared, and the stage goes back to its pre-publish state.",
+      "Delete ALL submissions for this event? This permanently removes everyone from the queue and resets the event to its blank, pre-publish state. This cannot be undone.",
     );
     if (!confirmed) {
       return;
@@ -184,7 +184,7 @@ export default function AdminPage() {
 
     setEditingId(null);
     setIsAdding(false);
-    await resetQueue({ slug: params.slug, adminToken: params.token });
+    await clearQueue({ slug: params.slug, adminToken: params.token });
   }
 
   async function saveEdit(id: Id<"submissions">, values: SubmissionFields) {
@@ -336,8 +336,8 @@ export default function AdminPage() {
                   Add test people
                 </Button>
                 {queueIsLive || queue.length > 0 || admin.hidden.length > 0 || admin.inactive.length > 0 ? (
-                  <Button variant="destructive" size="sm" onClick={reset} type="button">
-                    Reset to draft
+                  <Button variant="destructive" size="sm" onClick={clearAll} type="button">
+                    Clear all
                   </Button>
                 ) : null}
               </div>

@@ -8,6 +8,8 @@ import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken, shuffled } from "@/lib/tokens";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type AdminSubmission = {
   id: Id<"submissions">;
@@ -33,7 +35,6 @@ export default function AdminPage() {
   const shuffleQueue = useMutation(api.events.shuffleQueue);
   const hideSubmission = useMutation(api.events.hideSubmission);
   const restoreSubmission = useMutation(api.events.restoreSubmission);
-  const markNoShow = useMutation(api.events.markNoShow);
   const pickNext = useMutation(api.events.pickNext);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const updateSubmission = useMutation(api.events.updateSubmission);
@@ -98,10 +99,6 @@ export default function AdminPage() {
       submissionId: id,
       queueOrder: randomQueueOrder(),
     });
-  }
-
-  async function noShow(id: Id<"submissions">) {
-    await markNoShow({ slug: params.slug, adminToken: params.token, submissionId: id });
   }
 
   async function next() {
@@ -208,38 +205,36 @@ export default function AdminPage() {
           <span className="pill">{admin.hidden.length} hidden</span>
         </div>
 
-        <div className="actions" style={{ marginBottom: 20 }}>
-          {queueIsLive ? (
-            <>
-              <button className="button" onClick={next} type="button">
-                Advance to next demo
-              </button>
-              <span className="button secondary is-static">Queue is live</span>
-            </>
-          ) : (
-            <>
-              <button className="button secondary" onClick={shuffle} type="button">
-                Shuffle draft
-              </button>
-              <button className="button" onClick={publish} type="button">
-                Make queue live
-              </button>
-            </>
-          )}
-          <button className="button secondary" onClick={addManualSubmission} type="button">
-            Add person
-          </button>
-          <button className="button secondary" onClick={addTestPeople} type="button">
-            Add test people
-          </button>
-          <a className="button secondary" href={stagePath(params.slug)} target="_blank">
-            Open stage
-          </a>
-        </div>
-
         <section className="admin-grid">
           <div className="panel panel-pad">
-            <h2>Live order</h2>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
+                marginBottom: 16,
+              }}
+            >
+              <h2 style={{ margin: 0 }}>Live order</h2>
+              <div className="actions" style={{ marginTop: 0 }}>
+                {queueIsLive ? (
+                  <Button onClick={next} type="button">
+                    Advance to next demo
+                  </Button>
+                ) : (
+                  <>
+                    <Button variant="outline" onClick={shuffle} type="button">
+                      Shuffle draft
+                    </Button>
+                    <Button onClick={publish} type="button">
+                      Make queue live
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
 
             <div className="grid-two" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 18 }}>
               <SpeakerCard label="Current" item={admin.current} />
@@ -269,19 +264,35 @@ export default function AdminPage() {
 
                   <p className="muted" style={{ marginBottom: 0 }}>{item.description}</p>
                   <Contact item={item} />
-                  <div className="mini-actions">
-                    <button onClick={() => editSubmission(item)} type="button">
+                  <div className="actions" style={{ marginTop: 0 }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => editSubmission(item)}
+                      type="button"
+                    >
                       Edit
-                    </button>
-                    <button onClick={() => hide(item.id)} type="button">
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => hide(item.id)}
+                      type="button"
+                    >
                       Hide
-                    </button>
-                    <button onClick={() => noShow(item.id)} type="button">
-                      No-show
-                    </button>
+                    </Button>
                   </div>
                 </article>
               ))}
+            </div>
+
+            <div className="actions" style={{ marginTop: 14 }}>
+              <Button variant="outline" size="sm" onClick={addManualSubmission} type="button">
+                Add person
+              </Button>
+              <Button variant="ghost" size="sm" onClick={addTestPeople} type="button">
+                Add test people
+              </Button>
             </div>
           </div>
 
@@ -294,6 +305,13 @@ export default function AdminPage() {
               <div className="copy-line" style={{ marginTop: 12 }}>
                 {absoluteUrl(submissionPath(params.slug))}
               </div>
+              <a
+                className={cn(buttonVariants({ variant: "outline" }), "mt-3 w-full")}
+                href={stagePath(params.slug)}
+                target="_blank"
+              >
+                Open stage
+              </a>
             </section>
 
             <section className="panel panel-pad">
@@ -312,13 +330,23 @@ export default function AdminPage() {
                     <div className="queue-title">{item.demoTitle}</div>
                     <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
                     <Contact item={item} />
-                    <div className="mini-actions">
-                      <button onClick={() => editSubmission(item)} type="button">
+                    <div className="actions" style={{ marginTop: 0 }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => editSubmission(item)}
+                        type="button"
+                      >
                         Edit
-                      </button>
-                      <button onClick={() => restore(item.id)} type="button">
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => restore(item.id)}
+                        type="button"
+                      >
                         Restore to queue
-                      </button>
+                      </Button>
                     </div>
                   </article>
                 ))}

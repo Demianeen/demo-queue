@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { FormEvent, useId, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { QRCodeSVG } from "qrcode.react";
 import { useParams } from "next/navigation";
@@ -25,6 +25,17 @@ type AdminSubmission = {
   queueOrder?: number;
 };
 
+type SubmissionFields = {
+  name: string;
+  demoTitle: string;
+  description: string;
+  phone: string;
+  email: string;
+  twitter: string;
+  linkedin: string;
+  category: string;
+};
+
 export default function AdminPage() {
   const params = useParams<{ slug: string; token: string }>();
   const admin = useQuery(api.events.getAdmin, {
@@ -39,6 +50,8 @@ export default function AdminPage() {
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const updateSubmission = useMutation(api.events.updateSubmission);
   const [draggedId, setDraggedId] = useState<Id<"submissions"> | null>(null);
+  const [editingId, setEditingId] = useState<Id<"submissions"> | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
 
   const queue = useMemo(() => admin?.queue ?? [], [admin?.queue]);
 
@@ -109,28 +122,22 @@ export default function AdminPage() {
     await pickNext({ slug: params.slug, adminToken: params.token });
   }
 
-  async function addManualSubmission() {
-    const name = window.prompt("Presenter name");
-    if (!name) {
-      return;
-    }
-    const demoTitle = window.prompt("Demo title");
-    if (!demoTitle) {
-      return;
-    }
-    const description = window.prompt("Short description") ?? "";
-    const phone = window.prompt("Phone number") ?? "";
-
+  async function saveNew(values: SubmissionFields) {
     await adminAddSubmission({
       slug: params.slug,
       adminToken: params.token,
       participantToken: randomToken(32),
-      name,
-      demoTitle,
-      description,
-      phone,
+      name: values.name,
+      demoTitle: values.demoTitle,
+      description: values.description,
+      phone: values.phone,
+      email: values.email || undefined,
+      twitter: values.twitter || undefined,
+      linkedin: values.linkedin || undefined,
+      category: values.category || undefined,
       queueOrder: randomQueueOrder(),
     });
+    setIsAdding(false);
   }
 
   async function addTestPeople() {
@@ -164,31 +171,21 @@ export default function AdminPage() {
     );
   }
 
-  async function editSubmission(item: AdminSubmission) {
-    const name = window.prompt("Presenter name", item.name);
-    if (!name) {
-      return;
-    }
-    const demoTitle = window.prompt("Demo title", item.demoTitle);
-    if (!demoTitle) {
-      return;
-    }
-    const description = window.prompt("Short description", item.description) ?? item.description;
-    const phone = window.prompt("Phone number", item.phone) ?? item.phone;
-
+  async function saveEdit(id: Id<"submissions">, values: SubmissionFields) {
     await updateSubmission({
       slug: params.slug,
       adminToken: params.token,
-      submissionId: item.id,
-      name,
-      demoTitle,
-      description,
-      phone,
-      email: item.email,
-      twitter: item.twitter,
-      linkedin: item.linkedin,
-      category: item.category,
+      submissionId: id,
+      name: values.name,
+      demoTitle: values.demoTitle,
+      description: values.description,
+      phone: values.phone,
+      email: values.email || undefined,
+      twitter: values.twitter || undefined,
+      linkedin: values.linkedin || undefined,
+      category: values.category || undefined,
     });
+    setEditingId(null);
   }
 
   return (
@@ -242,58 +239,88 @@ export default function AdminPage() {
             </div>
 
             <div className="queue-list">
-              {queue.map((item: AdminSubmission, index: number) => (
-                <article
-                  className={`queue-item ${draggedId === item.id ? "dragging" : ""}`}
-                  draggable
-                  key={item.id}
-                  onDragStart={() => setDraggedId(item.id)}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={() => moveDragged(item.id)}
-                >
-                  <div className="queue-row">
-                    <div>
-                      <span className="pill">#{index + 1}</span>
-                      <div className="queue-title" style={{ marginTop: 8 }}>
-                        {item.demoTitle}
-                      </div>
-                      <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
-                    </div>
-                    <span className="pill green">{item.category || "demo"}</span>
-                  </div>
+              {queue.map((item: AdminSubmission, index: number) => {
+                const isEditing = editingId === item.id;
 
-                  <p className="muted" style={{ marginBottom: 0 }}>{item.description}</p>
-                  <Contact item={item} />
-                  <div className="actions" style={{ marginTop: 0 }}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => editSubmission(item)}
-                      type="button"
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => hide(item.id)}
-                      type="button"
-                    >
-                      Hide
-                    </Button>
-                  </div>
-                </article>
-              ))}
+                return (
+                  <article
+                    className={`queue-item ${draggedId === item.id ? "dragging" : ""}`}
+                    draggable={!isEditing}
+                    key={item.id}
+                    onDragStart={() => {
+                      if (!isEditing) setDraggedId(item.id);
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => {
+                      if (!isEditing) moveDragged(item.id);
+                    }}
+                  >
+                    {isEditing ? (
+                      <SubmissionForm
+                        initial={item}
+                        submitLabel="Save changes"
+                        onSave={(values) => saveEdit(item.id, values)}
+                        onCancel={() => setEditingId(null)}
+                      />
+                    ) : (
+                      <>
+                        <div className="queue-row">
+                          <div>
+                            <span className="pill">#{index + 1}</span>
+                            <div className="queue-title" style={{ marginTop: 8 }}>
+                              {item.demoTitle}
+                            </div>
+                            <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
+                          </div>
+                          <span className="pill green">{item.category || "demo"}</span>
+                        </div>
+
+                        <p className="muted" style={{ marginBottom: 0 }}>{item.description}</p>
+                        <Contact item={item} />
+                        <div className="actions" style={{ marginTop: 0 }}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingId(item.id)}
+                            type="button"
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => hide(item.id)}
+                            type="button"
+                          >
+                            Hide
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </article>
+                );
+              })}
             </div>
 
-            <div className="actions" style={{ marginTop: 14 }}>
-              <Button variant="outline" size="sm" onClick={addManualSubmission} type="button">
-                Add person
-              </Button>
-              <Button variant="ghost" size="sm" onClick={addTestPeople} type="button">
-                Add test people
-              </Button>
-            </div>
+            {isAdding ? (
+              <article className="queue-item" style={{ marginTop: 14 }}>
+                <p className="queue-title">Add a person</p>
+                <SubmissionForm
+                  submitLabel="Add to queue"
+                  onSave={saveNew}
+                  onCancel={() => setIsAdding(false)}
+                />
+              </article>
+            ) : (
+              <div className="actions" style={{ marginTop: 14 }}>
+                <Button variant="outline" size="sm" onClick={() => setIsAdding(true)} type="button">
+                  Add person
+                </Button>
+                <Button variant="ghost" size="sm" onClick={addTestPeople} type="button">
+                  Add test people
+                </Button>
+              </div>
+            )}
           </div>
 
           <aside style={{ display: "grid", gap: 18 }}>
@@ -325,31 +352,42 @@ export default function AdminPage() {
             <section className="panel panel-pad">
               <h2>Hidden</h2>
               <div className="queue-list">
-                {admin.hidden.map((item: AdminSubmission) => (
-                  <article className="queue-item" key={item.id}>
-                    <div className="queue-title">{item.demoTitle}</div>
-                    <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
-                    <Contact item={item} />
-                    <div className="actions" style={{ marginTop: 0 }}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => editSubmission(item)}
-                        type="button"
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => restore(item.id)}
-                        type="button"
-                      >
-                        Restore to queue
-                      </Button>
-                    </div>
-                  </article>
-                ))}
+                {admin.hidden.map((item: AdminSubmission) =>
+                  editingId === item.id ? (
+                    <article className="queue-item" key={item.id}>
+                      <SubmissionForm
+                        initial={item}
+                        submitLabel="Save changes"
+                        onSave={(values) => saveEdit(item.id, values)}
+                        onCancel={() => setEditingId(null)}
+                      />
+                    </article>
+                  ) : (
+                    <article className="queue-item" key={item.id}>
+                      <div className="queue-title">{item.demoTitle}</div>
+                      <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
+                      <Contact item={item} />
+                      <div className="actions" style={{ marginTop: 0 }}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditingId(item.id)}
+                          type="button"
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => restore(item.id)}
+                          type="button"
+                        >
+                          Restore to queue
+                        </Button>
+                      </div>
+                    </article>
+                  ),
+                )}
                 {admin.hidden.length === 0 ? <p className="muted">No hidden submissions.</p> : null}
               </div>
             </section>
@@ -382,6 +420,107 @@ function SpeakerCard({ label, item }: { label: string; item: AdminSubmission | n
         {item?.name ?? "Make the queue live, then advance."}
       </p>
     </section>
+  );
+}
+
+function SubmissionForm({
+  initial,
+  submitLabel,
+  onSave,
+  onCancel,
+}: {
+  initial?: Partial<SubmissionFields>;
+  submitLabel: string;
+  onSave: (values: SubmissionFields) => Promise<void> | void;
+  onCancel: () => void;
+}) {
+  const fieldId = useId();
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const read = (key: string) => String(form.get(key) ?? "").trim();
+
+    setSaving(true);
+    try {
+      await onSave({
+        name: read("name"),
+        demoTitle: read("demoTitle"),
+        description: read("description"),
+        phone: read("phone"),
+        email: read("email"),
+        twitter: read("twitter"),
+        linkedin: read("linkedin"),
+        category: read("category"),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="form" onSubmit={handleSubmit}>
+      <div className="field">
+        <label htmlFor={`${fieldId}-name`}>Presenter name</label>
+        <input id={`${fieldId}-name`} name="name" defaultValue={initial?.name ?? ""} required />
+      </div>
+      <div className="field">
+        <label htmlFor={`${fieldId}-demoTitle`}>Demo title</label>
+        <input
+          id={`${fieldId}-demoTitle`}
+          name="demoTitle"
+          defaultValue={initial?.demoTitle ?? ""}
+          required
+        />
+      </div>
+      <div className="field">
+        <label htmlFor={`${fieldId}-description`}>Short description</label>
+        <textarea
+          id={`${fieldId}-description`}
+          name="description"
+          defaultValue={initial?.description ?? ""}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor={`${fieldId}-phone`}>Phone number</label>
+        <input id={`${fieldId}-phone`} name="phone" defaultValue={initial?.phone ?? ""} />
+      </div>
+      <div className="field">
+        <label htmlFor={`${fieldId}-email`}>Email</label>
+        <input
+          id={`${fieldId}-email`}
+          name="email"
+          type="email"
+          defaultValue={initial?.email ?? ""}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor={`${fieldId}-twitter`}>Twitter/X</label>
+        <input id={`${fieldId}-twitter`} name="twitter" defaultValue={initial?.twitter ?? ""} />
+      </div>
+      <div className="field">
+        <label htmlFor={`${fieldId}-linkedin`}>LinkedIn</label>
+        <input id={`${fieldId}-linkedin`} name="linkedin" defaultValue={initial?.linkedin ?? ""} />
+      </div>
+      <div className="field">
+        <label htmlFor={`${fieldId}-category`}>Category</label>
+        <input
+          id={`${fieldId}-category`}
+          name="category"
+          defaultValue={initial?.category ?? ""}
+          placeholder="AI, devtools, consumer, hardware..."
+        />
+      </div>
+      <div className="actions" style={{ marginTop: 4 }}>
+        <Button type="submit" size="sm" disabled={saving}>
+          {saving ? "Saving..." : submitLabel}
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 

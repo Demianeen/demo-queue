@@ -332,36 +332,12 @@ h3 {
 }
 
 .stage {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-  background:
-    radial-gradient(120% 120% at 18% 0%, #26265a 0%, #0e0f26 52%, #07070f 100%);
-  color: #eef0ff;
+  color: var(--app-ink);
   min-height: 100vh;
   padding: 28px;
 }
 
-.stage-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.stage-scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background:
-    radial-gradient(120% 120% at 18% 0%, rgba(28, 28, 78, 0.62) 0%, rgba(8, 9, 26, 0.9) 55%, rgba(5, 6, 16, 0.95) 100%);
-}
-
 .stage-grid {
-  position: relative;
-  z-index: 1;
   display: grid;
   gap: 28px;
   grid-template-columns: minmax(0, 1fr) 310px;
@@ -375,7 +351,7 @@ h3 {
 }
 
 .stage-label {
-  color: #aab4ff;
+  color: var(--app-accent-dark);
   font-size: 16px;
   font-weight: 900;
   margin-bottom: 12px;
@@ -389,7 +365,7 @@ h3 {
 }
 
 .stage-name {
-  color: #c7ccf7;
+  color: var(--cx-indigo);
   font-size: clamp(24px, 3vw, 44px);
   font-weight: 800;
   margin-top: 18px;
@@ -416,14 +392,16 @@ h3 {
 }
 
 .stage-card {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
+  background: var(--app-panel);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 18px;
   padding: 18px;
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
 }
 
 .stage-card p {
-  color: #c3c7ee;
+  color: var(--app-muted);
   margin-bottom: 0;
 }
 

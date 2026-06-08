@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ConvexClientProvider } from "./ConvexClientProvider";
+import { PageBackground } from "./PageBackground";
 
 export const metadata: Metadata = {
   title: "Demo Queue",
@@ -15,6 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
+        <PageBackground />
         <ConvexClientProvider>{children}</ConvexClientProvider>
       </body>
     </html>

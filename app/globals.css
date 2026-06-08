@@ -324,6 +324,50 @@ h3 {
   margin-top: 18px;
 }
 
+/* "Your events" list: flat rows inside the page card (no nested cards). */
+.event-item + .event-item {
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--app-line);
+}
+
+.event-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.event-link {
+  display: grid;
+  gap: 2px;
+  padding: 9px 0;
+  text-decoration: none;
+}
+
+.event-link + .event-link {
+  border-top: 1px solid var(--app-line);
+}
+
+.event-link-label {
+  color: var(--app-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.event-link-url {
+  color: var(--cx-indigo);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.event-link:hover .event-link-url {
+  text-decoration: underline;
+}
+
 .copy-line {
   background: #f5f7f5;
   border: 1px solid var(--app-line);

@@ -110,8 +110,8 @@ export default function HomePage() {
               Saved on this device only. Keep these links private; the admin link controls the event.
             </p>
             {savedEvents.map((event) => (
-              <div key={event.slug} className="panel panel-pad" style={{ display: "grid", gap: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <div key={event.slug} className="event-item">
+                <div className="event-item-head">
                   <strong>{event.name}</strong>
                   <button
                     className="button ghost"
@@ -136,11 +136,9 @@ export default function HomePage() {
 
 function EventLink({ label, href }: { label: string; href: string }) {
   return (
-    <div className="copy-line" style={{ display: "grid", gap: 2 }}>
-      <span className="muted" style={{ fontSize: 12, fontWeight: 700 }}>{label}</span>
-      <a href={href} target="_blank" rel="noreferrer" style={{ overflowWrap: "anywhere" }}>
-        {href}
-      </a>
-    </div>
+    <a href={href} target="_blank" rel="noreferrer" className="event-link">
+      <span className="event-link-label">{label}</span>
+      <span className="event-link-url">{href}</span>
+    </a>
   );
 }

@@ -78,7 +78,7 @@ export default function HomePage() {
           private admin link.
         </p>
 
-        <form className="form" onSubmit={onSubmit}>
+        <form className="form" onSubmit={onSubmit} style={{ marginTop: 22 }}>
           <div className="field">
             <label htmlFor="name">Event name</label>
             <input id="name" value={name} onChange={(event) => setName(event.target.value)} required />

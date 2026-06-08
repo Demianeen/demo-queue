@@ -120,9 +120,15 @@ export default function ParticipantStatusPage() {
         <p className="lead">{participant.submission.description}</p>
 
         {participant.meetUrl ? (
-          <div className="copy-line">
-            Join now: <a href={participant.meetUrl}>{participant.meetUrl}</a>
-          </div>
+          <a
+            className="button"
+            href={participant.meetUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{ marginTop: 4 }}
+          >
+            Join now
+          </a>
         ) : (
           <div className="copy-line">
             The Meet link appears here once you&apos;re in the live lineup.

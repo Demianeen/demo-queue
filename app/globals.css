@@ -373,9 +373,10 @@ h3 {
 }
 
 .stage-label {
-  color: var(--app-accent-dark);
+  color: var(--app-muted);
   font-size: 16px;
-  font-weight: 900;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   margin-bottom: 12px;
   text-transform: uppercase;
 }
@@ -387,7 +388,11 @@ h3 {
 }
 
 .stage-name {
-  color: var(--cx-indigo);
+  width: fit-content;
+  background: var(--cx-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-size: clamp(24px, 3vw, 44px);
   font-weight: 800;
   margin-top: 18px;

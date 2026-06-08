@@ -7,7 +7,7 @@ import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
-import { randomToken, shuffled } from "@/lib/tokens";
+import { randomToken } from "@/lib/tokens";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { makeSamplePerson } from "@/lib/sampleData";
@@ -32,6 +32,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
 
 type AdminSubmission = {
   id: Id<"submissions">;
@@ -75,6 +76,7 @@ export default function AdminPage() {
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const updateSubmission = useMutation(api.events.updateSubmission);
   const setLineupTarget = useMutation(api.events.setLineupTarget);
+  const shuffleLineup = useMutation(api.events.shuffleLineup);
 
   const reorderLineup = useMutation(api.events.reorderLineup).withOptimisticUpdate(
     (store, args) => {
@@ -231,11 +233,9 @@ export default function AdminPage() {
 
   async function shuffle() {
     if (queueIsLive) return;
-    await reorderLineup({
-      slug: params.slug,
-      adminToken: params.token,
-      orderedIds: shuffled(board.lineup),
-    });
+    // Draw a fresh random lineup from everyone in the lineup or pool, up to the
+    // lineup target; the rest go back to the pool.
+    await shuffleLineup({ slug: params.slug, adminToken: params.token });
   }
 
   async function hide(id: Id<"submissions">) {
@@ -400,9 +400,10 @@ export default function AdminPage() {
                   <span>{lineupCount} /</span>
                   <input
                     type="number"
+                    inputMode="numeric"
                     min={0}
                     defaultValue={lineupTarget ?? ""}
-                    placeholder="target"
+                    placeholder="e.g. 8"
                     onBlur={(event) => commitTarget(event.currentTarget.value)}
                   />
                 </label>
@@ -623,7 +624,7 @@ function PersonCard({
                 {...attributes}
                 {...listeners}
               >
-                <span aria-hidden>⠿</span>
+                <GripVertical size={16} aria-hidden />
               </button>
               <div>
                 {topLabel ? (

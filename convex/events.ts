@@ -514,6 +514,48 @@ export const reorderLineup = mutation({
   },
 });
 
+// Repopulate the lineup with a random draw from everyone currently in the lineup
+// or the pool, honoring the lineup target. Everyone not drawn goes to the pool.
+export const shuffleLineup = mutation({
+  args: { slug: v.string(), adminToken: v.string() },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+
+    const eligible = submissions.filter(
+      (s) => s.status === "queued" || s.status === "candidate",
+    );
+
+    // Fisher-Yates. Convex seeds Math.random per mutation, so retries are stable.
+    for (let i = eligible.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
+    }
+
+    const target =
+      event.lineupTarget && event.lineupTarget > 0
+        ? Math.min(event.lineupTarget, eligible.length)
+        : eligible.length;
+
+    const now = Date.now();
+    for (let i = 0; i < eligible.length; i += 1) {
+      const inLineup = i < target;
+      await ctx.db.patch(eligible[i]._id, {
+        status: inLineup ? "queued" : "candidate",
+        queueOrder: inLineup ? i + 1 : undefined,
+        updatedAt: now,
+      });
+    }
+
+    await logAction(ctx, event._id, "lineup_shuffled", "admin");
+  },
+});
+
 // Pulls a person out of the lineup back into the pool ("all people").
 export const moveToPool = mutation({
   args: {

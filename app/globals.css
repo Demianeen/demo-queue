@@ -254,12 +254,6 @@ h3 {
   padding: 0 8px;
 }
 
-.button.is-static {
-  background: var(--app-soft-green);
-  color: var(--app-good);
-  cursor: default;
-}
-
 .muted {
   color: var(--app-muted);
 }
@@ -374,12 +368,19 @@ h3 {
 }
 
 .target-field input {
+  appearance: textfield;
+  -moz-appearance: textfield;
   border: 1px solid var(--app-line);
   border-radius: 6px;
   color: var(--app-ink);
   font-weight: 800;
   padding: 4px 8px;
-  width: 64px;
+  width: 72px;
+}
+.target-field input::-webkit-outer-spin-button,
+.target-field input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .queue-list {
@@ -422,18 +423,16 @@ h3 {
   padding: 14px;
 }
 
-.queue-item.dragging {
-  opacity: 0.55;
-}
-
 .drag-handle {
+  align-items: center;
   align-self: center;
   background: transparent;
   border: none;
   border-radius: 6px;
   color: var(--app-muted);
   cursor: grab;
-  font-size: 18px;
+  display: inline-flex;
+  justify-content: center;
   line-height: 1;
   padding: 6px;
   touch-action: none;
@@ -477,29 +476,6 @@ h3 {
 .pill.yellow {
   background: var(--app-soft-yellow);
   color: var(--app-warn);
-}
-
-.mini-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.mini-actions button {
-  background: #eff4f0;
-  border-radius: 6px;
-  color: #27362d;
-  min-height: 34px;
-  padding: 0 10px;
-}
-
-.mini-actions button:hover {
-  background: #dce7df;
-}
-
-.mini-actions button.danger {
-  background: #fff1ed;
-  color: var(--app-bad);
 }
 
 .contact-list {

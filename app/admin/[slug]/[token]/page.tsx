@@ -337,44 +337,96 @@ export default function AdminPage() {
   return (
     <main className="page">
       <div className="shell">
-        <p className="eyebrow">Admin</p>
-        <h1>{admin.event.name}</h1>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 24,
+            flexWrap: "wrap",
+            marginBottom: 18,
+          }}
+        >
+          <div style={{ flex: "1 1 380px", minWidth: 0 }}>
+            <p className="eyebrow">Admin</p>
+            <h1 style={{ marginBottom: 12 }}>{admin.event.name}</h1>
 
-        <div className="status-strip">
-          <span className={queueIsLive ? "pill green" : "pill yellow"}>
-            {queueIsLive ? "Queue is live" : "Not live yet"}
-          </span>
-          <span className="pill">{lineupCount} in lineup</span>
-          <span className="pill">{board.pool.length} in pool</span>
-          <span className="pill">{admin.hidden.length} hidden</span>
-        </div>
+            <div className="status-strip">
+              <span className={queueIsLive ? "pill green" : "pill yellow"}>
+                {queueIsLive ? "Queue is live" : "Not live yet"}
+              </span>
+              <span className="pill">{lineupCount} in lineup</span>
+              <span className="pill">{board.pool.length} in pool</span>
+              <span className="pill">{admin.hidden.length} hidden</span>
+            </div>
 
-        <div className="actions" style={{ marginBottom: 18 }}>
-          {queueIsLive ? (
-            <Button onClick={next} type="button">
-              Advance to next demo
-            </Button>
-          ) : (
-            <Button onClick={publish} type="button">
-              Make queue live
-            </Button>
-          )}
-          {!queueIsLive ? (
-            <Button variant="outline" onClick={shuffle} type="button">
-              Shuffle lineup
-            </Button>
-          ) : null}
-          <Button variant="outline" size="sm" onClick={() => setIsAdding(true)} type="button">
-            Add person
-          </Button>
-          <Button variant="ghost" size="sm" onClick={addTestPeople} type="button">
-            Add test people
-          </Button>
-          {lineupCount > 0 || board.pool.length > 0 || admin.hidden.length > 0 ? (
-            <Button variant="destructive" size="sm" onClick={clearAll} type="button">
-              Clear all
-            </Button>
-          ) : null}
+            <div className="actions" style={{ marginBottom: 14 }}>
+              {queueIsLive ? (
+                <Button onClick={next} type="button">
+                  Advance to next demo
+                </Button>
+              ) : (
+                <Button onClick={publish} type="button">
+                  Make queue live
+                </Button>
+              )}
+              {!queueIsLive ? (
+                <Button variant="outline" onClick={shuffle} type="button">
+                  Shuffle lineup
+                </Button>
+              ) : null}
+              <Button variant="outline" size="sm" onClick={() => setIsAdding(true)} type="button">
+                Add person
+              </Button>
+              <Button variant="ghost" size="sm" onClick={addTestPeople} type="button">
+                Add test people
+              </Button>
+              {lineupCount > 0 || board.pool.length > 0 || admin.hidden.length > 0 ? (
+                <Button variant="destructive" size="sm" onClick={clearAll} type="button">
+                  Clear all
+                </Button>
+              ) : null}
+            </div>
+
+            <div style={{ maxWidth: 480 }}>
+              <span
+                className="muted"
+                style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase" }}
+              >
+                Meet link
+              </span>
+              <div className="copy-line" style={{ marginTop: 6 }}>{admin.event.meetUrl}</div>
+              <p className="muted" style={{ fontSize: 12, marginTop: 6, marginBottom: 0 }}>
+                Visible to admin; participants see it only when up next or current.
+              </p>
+            </div>
+          </div>
+
+          <aside
+            className="panel panel-pad"
+            style={{ flex: "0 0 auto", width: 230, textAlign: "center" }}
+          >
+            <span
+              className="muted"
+              style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase" }}
+            >
+              Scan to submit
+            </span>
+            <div className="qr-box" style={{ marginTop: 8, padding: 10 }}>
+              <QRCodeSVG
+                value={absoluteUrl(submissionPath(params.slug))}
+                size={180}
+                marginSize={2}
+              />
+            </div>
+            <a
+              className={cn(buttonVariants({ variant: "outline" }), "mt-3 w-full")}
+              href={stagePath(params.slug)}
+              target="_blank"
+            >
+              Open stage
+            </a>
+          </aside>
         </div>
 
         <DndContext
@@ -520,46 +572,19 @@ export default function AdminPage() {
           </DragOverlay>
         </DndContext>
 
-        <section className="admin-aside">
-          <section className="panel panel-pad">
-            <h2>Submission QR</h2>
-            <div className="qr-box">
-              <QRCodeSVG value={absoluteUrl(submissionPath(params.slug))} size={220} marginSize={2} />
+        {admin.inactive.length > 0 ? (
+          <section className="panel panel-pad" style={{ marginTop: 18 }}>
+            <h2>Done / inactive</h2>
+            <div className="queue-list">
+              {admin.inactive.map((item: AdminSubmission) => (
+                <article className="queue-item" key={item.id}>
+                  <div className="queue-title">{item.demoTitle}</div>
+                  <span className="pill yellow">{item.status}</span>
+                </article>
+              ))}
             </div>
-            <div className="copy-line" style={{ marginTop: 12 }}>
-              {absoluteUrl(submissionPath(params.slug))}
-            </div>
-            <a
-              className={cn(buttonVariants({ variant: "outline" }), "mt-3 w-full")}
-              href={stagePath(params.slug)}
-              target="_blank"
-            >
-              Open stage
-            </a>
           </section>
-
-          <section className="panel panel-pad">
-            <h2>Meet link</h2>
-            <div className="copy-line">{admin.event.meetUrl}</div>
-            <p className="muted" style={{ marginTop: 12 }}>
-              Visible to admin, and to participants only when they are up next or current.
-            </p>
-          </section>
-
-          {admin.inactive.length > 0 ? (
-            <section className="panel panel-pad">
-              <h2>Done / inactive</h2>
-              <div className="queue-list">
-                {admin.inactive.map((item: AdminSubmission) => (
-                  <article className="queue-item" key={item.id}>
-                    <div className="queue-title">{item.demoTitle}</div>
-                    <span className="pill yellow">{item.status}</span>
-                  </article>
-                ))}
-              </div>
-            </section>
-          ) : null}
-        </section>
+        ) : null}
       </div>
     </main>
   );

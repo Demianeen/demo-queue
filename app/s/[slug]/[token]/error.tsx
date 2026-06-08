@@ -19,7 +19,9 @@ export default function ParticipantError({
     <main className="narrow-page">
       <section className="panel panel-pad" style={{ width: "min(560px, 100%)" }}>
         <p className="eyebrow">Demo Queue</p>
-        <h1>This submission isn&apos;t available.</h1>
+        <h1 style={{ fontSize: "clamp(26px, 3vw, 34px)", lineHeight: 1.1 }}>
+          This submission isn&apos;t available.
+        </h1>
         <p className="lead">
           We couldn&apos;t find this demo. The link may be out of date, or the event team may have
           cleared the queue. You can submit your demo again below.

@@ -298,12 +298,14 @@ h3 {
 }
 
 .button.danger {
-  background: #fff1ed;
+  background: transparent;
   color: var(--app-bad);
+  box-shadow: none;
+  padding: 0 14px;
 }
 
 .button.danger:hover {
-  background: #ffe0d8;
+  background: rgba(180, 35, 24, 0.09);
 }
 
 .button.ghost {

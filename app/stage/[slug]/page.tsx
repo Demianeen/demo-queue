@@ -6,6 +6,30 @@ import { useQuery } from "convex/react";
 import { useParams } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
 import { absoluteUrl, submissionPath } from "@/lib/routes";
+import { Skeleton } from "@/app/Skeleton";
+
+function StageBackdrop() {
+  // Codex loop dimmed behind a dark scrim so the bright cloud becomes a moody
+  // dark stage backdrop and the light text stays legible.
+  return (
+    <>
+      <video
+        className="stage-bg"
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        poster="/codex-bg-poster.jpg"
+        aria-hidden
+      >
+        <source src="/codex-bg.webm" type="video/webm" />
+        <source src="/codex-bg.mp4" type="video/mp4" />
+      </video>
+      <div className="stage-scrim" aria-hidden />
+    </>
+  );
+}
 
 export default function StagePage() {
   const params = useParams<{ slug: string }>();
@@ -13,13 +37,30 @@ export default function StagePage() {
   const submissionUrl = absoluteUrl(submissionPath(params.slug));
 
   if (!stage) {
-    return <main className="stage">Loading...</main>;
+    return (
+      <main className="stage">
+        <StageBackdrop />
+        <section className="stage-grid">
+          <div className="stage-main">
+            <div>
+              <Skeleton onDark w={150} h={16} radius={6} style={{ marginBottom: 18 }} />
+              <Skeleton onDark w="70%" h={84} radius={16} style={{ marginBottom: 22 }} />
+              <Skeleton onDark w={240} h={34} radius={12} />
+            </div>
+          </div>
+          <aside className="stage-side">
+            <Skeleton onDark h={300} radius={12} />
+          </aside>
+        </section>
+      </main>
+    );
   }
 
   const isLive = stage.event.queuePublished;
 
   return (
     <main className="stage">
+      <StageBackdrop />
       <section className="stage-grid">
         <div className="stage-main">
           <div>

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import { useQuery } from "convex/react";
 import { useParams } from "next/navigation";
@@ -37,7 +38,26 @@ export default function StagePage() {
             </div>
           ) : (
             <>
-              <div className="qr-box">
+              <div className="qr-box" style={{ position: "relative" }}>
+                <Image
+                  src="/mascot.png"
+                  alt=""
+                  aria-hidden
+                  width={130}
+                  height={110}
+                  priority
+                  style={{
+                    position: "absolute",
+                    left: "50%",
+                    top: 0,
+                    width: 124,
+                    height: "auto",
+                    transform: "translate(-50%, -62%)",
+                    pointerEvents: "none",
+                    filter: "drop-shadow(0 8px 10px rgba(0, 0, 0, 0.35))",
+                    zIndex: 2,
+                  }}
+                />
                 <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
                 <h3 style={{ marginTop: 14 }}>Scan to demo</h3>
                 <p className="muted" style={{ marginBottom: 0 }}>{stage.remainingCount} waiting</p>

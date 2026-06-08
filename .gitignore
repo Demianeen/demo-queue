@@ -6,3 +6,4 @@ dist
 *.tsbuildinfo
 .gstack/
 .vercel
+/public/mascot-raw.png

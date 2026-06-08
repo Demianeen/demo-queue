@@ -355,12 +355,62 @@ h3 {
 .admin-grid {
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.admin-aside {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-top: 18px;
+}
+
+.target-field {
+  align-items: center;
+  color: var(--app-muted);
+  display: inline-flex;
+  font-weight: 800;
+  gap: 6px;
+}
+
+.target-field input {
+  border: 1px solid var(--app-line);
+  border-radius: 6px;
+  color: var(--app-ink);
+  font-weight: 800;
+  padding: 4px 8px;
+  width: 64px;
 }
 
 .queue-list {
   display: grid;
   gap: 10px;
+}
+
+.queue-list.droppable {
+  border-radius: 8px;
+  min-height: 60px;
+  transition: background 0.12s ease, outline-color 0.12s ease;
+  outline: 2px dashed transparent;
+  outline-offset: 4px;
+}
+
+.queue-list.droppable.is-over {
+  background: var(--app-soft-green);
+  outline-color: var(--app-good);
+}
+
+.drop-hint {
+  border: 1px dashed var(--app-line);
+  border-radius: 8px;
+  margin: 0;
+  padding: 18px 14px;
+  text-align: center;
+}
+
+.queue-item.is-overlay {
+  box-shadow: 0 14px 32px rgba(15, 25, 20, 0.22);
+  cursor: grabbing;
 }
 
 .queue-item {

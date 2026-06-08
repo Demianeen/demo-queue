@@ -1,24 +1,28 @@
 "use client";
 
-import { FormEvent, useId, useMemo, useState } from "react";
+import { FormEvent, useEffect, useId, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { QRCodeSVG } from "qrcode.react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
-import { randomQueueOrder, randomToken, shuffled } from "@/lib/tokens";
+import { randomToken, shuffled } from "@/lib/tokens";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { makeSamplePerson } from "@/lib/sampleData";
 import {
   DndContext,
-  closestCenter,
+  DragOverlay,
+  closestCorners,
   KeyboardSensor,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -54,43 +58,89 @@ type SubmissionFields = {
   category: string;
 };
 
+type ColumnId = "lineup" | "pool";
+
 export default function AdminPage() {
   const params = useParams<{ slug: string; token: string }>();
   const admin = useQuery(api.events.getAdmin, {
     slug: params.slug,
     adminToken: params.token,
   });
+
   const publishQueue = useMutation(api.events.publishQueue);
-  const shuffleQueue = useMutation(api.events.shuffleQueue).withOptimisticUpdate(
-    (localStore, args) => {
-      const queryArgs = { slug: args.slug, adminToken: args.adminToken };
-      const current = localStore.getQuery(api.events.getAdmin, queryArgs);
-      if (!current) {
-        return;
-      }
-
-      const byId = new Map(current.queue.map((entry) => [entry.id, entry]));
-      const reordered = args.orderedIds
-        .map((id) => byId.get(id))
-        .filter((entry): entry is (typeof current.queue)[number] => Boolean(entry));
-
-      localStore.setQuery(api.events.getAdmin, queryArgs, { ...current, queue: reordered });
-    },
-  );
   const hideSubmission = useMutation(api.events.hideSubmission);
   const restoreSubmission = useMutation(api.events.restoreSubmission);
   const pickNext = useMutation(api.events.pickNext);
   const clearQueue = useMutation(api.events.clearQueue);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const updateSubmission = useMutation(api.events.updateSubmission);
+  const setLineupTarget = useMutation(api.events.setLineupTarget);
+
+  const reorderLineup = useMutation(api.events.reorderLineup).withOptimisticUpdate(
+    (store, args) => {
+      const qa = { slug: args.slug, adminToken: args.adminToken };
+      const cur = store.getQuery(api.events.getAdmin, qa);
+      if (!cur) return;
+      const byId = new Map(
+        [...cur.lineup, ...cur.pool, ...cur.hidden].map((e) => [e.id, e] as const),
+      );
+      const ordered = new Set(args.orderedIds);
+      const newLineup = args.orderedIds
+        .map((id) => byId.get(id))
+        .filter((e): e is (typeof cur.lineup)[number] => Boolean(e));
+      store.setQuery(api.events.getAdmin, qa, {
+        ...cur,
+        lineup: newLineup,
+        pool: cur.pool.filter((e) => !ordered.has(e.id)),
+        hidden: cur.hidden.filter((e) => !ordered.has(e.id)),
+      });
+    },
+  );
+
+  const moveToPool = useMutation(api.events.moveToPool).withOptimisticUpdate(
+    (store, args) => {
+      const qa = { slug: args.slug, adminToken: args.adminToken };
+      const cur = store.getQuery(api.events.getAdmin, qa);
+      if (!cur) return;
+      const item = cur.lineup.find((e) => e.id === args.submissionId);
+      if (!item || cur.pool.some((e) => e.id === args.submissionId)) return;
+      store.setQuery(api.events.getAdmin, qa, {
+        ...cur,
+        lineup: cur.lineup.filter((e) => e.id !== args.submissionId),
+        pool: [...cur.pool, item],
+      });
+    },
+  );
+
   const [editingId, setEditingId] = useState<Id<"submissions"> | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
+  const [board, setBoard] = useState<{ lineup: Id<"submissions">[]; pool: Id<"submissions">[] }>({
+    lineup: [],
+    pool: [],
+  });
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const queue = useMemo(() => admin?.queue ?? [], [admin?.queue]);
+  const itemsById = useMemo(() => {
+    const map = new Map<Id<"submissions">, AdminSubmission>();
+    admin?.lineup.forEach((item) => map.set(item.id, item));
+    admin?.pool.forEach((item) => map.set(item.id, item));
+    return map;
+  }, [admin?.lineup, admin?.pool]);
+
+  // Mirror the server lists into local board state for drag previews, but never
+  // while a drag is in flight (that would yank a card out from under the cursor).
+  useEffect(() => {
+    if (activeId || !admin) return;
+    setBoard({
+      lineup: admin.lineup.map((item) => item.id),
+      pool: admin.pool.map((item) => item.id),
+    });
+  }, [admin, activeId]);
 
   if (!admin) {
     return (
@@ -101,35 +151,91 @@ export default function AdminPage() {
   }
 
   const queueIsLive = admin.event.queuePublished;
+  const lineupTarget = admin.event.lineupTarget;
+
+  function columnOf(id: Id<"submissions"> | ColumnId): ColumnId | null {
+    if (id === "lineup" || id === "pool") return id as ColumnId;
+    if (board.lineup.includes(id as Id<"submissions">)) return "lineup";
+    if (board.pool.includes(id as Id<"submissions">)) return "pool";
+    return null;
+  }
+
+  function onDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as Id<"submissions">);
+  }
+
+  function onDragOver(event: DragOverEvent) {
+    const { active, over } = event;
+    if (!over) return;
+    const activeId = active.id as Id<"submissions">;
+    const fromCol = columnOf(activeId);
+    const toCol = columnOf(over.id as Id<"submissions"> | ColumnId);
+    if (!fromCol || !toCol || fromCol === toCol) return;
+
+    setBoard((prev) => {
+      const fromItems = prev[fromCol].filter((id) => id !== activeId);
+      const toItems = [...prev[toCol]];
+      const overIsContainer = over.id === toCol;
+      const overIndex = overIsContainer
+        ? toItems.length
+        : toItems.indexOf(over.id as Id<"submissions">);
+      const insertAt = overIndex >= 0 ? overIndex : toItems.length;
+      toItems.splice(insertAt, 0, activeId);
+      return { ...prev, [fromCol]: fromItems, [toCol]: toItems };
+    });
+  }
+
+  async function onDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    const draggedId = active.id as Id<"submissions">;
+    const startedIn = admin!.lineup.some((e) => e.id === draggedId) ? "lineup" : "pool";
+
+    let finalBoard = board;
+    if (over) {
+      const col = columnOf(draggedId);
+      const overCol = columnOf(over.id as Id<"submissions"> | ColumnId);
+      if (col && overCol && col === overCol) {
+        const items = board[col];
+        const oldIndex = items.indexOf(draggedId);
+        // `over` can be a sibling card or the column container itself (when the
+        // pointer is over padding/empty space) - in that case drop at the end.
+        const newIndex =
+          over.id === col ? items.length - 1 : items.indexOf(over.id as Id<"submissions">);
+        if (oldIndex !== newIndex && newIndex >= 0) {
+          finalBoard = { ...board, [col]: arrayMove(items, oldIndex, newIndex) };
+          setBoard(finalBoard);
+        }
+      }
+    }
+
+    setActiveId(null);
+
+    const endedInPool = finalBoard.pool.includes(draggedId);
+    // Commit: rewrite the lineup order (also pulls in a person dragged from the
+    // pool), and explicitly send anyone dragged out back to the pool.
+    if (startedIn === "lineup" && endedInPool) {
+      await moveToPool({ slug: params.slug, adminToken: params.token, submissionId: draggedId });
+    }
+    if (finalBoard.lineup.length > 0) {
+      await reorderLineup({
+        slug: params.slug,
+        adminToken: params.token,
+        orderedIds: finalBoard.lineup,
+      });
+    }
+  }
 
   async function publish() {
     await publishQueue({ slug: params.slug, adminToken: params.token });
   }
 
   async function shuffle() {
-    if (queueIsLive) {
-      return;
-    }
-
-    const orderedIds = shuffled(queue).map((item) => item.id);
-    await shuffleQueue({ slug: params.slug, adminToken: params.token, orderedIds });
-  }
-
-  async function onDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) {
-      return;
-    }
-
-    const ids = queue.map((item) => item.id);
-    const oldIndex = ids.indexOf(active.id as Id<"submissions">);
-    const newIndex = ids.indexOf(over.id as Id<"submissions">);
-    if (oldIndex < 0 || newIndex < 0) {
-      return;
-    }
-
-    const orderedIds = arrayMove(ids, oldIndex, newIndex);
-    await shuffleQueue({ slug: params.slug, adminToken: params.token, orderedIds });
+    if (queueIsLive) return;
+    await reorderLineup({
+      slug: params.slug,
+      adminToken: params.token,
+      orderedIds: shuffled(board.lineup),
+    });
   }
 
   async function hide(id: Id<"submissions">) {
@@ -137,19 +243,11 @@ export default function AdminPage() {
   }
 
   async function restore(id: Id<"submissions">) {
-    await restoreSubmission({
-      slug: params.slug,
-      adminToken: params.token,
-      submissionId: id,
-      queueOrder: randomQueueOrder(),
-    });
+    await restoreSubmission({ slug: params.slug, adminToken: params.token, submissionId: id });
   }
 
   async function next() {
-    if (!queueIsLive) {
-      return;
-    }
-
+    if (!queueIsLive) return;
     await pickNext({ slug: params.slug, adminToken: params.token });
   }
 
@@ -166,25 +264,21 @@ export default function AdminPage() {
       twitter: values.twitter || undefined,
       linkedin: values.linkedin || undefined,
       category: values.category || undefined,
-      queueOrder: randomQueueOrder(),
+      queueOrder: Date.now(),
+      list: "lineup",
     });
     setIsAdding(false);
   }
 
   async function addTestPeople() {
-    const countInput = window.prompt("How many test people should I add?", "8");
+    const countInput = window.prompt("How many test people should I add to the pool?", "8");
     const count = Number.parseInt(countInput ?? "", 10);
-
-    if (!Number.isFinite(count) || count <= 0) {
-      return;
-    }
+    if (!Number.isFinite(count) || count <= 0) return;
 
     const safeCount = Math.min(count, 30);
-
     await Promise.all(
       Array.from({ length: safeCount }, async () => {
         const person = makeSamplePerson();
-
         await adminAddSubmission({
           slug: params.slug,
           adminToken: params.token,
@@ -197,7 +291,8 @@ export default function AdminPage() {
           twitter: person.twitter,
           linkedin: person.linkedin,
           category: person.category,
-          queueOrder: randomQueueOrder(),
+          queueOrder: Date.now(),
+          list: "pool",
         });
       }),
     );
@@ -205,12 +300,9 @@ export default function AdminPage() {
 
   async function clearAll() {
     const confirmed = window.confirm(
-      "Delete ALL submissions for this event? This permanently removes everyone from the queue and resets the event to its blank, pre-publish state. This cannot be undone.",
+      "Delete ALL submissions for this event? This permanently removes everyone and resets the event to its blank, pre-publish state. This cannot be undone.",
     );
-    if (!confirmed) {
-      return;
-    }
-
+    if (!confirmed) return;
     setEditingId(null);
     setIsAdding(false);
     await clearQueue({ slug: params.slug, adminToken: params.token });
@@ -233,6 +325,15 @@ export default function AdminPage() {
     setEditingId(null);
   }
 
+  async function commitTarget(value: string) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return;
+    await setLineupTarget({ slug: params.slug, adminToken: params.token, target: parsed });
+  }
+
+  const activeItem = activeId ? itemsById.get(activeId) : null;
+  const lineupCount = board.lineup.length;
+
   return (
     <main className="page">
       <div className="shell">
@@ -243,172 +344,210 @@ export default function AdminPage() {
           <span className={queueIsLive ? "pill green" : "pill yellow"}>
             {queueIsLive ? "Queue is live" : "Not live yet"}
           </span>
-          <span className="pill">{queue.length} queued</span>
+          <span className="pill">{lineupCount} in lineup</span>
+          <span className="pill">{board.pool.length} in pool</span>
           <span className="pill">{admin.hidden.length} hidden</span>
         </div>
 
-        <section className="admin-grid">
-          <div className="panel panel-pad">
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-                flexWrap: "wrap",
-                marginBottom: 16,
-              }}
-            >
-              <h2 style={{ margin: 0 }}>Live order</h2>
-              <div className="actions" style={{ marginTop: 0 }}>
-                {queueIsLive ? (
-                  <Button onClick={next} type="button">
-                    Advance to next demo
-                  </Button>
-                ) : (
-                  <>
-                    <Button variant="outline" onClick={shuffle} type="button">
-                      Shuffle draft
-                    </Button>
-                    <Button onClick={publish} type="button">
-                      Make queue live
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
+        <div className="actions" style={{ marginBottom: 18 }}>
+          {queueIsLive ? (
+            <Button onClick={next} type="button">
+              Advance to next demo
+            </Button>
+          ) : (
+            <Button onClick={publish} type="button">
+              Make queue live
+            </Button>
+          )}
+          {!queueIsLive ? (
+            <Button variant="outline" onClick={shuffle} type="button">
+              Shuffle lineup
+            </Button>
+          ) : null}
+          <Button variant="outline" size="sm" onClick={() => setIsAdding(true)} type="button">
+            Add person
+          </Button>
+          <Button variant="ghost" size="sm" onClick={addTestPeople} type="button">
+            Add test people
+          </Button>
+          {lineupCount > 0 || board.pool.length > 0 || admin.hidden.length > 0 ? (
+            <Button variant="destructive" size="sm" onClick={clearAll} type="button">
+              Clear all
+            </Button>
+          ) : null}
+        </div>
 
-            <div className="grid-two" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 18 }}>
-              <SpeakerCard label="Current" item={admin.current} />
-              <SpeakerCard label="Up next" item={admin.upNext} />
-            </div>
-
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={onDragEnd}
-            >
-              <SortableContext
-                items={queue.map((item) => item.id)}
-                strategy={verticalListSortingStrategy}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDragEnd={onDragEnd}
+        >
+          <section className="admin-grid">
+            <div className="panel panel-pad">
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 14,
+                }}
               >
-                <div className="queue-list">
-                  {queue.length === 0 ? (
-                    <p className="muted">No one in the queue yet.</p>
+                <h2 style={{ margin: 0 }}>Lineup</h2>
+                <label className="target-field">
+                  <span>{lineupCount} /</span>
+                  <input
+                    type="number"
+                    min={0}
+                    defaultValue={lineupTarget ?? ""}
+                    placeholder="target"
+                    onBlur={(event) => commitTarget(event.currentTarget.value)}
+                  />
+                </label>
+              </div>
+
+              {isAdding ? (
+                <article className="queue-item" style={{ marginBottom: 12 }}>
+                  <p className="queue-title">Add a person to the lineup</p>
+                  <SubmissionForm
+                    submitLabel="Add to lineup"
+                    onSave={saveNew}
+                    onCancel={() => setIsAdding(false)}
+                  />
+                </article>
+              ) : null}
+
+              <SortableContext items={board.lineup} strategy={verticalListSortingStrategy}>
+                <DroppableList id="lineup">
+                  {board.lineup.length === 0 ? (
+                    <p className="muted drop-hint">Drag people here from All people.</p>
                   ) : null}
-                  {queue.map((item: AdminSubmission, index: number) => (
-                    <SortableQueueRow
-                      key={item.id}
-                      item={item}
-                      index={index}
-                      isEditing={editingId === item.id}
-                      onEdit={() => setEditingId(item.id)}
-                      onCancelEdit={() => setEditingId(null)}
-                      onSaveEdit={(values) => saveEdit(item.id, values)}
-                      onHide={() => hide(item.id)}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-
-            {isAdding ? (
-              <article className="queue-item" style={{ marginTop: 14 }}>
-                <p className="queue-title">Add a person</p>
-                <SubmissionForm
-                  submitLabel="Add to queue"
-                  onSave={saveNew}
-                  onCancel={() => setIsAdding(false)}
-                />
-              </article>
-            ) : (
-              <div className="actions" style={{ marginTop: 14 }}>
-                <Button variant="outline" size="sm" onClick={() => setIsAdding(true)} type="button">
-                  Add person
-                </Button>
-                <Button variant="ghost" size="sm" onClick={addTestPeople} type="button">
-                  Add test people
-                </Button>
-                {queueIsLive || queue.length > 0 || admin.hidden.length > 0 || admin.inactive.length > 0 ? (
-                  <Button variant="destructive" size="sm" onClick={clearAll} type="button">
-                    Clear all
-                  </Button>
-                ) : null}
-              </div>
-            )}
-          </div>
-
-          <aside style={{ display: "grid", gap: 18 }}>
-            <section className="panel panel-pad">
-              <h2>Submission QR</h2>
-              <div className="qr-box">
-                <QRCodeSVG value={absoluteUrl(submissionPath(params.slug))} size={260} marginSize={2} />
-              </div>
-              <div className="copy-line" style={{ marginTop: 12 }}>
-                {absoluteUrl(submissionPath(params.slug))}
-              </div>
-              <a
-                className={cn(buttonVariants({ variant: "outline" }), "mt-3 w-full")}
-                href={stagePath(params.slug)}
-                target="_blank"
-              >
-                Open stage
-              </a>
-            </section>
-
-            <section className="panel panel-pad">
-              <h2>Meet link</h2>
-              <div className="copy-line">{admin.event.meetUrl}</div>
-              <p className="muted" style={{ marginTop: 12 }}>
-                This is visible to admin and to participants only when they are up next or current.
-              </p>
-            </section>
-
-            <section className="panel panel-pad">
-              <h2>Hidden</h2>
-              <div className="queue-list">
-                {admin.hidden.map((item: AdminSubmission) =>
-                  editingId === item.id ? (
-                    <article className="queue-item" key={item.id}>
-                      <SubmissionForm
-                        initial={item}
-                        submitLabel="Save changes"
-                        onSave={(values) => saveEdit(item.id, values)}
-                        onCancel={() => setEditingId(null)}
+                  {board.lineup.map((id, index) => {
+                    const item = itemsById.get(id);
+                    if (!item) return null;
+                    return (
+                      <PersonCard
+                        key={id}
+                        item={item}
+                        topLabel={index === 0 ? "Now demoing" : index === 1 ? "Up next" : `#${index + 1}`}
+                        topLabelTone={index <= 1 ? "green" : "blue"}
+                        isEditing={editingId === id}
+                        onEdit={() => setEditingId(id)}
+                        onCancelEdit={() => setEditingId(null)}
+                        onSaveEdit={(values) => saveEdit(id, values)}
+                        onHide={() => hide(id)}
                       />
-                    </article>
-                  ) : (
-                    <article className="queue-item" key={item.id}>
-                      <div className="queue-title">{item.demoTitle}</div>
-                      <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
-                      <Contact item={item} />
-                      <div className="actions" style={{ marginTop: 0 }}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingId(item.id)}
-                          type="button"
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => restore(item.id)}
-                          type="button"
-                        >
-                          Restore to queue
-                        </Button>
-                      </div>
-                    </article>
-                  ),
-                )}
-                {admin.hidden.length === 0 ? <p className="muted">No hidden submissions.</p> : null}
-              </div>
-            </section>
+                    );
+                  })}
+                </DroppableList>
+              </SortableContext>
+            </div>
 
+            <div className="panel panel-pad">
+              <h2 style={{ marginBottom: 14 }}>All people</h2>
+
+              <SortableContext items={board.pool} strategy={verticalListSortingStrategy}>
+                <DroppableList id="pool">
+                  {board.pool.length === 0 ? (
+                    <p className="muted drop-hint">
+                      Everyone who submits lands here. Drag them into the lineup.
+                    </p>
+                  ) : null}
+                  {board.pool.map((id) => {
+                    const item = itemsById.get(id);
+                    if (!item) return null;
+                    return (
+                      <PersonCard
+                        key={id}
+                        item={item}
+                        isEditing={editingId === id}
+                        onEdit={() => setEditingId(id)}
+                        onCancelEdit={() => setEditingId(null)}
+                        onSaveEdit={(values) => saveEdit(id, values)}
+                        onHide={() => hide(id)}
+                      />
+                    );
+                  })}
+                </DroppableList>
+              </SortableContext>
+
+              {admin.hidden.length > 0 ? (
+                <div style={{ marginTop: 18 }}>
+                  <h3 style={{ marginBottom: 10 }}>Hidden</h3>
+                  <div className="queue-list">
+                    {admin.hidden.map((item: AdminSubmission) =>
+                      editingId === item.id ? (
+                        <article className="queue-item" key={item.id}>
+                          <SubmissionForm
+                            initial={item}
+                            submitLabel="Save changes"
+                            onSave={(values) => saveEdit(item.id, values)}
+                            onCancel={() => setEditingId(null)}
+                          />
+                        </article>
+                      ) : (
+                        <article className="queue-item" key={item.id}>
+                          <div className="queue-title">{item.demoTitle}</div>
+                          <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
+                          <Contact item={item} />
+                          <div className="actions" style={{ marginTop: 0 }}>
+                            <Button variant="ghost" size="sm" onClick={() => setEditingId(item.id)} type="button">
+                              Edit
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => restore(item.id)} type="button">
+                              Restore to pool
+                            </Button>
+                          </div>
+                        </article>
+                      ),
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <DragOverlay>
+            {activeItem ? (
+              <article className="queue-item is-overlay">
+                <div className="queue-title">{activeItem.demoTitle}</div>
+                <p className="muted" style={{ marginBottom: 0 }}>{activeItem.name}</p>
+              </article>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+
+        <section className="admin-aside">
+          <section className="panel panel-pad">
+            <h2>Submission QR</h2>
+            <div className="qr-box">
+              <QRCodeSVG value={absoluteUrl(submissionPath(params.slug))} size={220} marginSize={2} />
+            </div>
+            <div className="copy-line" style={{ marginTop: 12 }}>
+              {absoluteUrl(submissionPath(params.slug))}
+            </div>
+            <a
+              className={cn(buttonVariants({ variant: "outline" }), "mt-3 w-full")}
+              href={stagePath(params.slug)}
+              target="_blank"
+            >
+              Open stage
+            </a>
+          </section>
+
+          <section className="panel panel-pad">
+            <h2>Meet link</h2>
+            <div className="copy-line">{admin.event.meetUrl}</div>
+            <p className="muted" style={{ marginTop: 12 }}>
+              Visible to admin, and to participants only when they are up next or current.
+            </p>
+          </section>
+
+          {admin.inactive.length > 0 ? (
             <section className="panel panel-pad">
-              <h2>Inactive</h2>
+              <h2>Done / inactive</h2>
               <div className="queue-list">
                 {admin.inactive.map((item: AdminSubmission) => (
                   <article className="queue-item" key={item.id}>
@@ -416,31 +555,28 @@ export default function AdminPage() {
                     <span className="pill yellow">{item.status}</span>
                   </article>
                 ))}
-                {admin.inactive.length === 0 ? <p className="muted">Nothing inactive yet.</p> : null}
               </div>
             </section>
-          </aside>
+          ) : null}
         </section>
       </div>
     </main>
   );
 }
 
-function SpeakerCard({ label, item }: { label: string; item: AdminSubmission | null }) {
+function DroppableList({ id, children }: { id: ColumnId; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
   return (
-    <section className="queue-item">
-      <span className="pill green">{label}</span>
-      <h3>{item?.demoTitle ?? "Not set"}</h3>
-      <p className="muted" style={{ marginBottom: 0 }}>
-        {item?.name ?? "Make the queue live, then advance."}
-      </p>
-    </section>
+    <div ref={setNodeRef} className={`queue-list droppable ${isOver ? "is-over" : ""}`}>
+      {children}
+    </div>
   );
 }
 
-function SortableQueueRow({
+function PersonCard({
   item,
-  index,
+  topLabel,
+  topLabelTone = "blue",
   isEditing,
   onEdit,
   onCancelEdit,
@@ -448,7 +584,8 @@ function SortableQueueRow({
   onHide,
 }: {
   item: AdminSubmission;
-  index: number;
+  topLabel?: string;
+  topLabelTone?: "green" | "blue";
   isEditing: boolean;
   onEdit: () => void;
   onCancelEdit: () => void;
@@ -463,9 +600,7 @@ function SortableQueueRow({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.6 : 1,
-    zIndex: isDragging ? 1 : undefined,
-    position: "relative" as const,
+    opacity: isDragging ? 0.5 : 1,
   };
 
   return (
@@ -491,8 +626,10 @@ function SortableQueueRow({
                 <span aria-hidden>⠿</span>
               </button>
               <div>
-                <span className="pill">#{index + 1}</span>
-                <div className="queue-title" style={{ marginTop: 8 }}>
+                {topLabel ? (
+                  <span className={`pill ${topLabelTone === "green" ? "green" : ""}`}>{topLabel}</span>
+                ) : null}
+                <div className="queue-title" style={{ marginTop: topLabel ? 8 : 0 }}>
                   {item.demoTitle}
                 </div>
                 <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
@@ -582,12 +719,7 @@ function SubmissionForm({
       </div>
       <div className="field">
         <label htmlFor={`${fieldId}-email`}>Email</label>
-        <input
-          id={`${fieldId}-email`}
-          name="email"
-          type="email"
-          defaultValue={initial?.email ?? ""}
-        />
+        <input id={`${fieldId}-email`} name="email" type="email" defaultValue={initial?.email ?? ""} />
       </div>
       <div className="field">
         <label htmlFor={`${fieldId}-twitter`}>Twitter/X</label>

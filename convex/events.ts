@@ -47,6 +47,12 @@ function sortQueue(a: Doc<"submissions">, b: Doc<"submissions">) {
   return (a.queueOrder ?? Number.MAX_SAFE_INTEGER) - (b.queueOrder ?? Number.MAX_SAFE_INTEGER);
 }
 
+// The lineup is the ordered running order: every "queued" submission, sorted by
+// queueOrder. Position 0 is "now demoing" (current), position 1 is "up next".
+function lineupSorted(submissions: Doc<"submissions">[]) {
+  return submissions.filter((submission) => submission.status === "queued").sort(sortQueue);
+}
+
 async function logAction(
   ctx: { db: DatabaseWriter },
   eventId: Id<"events">,
@@ -112,13 +118,9 @@ export const getStage = query({
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
 
-    const current = event.queuePublished
-      ? submissions.find((submission) => submission.status === "current")
-      : null;
-    const upNext = event.queuePublished
-      ? submissions.find((submission) => submission.status === "up_next") ??
-        submissions.filter((submission) => submission.status === "queued").sort(sortQueue)[0]
-      : null;
+    const lineup = lineupSorted(submissions);
+    const current = event.queuePublished ? lineup[0] : null;
+    const upNext = event.queuePublished ? lineup[1] : null;
 
     return {
       event: {
@@ -128,7 +130,7 @@ export const getStage = query({
       },
       current: current ? publicSubmissionFields(current) : null,
       upNext: upNext ? publicSubmissionFields(upNext) : null,
-      remainingCount: submissions.filter((submission) => submission.status === "queued").length,
+      remainingCount: lineup.length,
     };
   },
 });
@@ -151,16 +153,12 @@ export const getAdmin = query({
         slug: event.slug,
         meetUrl: event.meetUrl,
         queuePublished: event.queuePublished,
+        lineupTarget: event.lineupTarget,
       },
-      current: submissions.find((submission) => submission.status === "current")
-        ? adminSubmissionFields(submissions.find((submission) => submission.status === "current")!)
-        : null,
-      upNext: submissions.find((submission) => submission.status === "up_next")
-        ? adminSubmissionFields(submissions.find((submission) => submission.status === "up_next")!)
-        : null,
-      queue: submissions
-        .filter((submission) => submission.status === "queued")
-        .sort(sortQueue)
+      lineup: lineupSorted(submissions).map(adminSubmissionFields),
+      pool: submissions
+        .filter((submission) => submission.status === "candidate")
+        .sort((a, b) => a.createdAt - b.createdAt)
         .map(adminSubmissionFields),
       hidden: submissions
         .filter((submission) => submission.status === "hidden")
@@ -189,7 +187,25 @@ export const getParticipant = query({
       throw new ConvexError("Submission not found");
     }
 
-    const mayJoin = submission.status === "up_next" || submission.status === "current";
+    // Current/up-next are positional: index 0 and 1 of the published lineup.
+    const allSubmissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    const lineup = lineupSorted(allSubmissions);
+    const lineupIndex = lineup.findIndex((entry) => entry._id === submission._id);
+
+    let liveStatus = submission.status as string;
+    if (lineupIndex === 0) {
+      liveStatus = "current";
+    } else if (lineupIndex === 1) {
+      liveStatus = "up_next";
+    } else if (lineupIndex > 1) {
+      liveStatus = "queued";
+    }
+
+    const mayJoin =
+      event.queuePublished && (lineupIndex === 0 || lineupIndex === 1);
 
     return {
       event: {
@@ -198,6 +214,7 @@ export const getParticipant = query({
       },
       submission: {
         ...publicSubmissionFields(submission),
+        status: liveStatus,
         phone: submission.phone,
         email: submission.email,
         twitter: submission.twitter,
@@ -240,8 +257,10 @@ export const submitDemo = mutation({
       linkedin: args.linkedin?.trim() || undefined,
       category: args.category?.trim() || undefined,
       screenshotId: args.screenshotId,
-      status: "queued",
-      queueOrder: args.queueOrder,
+      // New submissions land in the pool ("all people"); the admin drags chosen
+      // people into the lineup.
+      status: "candidate",
+      queueOrder: undefined,
       createdAt: now,
       updatedAt: now,
     });
@@ -266,11 +285,13 @@ export const adminAddSubmission = mutation({
     linkedin: v.optional(v.string()),
     category: v.optional(v.string()),
     queueOrder: v.number(),
+    list: v.optional(v.union(v.literal("lineup"), v.literal("pool"))),
   },
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
     requireAdmin(event, args.adminToken);
     const now = Date.now();
+    const toPool = args.list === "pool";
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
@@ -283,8 +304,8 @@ export const adminAddSubmission = mutation({
       twitter: args.twitter?.trim() || undefined,
       linkedin: args.linkedin?.trim() || undefined,
       category: args.category?.trim() || undefined,
-      status: "queued",
-      queueOrder: args.queueOrder,
+      status: toPool ? "candidate" : "queued",
+      queueOrder: toPool ? undefined : args.queueOrder,
       createdAt: now,
       updatedAt: now,
     });
@@ -409,28 +430,6 @@ export const publishQueue = mutation({
   },
 });
 
-export const shuffleQueue = mutation({
-  args: {
-    slug: v.string(),
-    adminToken: v.string(),
-    orderedIds: v.array(v.id("submissions")),
-  },
-  handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
-
-    for (const [index, submissionId] of args.orderedIds.entries()) {
-      const submission = await ctx.db.get(submissionId);
-      if (!submission || submission.eventId !== event._id || submission.status !== "queued") {
-        continue;
-      }
-      await ctx.db.patch(submissionId, { queueOrder: index + 1, updatedAt: Date.now() });
-    }
-
-    await logAction(ctx, event._id, "queue_reordered", "admin");
-  },
-});
-
 export const hideSubmission = mutation({
   args: {
     slug: v.string(),
@@ -460,7 +459,67 @@ export const restoreSubmission = mutation({
     slug: v.string(),
     adminToken: v.string(),
     submissionId: v.id("submissions"),
-    queueOrder: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    const submission = await ctx.db.get(args.submissionId);
+
+    if (!submission || submission.eventId !== event._id) {
+      throw new ConvexError("Submission not found");
+    }
+
+    // Restoring a hidden person returns them to the pool, not straight into the
+    // lineup; the admin drags them into the running order if they want them.
+    await ctx.db.patch(args.submissionId, {
+      status: "candidate",
+      queueOrder: undefined,
+      updatedAt: Date.now(),
+    });
+    await logAction(ctx, event._id, "submission_restored", "admin", args.submissionId);
+  },
+});
+
+// Reorders the lineup AND pulls in any pool/hidden person whose id appears in
+// orderedIds (used for both intra-lineup drag and pool -> lineup drops). Every
+// listed id becomes "queued" with queueOrder set to its position.
+export const reorderLineup = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    orderedIds: v.array(v.id("submissions")),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    const now = Date.now();
+
+    for (const [index, submissionId] of args.orderedIds.entries()) {
+      const submission = await ctx.db.get(submissionId);
+      if (
+        !submission ||
+        submission.eventId !== event._id ||
+        ["done", "no_show", "withdrawn"].includes(submission.status)
+      ) {
+        continue;
+      }
+      await ctx.db.patch(submissionId, {
+        status: "queued",
+        queueOrder: index + 1,
+        updatedAt: now,
+      });
+    }
+
+    await logAction(ctx, event._id, "lineup_reordered", "admin");
+  },
+});
+
+// Pulls a person out of the lineup back into the pool ("all people").
+export const moveToPool = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    submissionId: v.id("submissions"),
   },
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
@@ -472,11 +531,26 @@ export const restoreSubmission = mutation({
     }
 
     await ctx.db.patch(args.submissionId, {
-      status: "queued",
-      queueOrder: args.queueOrder,
+      status: "candidate",
+      queueOrder: undefined,
       updatedAt: Date.now(),
     });
-    await logAction(ctx, event._id, "submission_restored", "admin", args.submissionId);
+    await logAction(ctx, event._id, "submission_to_pool", "admin", args.submissionId);
+  },
+});
+
+export const setLineupTarget = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    target: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const clamped = Math.max(0, Math.min(99, Math.round(args.target)));
+    await ctx.db.patch(event._id, { lineupTarget: clamped, updatedAt: Date.now() });
   },
 });
 
@@ -504,6 +578,9 @@ export const markNoShow = mutation({
   },
 });
 
+// Advance the show: the person at the top of the lineup (current) is marked
+// done, so the next person becomes position 0. Order is positional, so nothing
+// else needs to move.
 export const pickNext = mutation({
   args: { slug: v.string(), adminToken: v.string() },
   handler: async (ctx, args) => {
@@ -514,41 +591,17 @@ export const pickNext = mutation({
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
 
-    const current = submissions.find((submission) => submission.status === "current");
-    const upNext = submissions.find((submission) => submission.status === "up_next");
-    const queued = submissions.filter((submission) => submission.status === "queued").sort(sortQueue);
-
-    if (current) {
-      await ctx.db.patch(current._id, {
-        status: "done",
-        queueOrder: undefined,
-        updatedAt: Date.now(),
-      });
+    const lineup = lineupSorted(submissions);
+    const current = lineup[0];
+    if (!current) {
+      return;
     }
 
-    if (upNext) {
-      await ctx.db.patch(upNext._id, {
-        status: "current",
-        queueOrder: undefined,
-        updatedAt: Date.now(),
-      });
-    } else if (queued[0]) {
-      await ctx.db.patch(queued[0]._id, {
-        status: "current",
-        queueOrder: undefined,
-        updatedAt: Date.now(),
-      });
-      queued.shift();
-    }
-
-    const nextQueued = queued.find((submission) => submission.status === "queued");
-    if (nextQueued) {
-      await ctx.db.patch(nextQueued._id, {
-        status: "up_next",
-        queueOrder: undefined,
-        updatedAt: Date.now(),
-      });
-    }
+    await ctx.db.patch(current._id, {
+      status: "done",
+      queueOrder: undefined,
+      updatedAt: Date.now(),
+    });
 
     await logAction(ctx, event._id, "pick_next", "admin");
   },

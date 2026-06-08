@@ -8,6 +8,7 @@ export default defineSchema({
     meetUrl: v.string(),
     adminToken: v.string(),
     queuePublished: v.boolean(),
+    lineupTarget: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
@@ -25,6 +26,7 @@ export default defineSchema({
     category: v.optional(v.string()),
     screenshotId: v.optional(v.id("_storage")),
     status: v.union(
+      v.literal("candidate"),
       v.literal("queued"),
       v.literal("hidden"),
       v.literal("up_next"),

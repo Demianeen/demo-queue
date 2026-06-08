@@ -6,7 +6,8 @@ import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 
 const statusLabels: Record<string, string> = {
-  queued: "Waiting in the queue",
+  candidate: "Submitted, waiting to be added to the lineup",
+  queued: "You are in the lineup",
   hidden: "Hidden by event team",
   up_next: "You are up next",
   current: "You are presenting now",

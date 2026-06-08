@@ -4,6 +4,7 @@ import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import { useQuery } from "convex/react";
 import { useParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import { absoluteUrl, submissionPath } from "@/lib/routes";
 import { Skeleton } from "@/app/Skeleton";
@@ -12,6 +13,37 @@ export default function StagePage() {
   const params = useParams<{ slug: string }>();
   const stage = useQuery(api.events.getStage, { slug: params.slug });
   const submissionUrl = absoluteUrl(submissionPath(params.slug));
+  const currentId = stage?.current?.id ?? "empty";
+  const upNextId = stage?.upNext?.id ?? "empty";
+  const isLive = stage?.event.queuePublished ?? false;
+  const previousCurrentId = useRef<string | null>(null);
+  const [isAdvancing, setIsAdvancing] = useState(false);
+
+  useEffect(() => {
+    if (!isLive) {
+      previousCurrentId.current = null;
+      setIsAdvancing(false);
+      return;
+    }
+
+    if (previousCurrentId.current === null) {
+      previousCurrentId.current = currentId;
+      return;
+    }
+
+    if (previousCurrentId.current === currentId) {
+      return;
+    }
+
+    previousCurrentId.current = currentId;
+    setIsAdvancing(true);
+
+    const timeout = window.setTimeout(() => {
+      setIsAdvancing(false);
+    }, 760);
+
+    return () => window.clearTimeout(timeout);
+  }, [currentId, isLive]);
 
   if (!stage) {
     return (
@@ -32,58 +64,44 @@ export default function StagePage() {
     );
   }
 
-  const isLive = stage.event.queuePublished;
-
   return (
-    <main className="stage">
+    <main className={isAdvancing ? "stage stage-advancing" : "stage"}>
       <span className="codex-mark stage-mark" aria-hidden />
       <section className="stage-grid">
         <div className="stage-main">
-          <div>
+          <div className="stage-current-content" key={currentId}>
             <p className="stage-label">Now demoing</p>
-            <div className="stage-title">{stage.current?.demoTitle ?? "Queue opening soon"}</div>
-            <div className="stage-name">{stage.current?.name ?? stage.event.name}</div>
+            <div className="stage-title">{stage.current?.name ?? "Queue opening soon"}</div>
+            <div className="stage-subtitle">{stage.current?.demoTitle ?? stage.event.name}</div>
           </div>
         </div>
 
         <aside className="stage-side">
           {isLive ? (
-            <div className="stage-card">
+            <div className="stage-next" key={upNextId}>
               <p className="stage-label">Up next</p>
-              <h2>{stage.upNext?.demoTitle ?? "End of the lineup"}</h2>
-              <p>{stage.upNext?.name ?? "This is the last demo."}</p>
+              <h2 className="stage-next-title">{stage.upNext?.name ?? "End of the lineup"}</h2>
+              <p className="stage-next-subtitle">
+                {stage.upNext?.demoTitle ?? "This is the last demo."}
+              </p>
             </div>
           ) : (
-            <>
-              <div className="qr-box" style={{ position: "relative" }}>
-                <Image
-                  src="/mascot.png"
-                  alt=""
-                  aria-hidden
-                  width={130}
-                  height={110}
-                  priority
-                  style={{
-                    position: "absolute",
-                    left: "50%",
-                    top: 0,
-                    width: 124,
-                    height: "auto",
-                    transform: "translate(-50%, -62%)",
-                    pointerEvents: "none",
-                    filter: "drop-shadow(0 8px 10px rgba(0, 0, 0, 0.35))",
-                    zIndex: 2,
-                  }}
-                />
+            <div className="stage-qr-stack">
+              <Image
+                src="/mascot.png"
+                alt=""
+                aria-hidden
+                width={130}
+                height={110}
+                priority
+                className="stage-mascot"
+              />
+              <div className="qr-box">
                 <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
                 <h3 style={{ marginTop: 14 }}>Scan to demo</h3>
                 <p className="muted" style={{ marginBottom: 0 }}>{stage.remainingCount} waiting</p>
               </div>
-
-              <div className="stage-card">
-                <p>Queue is being prepared by the event team.</p>
-              </div>
-            </>
+            </div>
           )}
         </aside>
       </section>

@@ -1,4 +1,4 @@
-// Codex mark (gradient-filled via CSS mask) + eyebrow lockup for page headers.
+// Codex mark + eyebrow lockup for page headers.
 export function Brand({ label }: { label: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>

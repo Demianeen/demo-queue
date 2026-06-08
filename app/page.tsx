@@ -29,7 +29,7 @@ function loadSavedEvents(): SavedEvent[] {
 
 export default function HomePage() {
   const createEvent = useMutation(api.events.createEvent);
-  const [name, setName] = useState("Demo Night");
+  const [name, setName] = useState("");
   const [meetUrl, setMeetUrl] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [savedEvents, setSavedEvents] = useState<SavedEvent[]>([]);
@@ -106,20 +106,20 @@ export default function HomePage() {
         {savedEvents.length > 0 ? (
           <div className="link-stack">
             <h2>Your events</h2>
-            <p className="muted" style={{ marginTop: -6 }}>
+            <p className="muted saved-events-note">
               Saved on this device only. Keep these links private; the admin link controls the event.
             </p>
             {savedEvents.map((event) => (
               <div key={event.slug} className="event-item">
                 <div className="event-item-head">
-                  <strong>{event.name}</strong>
+                  <span className="event-item-title">{event.name}</span>
                   <button
-                    className="button ghost"
+                    className="button ghost event-remove"
                     type="button"
                     onClick={() => forgetEvent(event.slug)}
-                    style={{ minHeight: 28, padding: "0 8px" }}
+                    aria-label={`Remove saved link for ${event.name}`}
                   >
-                    Forget
+                    Remove
                   </button>
                 </div>
                 <EventLink label="Admin" href={absoluteUrl(adminPath(event.slug, event.adminToken))} />

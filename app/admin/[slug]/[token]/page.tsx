@@ -120,6 +120,7 @@ export default function AdminPage() {
   const [editingId, setEditingId] = useState<Id<"submissions"> | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
+  const [aiOpen, setAiOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
@@ -273,6 +274,7 @@ export default function AdminPage() {
           aiPrompt.trim() ||
           "Balance demo categories and avoid back-to-back similar topics; favor first-time demoers.",
       });
+      setAiOpen(false);
     } catch {
       setAiError("AI shuffle failed. Make sure the OpenAI key is set in Convex, then try again.");
     } finally {
@@ -313,31 +315,36 @@ export default function AdminPage() {
   }
 
   async function addTestPeople() {
-    const countInput = window.prompt("How many test people should I add to the pool?", "8");
+    const countInput = window.prompt("How many test people should I add to the pool? Max 1000.", "100");
     const count = Number.parseInt(countInput ?? "", 10);
     if (!Number.isFinite(count) || count <= 0) return;
 
-    const safeCount = Math.min(count, 30);
-    await Promise.all(
-      Array.from({ length: safeCount }, async () => {
-        const person = makeSamplePerson();
-        await adminAddSubmission({
-          slug: params.slug,
-          adminToken: params.token,
-          participantToken: randomToken(32),
-          name: person.name,
-          demoTitle: person.demoTitle,
-          description: person.description,
-          phone: person.phone,
-          email: person.email,
-          twitter: person.twitter,
-          linkedin: person.linkedin,
-          category: person.category,
-          queueOrder: Date.now(),
-          list: "pool",
-        });
-      }),
-    );
+    const safeCount = Math.min(count, 1000);
+    const batchSize = 25;
+
+    for (let start = 0; start < safeCount; start += batchSize) {
+      const batchCount = Math.min(batchSize, safeCount - start);
+      await Promise.all(
+        Array.from({ length: batchCount }, async () => {
+          const person = makeSamplePerson();
+          await adminAddSubmission({
+            slug: params.slug,
+            adminToken: params.token,
+            participantToken: randomToken(32),
+            name: person.name,
+            demoTitle: person.demoTitle,
+            description: person.description,
+            phone: person.phone,
+            email: person.email,
+            twitter: person.twitter,
+            linkedin: person.linkedin,
+            category: person.category,
+            queueOrder: Date.now(),
+            list: "pool",
+          });
+        }),
+      );
+    }
   }
 
   async function clearAll() {
@@ -417,6 +424,11 @@ export default function AdminPage() {
                   Shuffle lineup
                 </Button>
               ) : null}
+              {!queueIsLive ? (
+                <Button variant="outline" onClick={() => setAiOpen((open) => !open)} type="button">
+                  AI shuffle
+                </Button>
+              ) : null}
               <Button variant="outline" onClick={() => setIsAdding(true)} type="button">
                 Add person
               </Button>
@@ -430,34 +442,24 @@ export default function AdminPage() {
               ) : null}
             </div>
 
-            {!queueIsLive ? (
-              <div
-                style={{ display: "flex", gap: 8, marginBottom: 14, maxWidth: 620, flexWrap: "wrap" }}
-              >
+            {!queueIsLive && aiOpen ? (
+              <div className="ai-shuffle-row">
                 <input
                   value={aiPrompt}
                   onChange={(event) => setAiPrompt(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") runAiShuffle();
                   }}
-                  placeholder="AI shuffle — e.g. prioritize first-time founders, avoid back-to-back same category"
-                  style={{
-                    flex: "1 1 280px",
-                    minHeight: 42,
-                    padding: "0 16px",
-                    borderRadius: 999,
-                    border: "1px solid var(--app-line)",
-                    background: "rgba(255, 255, 255, 0.9)",
-                    color: "var(--app-ink)",
-                  }}
+                  placeholder="Prioritize first-time founders, avoid back-to-back same category"
                 />
                 <Button variant="outline" onClick={runAiShuffle} disabled={aiBusy} type="button">
-                  {aiBusy ? "Thinking…" : "AI shuffle"}
+                  {aiBusy ? "Thinking..." : "Run"}
+                </Button>
+                <Button variant="ghost" onClick={() => setAiOpen(false)} disabled={aiBusy} type="button">
+                  Cancel
                 </Button>
                 {aiError ? (
-                  <span style={{ flexBasis: "100%", color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>
-                    {aiError}
-                  </span>
+                  <span className="ai-shuffle-error">{aiError}</span>
                 ) : null}
               </div>
             ) : null}

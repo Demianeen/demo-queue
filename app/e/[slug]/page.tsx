@@ -4,7 +4,6 @@ import { FormEvent, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
-import { Id } from "../../../convex/_generated/dataModel";
 import { participantPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken } from "@/lib/tokens";
 
@@ -13,44 +12,47 @@ export default function SubmissionPage() {
   const router = useRouter();
   const stage = useQuery(api.events.getStage, { slug: params.slug });
   const submitDemo = useMutation(api.events.submitDemo);
-  const generateUploadUrl = useMutation(api.events.generateUploadUrl);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [socialError, setSocialError] = useState("");
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setIsSubmitting(true);
     const form = new FormData(event.currentTarget);
-    const participantToken = randomToken(32);
-    const screenshot = form.get("screenshot");
-    let screenshotId: Id<"_storage"> | undefined;
+    const read = (key: string) => String(form.get(key) ?? "").trim();
 
-    if (screenshot instanceof File && screenshot.size > 0) {
-      const uploadUrl = await generateUploadUrl();
-      const result = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": screenshot.type },
-        body: screenshot,
-      });
-      const json = await result.json();
-      screenshotId = json.storageId as Id<"_storage">;
+    const email = read("email");
+    const twitter = read("twitter");
+    const linkedin = read("linkedin");
+
+    // Cross-field rule: at least one social is required (native `required`
+    // only validates a single field, not "one of this group").
+    if (!email && !twitter && !linkedin) {
+      setSocialError("Add at least one of email, Twitter/X, or LinkedIn so the team can reach you.");
+      return;
     }
+    setSocialError("");
+    setIsSubmitting(true);
 
-    await submitDemo({
-      slug: params.slug,
-      participantToken,
-      name: String(form.get("name") || ""),
-      demoTitle: String(form.get("demoTitle") || ""),
-      description: String(form.get("description") || ""),
-      phone: String(form.get("phone") || ""),
-      email: String(form.get("email") || "") || undefined,
-      twitter: String(form.get("twitter") || "") || undefined,
-      linkedin: String(form.get("linkedin") || "") || undefined,
-      category: String(form.get("category") || "") || undefined,
-      screenshotId,
-      queueOrder: randomQueueOrder(),
-    });
-
-    router.push(participantPath(params.slug, participantToken));
+    const participantToken = randomToken(32);
+    try {
+      await submitDemo({
+        slug: params.slug,
+        participantToken,
+        name: read("name"),
+        demoTitle: read("demoTitle"),
+        description: read("description"),
+        phone: read("phone"),
+        category: read("category") || undefined,
+        email: email || undefined,
+        twitter: twitter || undefined,
+        linkedin: linkedin || undefined,
+        queueOrder: randomQueueOrder(),
+      });
+      router.push(participantPath(params.slug, participantToken));
+    } catch {
+      setIsSubmitting(false);
+      setSocialError("Something went wrong submitting. Please try again.");
+    }
   }
 
   return (
@@ -64,49 +66,58 @@ export default function SubmissionPage() {
         </p>
 
         <form className="form" onSubmit={onSubmit}>
-          <div className="field">
-            <label htmlFor="name">Your name</label>
-            <input id="name" name="name" required />
+          <div style={{ display: "grid", gap: 14 }}>
+            <h2 style={{ fontSize: 18, marginBottom: 0 }}>Demo info</h2>
+            <div className="field">
+              <label htmlFor="name">Your name</label>
+              <input id="name" name="name" required />
+            </div>
+
+            <div className="field">
+              <label htmlFor="demoTitle">Demo title</label>
+              <input id="demoTitle" name="demoTitle" required />
+            </div>
+
+            <div className="field">
+              <label htmlFor="description">Short description</label>
+              <textarea id="description" name="description" required />
+            </div>
+
+            <div className="field">
+              <label htmlFor="phone">Phone number</label>
+              <input id="phone" name="phone" required />
+            </div>
+
+            <div className="field">
+              <label htmlFor="category">Category, optional</label>
+              <input id="category" name="category" placeholder="AI, devtools, consumer, hardware..." />
+            </div>
           </div>
 
-          <div className="field">
-            <label htmlFor="demoTitle">Demo title</label>
-            <input id="demoTitle" name="demoTitle" required />
-          </div>
+          <div style={{ display: "grid", gap: 14 }}>
+            <h2 style={{ fontSize: 18, marginBottom: 0 }}>Socials</h2>
+            <p className="muted" style={{ marginTop: -4 }}>
+              Add at least one so the event team can share the recording and connect with you after.
+            </p>
 
-          <div className="field">
-            <label htmlFor="description">Short description</label>
-            <textarea id="description" name="description" required />
-          </div>
+            <div className="field">
+              <label htmlFor="email">Email</label>
+              <input id="email" name="email" type="email" />
+            </div>
 
-          <div className="field">
-            <label htmlFor="phone">Phone number</label>
-            <input id="phone" name="phone" required />
-          </div>
+            <div className="field">
+              <label htmlFor="twitter">Twitter/X</label>
+              <input id="twitter" name="twitter" />
+            </div>
 
-          <div className="field">
-            <label htmlFor="email">Email, optional</label>
-            <input id="email" name="email" type="email" />
-          </div>
+            <div className="field">
+              <label htmlFor="linkedin">LinkedIn</label>
+              <input id="linkedin" name="linkedin" />
+            </div>
 
-          <div className="field">
-            <label htmlFor="twitter">Twitter/X, optional</label>
-            <input id="twitter" name="twitter" />
-          </div>
-
-          <div className="field">
-            <label htmlFor="linkedin">LinkedIn, optional</label>
-            <input id="linkedin" name="linkedin" />
-          </div>
-
-          <div className="field">
-            <label htmlFor="category">Category, optional</label>
-            <input id="category" name="category" placeholder="AI, devtools, consumer, hardware..." />
-          </div>
-
-          <div className="field">
-            <label htmlFor="screenshot">Screenshot, optional</label>
-            <input accept="image/*" id="screenshot" name="screenshot" type="file" />
+            {socialError ? (
+              <p style={{ color: "var(--app-bad)", fontWeight: 600, marginTop: 2 }}>{socialError}</p>
+            ) : null}
           </div>
 
           <div className="actions">

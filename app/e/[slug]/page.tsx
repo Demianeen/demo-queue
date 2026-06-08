@@ -7,6 +7,10 @@ import { api } from "../../../convex/_generated/api";
 import { participantPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken } from "@/lib/tokens";
 
+function Req() {
+  return <span style={{ color: "var(--app-bad)" }}> *</span>;
+}
+
 export default function SubmissionPage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
@@ -20,14 +24,13 @@ export default function SubmissionPage() {
     const form = new FormData(event.currentTarget);
     const read = (key: string) => String(form.get(key) ?? "").trim();
 
-    const email = read("email");
     const twitter = read("twitter");
     const linkedin = read("linkedin");
 
     // Cross-field rule: at least one social is required (native `required`
     // only validates a single field, not "one of this group").
-    if (!email && !twitter && !linkedin) {
-      setSocialError("Add at least one of email, Twitter/X, or LinkedIn so the team can reach you.");
+    if (!twitter && !linkedin) {
+      setSocialError("Add at least one of Twitter/X or LinkedIn so the team can connect with you after.");
       return;
     }
     setSocialError("");
@@ -42,8 +45,8 @@ export default function SubmissionPage() {
         demoTitle: read("demoTitle"),
         description: read("description"),
         phone: read("phone"),
+        email: read("email") || undefined,
         category: read("category") || undefined,
-        email: email || undefined,
         twitter: twitter || undefined,
         linkedin: linkedin || undefined,
         queueOrder: randomQueueOrder(),
@@ -65,27 +68,32 @@ export default function SubmissionPage() {
           you are up next or presenting.
         </p>
 
-        <form className="form" onSubmit={onSubmit}>
+        <form className="form" onSubmit={onSubmit} style={{ marginTop: 24 }}>
           <div style={{ display: "grid", gap: 14 }}>
             <h2 style={{ fontSize: 18, marginBottom: 0 }}>Demo info</h2>
             <div className="field">
-              <label htmlFor="name">Your name</label>
+              <label htmlFor="name">Your name<Req /></label>
               <input id="name" name="name" required />
             </div>
 
             <div className="field">
-              <label htmlFor="demoTitle">Demo title</label>
+              <label htmlFor="demoTitle">Demo title<Req /></label>
               <input id="demoTitle" name="demoTitle" required />
             </div>
 
             <div className="field">
-              <label htmlFor="description">Short description</label>
+              <label htmlFor="description">Short description<Req /></label>
               <textarea id="description" name="description" required />
             </div>
 
             <div className="field">
-              <label htmlFor="phone">Phone number</label>
+              <label htmlFor="phone">Phone number<Req /></label>
               <input id="phone" name="phone" required />
+            </div>
+
+            <div className="field">
+              <label htmlFor="email">Email<Req /></label>
+              <input id="email" name="email" type="email" required />
             </div>
 
             <div className="field">
@@ -94,16 +102,11 @@ export default function SubmissionPage() {
             </div>
           </div>
 
-          <div style={{ display: "grid", gap: 14 }}>
+          <div style={{ display: "grid", gap: 14, marginTop: 10 }}>
             <h2 style={{ fontSize: 18, marginBottom: 0 }}>Socials</h2>
             <p className="muted" style={{ marginTop: -4 }}>
-              Add at least one so the event team can share the recording and connect with you after.
+              Add at least one so the event team can connect with you after.
             </p>
-
-            <div className="field">
-              <label htmlFor="email">Email</label>
-              <input id="email" name="email" type="email" />
-            </div>
 
             <div className="field">
               <label htmlFor="twitter">Twitter/X</label>

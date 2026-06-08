@@ -620,6 +620,26 @@ h3 {
   }
 }
 
+/* Phone-first: the form/status cards go full-bleed instead of floating in a
+   gutter. Chrome (radius/border/shadow/page padding) is dropped so the panel
+   fills the screen, but the frosted glass stays so the Codex cloud still
+   shows through. Most submissions happen on a phone, so this page wins space. */
+@media (max-width: 640px) {
+  .narrow-page {
+    padding: 0;
+    place-items: stretch;
+  }
+
+  .narrow-page > .panel {
+    width: 100% !important;
+    min-height: 100vh;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 28px 20px calc(28px + env(safe-area-inset-bottom));
+  }
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: var(--font-sans);

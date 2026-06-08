@@ -125,7 +125,7 @@ export default function ParticipantStatusPage() {
           </div>
         ) : (
           <div className="copy-line">
-            The Meet link is hidden until you are up next or presenting.
+            The Meet link appears here once you&apos;re in the live lineup.
           </div>
         )}
 

@@ -204,8 +204,10 @@ export const getParticipant = query({
       liveStatus = "queued";
     }
 
-    const mayJoin =
-      event.queuePublished && (lineupIndex === 0 || lineupIndex === 1);
+    // Anyone in the published lineup can see the Meet link (lineupIndex >= 0),
+    // not just the current/up-next speakers. Pool/candidate entries (index -1)
+    // still don't get it until they're added to the lineup.
+    const mayJoin = event.queuePublished && lineupIndex >= 0;
 
     return {
       event: {

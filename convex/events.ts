@@ -558,6 +558,47 @@ export const shuffleLineup = mutation({
   },
 });
 
+// Apply an explicit lineup order (e.g. from the AI shuffle): the given ids
+// become the lineup in that order; every other eligible person goes to the pool.
+export const setLineupOrder = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    orderedIds: v.array(v.id("submissions")),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    const eligibleIds = new Set(
+      submissions
+        .filter((s) => s.status === "queued" || s.status === "candidate")
+        .map((s) => s._id),
+    );
+
+    const now = Date.now();
+    const placed = new Set<string>();
+    let order = 1;
+    for (const id of args.orderedIds) {
+      if (!eligibleIds.has(id) || placed.has(id)) continue;
+      await ctx.db.patch(id, { status: "queued", queueOrder: order, updatedAt: now });
+      placed.add(id);
+      order += 1;
+    }
+    for (const id of eligibleIds) {
+      if (!placed.has(id)) {
+        await ctx.db.patch(id, { status: "candidate", queueOrder: undefined, updatedAt: now });
+      }
+    }
+
+    await logAction(ctx, event._id, "lineup_ai_ordered", "admin");
+  },
+});
+
 // Pulls a person out of the lineup back into the pool ("all people").
 export const moveToPool = mutation({
   args: {

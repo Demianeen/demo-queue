@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useId, useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { QRCodeSVG } from "qrcode.react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
@@ -79,6 +79,7 @@ export default function AdminPage() {
   const updateSubmission = useMutation(api.events.updateSubmission);
   const setLineupTarget = useMutation(api.events.setLineupTarget);
   const shuffleLineup = useMutation(api.events.shuffleLineup);
+  const aiShuffle = useAction(api.ai.aiShuffle);
 
   const reorderLineup = useMutation(api.events.reorderLineup).withOptimisticUpdate(
     (store, args) => {
@@ -118,6 +119,9 @@ export default function AdminPage() {
 
   const [editingId, setEditingId] = useState<Id<"submissions"> | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const [board, setBoard] = useState<{ lineup: Id<"submissions">[]; pool: Id<"submissions">[] }>({
     lineup: [],
@@ -255,6 +259,25 @@ export default function AdminPage() {
     // Draw a fresh random lineup from everyone in the lineup or pool, up to the
     // lineup target; the rest go back to the pool.
     await shuffleLineup({ slug: params.slug, adminToken: params.token });
+  }
+
+  async function runAiShuffle() {
+    if (queueIsLive || aiBusy) return;
+    setAiError("");
+    setAiBusy(true);
+    try {
+      await aiShuffle({
+        slug: params.slug,
+        adminToken: params.token,
+        prompt:
+          aiPrompt.trim() ||
+          "Balance demo categories and avoid back-to-back similar topics; favor first-time demoers.",
+      });
+    } catch {
+      setAiError("AI shuffle failed. Make sure the OpenAI key is set in Convex, then try again.");
+    } finally {
+      setAiBusy(false);
+    }
   }
 
   async function hide(id: Id<"submissions">) {
@@ -406,6 +429,38 @@ export default function AdminPage() {
                 </Button>
               ) : null}
             </div>
+
+            {!queueIsLive ? (
+              <div
+                style={{ display: "flex", gap: 8, marginBottom: 14, maxWidth: 620, flexWrap: "wrap" }}
+              >
+                <input
+                  value={aiPrompt}
+                  onChange={(event) => setAiPrompt(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") runAiShuffle();
+                  }}
+                  placeholder="AI shuffle — e.g. prioritize first-time founders, avoid back-to-back same category"
+                  style={{
+                    flex: "1 1 280px",
+                    minHeight: 42,
+                    padding: "0 16px",
+                    borderRadius: 999,
+                    border: "1px solid var(--app-line)",
+                    background: "rgba(255, 255, 255, 0.9)",
+                    color: "var(--app-ink)",
+                  }}
+                />
+                <Button variant="outline" onClick={runAiShuffle} disabled={aiBusy} type="button">
+                  {aiBusy ? "Thinking…" : "AI shuffle"}
+                </Button>
+                {aiError ? (
+                  <span style={{ flexBasis: "100%", color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>
+                    {aiError}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="field" style={{ maxWidth: 480 }}>
               <label htmlFor="meetUrl">Meet link</label>

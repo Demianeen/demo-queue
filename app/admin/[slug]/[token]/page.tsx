@@ -394,14 +394,14 @@ export default function AdminPage() {
                   Shuffle lineup
                 </Button>
               ) : null}
-              <Button variant="outline" size="sm" onClick={() => setIsAdding(true)} type="button">
+              <Button variant="outline" onClick={() => setIsAdding(true)} type="button">
                 Add person
               </Button>
-              <Button variant="ghost" size="sm" onClick={addTestPeople} type="button">
+              <Button variant="ghost" onClick={addTestPeople} type="button">
                 Add test people
               </Button>
               {lineupCount > 0 || board.pool.length > 0 || admin.hidden.length > 0 ? (
-                <Button variant="destructive" size="sm" onClick={clearAll} type="button">
+                <Button variant="destructive" onClick={clearAll} type="button">
                   Clear all
                 </Button>
               ) : null}

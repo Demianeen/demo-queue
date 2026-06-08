@@ -6,31 +6,10 @@ import { useParams, useRouter } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
 import { participantPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken } from "@/lib/tokens";
+import { isValidLinkedin, isValidPhone, isValidTwitter } from "@/lib/validation";
 
 function Req() {
   return <span style={{ color: "var(--app-bad)" }}> *</span>;
-}
-
-// Accept an @handle (1-15 word chars, optional leading @) or a twitter.com/x.com URL.
-function isValidTwitter(value: string) {
-  if (/^@?[A-Za-z0-9_]{1,15}$/.test(value)) return true;
-  try {
-    const url = new URL(value.startsWith("http") ? value : `https://${value}`);
-    return /(^|\.)(twitter\.com|x\.com)$/.test(url.hostname) && url.pathname.length > 1;
-  } catch {
-    return false;
-  }
-}
-
-// Accept a linkedin.com/... URL or an "in/handle" path.
-function isValidLinkedin(value: string) {
-  if (/^in\/[A-Za-z0-9\-_%.]+$/.test(value)) return true;
-  try {
-    const url = new URL(value.startsWith("http") ? value : `https://${value}`);
-    return /(^|\.)linkedin\.com$/.test(url.hostname) && url.pathname.length > 1;
-  } catch {
-    return false;
-  }
 }
 
 export default function SubmissionPage() {
@@ -42,22 +21,29 @@ export default function SubmissionPage() {
   const [socialError, setSocialError] = useState("");
   const [twitterError, setTwitterError] = useState("");
   const [linkedinError, setLinkedinError] = useState("");
+  const [phoneError, setPhoneError] = useState("");
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const read = (key: string) => String(form.get(key) ?? "").trim();
 
+    const phone = read("phone");
     const twitter = read("twitter");
     const linkedin = read("linkedin");
 
     setSocialError("");
     setTwitterError("");
     setLinkedinError("");
+    setPhoneError("");
 
+    let valid = true;
+    if (!isValidPhone(phone)) {
+      setPhoneError("Enter a valid phone number (7-15 digits).");
+      valid = false;
+    }
     // Cross-field rule: at least one social is required (native `required`
     // only validates a single field, not "one of this group").
-    let valid = true;
     if (!twitter && !linkedin) {
       setSocialError("Add at least one of Twitter/X or LinkedIn so the team can connect with you after.");
       valid = false;
@@ -128,7 +114,10 @@ export default function SubmissionPage() {
 
             <div className="field">
               <label htmlFor="phone">Phone number<Req /></label>
-              <input id="phone" name="phone" required />
+              <input id="phone" name="phone" type="tel" inputMode="tel" required />
+              {phoneError ? (
+                <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{phoneError}</span>
+              ) : null}
             </div>
 
             <div className="field">

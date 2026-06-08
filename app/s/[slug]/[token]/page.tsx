@@ -1,10 +1,11 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, ReactNode, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Skeleton } from "@/app/Skeleton";
+import { isValidLinkedin, isValidPhone, isValidTwitter } from "@/lib/validation";
 
 const statusLabels: Record<string, string> = {
   candidate: "Submitted, waiting to be added to the lineup",
@@ -17,6 +18,10 @@ const statusLabels: Record<string, string> = {
   withdrawn: "Withdrawn",
 };
 
+function FieldError({ children }: { children: ReactNode }) {
+  return <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{children}</span>;
+}
+
 export default function ParticipantStatusPage() {
   const params = useParams<{ slug: string; token: string }>();
   const participant = useQuery(api.events.getParticipant, {
@@ -26,6 +31,10 @@ export default function ParticipantStatusPage() {
   const editContact = useMutation(api.events.editParticipantContact);
   const withdraw = useMutation(api.events.withdrawSubmission);
   const [message, setMessage] = useState("");
+  const [phoneError, setPhoneError] = useState("");
+  const [twitterError, setTwitterError] = useState("");
+  const [linkedinError, setLinkedinError] = useState("");
+  const [socialError, setSocialError] = useState("");
 
   if (!participant) {
     return (
@@ -46,13 +55,45 @@ export default function ParticipantStatusPage() {
   async function saveContact(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const read = (key: string) => String(form.get(key) ?? "").trim();
+    const phone = read("phone");
+    const twitter = read("twitter");
+    const linkedin = read("linkedin");
+
+    setMessage("");
+    setPhoneError("");
+    setTwitterError("");
+    setLinkedinError("");
+    setSocialError("");
+
+    let valid = true;
+    if (!isValidPhone(phone)) {
+      setPhoneError("Enter a valid phone number (7-15 digits).");
+      valid = false;
+    }
+    if (!twitter && !linkedin) {
+      setSocialError("Keep at least one of Twitter/X or LinkedIn so the team can reach you.");
+      valid = false;
+    }
+    if (twitter && !isValidTwitter(twitter)) {
+      setTwitterError("Enter an @handle or an x.com / twitter.com link.");
+      valid = false;
+    }
+    if (linkedin && !isValidLinkedin(linkedin)) {
+      setLinkedinError("Enter a linkedin.com/in/... link.");
+      valid = false;
+    }
+    if (!valid) {
+      return;
+    }
+
     await editContact({
       slug: params.slug,
       participantToken: params.token,
-      phone: String(form.get("phone") || ""),
-      email: String(form.get("email") || "") || undefined,
-      twitter: String(form.get("twitter") || "") || undefined,
-      linkedin: String(form.get("linkedin") || "") || undefined,
+      phone,
+      email: read("email") || undefined,
+      twitter: twitter || undefined,
+      linkedin: linkedin || undefined,
     });
     setMessage("Contact info updated.");
   }
@@ -91,23 +132,35 @@ export default function ParticipantStatusPage() {
         <form className="form" onSubmit={saveContact}>
           <div className="field">
             <label htmlFor="phone">Phone</label>
-            <input id="phone" name="phone" defaultValue={participant.submission.phone} required />
+            <input
+              id="phone"
+              name="phone"
+              type="tel"
+              inputMode="tel"
+              defaultValue={participant.submission.phone}
+              required
+            />
+            {phoneError ? <FieldError>{phoneError}</FieldError> : null}
           </div>
 
           <div className="field">
             <label htmlFor="email">Email</label>
-            <input id="email" name="email" defaultValue={participant.submission.email ?? ""} />
+            <input id="email" name="email" type="email" defaultValue={participant.submission.email ?? ""} />
           </div>
 
           <div className="field">
             <label htmlFor="twitter">Twitter/X</label>
             <input id="twitter" name="twitter" defaultValue={participant.submission.twitter ?? ""} />
+            {twitterError ? <FieldError>{twitterError}</FieldError> : null}
           </div>
 
           <div className="field">
             <label htmlFor="linkedin">LinkedIn</label>
             <input id="linkedin" name="linkedin" defaultValue={participant.submission.linkedin ?? ""} />
+            {linkedinError ? <FieldError>{linkedinError}</FieldError> : null}
           </div>
+
+          {socialError ? <FieldError>{socialError}</FieldError> : null}
 
           <div className="actions">
             <button className="button" type="submit">

@@ -6,3 +6,4 @@ dist
 *.tsbuildinfo
 convex/_generated
 .gstack/
+.vercel

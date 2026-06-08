@@ -340,12 +340,23 @@ h3 {
   padding: 28px;
 }
 
+/* The line mark recolored with the Codex gradient via an alpha mask, so it
+   reads as on-brand (not flat black) on any background. */
+.codex-mark {
+  display: inline-block;
+  flex: none;
+  background: var(--cx-gradient);
+  -webkit-mask: url(/codex-mark.png) center / contain no-repeat;
+  mask: url(/codex-mark.png) center / contain no-repeat;
+}
+
 .stage-mark {
   position: absolute;
   top: 26px;
   left: 28px;
   z-index: 2;
-  opacity: 0.85;
+  width: 34px;
+  height: 34px;
 }
 
 .stage-grid {

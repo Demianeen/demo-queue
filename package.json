@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -k -n next,convex -c blue,magenta \"next dev\" \"convex dev\"",
+    "dev:next": "next dev",
+    "dev:convex": "convex dev",
     "build": "next build",
     "lint": "eslint",
     "convex:dev": "convex dev",
@@ -32,6 +34,7 @@
     "@types/node": "^22.15.29",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
+    "concurrently": "^10.0.3",
     "eslint": "^9.28.0",
     "eslint-config-next": "^15.3.3",
     "playwright": "^1.60.0",

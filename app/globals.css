@@ -18,7 +18,7 @@
   --app-soft-blue: #e8f0ff;
   --app-soft-green: #e9f8ef;
   --app-soft-yellow: #fff7da;
-  --app-shadow: 0 14px 40px -22px rgba(20, 22, 70, 0.5);
+  --app-shadow: 0 8px 24px -18px rgba(16, 18, 60, 0.35);
   /* Codex identity: royal blue -> indigo -> violet (sampled from the brand mark) */
   --cx-blue: #2f43e8;
   --cx-indigo: #4f46e5;
@@ -31,7 +31,7 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: #4f46e5;
+  --primary: #0c0d12;
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -259,7 +259,7 @@ h3 {
 
 .button {
   align-items: center;
-  background: var(--cx-gradient);
+  background: #0c0d12;
   border-radius: 999px;
   color: #fff;
   display: inline-flex;
@@ -268,11 +268,15 @@ h3 {
   min-height: 42px;
   padding: 0 20px;
   text-decoration: none;
-  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.3);
+  transition: background 0.18s ease, transform 0.12s ease;
 }
 
 .button:hover {
-  filter: brightness(1.08);
+  background: #24262f;
+}
+
+.button:active {
+  transform: translateY(1px);
 }
 
 .button:disabled {

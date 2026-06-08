@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
+import { Skeleton } from "@/app/Skeleton";
 
 const statusLabels: Record<string, string> = {
   candidate: "Submitted, waiting to be added to the lineup",
@@ -29,7 +30,15 @@ export default function ParticipantStatusPage() {
   if (!participant) {
     return (
       <main className="narrow-page">
-        <section className="panel panel-pad">Loading...</section>
+        <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
+          <Skeleton w={110} h={12} radius={6} style={{ marginBottom: 18 }} />
+          <Skeleton w="60%" h={34} radius={10} style={{ marginBottom: 18 }} />
+          <Skeleton w={180} h={26} radius={999} style={{ marginBottom: 22 }} />
+          <Skeleton h={16} style={{ marginBottom: 10 }} />
+          <Skeleton w="80%" h={16} style={{ marginBottom: 28 }} />
+          <Skeleton h={46} radius={12} style={{ marginBottom: 12 }} />
+          <Skeleton h={46} radius={12} />
+        </section>
       </main>
     );
   }

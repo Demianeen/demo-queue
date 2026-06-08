@@ -328,8 +328,9 @@ h3 {
 }
 
 .stage {
-  background: #0f1914;
-  color: #f7fff9;
+  background:
+    radial-gradient(120% 120% at 18% 0%, #26265a 0%, #0e0f26 52%, #07070f 100%);
+  color: #eef0ff;
   min-height: 100vh;
   padding: 28px;
 }
@@ -348,7 +349,7 @@ h3 {
 }
 
 .stage-label {
-  color: #97d6ad;
+  color: #aab4ff;
   font-size: 16px;
   font-weight: 900;
   margin-bottom: 12px;
@@ -362,7 +363,7 @@ h3 {
 }
 
 .stage-name {
-  color: #cbf3d8;
+  color: #c7ccf7;
   font-size: clamp(24px, 3vw, 44px);
   font-weight: 800;
   margin-top: 18px;
@@ -396,8 +397,44 @@ h3 {
 }
 
 .stage-card p {
-  color: #bddcc7;
+  color: #c3c7ee;
   margin-bottom: 0;
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgba(110, 120, 170, 0.16);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+.skeleton.on-dark {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.skeleton.on-dark::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+}
+
+@keyframes skeleton-sweep {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
 }
 
 .admin-grid {

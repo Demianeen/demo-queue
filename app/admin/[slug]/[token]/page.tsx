@@ -11,6 +11,7 @@ import { randomToken } from "@/lib/tokens";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { makeSamplePerson } from "@/lib/sampleData";
+import { Skeleton } from "@/app/Skeleton";
 import {
   DndContext,
   DragOverlay,
@@ -146,8 +147,25 @@ export default function AdminPage() {
 
   if (!admin) {
     return (
-      <main className="narrow-page">
-        <section className="panel panel-pad">Loading admin queue...</section>
+      <main className="page">
+        <div className="shell">
+          <Skeleton w={90} h={12} radius={6} style={{ marginBottom: 14 }} />
+          <Skeleton w={320} h={40} radius={12} style={{ marginBottom: 18 }} />
+          <section className="admin-grid">
+            <div className="panel panel-pad" style={{ display: "grid", gap: 12 }}>
+              <Skeleton w={140} h={22} radius={8} style={{ marginBottom: 6 }} />
+              <Skeleton h={88} radius={16} />
+              <Skeleton h={88} radius={16} />
+              <Skeleton h={88} radius={16} />
+            </div>
+            <div className="panel panel-pad" style={{ display: "grid", gap: 12 }}>
+              <Skeleton w={120} h={22} radius={8} style={{ marginBottom: 6 }} />
+              <Skeleton h={88} radius={16} />
+              <Skeleton h={88} radius={16} />
+              <Skeleton h={88} radius={16} />
+            </div>
+          </section>
+        </div>
       </main>
     );
   }

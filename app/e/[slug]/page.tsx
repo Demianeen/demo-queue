@@ -11,6 +11,28 @@ function Req() {
   return <span style={{ color: "var(--app-bad)" }}> *</span>;
 }
 
+// Accept an @handle (1-15 word chars, optional leading @) or a twitter.com/x.com URL.
+function isValidTwitter(value: string) {
+  if (/^@?[A-Za-z0-9_]{1,15}$/.test(value)) return true;
+  try {
+    const url = new URL(value.startsWith("http") ? value : `https://${value}`);
+    return /(^|\.)(twitter\.com|x\.com)$/.test(url.hostname) && url.pathname.length > 1;
+  } catch {
+    return false;
+  }
+}
+
+// Accept a linkedin.com/... URL or an "in/handle" path.
+function isValidLinkedin(value: string) {
+  if (/^in\/[A-Za-z0-9\-_%.]+$/.test(value)) return true;
+  try {
+    const url = new URL(value.startsWith("http") ? value : `https://${value}`);
+    return /(^|\.)linkedin\.com$/.test(url.hostname) && url.pathname.length > 1;
+  } catch {
+    return false;
+  }
+}
+
 export default function SubmissionPage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
@@ -18,6 +40,8 @@ export default function SubmissionPage() {
   const submitDemo = useMutation(api.events.submitDemo);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [socialError, setSocialError] = useState("");
+  const [twitterError, setTwitterError] = useState("");
+  const [linkedinError, setLinkedinError] = useState("");
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -27,13 +51,29 @@ export default function SubmissionPage() {
     const twitter = read("twitter");
     const linkedin = read("linkedin");
 
+    setSocialError("");
+    setTwitterError("");
+    setLinkedinError("");
+
     // Cross-field rule: at least one social is required (native `required`
     // only validates a single field, not "one of this group").
+    let valid = true;
     if (!twitter && !linkedin) {
       setSocialError("Add at least one of Twitter/X or LinkedIn so the team can connect with you after.");
+      valid = false;
+    }
+    // Format checks so a stray paste (e.g. the helper text) can't slip through.
+    if (twitter && !isValidTwitter(twitter)) {
+      setTwitterError("Enter an @handle or an x.com / twitter.com link.");
+      valid = false;
+    }
+    if (linkedin && !isValidLinkedin(linkedin)) {
+      setLinkedinError("Enter a linkedin.com/in/... link.");
+      valid = false;
+    }
+    if (!valid) {
       return;
     }
-    setSocialError("");
     setIsSubmitting(true);
 
     const participantToken = randomToken(32);
@@ -110,12 +150,18 @@ export default function SubmissionPage() {
 
             <div className="field">
               <label htmlFor="twitter">Twitter/X</label>
-              <input id="twitter" name="twitter" />
+              <input id="twitter" name="twitter" placeholder="@handle or x.com/handle" />
+              {twitterError ? (
+                <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{twitterError}</span>
+              ) : null}
             </div>
 
             <div className="field">
               <label htmlFor="linkedin">LinkedIn</label>
-              <input id="linkedin" name="linkedin" />
+              <input id="linkedin" name="linkedin" placeholder="linkedin.com/in/you" />
+              {linkedinError ? (
+                <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{linkedinError}</span>
+              ) : null}
             </div>
 
             {socialError ? (

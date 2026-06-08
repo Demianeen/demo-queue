@@ -137,6 +137,7 @@ export default function ParticipantStatusPage() {
               name="phone"
               type="tel"
               inputMode="tel"
+              placeholder="+1 555 123 4567"
               defaultValue={participant.submission.phone}
               required
             />
@@ -145,18 +146,34 @@ export default function ParticipantStatusPage() {
 
           <div className="field">
             <label htmlFor="email">Email</label>
-            <input id="email" name="email" type="email" defaultValue={participant.submission.email ?? ""} />
+            <input
+              id="email"
+              name="email"
+              type="email"
+              placeholder="you@example.com"
+              defaultValue={participant.submission.email ?? ""}
+            />
           </div>
 
           <div className="field">
             <label htmlFor="twitter">Twitter/X</label>
-            <input id="twitter" name="twitter" defaultValue={participant.submission.twitter ?? ""} />
+            <input
+              id="twitter"
+              name="twitter"
+              placeholder="@handle or x.com/handle"
+              defaultValue={participant.submission.twitter ?? ""}
+            />
             {twitterError ? <FieldError>{twitterError}</FieldError> : null}
           </div>
 
           <div className="field">
             <label htmlFor="linkedin">LinkedIn</label>
-            <input id="linkedin" name="linkedin" defaultValue={participant.submission.linkedin ?? ""} />
+            <input
+              id="linkedin"
+              name="linkedin"
+              placeholder="linkedin.com/in/you"
+              defaultValue={participant.submission.linkedin ?? ""}
+            />
             {linkedinError ? <FieldError>{linkedinError}</FieldError> : null}
           </div>
 

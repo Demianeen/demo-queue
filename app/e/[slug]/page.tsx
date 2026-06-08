@@ -99,22 +99,34 @@ export default function SubmissionPage() {
             <h2 style={{ fontSize: 18, marginBottom: 0 }}>Demo info</h2>
             <div className="field">
               <label htmlFor="name">Your name<Req /></label>
-              <input id="name" name="name" required />
+              <input id="name" name="name" placeholder="Your full name" required />
             </div>
 
             <div className="field">
               <label htmlFor="demoTitle">Demo title<Req /></label>
-              <input id="demoTitle" name="demoTitle" required />
+              <input id="demoTitle" name="demoTitle" placeholder="What are you demoing?" required />
             </div>
 
             <div className="field">
               <label htmlFor="description">Short description<Req /></label>
-              <textarea id="description" name="description" required />
+              <textarea
+                id="description"
+                name="description"
+                placeholder="One or two lines about your demo"
+                required
+              />
             </div>
 
             <div className="field">
               <label htmlFor="phone">Phone number<Req /></label>
-              <input id="phone" name="phone" type="tel" inputMode="tel" required />
+              <input
+                id="phone"
+                name="phone"
+                type="tel"
+                inputMode="tel"
+                placeholder="+1 555 123 4567"
+                required
+              />
               {phoneError ? (
                 <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{phoneError}</span>
               ) : null}
@@ -122,7 +134,7 @@ export default function SubmissionPage() {
 
             <div className="field">
               <label htmlFor="email">Email<Req /></label>
-              <input id="email" name="email" type="email" required />
+              <input id="email" name="email" type="email" placeholder="you@example.com" required />
             </div>
 
             <div className="field">

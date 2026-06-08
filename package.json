@@ -2,6 +2,7 @@
   "name": "demo-queue",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.29.3",
   "scripts": {
     "dev": "concurrently -k -n next,convex -c blue,magenta \"next dev\" \"convex dev\"",
     "dev:next": "next dev",

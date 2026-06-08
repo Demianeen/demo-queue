@@ -407,17 +407,12 @@ export default function AdminPage() {
               ) : null}
             </div>
 
-            <div style={{ maxWidth: 480 }}>
-              <span
-                className="muted"
-                style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase" }}
-              >
-                Meet link
-              </span>
-              <div className="copy-line" style={{ marginTop: 6 }}>{admin.event.meetUrl}</div>
-              <p className="muted" style={{ fontSize: 12, marginTop: 6, marginBottom: 0 }}>
+            <div className="field" style={{ maxWidth: 480 }}>
+              <label htmlFor="meetUrl">Meet link</label>
+              <input id="meetUrl" readOnly value={admin.event.meetUrl} />
+              <span className="muted" style={{ fontSize: 12 }}>
                 Visible to admin; participants see it only when up next or current.
-              </p>
+              </span>
             </div>
           </div>
 

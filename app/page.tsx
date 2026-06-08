@@ -1,17 +1,42 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { absoluteUrl, adminPath, stagePath, submissionPath } from "@/lib/routes";
 import { randomToken, slugify } from "@/lib/tokens";
+
+type SavedEvent = {
+  name: string;
+  slug: string;
+  adminToken: string;
+  createdAt: number;
+};
+
+const STORAGE_KEY = "demo-queue:events";
+
+function loadSavedEvents(): SavedEvent[] {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SavedEvent[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 export default function HomePage() {
   const createEvent = useMutation(api.events.createEvent);
   const [name, setName] = useState("Demo Night");
   const [meetUrl, setMeetUrl] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [created, setCreated] = useState<null | { slug: string; adminToken: string }>(null);
+  const [savedEvents, setSavedEvents] = useState<SavedEvent[]>([]);
+
+  // Read localStorage only after mount so server and client HTML match.
+  useEffect(() => {
+    setSavedEvents(loadSavedEvents());
+  }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -19,15 +44,27 @@ export default function HomePage() {
     const slug = slugify(name);
     const adminToken = randomToken(32);
 
-    await createEvent({
-      name,
-      slug,
-      meetUrl,
-      adminToken,
-    });
+    try {
+      await createEvent({ name, slug, meetUrl, adminToken });
+      // Only persist after the mutation succeeds, so a failed create (e.g.
+      // duplicate slug) never leaves a phantom event in localStorage.
+      const entry: SavedEvent = { name, slug, adminToken, createdAt: Date.now() };
+      setSavedEvents((prev) => {
+        const next = [entry, ...prev.filter((e) => e.slug !== slug)].slice(0, 10);
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        return next;
+      });
+    } finally {
+      setIsCreating(false);
+    }
+  }
 
-    setCreated({ slug, adminToken });
-    setIsCreating(false);
+  function forgetEvent(slug: string) {
+    setSavedEvents((prev) => {
+      const next = prev.filter((e) => e.slug !== slug);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
   }
 
   return (
@@ -65,15 +102,44 @@ export default function HomePage() {
           </div>
         </form>
 
-        {created ? (
+        {savedEvents.length > 0 ? (
           <div className="link-stack">
-            <h2>Event links</h2>
-            <div className="copy-line">Admin: {absoluteUrl(adminPath(created.slug, created.adminToken))}</div>
-            <div className="copy-line">Stage: {absoluteUrl(stagePath(created.slug))}</div>
-            <div className="copy-line">Submission form: {absoluteUrl(submissionPath(created.slug))}</div>
+            <h2>Your events</h2>
+            <p className="muted" style={{ marginTop: -6 }}>
+              Saved on this device only. Keep these links private; the admin link controls the event.
+            </p>
+            {savedEvents.map((event) => (
+              <div key={event.slug} className="panel panel-pad" style={{ display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <strong>{event.name}</strong>
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() => forgetEvent(event.slug)}
+                    style={{ minHeight: 28, padding: "0 8px" }}
+                  >
+                    Forget
+                  </button>
+                </div>
+                <EventLink label="Admin" href={absoluteUrl(adminPath(event.slug, event.adminToken))} />
+                <EventLink label="Stage" href={absoluteUrl(stagePath(event.slug))} />
+                <EventLink label="Submission form" href={absoluteUrl(submissionPath(event.slug))} />
+              </div>
+            ))}
           </div>
         ) : null}
       </section>
     </main>
+  );
+}
+
+function EventLink({ label, href }: { label: string; href: string }) {
+  return (
+    <div className="copy-line" style={{ display: "grid", gap: 2 }}>
+      <span className="muted" style={{ fontSize: 12, fontWeight: 700 }}>{label}</span>
+      <a href={href} target="_blank" rel="noreferrer" style={{ overflowWrap: "anywhere" }}>
+        {href}
+      </a>
+    </div>
   );
 }

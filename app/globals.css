@@ -340,14 +340,21 @@ h3 {
 }
 
 .event-link {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 9px 0;
-  text-decoration: none;
 }
 
 .event-link + .event-link {
   border-top: 1px solid var(--app-line);
+}
+
+.event-link-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
 .event-link-label {
@@ -361,11 +368,28 @@ h3 {
 .event-link-url {
   color: var(--cx-indigo);
   font-size: 13px;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.event-link:hover .event-link-url {
+.event-link-url:hover {
   text-decoration: underline;
+}
+
+.event-copy {
+  flex: none;
+  border: 1px solid var(--app-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--app-ink);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+}
+
+.event-copy:hover {
+  background: #ffffff;
 }
 
 .copy-line {

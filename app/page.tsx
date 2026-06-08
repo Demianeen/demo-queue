@@ -5,6 +5,7 @@ import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { absoluteUrl, adminPath, stagePath, submissionPath } from "@/lib/routes";
 import { randomToken, slugify } from "@/lib/tokens";
+import { Brand } from "./Brand";
 
 type SavedEvent = {
   name: string;
@@ -70,7 +71,7 @@ export default function HomePage() {
   return (
     <main className="narrow-page">
       <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
-        <p className="eyebrow">Demo Queue</p>
+        <Brand label="Demo Queue" />
         <h1>Run a fair demo queue without exposing private details.</h1>
         <p className="lead">
           Create an event, share the QR code on the stage screen, and control the live queue from a

@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Skeleton } from "@/app/Skeleton";
 import { isValidLinkedin, isValidPhone, isValidTwitter } from "@/lib/validation";
+import { Brand } from "@/app/Brand";
 
 const statusLabels: Record<string, string> = {
   candidate: "Submitted, waiting to be added to the lineup",
@@ -106,7 +107,7 @@ export default function ParticipantStatusPage() {
   return (
     <main className="narrow-page">
       <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
-        <p className="eyebrow">{participant.event.name}</p>
+        <Brand label={participant.event.name} />
         <h1>{statusLabels[participant.submission.status] ?? participant.submission.status}</h1>
 
         <div className="status-strip">

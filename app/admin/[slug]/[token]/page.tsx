@@ -12,6 +12,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { makeSamplePerson } from "@/lib/sampleData";
 import { Skeleton } from "@/app/Skeleton";
+import { Brand } from "@/app/Brand";
 import {
   DndContext,
   DragOverlay,
@@ -366,7 +367,7 @@ export default function AdminPage() {
           }}
         >
           <div style={{ flex: "1 1 380px", minWidth: 0 }}>
-            <p className="eyebrow">Admin</p>
+            <Brand label="Admin" />
             <h1 style={{ marginBottom: 12 }}>{admin.event.name}</h1>
 
             <div className="status-strip">

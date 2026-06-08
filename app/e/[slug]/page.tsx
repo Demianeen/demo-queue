@@ -7,6 +7,7 @@ import { api } from "../../../convex/_generated/api";
 import { participantPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken } from "@/lib/tokens";
 import { isValidLinkedin, isValidPhone, isValidTwitter } from "@/lib/validation";
+import { Brand } from "@/app/Brand";
 
 function Req() {
   return <span style={{ color: "var(--app-bad)" }}> *</span>;
@@ -87,7 +88,7 @@ export default function SubmissionPage() {
   return (
     <main className="narrow-page">
       <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
-        <p className="eyebrow">{stage?.event.name ?? "Demo Queue"}</p>
+        <Brand label={stage?.event.name ?? "Demo Queue"} />
         <h1>Submit your demo.</h1>
         <p className="lead">
           You will get a private status link after submitting. The Meet link appears there only when

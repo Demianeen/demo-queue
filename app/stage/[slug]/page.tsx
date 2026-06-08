@@ -36,6 +36,14 @@ export default function StagePage() {
 
   return (
     <main className="stage">
+      <Image
+        src="/codex-mark.png"
+        alt="Codex"
+        className="stage-mark"
+        width={30}
+        height={30}
+        priority
+      />
       <section className="stage-grid">
         <div className="stage-main">
           <div>

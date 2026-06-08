@@ -334,9 +334,18 @@ h3 {
 }
 
 .stage {
+  position: relative;
   color: var(--app-ink);
   min-height: 100vh;
   padding: 28px;
+}
+
+.stage-mark {
+  position: absolute;
+  top: 26px;
+  left: 28px;
+  z-index: 2;
+  opacity: 0.85;
 }
 
 .stage-grid {
@@ -566,8 +575,8 @@ h3 {
 }
 
 .pill.green {
-  background: var(--app-soft-green);
-  color: var(--app-good);
+  background: #ece9ff;
+  color: var(--cx-indigo);
 }
 
 .pill.yellow {

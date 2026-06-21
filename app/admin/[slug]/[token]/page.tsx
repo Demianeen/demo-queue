@@ -34,7 +34,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown, GripVertical } from "lucide-react";
+import { ChevronDown, GripVertical, MoreHorizontal } from "lucide-react";
 
 type AdminSubmission = {
   id: Id<"submissions">;
@@ -630,11 +630,11 @@ export default function AdminPage() {
                   <thead>
                     <tr>
                       <th>Status</th>
+                      <th>Person</th>
                       <th>Demo</th>
-                      <th>Presenter</th>
                       <th>Category</th>
                       <th>Contact</th>
-                      <th>Actions</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -701,11 +701,11 @@ export default function AdminPage() {
                       <tr>
                         <th aria-label="Drag handle" />
                         <th>Position</th>
+                        <th>Person</th>
                         <th>Demo</th>
-                        <th>Presenter</th>
                         <th>Category</th>
                         <th>Contact</th>
-                        <th>Actions</th>
+                        <th>Action</th>
                       </tr>
                     </thead>
                     <SortableContext items={board.lineup} strategy={verticalListSortingStrategy}>
@@ -875,29 +875,27 @@ function LineupRow({
       <td>
         <span className={`pill ${statusTone === "green" ? "green" : ""}`}>{positionLabel}</span>
       </td>
-      <td className="admin-demo-cell">
-        <span className="queue-title">{item.demoTitle}</span>
-        {item.description ? <span className="muted">{item.description}</span> : null}
-      </td>
-      <td>{item.name}</td>
       <td>
-        <span className="pill green">{item.category || "demo"}</span>
+        <PersonCell item={item} />
+      </td>
+      <td className="admin-demo-cell">
+        <DemoCell item={item} />
+      </td>
+      <td>
+        <CategoryCell category={item.category} />
       </td>
       <td>
         <Contact item={item} />
       </td>
       <td>
-        <div className="table-actions">
-          <Button variant="ghost" size="sm" onClick={onEdit} type="button">
-            Edit
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onMoveToPool} type="button">
-            Move to all
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onHide} type="button">
-            Hide
-          </Button>
-        </div>
+        <RowActions
+          menuLabel={`More actions for ${item.name}`}
+          menuItems={[
+            { label: "Move to all", onSelect: onMoveToPool },
+            { label: "Edit", onSelect: onEdit },
+            { label: "Hide", onSelect: onHide },
+          ]}
+        />
       </td>
     </tr>
   );
@@ -946,47 +944,90 @@ function AllPeopleRow({
           {item.statusLabel}
         </span>
       </td>
-      <td className="admin-demo-cell">
-        <span className="queue-title">{item.demoTitle}</span>
-        {item.description ? <span className="muted">{item.description}</span> : null}
-      </td>
-      <td>{item.name}</td>
       <td>
-        <span className="pill green">{item.category || "demo"}</span>
+        <PersonCell item={item} />
+      </td>
+      <td className="admin-demo-cell">
+        <DemoCell item={item} />
+      </td>
+      <td>
+        <CategoryCell category={item.category} />
       </td>
       <td>
         <Contact item={item} />
       </td>
       <td>
-        <div className="table-actions">
-          {item.rosterStatus === "pool" ? (
-            <Button variant="outline" size="sm" onClick={onAddToLineup} type="button">
-              Add to lineup
-            </Button>
-          ) : null}
-          {item.rosterStatus === "lineup" ? (
-            <Button variant="ghost" size="sm" onClick={onMoveToPool} type="button">
-              Move to all
-            </Button>
-          ) : null}
-          {item.rosterStatus === "hidden" ? (
-            <Button variant="outline" size="sm" onClick={onRestore} type="button">
-              Restore
-            </Button>
-          ) : null}
-          {item.rosterStatus !== "inactive" ? (
-            <>
-              <Button variant="ghost" size="sm" onClick={onEdit} type="button">
-                Edit
-              </Button>
-              <Button variant="ghost" size="sm" onClick={onHide} type="button">
-                Hide
-              </Button>
-            </>
-          ) : null}
-        </div>
+        <RowActions
+          menuLabel={`More actions for ${item.name}`}
+          menuItems={
+            item.rosterStatus === "inactive"
+              ? [{ label: "Move to all", onSelect: onRestore }]
+              : [
+                  item.rosterStatus === "pool"
+                    ? { label: "Add to lineup", onSelect: onAddToLineup }
+                    : item.rosterStatus === "lineup"
+                      ? { label: "Move to all", onSelect: onMoveToPool }
+                      : { label: "Restore", onSelect: onRestore },
+                  { label: "Edit", onSelect: onEdit },
+                  { label: "Hide", onSelect: onHide },
+                ]
+          }
+        />
       </td>
     </tr>
+  );
+}
+
+function PersonCell({ item }: { item: AdminSubmission }) {
+  return (
+    <div className="admin-person-cell">
+      <span>{item.name}</span>
+    </div>
+  );
+}
+
+function DemoCell({ item }: { item: AdminSubmission }) {
+  return (
+    <>
+      <span className="admin-demo-title">{item.demoTitle}</span>
+      {item.description ? <span className="muted">{item.description}</span> : null}
+    </>
+  );
+}
+
+function CategoryCell({ category }: { category?: string }) {
+  const fullCategory = category || "demo";
+  return (
+    <span className="admin-category-text" aria-label={fullCategory} title={fullCategory}>
+      {fullCategory}
+    </span>
+  );
+}
+
+function RowActions({
+  menuLabel,
+  menuItems,
+}: {
+  menuLabel: string;
+  menuItems: { label: string; onSelect: () => void }[];
+}) {
+  return (
+    <div className="table-actions">
+      {menuItems.length > 0 ? (
+        <details className="table-row-menu">
+          <summary aria-label={menuLabel}>
+            <MoreHorizontal size={16} aria-hidden />
+          </summary>
+          <div className="table-row-menu-content">
+            {menuItems.map((action) => (
+              <button key={action.label} onClick={action.onSelect} type="button">
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </div>
   );
 }
 
@@ -1034,7 +1075,12 @@ function buildRosterRows(
     statusTone: "yellow" as const,
   }));
 
-  return [...lineupRows, ...poolRows, ...hiddenRows, ...inactiveRows];
+  const seen = new Set<Id<"submissions">>();
+  return [...lineupRows, ...poolRows, ...hiddenRows, ...inactiveRows].filter((row) => {
+    if (seen.has(row.id)) return false;
+    seen.add(row.id);
+    return true;
+  });
 }
 
 function lineupPositionLabel(index: number) {
@@ -1194,9 +1240,25 @@ function Contact({ item }: { item: AdminSubmission }) {
   return (
     <div className="contact-list">
       <span>{item.phone}</span>
-      {item.email ? <span>{item.email}</span> : null}
-      {item.twitter ? <span>{item.twitter}</span> : null}
-      {item.linkedin ? <span>{item.linkedin}</span> : null}
+      {item.email ? <a href={`mailto:${item.email}`}>{item.email}</a> : null}
+      {item.twitter ? (
+        <a href={socialUrl("twitter", item.twitter)} rel="noreferrer" target="_blank">
+          {item.twitter}
+        </a>
+      ) : null}
+      {item.linkedin ? (
+        <a href={socialUrl("linkedin", item.linkedin)} rel="noreferrer" target="_blank">
+          {item.linkedin}
+        </a>
+      ) : null}
     </div>
   );
+}
+
+function socialUrl(kind: "twitter" | "linkedin", value: string) {
+  if (/^https?:\/\//i.test(value)) return value;
+  const clean = value.trim().replace(/^@/, "").replace(/^\/+/, "");
+  if (kind === "twitter") return `https://x.com/${clean}`;
+  if (clean.startsWith("in/")) return `https://www.linkedin.com/${clean}`;
+  return `https://www.linkedin.com/in/${clean}`;
 }

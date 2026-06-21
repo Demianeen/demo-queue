@@ -915,7 +915,7 @@ h3 {
   color: var(--app-muted);
   font-size: 11px;
   font-weight: 850;
-  padding: 9px 12px;
+  padding: 8px 10px;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -924,7 +924,7 @@ h3 {
   background: rgba(255, 255, 255, 0.4);
   border-bottom: 1px solid rgba(230, 227, 245, 0.72);
   color: var(--app-ink);
-  padding: 9px 12px;
+  padding: 7px 10px;
 }
 
 .admin-table tbody tr:hover td {
@@ -946,32 +946,32 @@ h3 {
 
 .admin-table th:nth-child(1),
 .admin-table td:nth-child(1) {
-  width: 90px;
+  width: 118px;
 }
 
 .admin-table th:nth-child(2),
 .admin-table td:nth-child(2) {
-  width: 34%;
+  width: 18%;
 }
 
 .admin-table th:nth-child(3),
 .admin-table td:nth-child(3) {
-  width: 18%;
+  width: 34%;
 }
 
 .admin-table th:nth-child(4),
 .admin-table td:nth-child(4) {
-  width: 110px;
+  width: 96px;
 }
 
 .admin-table th:nth-child(5),
 .admin-table td:nth-child(5) {
-  width: 180px;
+  width: 190px;
 }
 
 .admin-table th:nth-child(6),
 .admin-table td:nth-child(6) {
-  width: 210px;
+  width: 124px;
 }
 
 .admin-lineup-table th:nth-child(1),
@@ -981,22 +981,22 @@ h3 {
 
 .admin-lineup-table th:nth-child(2),
 .admin-lineup-table td:nth-child(2) {
-  width: 120px;
+  width: 132px;
 }
 
 .admin-lineup-table th:nth-child(3),
 .admin-lineup-table td:nth-child(3) {
-  width: 30%;
+  width: 16%;
 }
 
 .admin-lineup-table th:nth-child(4),
 .admin-lineup-table td:nth-child(4) {
-  width: 15%;
+  width: 31%;
 }
 
 .admin-lineup-table th:nth-child(5),
 .admin-lineup-table td:nth-child(5) {
-  width: 110px;
+  width: 92px;
 }
 
 .admin-lineup-table th:nth-child(6),
@@ -1006,11 +1006,18 @@ h3 {
 
 .admin-lineup-table th:nth-child(7),
 .admin-lineup-table td:nth-child(7) {
-  width: 220px;
+  width: 124px;
+}
+
+.admin-person-cell {
+  color: var(--app-ink);
+  font-weight: 400;
+  line-height: 1.2;
 }
 
 .admin-demo-cell {
-  max-width: 360px;
+  color: rgba(19, 21, 38, 0.86);
+  max-width: 420px;
   min-width: 260px;
 }
 
@@ -1018,28 +1025,113 @@ h3 {
   display: block;
 }
 
+.admin-demo-title {
+  font-weight: 400;
+  line-height: 1.2;
+}
+
 .admin-demo-cell .muted {
   display: -webkit-box;
   font-size: 12px;
   line-height: 1.25;
-  margin-top: 3px;
+  margin-top: 2px;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
-.admin-table .contact-list {
+.admin-category-text {
+  color: var(--app-muted);
   font-size: 12px;
-  gap: 2px;
-  line-height: 1.25;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.admin-table .contact-list {
+  color: rgba(19, 21, 38, 0.72);
+  font-size: 11px;
+  gap: 1px;
+  line-height: 1.18;
+}
+
+.admin-table .contact-list a {
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+.admin-table .contact-list a:hover,
+.admin-table .contact-list a:focus,
+.admin-table .contact-list a:focus-visible {
+  color: var(--app-accent-dark);
+  text-decoration: underline;
 }
 
 .table-actions {
   align-items: center;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
-  min-width: 180px;
+  min-width: 30px;
+  position: relative;
+}
+
+.table-row-menu {
+  position: relative;
+}
+
+.table-row-menu summary {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--app-muted);
+  cursor: pointer;
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  list-style: none;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+  width: 30px;
+}
+
+.table-row-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.table-row-menu summary:hover {
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--app-ink);
+}
+
+.table-row-menu-content {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(221, 224, 238, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 14px 28px -18px rgba(16, 18, 60, 0.4);
+  display: grid;
+  min-width: 118px;
+  padding: 4px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+}
+
+.table-row-menu-content button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--app-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.table-row-menu-content button:hover {
+  background: rgba(67, 96, 238, 0.08);
 }
 
 .admin-table-edit-row td {

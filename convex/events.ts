@@ -2,10 +2,12 @@ import { ConvexError, v } from "convex/values";
 import { DatabaseReader, DatabaseWriter, mutation, query } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import {
-  SUBMISSION_FIELD_LABELS,
-  SUBMISSION_FIELD_LIMITS,
-  type SubmissionFieldName,
+  parseContactTextFields,
+  parseSubmissionTextFields,
+  type ContactTextInput,
+  type SubmissionTextInput,
 } from "../lib/validation";
+import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
 
@@ -76,53 +78,27 @@ async function logAction(
   });
 }
 
-type SubmissionTextArgs = {
-  name: string;
-  demoTitle: string;
-  description: string;
-  phone: string;
-  email?: string;
-  twitter?: string;
-  linkedin?: string;
-  category?: string;
-};
-
-function limitedText(field: SubmissionFieldName, value: string) {
-  const trimmed = value.trim();
-  const limit = SUBMISSION_FIELD_LIMITS[field];
-
-  if (trimmed.length > limit) {
-    throw new ConvexError(`${SUBMISSION_FIELD_LABELS[field]} must be ${limit} characters or fewer.`);
+function zodToConvexError(error: unknown): never {
+  if (error instanceof ZodError) {
+    throw new ConvexError(error.issues[0]?.message ?? "Invalid submission.");
   }
-
-  return trimmed;
+  throw error;
 }
 
-function optionalLimitedText(field: SubmissionFieldName, value: string | undefined) {
-  if (value === undefined) return undefined;
-  return limitedText(field, value) || undefined;
+function normalizeSubmissionTextFields(args: SubmissionTextInput): ReturnType<typeof parseSubmissionTextFields> {
+  try {
+    return parseSubmissionTextFields(args);
+  } catch (error) {
+    zodToConvexError(error);
+  }
 }
 
-function normalizeSubmissionTextFields(args: SubmissionTextArgs) {
-  return {
-    name: limitedText("name", args.name),
-    demoTitle: limitedText("demoTitle", args.demoTitle),
-    description: limitedText("description", args.description),
-    phone: limitedText("phone", args.phone),
-    email: optionalLimitedText("email", args.email),
-    twitter: optionalLimitedText("twitter", args.twitter),
-    linkedin: optionalLimitedText("linkedin", args.linkedin),
-    category: optionalLimitedText("category", args.category),
-  };
-}
-
-function normalizeContactTextFields(args: Pick<SubmissionTextArgs, "phone" | "email" | "twitter" | "linkedin">) {
-  return {
-    phone: limitedText("phone", args.phone),
-    email: optionalLimitedText("email", args.email),
-    twitter: optionalLimitedText("twitter", args.twitter),
-    linkedin: optionalLimitedText("linkedin", args.linkedin),
-  };
+function normalizeContactTextFields(args: ContactTextInput): ReturnType<typeof parseContactTextFields> {
+  try {
+    return parseContactTextFields(args);
+  } catch (error) {
+    zodToConvexError(error);
+  }
 }
 
 export const createEvent = mutation({

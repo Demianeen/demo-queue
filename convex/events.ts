@@ -1,6 +1,11 @@
 import { ConvexError, v } from "convex/values";
 import { DatabaseReader, DatabaseWriter, mutation, query } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
+import {
+  SUBMISSION_FIELD_LABELS,
+  SUBMISSION_FIELD_LIMITS,
+  type SubmissionFieldName,
+} from "../lib/validation";
 
 const publicSubmissionFields = (submission: Doc<"submissions">) => ({
   id: submission._id,
@@ -67,6 +72,55 @@ async function logAction(
     details,
     createdAt: Date.now(),
   });
+}
+
+type SubmissionTextArgs = {
+  name: string;
+  demoTitle: string;
+  description: string;
+  phone: string;
+  email?: string;
+  twitter?: string;
+  linkedin?: string;
+  category?: string;
+};
+
+function limitedText(field: SubmissionFieldName, value: string) {
+  const trimmed = value.trim();
+  const limit = SUBMISSION_FIELD_LIMITS[field];
+
+  if (trimmed.length > limit) {
+    throw new ConvexError(`${SUBMISSION_FIELD_LABELS[field]} must be ${limit} characters or fewer.`);
+  }
+
+  return trimmed;
+}
+
+function optionalLimitedText(field: SubmissionFieldName, value: string | undefined) {
+  if (value === undefined) return undefined;
+  return limitedText(field, value) || undefined;
+}
+
+function normalizeSubmissionTextFields(args: SubmissionTextArgs) {
+  return {
+    name: limitedText("name", args.name),
+    demoTitle: limitedText("demoTitle", args.demoTitle),
+    description: limitedText("description", args.description),
+    phone: limitedText("phone", args.phone),
+    email: optionalLimitedText("email", args.email),
+    twitter: optionalLimitedText("twitter", args.twitter),
+    linkedin: optionalLimitedText("linkedin", args.linkedin),
+    category: optionalLimitedText("category", args.category),
+  };
+}
+
+function normalizeContactTextFields(args: Pick<SubmissionTextArgs, "phone" | "email" | "twitter" | "linkedin">) {
+  return {
+    phone: limitedText("phone", args.phone),
+    email: optionalLimitedText("email", args.email),
+    twitter: optionalLimitedText("twitter", args.twitter),
+    linkedin: optionalLimitedText("linkedin", args.linkedin),
+  };
 }
 
 export const createEvent = mutation({
@@ -246,18 +300,12 @@ export const submitDemo = mutation({
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
     const now = Date.now();
+    const fields = normalizeSubmissionTextFields(args);
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,
-      name: args.name.trim(),
-      demoTitle: args.demoTitle.trim(),
-      description: args.description.trim(),
-      phone: args.phone.trim(),
-      email: args.email?.trim() || undefined,
-      twitter: args.twitter?.trim() || undefined,
-      linkedin: args.linkedin?.trim() || undefined,
-      category: args.category?.trim() || undefined,
+      ...fields,
       screenshotId: args.screenshotId,
       // New submissions land in the pool ("all people"); the admin drags chosen
       // people into the lineup.
@@ -294,18 +342,12 @@ export const adminAddSubmission = mutation({
     requireAdmin(event, args.adminToken);
     const now = Date.now();
     const toPool = args.list === "pool";
+    const fields = normalizeSubmissionTextFields(args);
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,
-      name: args.name.trim(),
-      demoTitle: args.demoTitle.trim(),
-      description: args.description.trim(),
-      phone: args.phone.trim(),
-      email: args.email?.trim() || undefined,
-      twitter: args.twitter?.trim() || undefined,
-      linkedin: args.linkedin?.trim() || undefined,
-      category: args.category?.trim() || undefined,
+      ...fields,
       status: toPool ? "candidate" : "queued",
       queueOrder: toPool ? undefined : args.queueOrder,
       createdAt: now,
@@ -338,10 +380,7 @@ export const editParticipantContact = mutation({
     }
 
     await ctx.db.patch(submission._id, {
-      phone: args.phone.trim(),
-      email: args.email?.trim() || undefined,
-      twitter: args.twitter?.trim() || undefined,
-      linkedin: args.linkedin?.trim() || undefined,
+      ...normalizeContactTextFields(args),
       updatedAt: Date.now(),
     });
   },
@@ -408,14 +447,7 @@ export const updateSubmission = mutation({
     }
 
     await ctx.db.patch(args.submissionId, {
-      name: args.name.trim(),
-      demoTitle: args.demoTitle.trim(),
-      description: args.description.trim(),
-      phone: args.phone.trim(),
-      email: args.email?.trim() || undefined,
-      twitter: args.twitter?.trim() || undefined,
-      linkedin: args.linkedin?.trim() || undefined,
-      category: args.category?.trim() || undefined,
+      ...normalizeSubmissionTextFields(args),
       updatedAt: Date.now(),
     });
   },

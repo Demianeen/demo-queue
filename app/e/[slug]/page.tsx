@@ -6,7 +6,13 @@ import { useParams, useRouter } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
 import { participantPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken } from "@/lib/tokens";
-import { isValidLinkedin, isValidPhone, isValidTwitter } from "@/lib/validation";
+import {
+  SUBMISSION_FIELD_LIMITS,
+  firstFieldLimitError,
+  isValidLinkedin,
+  isValidPhone,
+  isValidTwitter,
+} from "@/lib/validation";
 import { Brand } from "@/app/Brand";
 
 function Req() {
@@ -32,6 +38,16 @@ export default function SubmissionPage() {
     const phone = read("phone");
     const twitter = read("twitter");
     const linkedin = read("linkedin");
+    const lengthError = firstFieldLimitError({
+      name: read("name"),
+      demoTitle: read("demoTitle"),
+      description: read("description"),
+      phone,
+      email: read("email"),
+      category: read("category"),
+      twitter,
+      linkedin,
+    });
 
     setSocialError("");
     setTwitterError("");
@@ -39,6 +55,10 @@ export default function SubmissionPage() {
     setPhoneError("");
 
     let valid = true;
+    if (lengthError) {
+      setSocialError(lengthError);
+      valid = false;
+    }
     if (!isValidPhone(phone)) {
       setPhoneError("Enter a valid phone number (7-15 digits).");
       valid = false;
@@ -100,12 +120,24 @@ export default function SubmissionPage() {
             <h2 style={{ fontSize: 18, marginBottom: 0 }}>Demo info</h2>
             <div className="field">
               <label htmlFor="name">Your name<Req /></label>
-              <input id="name" name="name" placeholder="Your full name" required />
+              <input
+                id="name"
+                name="name"
+                placeholder="Your full name"
+                maxLength={SUBMISSION_FIELD_LIMITS.name}
+                required
+              />
             </div>
 
             <div className="field">
               <label htmlFor="demoTitle">Demo title<Req /></label>
-              <input id="demoTitle" name="demoTitle" placeholder="What are you demoing?" required />
+              <input
+                id="demoTitle"
+                name="demoTitle"
+                placeholder="What are you demoing?"
+                maxLength={SUBMISSION_FIELD_LIMITS.demoTitle}
+                required
+              />
             </div>
 
             <div className="field">
@@ -114,6 +146,7 @@ export default function SubmissionPage() {
                 id="description"
                 name="description"
                 placeholder="One or two lines about your demo"
+                maxLength={SUBMISSION_FIELD_LIMITS.description}
                 required
               />
             </div>
@@ -126,6 +159,7 @@ export default function SubmissionPage() {
                 type="tel"
                 inputMode="tel"
                 placeholder="+1 555 123 4567"
+                maxLength={SUBMISSION_FIELD_LIMITS.phone}
                 required
               />
               {phoneError ? (
@@ -135,12 +169,24 @@ export default function SubmissionPage() {
 
             <div className="field">
               <label htmlFor="email">Email<Req /></label>
-              <input id="email" name="email" type="email" placeholder="you@example.com" required />
+              <input
+                id="email"
+                name="email"
+                type="email"
+                placeholder="you@example.com"
+                maxLength={SUBMISSION_FIELD_LIMITS.email}
+                required
+              />
             </div>
 
             <div className="field">
               <label htmlFor="category">Category, optional</label>
-              <input id="category" name="category" placeholder="AI, devtools, consumer, hardware..." />
+              <input
+                id="category"
+                name="category"
+                placeholder="AI, devtools, consumer, hardware..."
+                maxLength={SUBMISSION_FIELD_LIMITS.category}
+              />
             </div>
           </div>
 
@@ -152,7 +198,12 @@ export default function SubmissionPage() {
 
             <div className="field">
               <label htmlFor="twitter">Twitter/X</label>
-              <input id="twitter" name="twitter" placeholder="@handle or x.com/handle" />
+              <input
+                id="twitter"
+                name="twitter"
+                placeholder="@handle or x.com/handle"
+                maxLength={SUBMISSION_FIELD_LIMITS.twitter}
+              />
               {twitterError ? (
                 <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{twitterError}</span>
               ) : null}
@@ -160,7 +211,12 @@ export default function SubmissionPage() {
 
             <div className="field">
               <label htmlFor="linkedin">LinkedIn</label>
-              <input id="linkedin" name="linkedin" placeholder="linkedin.com/in/you" />
+              <input
+                id="linkedin"
+                name="linkedin"
+                placeholder="linkedin.com/in/you"
+                maxLength={SUBMISSION_FIELD_LIMITS.linkedin}
+              />
               {linkedinError ? (
                 <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{linkedinError}</span>
               ) : null}

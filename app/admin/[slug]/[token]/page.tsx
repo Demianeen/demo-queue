@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { makeSamplePerson } from "@/lib/sampleData";
 import { Skeleton } from "@/app/Skeleton";
 import { Brand } from "@/app/Brand";
+import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError } from "@/lib/validation";
 import {
   DndContext,
   DragOverlay,
@@ -764,24 +765,33 @@ function SubmissionForm({
 }) {
   const fieldId = useId();
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const read = (key: string) => String(form.get(key) ?? "").trim();
+    const values = {
+      name: read("name"),
+      demoTitle: read("demoTitle"),
+      description: read("description"),
+      phone: read("phone"),
+      email: read("email"),
+      twitter: read("twitter"),
+      linkedin: read("linkedin"),
+      category: read("category"),
+    };
+    const lengthError = firstFieldLimitError(values);
+
+    if (lengthError) {
+      setError(lengthError);
+      return;
+    }
 
     setSaving(true);
+    setError("");
     try {
-      await onSave({
-        name: read("name"),
-        demoTitle: read("demoTitle"),
-        description: read("description"),
-        phone: read("phone"),
-        email: read("email"),
-        twitter: read("twitter"),
-        linkedin: read("linkedin"),
-        category: read("category"),
-      });
+      await onSave(values);
     } finally {
       setSaving(false);
     }
@@ -791,7 +801,13 @@ function SubmissionForm({
     <form className="form" onSubmit={handleSubmit}>
       <div className="field">
         <label htmlFor={`${fieldId}-name`}>Presenter name</label>
-        <input id={`${fieldId}-name`} name="name" defaultValue={initial?.name ?? ""} required />
+        <input
+          id={`${fieldId}-name`}
+          name="name"
+          defaultValue={initial?.name ?? ""}
+          maxLength={SUBMISSION_FIELD_LIMITS.name}
+          required
+        />
       </div>
       <div className="field">
         <label htmlFor={`${fieldId}-demoTitle`}>Demo title</label>
@@ -799,6 +815,7 @@ function SubmissionForm({
           id={`${fieldId}-demoTitle`}
           name="demoTitle"
           defaultValue={initial?.demoTitle ?? ""}
+          maxLength={SUBMISSION_FIELD_LIMITS.demoTitle}
           required
         />
       </div>
@@ -808,23 +825,45 @@ function SubmissionForm({
           id={`${fieldId}-description`}
           name="description"
           defaultValue={initial?.description ?? ""}
+          maxLength={SUBMISSION_FIELD_LIMITS.description}
         />
       </div>
       <div className="field">
         <label htmlFor={`${fieldId}-phone`}>Phone number</label>
-        <input id={`${fieldId}-phone`} name="phone" defaultValue={initial?.phone ?? ""} />
+        <input
+          id={`${fieldId}-phone`}
+          name="phone"
+          defaultValue={initial?.phone ?? ""}
+          maxLength={SUBMISSION_FIELD_LIMITS.phone}
+        />
       </div>
       <div className="field">
         <label htmlFor={`${fieldId}-email`}>Email</label>
-        <input id={`${fieldId}-email`} name="email" type="email" defaultValue={initial?.email ?? ""} />
+        <input
+          id={`${fieldId}-email`}
+          name="email"
+          type="email"
+          defaultValue={initial?.email ?? ""}
+          maxLength={SUBMISSION_FIELD_LIMITS.email}
+        />
       </div>
       <div className="field">
         <label htmlFor={`${fieldId}-twitter`}>Twitter/X</label>
-        <input id={`${fieldId}-twitter`} name="twitter" defaultValue={initial?.twitter ?? ""} />
+        <input
+          id={`${fieldId}-twitter`}
+          name="twitter"
+          defaultValue={initial?.twitter ?? ""}
+          maxLength={SUBMISSION_FIELD_LIMITS.twitter}
+        />
       </div>
       <div className="field">
         <label htmlFor={`${fieldId}-linkedin`}>LinkedIn</label>
-        <input id={`${fieldId}-linkedin`} name="linkedin" defaultValue={initial?.linkedin ?? ""} />
+        <input
+          id={`${fieldId}-linkedin`}
+          name="linkedin"
+          defaultValue={initial?.linkedin ?? ""}
+          maxLength={SUBMISSION_FIELD_LIMITS.linkedin}
+        />
       </div>
       <div className="field">
         <label htmlFor={`${fieldId}-category`}>Category</label>
@@ -833,8 +872,14 @@ function SubmissionForm({
           name="category"
           defaultValue={initial?.category ?? ""}
           placeholder="AI, devtools, consumer, hardware..."
+          maxLength={SUBMISSION_FIELD_LIMITS.category}
         />
       </div>
+      {error ? (
+        <p style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600, margin: 0 }}>
+          {error}
+        </p>
+      ) : null}
       <div className="actions" style={{ marginTop: 4 }}>
         <Button type="submit" size="sm" disabled={saving}>
           {saving ? "Saving..." : submitLabel}

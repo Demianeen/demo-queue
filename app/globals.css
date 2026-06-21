@@ -689,6 +689,8 @@ h3 {
 .queue-list {
   display: grid;
   gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
 }
 
 .queue-list.droppable {
@@ -723,6 +725,8 @@ h3 {
   border-radius: 8px;
   display: grid;
   gap: 10px;
+  max-width: 100%;
+  min-width: 0;
   padding: 16px;
   -webkit-backdrop-filter: blur(12px) saturate(1.15);
   backdrop-filter: blur(12px) saturate(1.15);
@@ -757,11 +761,18 @@ h3 {
   display: flex;
   gap: 10px;
   justify-content: space-between;
+  min-width: 0;
+}
+
+.queue-row > div {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .queue-title {
   font-weight: 780;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .pill {
@@ -771,7 +782,15 @@ h3 {
   display: inline-flex;
   font-size: 12px;
   font-weight: 850;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding: 5px 9px;
+  white-space: normal;
+}
+
+.queue-row > .pill {
+  flex: 0 1 45%;
 }
 
 .pill.green {
@@ -789,6 +808,12 @@ h3 {
   display: grid;
   font-size: 13px;
   gap: 4px;
+  min-width: 0;
+}
+
+.queue-item p,
+.contact-list span {
+  overflow-wrap: anywhere;
 }
 
 .config-screen {

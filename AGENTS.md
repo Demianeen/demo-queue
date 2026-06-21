@@ -19,6 +19,11 @@ URL, or asks to set/update the live lineup, use the deterministic helper first
 so Codex does not spend event time rediscovering routes, schemas, function
 specs, Vercel aliases, or browser verification paths:
 
+For event-time queue inspection, ranking, or lineup requests, run the matching
+helper command before reading memory, rollout summaries, Convex schema, or route
+files. Use old memory only after the helper fails or when the user explicitly
+asks for historical context.
+
 ```bash
 pnpm queue -- snapshot
 pnpm queue -- snapshot --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"
@@ -36,6 +41,13 @@ phone numbers, emails, participant tokens, and admin tokens. Pass
 helper prints a full URL using `--site-url`, `DEMO_QUEUE_SITE_URL`, Vercel URL
 env vars, localhost for non-production, or the stable production default
 `https://demo-queue-tau.vercel.app`.
+
+A full `https://.../admin/<slug>/<token>` admin URL is the fastest production
+path. For `snapshot`, `rank`, `set-lineup`, and `set-best`, the helper can infer
+the public Convex deployment URL from the deployed app and query Convex directly,
+so do not copy `.env.local` first when a full admin URL is already available.
+When reporting helper results with IDs, paste the helper rows exactly or omit
+IDs if they are not needed. Do not manually retype submission IDs from memory.
 
 When using Codex for production Convex commands, request escalated network
 permission on the first command. Waiting for a sandboxed prod command to fail can

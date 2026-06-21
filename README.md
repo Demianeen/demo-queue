@@ -94,7 +94,8 @@ NEXT_PUBLIC_CONVEX_URL=https://<deployment>.convex.cloud
 actions, but this app does not read it.
 
 In a fresh worktree on this machine, copy `.env.local` from the main
-`demo-queue` checkout before running queue commands. Do not commit that file.
+`demo-queue` checkout before running local/dev queue commands, or production
+queue commands that do not have a full admin URL. Do not commit that file.
 
 AI shuffle runs in Convex from `convex/ai.ts`. Configure these Convex
 environment variables before using it:
@@ -156,6 +157,11 @@ pnpm queue:prod -- snapshot --admin-url "https://.../admin/<slug>/<token>"
 pnpm queue:prod -- rank --count 5 --admin-url "https://.../admin/<slug>/<token>"
 pnpm queue:prod -- set-lineup --ids id1,id2,id3,id4,id5 --admin-url "https://.../admin/<slug>/<token>" --yes
 ```
+
+Full admin URLs are the fastest production path. For `snapshot`, `rank`,
+`set-lineup`, and `set-best`, the helper can infer the public Convex deployment
+URL from the deployed app and query Convex directly, so a fresh worktree does
+not need `.env.local` when `--admin-url` is a full `https://.../admin/...` URL.
 
 Local queue commands use the deployment selected by `.env.local`. Production
 queue commands can use `--prod` via `pnpm queue:prod`, or `.env.local` can point

@@ -3,6 +3,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { parseEnv } from "node:util";
 
 const STATUS_ORDER = new Map([
   ["queued", 0],
@@ -101,8 +103,11 @@ function validateDeploymentSelector(args) {
 function parseAdminUrl(value) {
   if (!value) throw new Error("--admin-url requires a value");
   let pathname = value;
+  let adminSiteUrl;
   try {
-    pathname = new URL(value).pathname;
+    const parsed = new URL(value);
+    pathname = parsed.pathname;
+    adminSiteUrl = parsed.origin;
   } catch {
     // Accept a raw /admin/:slug/:token path too.
   }
@@ -113,6 +118,7 @@ function parseAdminUrl(value) {
   return {
     slug: decodeURIComponent(match[1]),
     adminToken: decodeURIComponent(match[2]),
+    adminSiteUrl,
   };
 }
 
@@ -120,7 +126,7 @@ function runConvex(args, { json = true } = {}) {
   const fullArgs = ["exec", "convex", ...args];
   const result = spawnSync("pnpm", fullArgs, {
     encoding: "utf8",
-    env: { ...process.env, ...readLocalEnv() },
+    env: localProcessEnv(),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -147,6 +153,101 @@ function runConvex(args, { json = true } = {}) {
   }
 }
 
+async function runAppFunction(args, type, functionName, payload) {
+  const convexUrl = await convexUrlForArgs(args);
+  if (convexUrl) {
+    return await runConvexHttp(convexUrl, type, functionName, payload);
+  }
+
+  return runConvex([
+    "run",
+    functionName,
+    JSON.stringify(payload),
+    ...deploymentFlags(args),
+  ]);
+}
+
+async function runConvexHttp(convexUrl, type, functionName, payload) {
+  const endpoint = type === "mutation" ? "mutation" : "query";
+  const response = await fetch(`${convexUrl}/api/${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Convex-Client": "demo-queue-helper",
+    },
+    body: JSON.stringify({
+      path: functionName,
+      format: "convex_encoded_json",
+      args: [payload],
+    }),
+  });
+  const body = await response.text();
+  let result;
+  try {
+    result = JSON.parse(body);
+  } catch {
+    throw new Error(`Could not parse Convex HTTP response from ${endpoint}: ${redactSensitiveText(body)}`);
+  }
+
+  if (!response.ok && response.status !== 560) {
+    throw new Error(`Convex HTTP ${endpoint} failed: ${redactSensitiveText(body)}`);
+  }
+  if (result.status === "success") return result.value;
+  if (result.status === "error") {
+    throw new Error(result.errorMessage ?? `Convex HTTP ${endpoint} failed`);
+  }
+  throw new Error(`Invalid Convex HTTP response: ${redactSensitiveText(body)}`);
+}
+
+async function convexUrlForArgs(args) {
+  const env = localProcessEnv();
+  if (env.NEXT_PUBLIC_CONVEX_URL) return env.NEXT_PUBLIC_CONVEX_URL;
+
+  const siteUrl = normalizeSiteUrl(args.siteUrl ?? args.adminSiteUrl ?? env.DEMO_QUEUE_SITE_URL ?? defaultSiteUrl(args, env));
+  if (!siteUrl) return null;
+  return await inferConvexUrlFromSite(siteUrl, args);
+}
+
+async function inferConvexUrlFromSite(siteUrl, args) {
+  const pageUrl = args.slug && args.adminToken
+    ? `${siteUrl}/admin/${encodeURIComponent(args.slug)}/${encodeURIComponent(args.adminToken)}`
+    : siteUrl;
+
+  try {
+    const html = await fetchText(pageUrl);
+    const scriptUrls = extractScriptSrcs(html, siteUrl);
+    const scriptTexts = await Promise.all(scriptUrls.map((url) => fetchText(url).catch(() => "")));
+    const runtimeMatch = scriptTexts.map(findRuntimeConvexUrl).find(Boolean);
+    if (runtimeMatch) return runtimeMatch;
+
+    const candidates = new Set(scriptTexts.flatMap(findConvexUrlCandidates));
+    if (candidates.size === 1) return [...candidates][0];
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function fetchText(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Fetch failed with ${response.status}`);
+  return await response.text();
+}
+
+function extractScriptSrcs(html, siteUrl) {
+  return [...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((match) => new URL(match[1], siteUrl).href);
+}
+
+function findRuntimeConvexUrl(text) {
+  return text.match(/NEXT_PUBLIC_CONVEX_URL:"(https:\/\/[^"\\]+\.convex\.cloud)"/)?.[1] ?? null;
+}
+
+function findConvexUrlCandidates(text) {
+  return [...text.matchAll(/https:\/\/[^"'`\\\s<>]+\.convex\.cloud/g)]
+    .map((match) => match[0])
+    .filter((url) => !url.includes("happy-otter-123"));
+}
+
 function redactSensitiveArgs(args) {
   return args.map((arg) => redactSensitiveText(arg));
 }
@@ -162,24 +263,13 @@ function readLocalEnv() {
   for (const file of [".env", ".env.local"]) {
     const path = join(process.cwd(), file);
     if (!existsSync(path)) continue;
-    const lines = readFileSync(path, "utf8").split(/\r?\n/);
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const separator = trimmed.indexOf("=");
-      if (separator === -1) continue;
-      const key = trimmed.slice(0, separator).trim();
-      let value = trimmed.slice(separator + 1).trim();
-      if (
-        (value.startsWith("\"") && value.endsWith("\"")) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      if (key) values[key] = value;
-    }
+    Object.assign(values, parseEnv(readFileSync(path, "utf8")));
   }
   return values;
+}
+
+function localProcessEnv(processEnv = process.env) {
+  return { ...readLocalEnv(), ...processEnv };
 }
 
 function deploymentFlags(args) {
@@ -253,14 +343,14 @@ function pickEvent(events, slug) {
   return event;
 }
 
-function loadAdmin(args) {
+async function loadAdmin(args) {
   if (args.slug && args.adminToken) {
-    const admin = runConvex([
-      "run",
+    const admin = await runAppFunction(
+      args,
+      "query",
       "events:getAdmin",
-      JSON.stringify({ slug: args.slug, adminToken: args.adminToken }),
-      ...deploymentFlags(args),
-    ]);
+      { slug: args.slug, adminToken: args.adminToken },
+    );
     return {
       ...admin,
       event: {
@@ -361,8 +451,8 @@ function printSnapshot(admin, args) {
 }
 
 function adminUrl(admin, args) {
-  const env = { ...process.env, ...readLocalEnv() };
-  const siteUrl = normalizeSiteUrl(args.siteUrl ?? env.DEMO_QUEUE_SITE_URL ?? defaultSiteUrl(args, env));
+  const env = localProcessEnv();
+  const siteUrl = normalizeSiteUrl(args.siteUrl ?? args.adminSiteUrl ?? env.DEMO_QUEUE_SITE_URL ?? defaultSiteUrl(args, env));
   return `${siteUrl}/admin/${admin.event.slug}/${admin.event.adminToken}`;
 }
 
@@ -404,7 +494,7 @@ function printRanked(admin, ranked) {
   }
 }
 
-function setLineup(admin, args, ids) {
+async function setLineup(admin, args, ids) {
   if (!admin.event.adminToken) {
     throw new Error("set-lineup requires an admin token. Pass --admin-url or --admin-token.");
   }
@@ -423,32 +513,32 @@ function setLineup(admin, args, ids) {
     return;
   }
 
-  runConvex([
-    "run",
+  await runAppFunction(
+    args,
+    "mutation",
     "events:setLineupOrder",
-    JSON.stringify({
+    {
       slug: admin.event.slug,
       adminToken: admin.event.adminToken,
       orderedIds: ids,
-    }),
-    ...deploymentFlags(args),
-  ]);
+    },
+  );
 
-  const verified = runConvex([
-    "run",
+  const verified = await runAppFunction(
+    args,
+    "query",
     "events:getAdmin",
-    JSON.stringify({
+    {
       slug: admin.event.slug,
       adminToken: admin.event.adminToken,
-    }),
-    ...deploymentFlags(args),
-  ]);
-  const stage = runConvex([
-    "run",
+    },
+  );
+  const stage = await runAppFunction(
+    args,
+    "query",
     "events:getStage",
-    JSON.stringify({ slug: admin.event.slug }),
-    ...deploymentFlags(args),
-  ]);
+    { slug: admin.event.slug },
+  );
 
   console.log(`Applied lineup for ${verified.event.name} (${verified.event.slug})`);
   printList(verified.lineup);
@@ -464,9 +554,9 @@ function findSubmission(admin, id) {
   return submission;
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const admin = loadAdmin(args);
+  const admin = await loadAdmin(args);
 
   if (args.command === "snapshot") {
     printSnapshot(admin, args);
@@ -476,18 +566,27 @@ function main() {
     if (!args.ids || args.ids.length === 0) {
       throw new Error("set-lineup requires --ids ID1,ID2,...");
     }
-    setLineup(admin, args, args.ids);
+    await setLineup(admin, args, args.ids);
   } else if (args.command === "set-best") {
     const ids = rankSubmissions(admin, args.count).map((item) => item.id);
-    setLineup(admin, args, ids);
+    await setLineup(admin, args, ids);
   } else {
     throw new Error(`Unknown command: ${args.command}`);
   }
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error.message);
-  usage(1);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error.message);
+    usage(1);
+  });
 }
+
+export {
+  extractScriptSrcs,
+  findConvexUrlCandidates,
+  findRuntimeConvexUrl,
+  localProcessEnv,
+  parseAdminUrl,
+  readLocalEnv,
+};

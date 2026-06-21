@@ -9,6 +9,7 @@
     "dev:convex": "convex dev",
     "build": "next build",
     "lint": "eslint",
+    "test": "node --test",
     "queue": "node scripts/demo-queue-ops.mjs",
     "queue:prod": "node scripts/demo-queue-ops.mjs --prod",
     "convex:dev": "convex dev",

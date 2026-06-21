@@ -46,6 +46,8 @@ A full `https://.../admin/<slug>/<token>` admin URL is the fastest production
 path. For `snapshot`, `rank`, `set-lineup`, and `set-best`, the helper can infer
 the public Convex deployment URL from the deployed app and query Convex directly,
 so do not copy `.env.local` first when a full admin URL is already available.
+When reporting helper results with IDs, paste the helper rows exactly or omit
+IDs if they are not needed. Do not manually retype submission IDs from memory.
 
 When using Codex for production Convex commands, request escalated network
 permission on the first command. Waiting for a sandboxed prod command to fail can

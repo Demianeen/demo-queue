@@ -37,6 +37,7 @@ If the user asks for production data and the command needs network access, reque
 - For local/dev data, use `pnpm queue`. For production, use `pnpm queue:prod`. For preview, pass the Convex preview deployment reference with `--deployment <reference>` and pass `--site-url` when printing a preview admin URL.
 - Verify live data with the script output or `events:getStage`; do browser verification only when the user asks about rendered UI or after code/UI changes.
 - Do not expose phone numbers, emails, participant tokens, or admin tokens unless the user explicitly asks for contact details or an admin URL.
+- When the answer includes submission IDs, paste the helper rows exactly or omit IDs if they are not needed. Do not manually retype IDs from memory.
 
 ## Manual Fallback
 

@@ -14,23 +14,23 @@ Convex agent skills for common tasks can be installed by running
 
 ## Demo queue inspection
 
-When a user asks who is in the queue, wants the best N demos, asks for the admin
-URL, or asks to set/update the live lineup, use the deterministic helper first
-so Codex does not spend event time rediscovering routes, schemas, function
-specs, Vercel aliases, or browser verification paths:
+When a user asks who is in the queue, wants the best N demos, or asks for the
+admin URL, use the read-only helper first so Codex does not spend event time
+rediscovering routes, schemas, function specs, Vercel aliases, or browser
+verification paths:
 
-For event-time queue inspection, ranking, or lineup requests, run the matching
-helper command before reading memory, rollout summaries, Convex schema, or route
-files. Use old memory only after the helper fails or when the user explicitly
-asks for historical context.
+For event-time queue inspection or ranking requests, run `model-context` before
+reading memory, rollout summaries, Convex schema, or route files. The helper only
+gets data to the model. It must not rank, choose, or mutate demos. Use old memory
+only after the helper fails or when the user explicitly asks for historical
+context.
 
 ```bash
+pnpm queue -- model-context
+pnpm queue -- model-context --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"
 pnpm queue -- snapshot
-pnpm queue -- snapshot --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"
+pnpm queue:prod -- model-context --admin-url "https://.../admin/<slug>/<token>"
 pnpm queue:prod -- snapshot --admin-url "https://.../admin/<slug>/<token>"
-pnpm queue:prod -- rank --count 5 --admin-url "https://.../admin/<slug>/<token>"
-pnpm queue:prod -- set-lineup --ids id1,id2,id3,id4,id5 --admin-url "https://.../admin/<slug>/<token>" --yes
-pnpm queue:prod -- set-best --count 5 --admin-url "https://.../admin/<slug>/<token>" --yes
 pnpm queue:prod -- snapshot --show-admin-url
 ```
 
@@ -42,10 +42,12 @@ helper prints a full URL using `--site-url`, `DEMO_QUEUE_SITE_URL`, Vercel URL
 env vars, localhost for non-production, or the stable production default
 `https://demo-queue-tau.vercel.app`.
 
-A full `https://.../admin/<slug>/<token>` admin URL is the fastest production
-path. For `snapshot`, `rank`, `set-lineup`, and `set-best`, the helper can infer
-the public Convex deployment URL from the deployed app and query Convex directly,
-so do not copy `.env.local` first when a full admin URL is already available.
+A full `https://.../admin/<slug>/<token>` admin URL is the authoritative
+production path. For `model-context` and `snapshot`, the helper infers the
+public Convex deployment URL only from the deployed app named by that URL and
+queries Convex directly, so do not copy `.env.local` first when a full admin URL
+is already available. In this mode, local env cannot override the pasted
+production admin URL.
 When reporting helper results with IDs, paste the helper rows exactly or omit
 IDs if they are not needed. Do not manually retype submission IDs from memory.
 
@@ -88,9 +90,9 @@ pass the Convex preview deployment reference to the helper with
 
 4. Treat `status: "queued"` plus `queueOrder` as the live lineup. Treat `status: "candidate"` as the pool, not the active queue, unless the user asks for all submissions.
 
-5. If the user asks for the "best N demos", rank queued demos first unless they ask to include candidates. Favor demos with clear live-demo hooks, broad audience appeal, concrete workflows, and distinct categories. Penalize placeholder/test titles, empty descriptions, and vague descriptions.
+5. If the user asks for the "best N demos", run the helper only to fetch `model-context`, then rank the demos with model judgment. Favor demos with clear live-demo hooks, broad audience appeal, concrete workflows, and distinct categories. Penalize placeholder/test titles, empty descriptions, and vague descriptions. Do not treat helper output order as the ranking.
 
-6. Do not expose phone numbers, emails, participant tokens, or admin tokens unless the user explicitly asks for contact details. Names, demo titles, categories, queue order, and status are enough for ranking.
+6. Do not expose phone numbers, emails, participant tokens, or admin tokens unless the user explicitly asks for contact details. Names, demo titles, descriptions, categories, queue order, and status are enough for ranking.
 
 7. Do not ask clarifying questions when the user's wording is specific enough to infer the deployment and ranking count, for example "check prod queue and give me the best 5 demos". State the assumptions used in the answer instead.
 

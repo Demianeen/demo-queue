@@ -85,6 +85,7 @@ export default function AdminPage() {
   const restoreSubmission = useMutation(api.events.restoreSubmission);
   const pickNext = useMutation(api.events.pickNext);
   const skipCurrent = useMutation(api.events.skipCurrent);
+  const markNoShow = useMutation(api.events.markNoShow);
   const clearQueue = useMutation(api.events.clearQueue);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const updateSubmission = useMutation(api.events.updateSubmission);
@@ -155,9 +156,11 @@ export default function AdminPage() {
     admin?.lineup.forEach((item) => map.set(item.id, item));
     admin?.pool.forEach((item) => map.set(item.id, item));
     admin?.hidden.forEach((item) => map.set(item.id, item));
-    admin?.inactive?.forEach((item) => map.set(item.id, item));
+    admin?.completed.forEach((item) => map.set(item.id, item));
+    admin?.noShows.forEach((item) => map.set(item.id, item));
+    admin?.withdrawn.forEach((item) => map.set(item.id, item));
     return map;
-  }, [admin?.lineup, admin?.pool, admin?.hidden, admin?.inactive]);
+  }, [admin?.lineup, admin?.pool, admin?.hidden, admin?.completed, admin?.noShows, admin?.withdrawn]);
 
   // Mirror the server lists into local board state for drag previews, but never
   // while a drag is in flight (that would yank a card out from under the cursor).
@@ -357,6 +360,15 @@ export default function AdminPage() {
     await skipCurrent({ slug: params.slug, adminToken: params.token });
   }
 
+  async function noShow() {
+    if (!queueIsLive || !currentLineupItem) return;
+    setLiveMenuOpen(false);
+    await markNoShow({
+      slug: params.slug,
+      adminToken: params.token,
+    });
+  }
+
   async function toggleStageMeetLink(visible: boolean) {
     await setStageMeetLinkVisible({
       slug: params.slug,
@@ -453,12 +465,17 @@ export default function AdminPage() {
   const activeItem = activeId ? itemsById.get(activeId) : null;
   const lineupCount = board.lineup.length;
   const hiddenSubmissions = admin.hidden ?? [];
-  const inactiveSubmissions = admin.inactive ?? [];
+  const inactiveSubmissions = [
+    ...(admin.completed ?? []),
+    ...(admin.noShows ?? []),
+    ...(admin.withdrawn ?? []),
+  ];
   const allPeopleRows = buildRosterRows(
     { hidden: hiddenSubmissions, inactive: inactiveSubmissions },
     board,
     itemsById,
   );
+  const currentLineupItem = board.lineup[0] ? itemsById.get(board.lineup[0]) : null;
 
   return (
     <main className="page">
@@ -507,6 +524,16 @@ export default function AdminPage() {
                       <button className="split-action-item" onClick={skip} role="menuitem" type="button">
                         <span>Skip for now</span>
                         <small>Move current presenter to the bottom of the lineup.</small>
+                      </button>
+                      <button
+                        className="split-action-item"
+                        disabled={!currentLineupItem}
+                        onClick={noShow}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <span>Mark no-show</span>
+                        <small>Remove current presenter and list them under No-shows.</small>
                       </button>
                     </div>
                   ) : null}
@@ -1254,6 +1281,9 @@ function SubmissionForm({
 }
 
 function Contact({ item }: { item: AdminSubmission }) {
+  const hasContact = item.phone || item.email || item.twitter || item.linkedin;
+  if (!hasContact) return null;
+
   return (
     <div className="contact-list">
       <span>{item.phone}</span>

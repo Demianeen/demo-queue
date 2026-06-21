@@ -8,6 +8,7 @@ export default defineSchema({
     meetUrl: v.string(),
     adminToken: v.string(),
     queuePublished: v.boolean(),
+    showMeetLinkOnStage: v.optional(v.boolean()),
     lineupTarget: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),

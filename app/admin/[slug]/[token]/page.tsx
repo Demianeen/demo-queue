@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useId, useMemo, useState } from "react";
+import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { QRCodeSVG } from "qrcode.react";
 import { useParams } from "next/navigation";
@@ -35,7 +35,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { ChevronDown, GripVertical } from "lucide-react";
 
 type AdminSubmission = {
   id: Id<"submissions">;
@@ -75,10 +75,12 @@ export default function AdminPage() {
   const hideSubmission = useMutation(api.events.hideSubmission);
   const restoreSubmission = useMutation(api.events.restoreSubmission);
   const pickNext = useMutation(api.events.pickNext);
+  const skipCurrent = useMutation(api.events.skipCurrent);
   const clearQueue = useMutation(api.events.clearQueue);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const updateSubmission = useMutation(api.events.updateSubmission);
   const setLineupTarget = useMutation(api.events.setLineupTarget);
+  const setStageMeetLinkVisible = useMutation(api.events.setStageMeetLinkVisible);
   const shuffleLineup = useMutation(api.events.shuffleLineup);
   const aiShuffle = useAction(api.ai.aiShuffle);
 
@@ -125,10 +127,12 @@ export default function AdminPage() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
+  const [liveMenuOpen, setLiveMenuOpen] = useState(false);
   const [board, setBoard] = useState<{ lineup: Id<"submissions">[]; pool: Id<"submissions">[] }>({
     lineup: [],
     pool: [],
   });
+  const liveMenuRef = useRef<HTMLDivElement | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -151,6 +155,28 @@ export default function AdminPage() {
       pool: admin.pool.map((item) => item.id),
     });
   }, [admin, activeId]);
+
+  useEffect(() => {
+    if (!liveMenuOpen) return;
+
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (liveMenuRef.current?.contains(event.target as Node)) return;
+      setLiveMenuOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setLiveMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [liveMenuOpen]);
 
   if (!admin) {
     return (
@@ -293,7 +319,22 @@ export default function AdminPage() {
 
   async function next() {
     if (!queueIsLive) return;
+    setLiveMenuOpen(false);
     await pickNext({ slug: params.slug, adminToken: params.token });
+  }
+
+  async function skip() {
+    if (!queueIsLive) return;
+    setLiveMenuOpen(false);
+    await skipCurrent({ slug: params.slug, adminToken: params.token });
+  }
+
+  async function toggleStageMeetLink(visible: boolean) {
+    await setStageMeetLinkVisible({
+      slug: params.slug,
+      adminToken: params.token,
+      visible,
+    });
   }
 
   async function saveNew(values: SubmissionFields) {
@@ -412,9 +453,29 @@ export default function AdminPage() {
 
             <div className="actions" style={{ marginBottom: 14 }}>
               {queueIsLive ? (
-                <Button onClick={next} type="button">
-                  Advance to next demo
-                </Button>
+                <div className="split-action" ref={liveMenuRef}>
+                  <Button className="split-action-main" onClick={next} type="button">
+                    Advance
+                  </Button>
+                  <Button
+                    aria-expanded={liveMenuOpen}
+                    aria-haspopup="menu"
+                    aria-label="More live queue actions"
+                    className="split-action-trigger"
+                    onClick={() => setLiveMenuOpen((open) => !open)}
+                    type="button"
+                  >
+                    <ChevronDown size={16} aria-hidden />
+                  </Button>
+                  {liveMenuOpen ? (
+                    <div className="split-action-menu" role="menu">
+                      <button className="split-action-item" onClick={skip} role="menuitem" type="button">
+                        <span>Skip for now</span>
+                        <small>Move current presenter to the bottom of the lineup.</small>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               ) : (
                 <Button onClick={publish} type="button">
                   Make queue live
@@ -465,11 +526,23 @@ export default function AdminPage() {
               </div>
             ) : null}
 
-            <div className="field" style={{ maxWidth: 480 }}>
-              <label htmlFor="meetUrl">Meet link</label>
+            <div className="field" style={{ maxWidth: 520 }}>
+              <div className="field-heading">
+                <label htmlFor="meetUrl">Meet link</label>
+                <label className="stage-meet-toggle">
+                  <input
+                    type="checkbox"
+                    checked={admin.event.showMeetLinkOnStage ?? false}
+                    disabled={!queueIsLive}
+                    onChange={(event) => toggleStageMeetLink(event.currentTarget.checked)}
+                  />
+                  <span>Show on stage</span>
+                </label>
+              </div>
               <input id="meetUrl" readOnly value={admin.event.meetUrl} />
               <span className="muted" style={{ fontSize: 12 }}>
-                Visible to admin; participants see it only when up next or current.
+                Published lineup participants see it on their status pages. Stage visibility is off
+                unless you enable it after publishing.
               </span>
             </div>
           </div>

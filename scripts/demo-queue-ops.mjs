@@ -6,36 +6,25 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
 
-const STATUS_ORDER = new Map([
-  ["queued", 0],
-  ["candidate", 1],
-  ["hidden", 2],
-  ["done", 3],
-  ["no_show", 4],
-  ["withdrawn", 5],
-]);
-
 const TEST_EVENT_RE = /\b(qa|layout|smoke|local-test|e2e|test)\b/i;
-const STRONG_HOOK_RE = /\b(live|demo|no slides|3-min|workflow|onboarding|ships?|show)\b/i;
-const WEAK_PLACEHOLDER_RE = /\b(test|whatever|placeholder|lorem|sample)\b/i;
 const DEFAULT_SITE_URL = "https://demo-queue-tau.vercel.app";
 const DEFAULT_LOCAL_SITE_URL = "http://localhost:3000";
+const DATA_COMMANDS = new Set(["model-context", "context", "snapshot"]);
 
 function usage(exitCode = 1) {
   const stream = exitCode === 0 ? process.stdout : process.stderr;
   stream.write(`Usage:
+  pnpm queue:prod -- model-context [--admin-url URL | --slug SLUG --admin-token TOKEN]
   pnpm queue:prod -- snapshot [--admin-url URL | --slug SLUG --admin-token TOKEN]
-  pnpm queue:prod -- rank [--count 5] [--admin-url URL | --slug SLUG --admin-token TOKEN]
-  pnpm queue:prod -- set-lineup --ids ID1,ID2,... [--admin-url URL | --slug SLUG --admin-token TOKEN] --yes
-  pnpm queue:prod -- set-best [--count 5] [--admin-url URL | --slug SLUG --admin-token TOKEN] --yes
+  pnpm queue -- model-context
   pnpm queue -- snapshot
-  pnpm queue -- snapshot --deployment PREVIEW_REFERENCE --site-url https://preview-url.vercel.app
+  pnpm queue -- model-context --deployment PREVIEW_REFERENCE --site-url https://preview-url.vercel.app
 
 Notes:
   --prod is added by the package script.
   --deployment is passed through to Convex for dev, preview, staging, local, or named deployments.
   --show-admin-url prints a full URL using --site-url, DEMO_QUEUE_SITE_URL, Vercel URL env vars, or a deployment-specific default.
-  Mutations require --yes.
+  This helper is read-only. It fetches queue data for the model; it does not rank, choose, or mutate demos.
   Normal output omits phone numbers, emails, participant tokens, and admin tokens.
 `);
   process.exit(exitCode);
@@ -81,13 +70,24 @@ function parseArgs(argv) {
     }
   }
 
-  args.command = positionals[0] ?? "snapshot";
+  args.command = positionals[0] ?? "model-context";
   if (!Number.isFinite(args.count) || args.count < 1) {
     throw new Error("--count must be a positive number");
   }
   args.count = Math.round(args.count);
   validateDeploymentSelector(args);
+  validateDataCommand(args.command);
   return args;
+}
+
+function validateDataCommand(command) {
+  if (DATA_COMMANDS.has(command)) return;
+  if (command === "rank" || command === "set-best" || command === "set-lineup") {
+    throw new Error(
+      `"${command}" is not supported. This helper only fetches queue data for the model. Use "model-context", then let the model rank or choose demos.`,
+    );
+  }
+  throw new Error(`Unknown command: ${command}`);
 }
 
 function validateDeploymentSelector(args) {
@@ -153,10 +153,10 @@ function runConvex(args, { json = true } = {}) {
   }
 }
 
-async function runAppFunction(args, type, functionName, payload) {
+async function runAppQuery(args, functionName, payload) {
   const convexUrl = await convexUrlForArgs(args);
   if (convexUrl) {
-    return await runConvexHttp(convexUrl, type, functionName, payload);
+    return await runConvexHttpQuery(convexUrl, functionName, payload);
   }
 
   return runConvex([
@@ -167,9 +167,8 @@ async function runAppFunction(args, type, functionName, payload) {
   ]);
 }
 
-async function runConvexHttp(convexUrl, type, functionName, payload) {
-  const endpoint = type === "mutation" ? "mutation" : "query";
-  const response = await fetch(`${convexUrl}/api/${endpoint}`, {
+async function runConvexHttpQuery(convexUrl, functionName, payload) {
+  const response = await fetch(`${convexUrl}/api/query`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -186,20 +185,30 @@ async function runConvexHttp(convexUrl, type, functionName, payload) {
   try {
     result = JSON.parse(body);
   } catch {
-    throw new Error(`Could not parse Convex HTTP response from ${endpoint}: ${redactSensitiveText(body)}`);
+    throw new Error(`Could not parse Convex HTTP query response: ${redactSensitiveText(body)}`);
   }
 
   if (!response.ok && response.status !== 560) {
-    throw new Error(`Convex HTTP ${endpoint} failed: ${redactSensitiveText(body)}`);
+    throw new Error(`Convex HTTP query failed: ${redactSensitiveText(body)}`);
   }
   if (result.status === "success") return result.value;
   if (result.status === "error") {
-    throw new Error(result.errorMessage ?? `Convex HTTP ${endpoint} failed`);
+    throw new Error(result.errorMessage ?? "Convex HTTP query failed");
   }
   throw new Error(`Invalid Convex HTTP response: ${redactSensitiveText(body)}`);
 }
 
 async function convexUrlForArgs(args) {
+  if (args.adminSiteUrl) {
+    const inferred = await inferConvexUrlFromSite(normalizeSiteUrl(args.adminSiteUrl), args);
+    if (!inferred) {
+      throw new Error(
+        "Could not infer Convex URL from --admin-url. Check that the URL points at a deployed demo-queue app.",
+      );
+    }
+    return inferred;
+  }
+
   const env = localProcessEnv();
   if (env.NEXT_PUBLIC_CONVEX_URL) return env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -345,9 +354,8 @@ function pickEvent(events, slug) {
 
 async function loadAdmin(args) {
   if (args.slug && args.adminToken) {
-    const admin = await runAppFunction(
+    const admin = await runAppQuery(
       args,
-      "query",
       "events:getAdmin",
       { slug: args.slug, adminToken: args.adminToken },
     );
@@ -374,69 +382,6 @@ async function loadAdmin(args) {
   return toAdminShape(event, submissions);
 }
 
-function scoreSubmission(submission, selectedCategories) {
-  const title = submission.demoTitle ?? "";
-  const description = submission.description ?? "";
-  const category = submission.category ?? "";
-  let score = 0;
-  const reasons = [];
-
-  if (submission.status === "queued") {
-    score += 1000 - (submission.queueOrder ?? 99);
-    reasons.push("already queued");
-  }
-  if (STRONG_HOOK_RE.test(`${title} ${description}`)) {
-    score += 45;
-    reasons.push("clear live-demo hook");
-  }
-  if (description.length >= 70) {
-    score += 20;
-    reasons.push("concrete description");
-  }
-  if (category && !selectedCategories.has(category)) {
-    score += 12;
-    reasons.push("adds category variety");
-  }
-  if (WEAK_PLACEHOLDER_RE.test(`${title} ${description}`)) {
-    score -= 80;
-    reasons.push("placeholder-like wording");
-  }
-  if (submission.status !== "queued" && submission.status !== "candidate") {
-    score -= 10000;
-    reasons.push(`inactive status: ${submission.status}`);
-  }
-
-  return { score, reasons };
-}
-
-function rankSubmissions(admin, count) {
-  const eligible = [...admin.lineup, ...admin.pool].map(publicFields);
-  const selected = [];
-  const selectedCategories = new Set();
-
-  while (eligible.length > 0 && selected.length < count) {
-    eligible.sort((a, b) => {
-      const scoredB = scoreSubmission(b, selectedCategories).score;
-      const scoredA = scoreSubmission(a, selectedCategories).score;
-      if (scoredB !== scoredA) return scoredB - scoredA;
-
-      const statusDelta =
-        (STATUS_ORDER.get(a.status) ?? 99) - (STATUS_ORDER.get(b.status) ?? 99);
-      if (statusDelta !== 0) return statusDelta;
-
-      return (a.queueOrder ?? Number.MAX_SAFE_INTEGER) - (b.queueOrder ?? Number.MAX_SAFE_INTEGER);
-    });
-
-    const next = eligible.shift();
-    if (!next) break;
-    const { score, reasons } = scoreSubmission(next, selectedCategories);
-    selected.push({ ...next, score, reasons });
-    if (next.category) selectedCategories.add(next.category);
-  }
-
-  return selected;
-}
-
 function printSnapshot(admin, args) {
   console.log(`Event: ${admin.event.name} (${admin.event.slug})`);
   console.log(`Published: ${admin.event.queuePublished ? "yes" : "no"}`);
@@ -448,6 +393,54 @@ function printSnapshot(admin, args) {
   if (args.showAdminUrl && admin.event.adminToken) {
     console.log(`Admin URL: ${adminUrl(admin, args)}`);
   }
+}
+
+function printModelContext(admin) {
+  console.log(JSON.stringify(toModelContext(admin), null, 2));
+}
+
+function toModelContext(admin) {
+  return {
+    event: {
+      id: admin.event.id,
+      name: admin.event.name,
+      slug: admin.event.slug,
+      lineupTarget: admin.event.lineupTarget ?? null,
+      queuePublished: Boolean(admin.event.queuePublished),
+    },
+    eligible: {
+      lineup: submissionList(admin.lineup).map(modelSubmissionFields),
+      pool: submissionList(admin.pool).map(modelSubmissionFields),
+    },
+    ineligible: {
+      hidden: submissionList(admin.hidden).map(modelSubmissionFields),
+      inactive: submissionList(admin.inactive).map(modelSubmissionFields),
+    },
+  };
+}
+
+function submissionList(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function modelSubmissionFields(submission) {
+  return {
+    id: submission.id,
+    name: redactPublicText(submission.name ?? ""),
+    demoTitle: redactPublicText(submission.demoTitle ?? ""),
+    description: redactPublicText(submission.description ?? ""),
+    category: redactPublicText(submission.category ?? ""),
+    status: submission.status,
+    queueOrder: submission.queueOrder ?? null,
+    createdAt: submission.createdAt ?? null,
+    updatedAt: submission.updatedAt ?? null,
+  };
+}
+
+function redactPublicText(text) {
+  return String(text)
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "<redacted-email>")
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, "<redacted-phone>");
 }
 
 function adminUrl(admin, args) {
@@ -482,96 +475,14 @@ function printList(items) {
   }
 }
 
-function printRanked(admin, ranked) {
-  console.log(`Event: ${admin.event.name} (${admin.event.slug})`);
-  for (const [index, item] of ranked.entries()) {
-    console.log(
-      `${index + 1}. ${item.name} - ${item.demoTitle} (${item.category ?? "uncategorized"})`,
-    );
-    console.log(`   id: ${item.id}`);
-    console.log(`   status: ${item.status}${item.queueOrder ? `, queueOrder ${item.queueOrder}` : ""}`);
-    console.log(`   why: ${item.reasons.join("; ") || "highest remaining score"}`);
-  }
-}
-
-async function setLineup(admin, args, ids) {
-  if (!admin.event.adminToken) {
-    throw new Error("set-lineup requires an admin token. Pass --admin-url or --admin-token.");
-  }
-  const chosen = ids.map((id) => findSubmission(admin, id));
-  const invalid = chosen.filter((submission) => submission.status !== "queued" && submission.status !== "candidate");
-  if (invalid.length > 0) {
-    throw new Error(
-      `set-lineup only accepts queued or candidate submissions. Invalid ids: ${invalid
-        .map((submission) => `${submission.id} (${submission.status})`)
-        .join(", ")}`,
-    );
-  }
-  if (!args.yes) {
-    console.log("Dry run only. Add --yes to apply this lineup:");
-    printList(chosen);
-    return;
-  }
-
-  await runAppFunction(
-    args,
-    "mutation",
-    "events:setLineupOrder",
-    {
-      slug: admin.event.slug,
-      adminToken: admin.event.adminToken,
-      orderedIds: ids,
-    },
-  );
-
-  const verified = await runAppFunction(
-    args,
-    "query",
-    "events:getAdmin",
-    {
-      slug: admin.event.slug,
-      adminToken: admin.event.adminToken,
-    },
-  );
-  const stage = await runAppFunction(
-    args,
-    "query",
-    "events:getStage",
-    { slug: admin.event.slug },
-  );
-
-  console.log(`Applied lineup for ${verified.event.name} (${verified.event.slug})`);
-  printList(verified.lineup);
-  console.log(`Stage current: ${stage.current?.name ?? "(none)"}`);
-  console.log(`Stage up next: ${stage.upNext?.name ?? "(none)"}`);
-}
-
-function findSubmission(admin, id) {
-  const submission = [...admin.lineup, ...admin.pool, ...admin.hidden, ...admin.inactive].find(
-    (item) => item.id === id,
-  );
-  if (!submission) throw new Error(`Unknown submission id: ${id}`);
-  return submission;
-}
-
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const admin = await loadAdmin(args);
 
-  if (args.command === "snapshot") {
+  if (args.command === "model-context" || args.command === "context") {
+    printModelContext(admin);
+  } else if (args.command === "snapshot") {
     printSnapshot(admin, args);
-  } else if (args.command === "rank") {
-    printRanked(admin, rankSubmissions(admin, args.count));
-  } else if (args.command === "set-lineup") {
-    if (!args.ids || args.ids.length === 0) {
-      throw new Error("set-lineup requires --ids ID1,ID2,...");
-    }
-    await setLineup(admin, args, args.ids);
-  } else if (args.command === "set-best") {
-    const ids = rankSubmissions(admin, args.count).map((item) => item.id);
-    await setLineup(admin, args, ids);
-  } else {
-    throw new Error(`Unknown command: ${args.command}`);
   }
 }
 
@@ -586,7 +497,10 @@ export {
   extractScriptSrcs,
   findConvexUrlCandidates,
   findRuntimeConvexUrl,
+  convexUrlForArgs,
   localProcessEnv,
+  parseArgs,
   parseAdminUrl,
   readLocalEnv,
+  toModelContext,
 };

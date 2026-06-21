@@ -297,10 +297,16 @@ export const getAdmin = query({
         .filter((submission) => submission.status === "hidden")
         .sort((a, b) => b.createdAt - a.createdAt)
         .map(adminSubmissionFields),
-      inactive: submissions
-        .filter((submission) =>
-          ["done", "no_show", "withdrawn"].includes(submission.status),
-        )
+      completed: submissions
+        .filter((submission) => submission.status === "done")
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map(adminSubmissionFields),
+      noShows: submissions
+        .filter((submission) => submission.status === "no_show")
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map(adminSubmissionFields),
+      withdrawn: submissions
+        .filter((submission) => submission.status === "withdrawn")
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .map(adminSubmissionFields),
     };
@@ -881,23 +887,30 @@ export const markNoShow = mutation({
   args: {
     slug: v.string(),
     adminToken: v.string(),
-    submissionId: v.id("submissions"),
   },
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
     requireAdmin(event, args.adminToken);
-    const submission = await ctx.db.get(args.submissionId);
-
-    if (!submission || submission.eventId !== event._id) {
-      throw new ConvexError("Submission not found");
+    if (!event.queuePublished) {
+      return;
     }
 
-    await ctx.db.patch(args.submissionId, {
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+
+    const current = lineupSorted(submissions)[0];
+    if (!current) {
+      return;
+    }
+
+    await ctx.db.patch(current._id, {
       status: "no_show",
       queueOrder: undefined,
       updatedAt: Date.now(),
     });
-    await logAction(ctx, event._id, "submission_no_show", "admin", args.submissionId);
+    await logAction(ctx, event._id, "submission_no_show", "admin", current._id);
   },
 });
 

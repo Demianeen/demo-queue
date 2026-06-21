@@ -35,7 +35,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown, GripVertical } from "lucide-react";
+import { ChevronDown, ExternalLink, GripVertical } from "lucide-react";
 
 type AdminSubmission = {
   id: Id<"submissions">;
@@ -802,18 +802,23 @@ function HistorySection({
       <div className="queue-list">
         {items.map((item) => (
           <article className="queue-item" key={item.id}>
-            <div className="queue-row">
-              <div>
+            <div className="history-card-head">
+              <div className="history-card-main">
                 <div className="queue-title">{item.demoTitle}</div>
                 <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
+                <SocialLinks item={item} />
               </div>
-              <span className={`pill ${badgeTone === "green" ? "green" : "yellow"}`}>
+              <span className={`pill history-badge ${badgeTone === "green" ? "green" : "yellow"}`}>
                 {badge}
               </span>
             </div>
-            {item.category ? <span className="pill green">{item.category}</span> : null}
             {showDescription ? (
               <p className="muted" style={{ marginBottom: 0 }}>{item.description}</p>
+            ) : null}
+            {item.category ? (
+              <div className="tag-row">
+                <span className="pill green tag-pill">{item.category}</span>
+              </div>
             ) : null}
           </article>
         ))}
@@ -893,7 +898,7 @@ function PersonCard({
                 <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
               </div>
             </div>
-            <span className="pill green">{item.category || "demo"}</span>
+            <span className="pill green queue-card-badge">{item.category || "demo"}</span>
           </div>
 
           <p className="muted" style={{ marginBottom: 0 }}>{item.description}</p>
@@ -1053,12 +1058,80 @@ function SubmissionForm({
 }
 
 function Contact({ item }: { item: AdminSubmission }) {
+  const hasContact = item.phone || item.email || item.twitter || item.linkedin;
+  if (!hasContact) return null;
+
   return (
     <div className="contact-list">
-      <span>{item.phone}</span>
+      {item.phone ? <span>{item.phone}</span> : null}
       {item.email ? <span>{item.email}</span> : null}
-      {item.twitter ? <span>{item.twitter}</span> : null}
-      {item.linkedin ? <span>{item.linkedin}</span> : null}
+      <SocialLinks item={item} />
     </div>
   );
+}
+
+function SocialLinks({ item }: { item: AdminSubmission }) {
+  const links = [
+    item.twitter
+      ? { href: socialHref("twitter", item.twitter), label: "X", value: item.twitter }
+      : null,
+    item.linkedin
+      ? { href: socialHref("linkedin", item.linkedin), label: "LinkedIn", value: item.linkedin }
+      : null,
+  ].filter((link): link is { href: string; label: string; value: string } => Boolean(link?.href));
+
+  if (links.length === 0) return null;
+
+  return (
+    <div className="social-links">
+      {links.map((link) => (
+        <a
+          aria-label={`Open ${item.name} ${link.label} profile`}
+          className="social-link"
+          href={link.href}
+          key={`${link.label}-${link.value}`}
+          rel="noreferrer"
+          target="_blank"
+        >
+          <ExternalLink size={13} aria-hidden />
+          <span>{link.label}</span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function socialHref(kind: "twitter" | "linkedin", value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (kind === "twitter") {
+    const handle = trimmed.replace(/^@/, "");
+    if (!handle.includes("/") && !handle.includes(".") && !handle.includes(" ")) {
+      return `https://x.com/${encodeURIComponent(handle)}`;
+    }
+  }
+
+  if (kind === "linkedin" && !trimmed.includes(".")) {
+    return null;
+  }
+
+  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate);
+    const hostname = url.hostname.toLowerCase();
+    if (kind === "twitter" && !["x.com", "twitter.com"].includes(hostname)) {
+      return null;
+    }
+    if (
+      kind === "linkedin" &&
+      hostname !== "linkedin.com" &&
+      !hostname.endsWith(".linkedin.com")
+    ) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
 }

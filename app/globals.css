@@ -504,15 +504,76 @@ h3 {
   gap: 16px;
 }
 
-.stage-qr-stack {
-  justify-self: center;
-  position: relative;
-  padding-top: 92px;
-  width: min(100%, 332px);
+.stage-qr-shell {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  justify-self: stretch;
+  min-width: 0;
+  width: 100%;
 }
 
-.stage-qr-stack.has-timer {
-  width: min(100%, 360px);
+.stage-timer-strip {
+  align-items: start;
+  color: rgba(16, 19, 24, 0.84);
+  display: flex;
+  gap: 30px;
+  justify-self: stretch;
+  min-width: 0;
+  width: 100%;
+}
+
+.stage-timer-strip.is-overtime {
+  color: #9f1f17;
+}
+
+.stage-timer-strip-clock {
+  flex: none;
+  min-width: 0;
+}
+
+.stage-timer-strip-clock span,
+.stage-timer-strip-count span {
+  display: block;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+  opacity: 0.62;
+  text-transform: uppercase;
+}
+
+.stage-timer-strip-clock strong {
+  display: block;
+  font-size: clamp(48px, 12vw, 76px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 0.88;
+  margin-top: 6px;
+  white-space: nowrap;
+}
+
+.stage-timer-strip-count {
+  color: var(--app-ink);
+  flex: none;
+  min-width: 72px;
+  text-align: left;
+}
+
+.stage-timer-strip-count strong {
+  display: block;
+  font-size: 56px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 0.95;
+  margin-top: 6px;
+}
+
+.stage-qr-stack {
+  position: relative;
+  padding-top: 92px;
+  width: 100%;
 }
 
 .stage-mascot {
@@ -541,17 +602,6 @@ h3 {
   width: 100%;
 }
 
-.stage-bento-timer {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(0, 1fr);
-  width: 100%;
-}
-
-.stage-bento-timer.has-timer {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
 .stage-bento-tile {
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.78);
@@ -568,16 +618,23 @@ h3 {
   aspect-ratio: 1 / 1;
   display: flex;
   flex-direction: column;
-  grid-column: 1 / -1;
   justify-content: center;
+  padding: 22px 22px 20px;
   text-align: center;
 }
 
-.stage-bento-qr svg {
+.stage-qr-code-frame {
+  aspect-ratio: 1 / 1;
+  display: grid;
+  max-width: 268px;
+  place-items: center;
+  width: 100%;
+}
+
+.stage-qr-code-frame svg {
   display: block;
   height: auto;
   margin: 0 auto;
-  max-width: 254px;
   width: 100%;
 }
 
@@ -585,33 +642,6 @@ h3 {
   font-size: 22px;
   line-height: 1.1;
   margin: 14px 0 0;
-}
-
-.stage-bento-clock {
-  background: #101318;
-  color: #ffffff;
-}
-
-.stage-bento-timer.is-overtime .stage-bento-clock {
-  background: #b42318;
-}
-
-.stage-bento-clock strong {
-  display: block;
-  font-size: 64px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-  line-height: 0.92;
-  margin-top: 8px;
-  white-space: nowrap;
-}
-
-.stage-bento-count strong {
-  display: block;
-  font-size: 48px;
-  letter-spacing: 0;
-  line-height: 0.9;
-  margin-top: 8px;
 }
 
 .stage-bento-label {
@@ -1004,14 +1034,20 @@ h3 {
 }
 
 .stage-timer-readout {
-  background: #101318;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.82);
   border-radius: 8px;
-  color: #ffffff;
+  color: var(--app-ink);
   font-size: 44px;
+  font-variant-numeric: tabular-nums;
   font-weight: 850;
   letter-spacing: 0;
   line-height: 1;
   padding: 14px 16px;
+}
+
+.stage-timer-admin.is-overtime .stage-timer-readout {
+  color: #9f1f17;
 }
 
 .stage-timer-controls {

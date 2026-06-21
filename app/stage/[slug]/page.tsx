@@ -95,7 +95,7 @@ export default function StagePage() {
   const timer = useStageTimer(stage?.stageTimer);
   const showTimer = timer.status !== "idle";
   const timerStateClass = showTimer
-    ? ` has-timer is-${timer.status}${timer.remainingMs < 0 ? " is-overtime" : ""}`
+    ? ` is-${timer.status}${timer.remainingMs < 0 ? " is-overtime" : ""}`
     : "";
   const waitingCount = stage?.waitingCount ?? stage?.remainingCount ?? 0;
 
@@ -285,34 +285,36 @@ export default function StagePage() {
               ) : null}
             </div>
           ) : (
-            <div className={`stage-qr-stack${showTimer ? " has-timer" : ""}`}>
-              <Image
-                src="/mascot.png"
-                alt=""
-                aria-hidden
-                width={130}
-                height={110}
-                priority
-                className="stage-mascot"
-              />
-              <div className={`stage-bento-timer${timerStateClass}`}>
+            <div className="stage-qr-shell">
+              <div className="stage-qr-stack">
+                <Image
+                  src="/mascot.png"
+                  alt=""
+                  aria-hidden
+                  width={130}
+                  height={110}
+                  priority
+                  className="stage-mascot"
+                />
                 <div className="stage-bento-tile stage-bento-qr">
-                  <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
+                  <div className="stage-qr-code-frame">
+                    <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
+                  </div>
                   <h3>Scan to demo</h3>
                 </div>
-                {showTimer ? (
-                  <>
-                    <div className="stage-bento-tile stage-bento-clock" aria-live="polite">
-                      <span className="stage-bento-label">{timer.label}</span>
-                      <strong>{timer.display}</strong>
-                    </div>
-                    <div className="stage-bento-tile stage-bento-count">
-                      <span className="stage-bento-label">All people</span>
-                      <strong>{waitingCount}</strong>
-                    </div>
-                  </>
-                ) : null}
               </div>
+              {showTimer ? (
+                <div className={`stage-timer-strip${timerStateClass}`} aria-live="polite">
+                  <div className="stage-timer-strip-clock">
+                    <span>{timer.label}</span>
+                    <strong>{timer.display}</strong>
+                  </div>
+                  <div className="stage-timer-strip-count">
+                    <span>In queue</span>
+                    <strong>{waitingCount}</strong>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </aside>

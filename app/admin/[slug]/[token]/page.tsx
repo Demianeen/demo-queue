@@ -72,6 +72,12 @@ type StageTimer = {
   serverNow: number;
 };
 
+const DEFAULT_STAGE_TIMER_MS = 5 * 60 * 1000;
+const MIN_STAGE_TIMER_MS = 0;
+const MIN_STAGE_TIMER_DURATION_MS = 60 * 1000;
+const MAX_STAGE_TIMER_MS = 99 * 60 * 1000;
+const MIN_OVERTIME_TIMER_MS = -MAX_STAGE_TIMER_MS;
+
 function formatTimerMs(ms: number) {
   const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
   const absoluteSeconds = Math.abs(totalSeconds);
@@ -83,11 +89,42 @@ function formatTimerMs(ms: number) {
 function timerInputToMs(value: string, fallbackMs: number) {
   const minutes = Number.parseFloat(value);
   if (!Number.isFinite(minutes)) return fallbackMs;
-  return Math.max(60 * 1000, Math.min(99 * 60 * 1000, Math.round(minutes * 60 * 1000)));
+  return Math.max(MIN_STAGE_TIMER_DURATION_MS, Math.min(MAX_STAGE_TIMER_MS, Math.round(minutes * 60 * 1000)));
 }
 
 function timerMsToInputMinutes(ms: number) {
   return String(Math.max(1, Math.round(ms / 60000)));
+}
+
+function normalizeTimerInputValue(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  return String(Math.max(1, Math.min(99, Number.parseInt(digits, 10))));
+}
+
+function clampTimerMs(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_STAGE_TIMER_MS;
+  return Math.max(MIN_STAGE_TIMER_MS, Math.min(MAX_STAGE_TIMER_MS, Math.round(value)));
+}
+
+function clampSignedTimerMs(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_STAGE_TIMER_MS;
+  return Math.max(MIN_OVERTIME_TIMER_MS, Math.min(MAX_STAGE_TIMER_MS, Math.round(value)));
+}
+
+function timersMatchForOptimisticClear(serverTimer: StageTimer, optimisticTimer: StageTimer) {
+  if (serverTimer.status !== optimisticTimer.status) return false;
+  if (serverTimer.durationMs !== optimisticTimer.durationMs) return false;
+
+  if (optimisticTimer.status === "running") {
+    return (
+      serverTimer.endsAt !== undefined &&
+      optimisticTimer.endsAt !== undefined &&
+      Math.abs(serverTimer.endsAt - optimisticTimer.endsAt) < 5_000
+    );
+  }
+
+  return Math.abs(serverTimer.remainingMs - optimisticTimer.remainingMs) < 5_000;
 }
 
 function useTimerView(timer: StageTimer | undefined) {
@@ -209,6 +246,7 @@ export default function AdminPage() {
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const [liveMenuOpen, setLiveMenuOpen] = useState(false);
   const [timerMinutesInput, setTimerMinutesInput] = useState("");
+  const [timerOverride, setTimerOverride] = useState<StageTimer | null>(null);
   const [board, setBoard] = useState<{ lineup: Id<"submissions">[]; pool: Id<"submissions">[] }>({
     lineup: [],
     pool: [],
@@ -242,7 +280,17 @@ export default function AdminPage() {
     if (timerDurationMs === undefined) return;
     setTimerMinutesInput(timerMsToInputMinutes(timerDurationMs));
   }, [timerDurationMs]);
-  const stageTimerView = useTimerView(admin?.event.stageTimer);
+
+  const effectiveStageTimer = timerOverride ?? admin?.event.stageTimer;
+  const stageTimerView = useTimerView(effectiveStageTimer);
+
+  useEffect(() => {
+    const serverTimer = admin?.event.stageTimer;
+    if (!timerOverride || !serverTimer) return;
+    if (timersMatchForOptimisticClear(serverTimer, timerOverride)) {
+      setTimerOverride(null);
+    }
+  }, [admin?.event.stageTimer, timerOverride]);
 
   useEffect(() => {
     if (!liveMenuOpen) return;
@@ -425,19 +473,79 @@ export default function AdminPage() {
     });
   }
 
+  function showTimerImmediately(timer: StageTimer) {
+    setTimerOverride(timer);
+  }
+
+  function updateTimerMinutesInput(value: string) {
+    const nextValue = normalizeTimerInputValue(value);
+    setTimerMinutesInput(nextValue);
+    if (!effectiveStageTimer || stageTimerView.status === "running") return;
+
+    const parsedMinutes = Number.parseFloat(nextValue);
+    if (!Number.isFinite(parsedMinutes)) return;
+
+    const now = Date.now();
+    const durationMs = timerInputToMs(nextValue, effectiveStageTimer.durationMs);
+    showTimerImmediately({
+      status: stageTimerView.status,
+      durationMs,
+      remainingMs: durationMs,
+      endsAt: undefined,
+      serverNow: now,
+    });
+  }
+
+  function commitTimerMinutesInput() {
+    if (timerMinutesInput) return;
+    setTimerMinutesInput(timerMsToInputMinutes(effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS));
+  }
+
   async function startTimer() {
-    await startStageTimer({ slug: params.slug, adminToken: params.token });
+    const now = Date.now();
+    const durationMs = timerInputToMs(
+      timerMinutesInput,
+      effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
+    );
+    const remainingMs =
+      stageTimerView.status === "paused" && stageTimerView.remainingMs > 0
+        ? stageTimerView.remainingMs
+        : durationMs;
+
+    showTimerImmediately({
+      status: "running",
+      durationMs,
+      remainingMs,
+      endsAt: now + remainingMs,
+      serverNow: now,
+    });
+    await startStageTimer({ slug: params.slug, adminToken: params.token, durationMs });
   }
 
   async function pauseTimer() {
+    const now = Date.now();
+    showTimerImmediately({
+      status: "paused",
+      durationMs: effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
+      remainingMs: stageTimerView.remainingMs,
+      endsAt: undefined,
+      serverNow: now,
+    });
     await pauseStageTimer({ slug: params.slug, adminToken: params.token });
   }
 
   async function resetTimer() {
     const durationMs = timerInputToMs(
       timerMinutesInput,
-      admin?.event.stageTimer?.durationMs ?? 5 * 60 * 1000,
+      effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
     );
+    showTimerImmediately({
+      status: "idle",
+      durationMs,
+      remainingMs: durationMs,
+      endsAt: undefined,
+      serverNow: Date.now(),
+    });
     await resetStageTimer({
       slug: params.slug,
       adminToken: params.token,
@@ -447,6 +555,18 @@ export default function AdminPage() {
   }
 
   async function adjustTimer(deltaMs: number) {
+    const now = Date.now();
+    const nextRemainingMs =
+      stageTimerView.status === "running"
+        ? clampSignedTimerMs(stageTimerView.remainingMs + deltaMs)
+        : clampTimerMs(stageTimerView.remainingMs + deltaMs);
+    showTimerImmediately({
+      status: stageTimerView.status,
+      durationMs: effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
+      remainingMs: nextRemainingMs,
+      endsAt: stageTimerView.status === "running" ? now + nextRemainingMs : undefined,
+      serverNow: now,
+    });
     await adjustStageTimer({
       slug: params.slug,
       adminToken: params.token,
@@ -664,7 +784,7 @@ export default function AdminPage() {
               </span>
             </div>
 
-            <div className="stage-timer-admin">
+            <div className={`stage-timer-admin${stageTimerView.remainingMs < 0 ? " is-overtime" : ""}`}>
               <div className="stage-timer-admin-heading">
                 <span className="stage-timer-admin-title">
                   <Clock size={16} aria-hidden />
@@ -718,14 +838,16 @@ export default function AdminPage() {
                   </Button>
                 </div>
                 <label className="stage-timer-duration">
-                  <span>Duration minutes</span>
+                  <span>Minutes</span>
                   <input
-                    inputMode="decimal"
-                    min={1}
-                    max={99}
-                    type="number"
+                    aria-label="Timer length in minutes"
+                    inputMode="numeric"
+                    maxLength={2}
+                    pattern="[0-9]*"
+                    type="text"
                     value={timerMinutesInput}
-                    onChange={(event) => setTimerMinutesInput(event.currentTarget.value)}
+                    onBlur={commitTimerMinutesInput}
+                    onChange={(event) => updateTimerMinutesInput(event.currentTarget.value)}
                   />
                 </label>
               </div>

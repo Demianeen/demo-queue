@@ -574,15 +574,19 @@ export const startStageTimer = mutation({
   args: {
     slug: v.string(),
     adminToken: v.string(),
+    durationMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
     requireAdmin(event, args.adminToken);
 
     const now = Date.now();
-    const durationMs = stageTimerDuration(event);
+    const durationMs = clampTimerDurationMs(args.durationMs ?? stageTimerDuration(event));
     const currentRemainingMs = currentStageTimerRemaining(event, now);
-    const remainingMs = currentRemainingMs > 0 ? currentRemainingMs : durationMs;
+    const remainingMs =
+      event.stageTimerStatus === "paused" && currentRemainingMs > 0
+        ? currentRemainingMs
+        : durationMs;
 
     await ctx.db.patch(event._id, {
       stageTimerStatus: "running",

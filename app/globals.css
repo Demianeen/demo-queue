@@ -613,24 +613,29 @@ h3 {
 
 .stage-lineup-list {
   display: grid;
-  gap: 8px;
+  gap: 0;
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
 .stage-lineup-list li {
-  background: rgba(255, 255, 255, 0.44);
-  border: 1px solid rgba(255, 255, 255, 0.64);
-  border-radius: 8px;
   display: grid;
   gap: 4px;
-  padding: 10px 12px;
 }
 
 .stage-lineup-list li.is-next {
-  background: rgba(236, 233, 255, 0.78);
-  border-color: rgba(124, 92, 255, 0.28);
+  border-bottom: 1px solid rgba(11, 12, 16, 0.13);
+  gap: 7px;
+  margin-bottom: 6px;
+  padding: 0 0 14px;
+}
+
+.stage-lineup-list li.is-later {
+  align-items: center;
+  grid-template-columns: 42px minmax(0, 1fr);
+  min-height: 48px;
+  padding: 8px 0;
 }
 
 .stage-lineup-position {
@@ -640,11 +645,36 @@ h3 {
   text-transform: uppercase;
 }
 
+.stage-lineup-list li.is-later .stage-lineup-position {
+  color: rgba(79, 70, 229, 0.78);
+  padding-top: 2px;
+}
+
+.stage-lineup-list li.is-next .stage-lineup-position {
+  letter-spacing: 0.04em;
+}
+
+.stage-lineup-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
 .stage-lineup-person {
   color: var(--app-ink);
   font-size: clamp(20px, 1.55vw, 29px);
   font-weight: 760;
   line-height: 1.02;
+}
+
+.stage-lineup-list li.is-later .stage-lineup-person {
+  font-size: clamp(17px, 1.1vw, 22px);
+  line-height: 1.05;
+}
+
+.stage-lineup-list li.is-next .stage-lineup-person {
+  font-size: clamp(25px, 2vw, 36px);
+  line-height: 0.98;
 }
 
 .stage-lineup-demo {
@@ -656,6 +686,15 @@ h3 {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.stage-lineup-list li.is-later .stage-lineup-demo {
+  font-size: clamp(13px, 0.9vw, 16px);
+  -webkit-line-clamp: 1;
+}
+
+.stage-lineup-list li.is-next .stage-lineup-demo {
+  font-size: clamp(15px, 1.1vw, 19px);
 }
 
 .stage-lineup-empty {
@@ -678,32 +717,31 @@ h3 {
   margin: 12px 0 0;
 }
 
-.stage-meet-card {
-  background: rgba(255, 255, 255, 0.38);
-  border: 1px solid rgba(255, 255, 255, 0.62);
-  border-radius: 8px;
+.stage-access {
+  border-top: 1px solid rgba(11, 12, 16, 0.13);
   display: grid;
-  gap: 5px;
-  margin-top: 14px;
-  padding: 10px 12px;
+  gap: 4px;
+  margin-top: 16px;
+  padding-top: 12px;
 }
 
-.stage-meet-label {
-  color: var(--cx-indigo);
+.stage-access-label {
+  color: rgba(11, 12, 16, 0.5);
   font-size: 11px;
   font-weight: 850;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .stage-meet-url {
-  color: var(--app-ink);
-  font-size: clamp(16px, 1.05vw, 21px);
-  font-weight: 850;
-  line-height: 1.08;
+  color: rgba(11, 12, 16, 0.74);
+  font-size: clamp(14px, 0.95vw, 17px);
+  font-weight: 800;
+  line-height: 1.16;
   overflow-wrap: anywhere;
   text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 4px;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
 }
 
 @keyframes stage-current-promote {

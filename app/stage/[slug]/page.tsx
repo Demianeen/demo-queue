@@ -183,12 +183,14 @@ export default function StagePage() {
               {upcoming.length > 0 ? (
                 <ol className="stage-lineup-list" ref={lineupListRef}>
                   {upcoming.map((item, index) => (
-                    <li className={index === 0 ? "is-next" : ""} key={item.id}>
+                    <li className={index === 0 ? "is-next" : "is-later"} key={item.id}>
                       <span className="stage-lineup-position">
                         {index === 0 ? "Up next" : `#${index + 2}`}
                       </span>
-                      <span className="stage-lineup-person">{item.name}</span>
-                      <span className="stage-lineup-demo">{item.demoTitle}</span>
+                      <span className="stage-lineup-copy">
+                        <span className="stage-lineup-person">{item.name}</span>
+                        <span className="stage-lineup-demo">{item.demoTitle}</span>
+                      </span>
                     </li>
                   ))}
                 </ol>
@@ -202,8 +204,8 @@ export default function StagePage() {
                 <p className="stage-lineup-more">+{hiddenLineupCount} more in the published lineup</p>
               ) : null}
               {stage.meetUrl ? (
-                <div className="stage-meet-card">
-                  <span className="stage-meet-label">Meet link</span>
+                <div className="stage-access">
+                  <span className="stage-access-label">Stage access</span>
                   <a className="stage-meet-url" href={stage.meetUrl} target="_blank" rel="noreferrer">
                     {displayMeetUrl}
                   </a>

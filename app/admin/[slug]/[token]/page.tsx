@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { QRCodeSVG } from "qrcode.react";
 import { useParams } from "next/navigation";
@@ -63,6 +63,16 @@ type SubmissionFields = {
 };
 
 type ColumnId = "lineup" | "pool";
+type AdminTab = "all" | "lineup";
+type RosterStatus = "lineup" | "pool" | "hidden" | "inactive";
+type StatusTone = "green" | "blue" | "yellow";
+
+type RosterRow = AdminSubmission & {
+  positionLabel?: string;
+  rosterStatus: RosterStatus;
+  statusLabel: string;
+  statusTone: StatusTone;
+};
 
 export default function AdminPage() {
   const params = useParams<{ slug: string; token: string }>();
@@ -128,6 +138,7 @@ export default function AdminPage() {
   const [aiError, setAiError] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const [liveMenuOpen, setLiveMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<AdminTab>("all");
   const [board, setBoard] = useState<{ lineup: Id<"submissions">[]; pool: Id<"submissions">[] }>({
     lineup: [],
     pool: [],
@@ -143,8 +154,10 @@ export default function AdminPage() {
     const map = new Map<Id<"submissions">, AdminSubmission>();
     admin?.lineup.forEach((item) => map.set(item.id, item));
     admin?.pool.forEach((item) => map.set(item.id, item));
+    admin?.hidden.forEach((item) => map.set(item.id, item));
+    admin?.inactive?.forEach((item) => map.set(item.id, item));
     return map;
-  }, [admin?.lineup, admin?.pool]);
+  }, [admin?.lineup, admin?.pool, admin?.hidden, admin?.inactive]);
 
   // Mirror the server lists into local board state for drag previews, but never
   // while a drag is in flight (that would yank a card out from under the cursor).
@@ -317,6 +330,19 @@ export default function AdminPage() {
     await restoreSubmission({ slug: params.slug, adminToken: params.token, submissionId: id });
   }
 
+  async function addToLineup(id: Id<"submissions">) {
+    if (board.lineup.includes(id)) return;
+    await reorderLineup({
+      slug: params.slug,
+      adminToken: params.token,
+      orderedIds: [...board.lineup, id],
+    });
+  }
+
+  async function removeFromLineup(id: Id<"submissions">) {
+    await moveToPool({ slug: params.slug, adminToken: params.token, submissionId: id });
+  }
+
   async function next() {
     if (!queueIsLive) return;
     setLiveMenuOpen(false);
@@ -424,6 +450,13 @@ export default function AdminPage() {
 
   const activeItem = activeId ? itemsById.get(activeId) : null;
   const lineupCount = board.lineup.length;
+  const hiddenSubmissions = admin.hidden ?? [];
+  const inactiveSubmissions = admin.inactive ?? [];
+  const allPeopleRows = buildRosterRows(
+    { hidden: hiddenSubmissions, inactive: inactiveSubmissions },
+    board,
+    itemsById,
+  );
 
   return (
     <main className="page">
@@ -448,7 +481,7 @@ export default function AdminPage() {
               </span>
               <span className="pill">{lineupCount} in lineup</span>
               <span className="pill">{board.pool.length} in pool</span>
-              <span className="pill">{admin.hidden.length} hidden</span>
+              <span className="pill">{hiddenSubmissions.length} hidden</span>
             </div>
 
             <div className="actions" style={{ marginBottom: 14 }}>
@@ -491,13 +524,20 @@ export default function AdminPage() {
                   AI shuffle
                 </Button>
               ) : null}
-              <Button variant="outline" onClick={() => setIsAdding(true)} type="button">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setActiveTab("lineup");
+                  setIsAdding(true);
+                }}
+                type="button"
+              >
                 Add person
               </Button>
               <Button variant="ghost" onClick={addTestPeople} type="button">
                 Add test people
               </Button>
-              {lineupCount > 0 || board.pool.length > 0 || admin.hidden.length > 0 ? (
+              {allPeopleRows.length > 0 ? (
                 <Button variant="destructive" onClick={clearAll} type="button">
                   Clear all
                 </Button>
@@ -581,130 +621,140 @@ export default function AdminPage() {
           onDragOver={onDragOver}
           onDragEnd={onDragEnd}
         >
-          <section className="admin-grid">
-            <div className="panel panel-pad">
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 12,
-                  marginBottom: 14,
-                }}
+          <section className="panel admin-workspace">
+            <div className="admin-tabs" role="tablist" aria-label="Admin views">
+              <button
+                aria-selected={activeTab === "all"}
+                className={activeTab === "all" ? "admin-tab is-active" : "admin-tab"}
+                onClick={() => setActiveTab("all")}
+                role="tab"
+                type="button"
               >
-                <h2 style={{ margin: 0 }}>Lineup</h2>
-                <label className="target-field">
-                  <span>{lineupCount} /</span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    defaultValue={lineupTarget ?? ""}
-                    placeholder="e.g. 8"
-                    onBlur={(event) => commitTarget(event.currentTarget.value)}
-                  />
-                </label>
+                <span>All people</span>
+                <span className="admin-tab-count">{allPeopleRows.length}</span>
+              </button>
+              <button
+                aria-selected={activeTab === "lineup"}
+                className={activeTab === "lineup" ? "admin-tab is-active" : "admin-tab"}
+                onClick={() => setActiveTab("lineup")}
+                role="tab"
+                type="button"
+              >
+                <span>Lineup</span>
+                <span className="admin-tab-count">{lineupCount}</span>
+              </button>
+            </div>
+
+            {activeTab === "all" ? (
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Status</th>
+                      <th>Demo</th>
+                      <th>Presenter</th>
+                      <th>Category</th>
+                      <th>Contact</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allPeopleRows.length === 0 ? (
+                      <tr>
+                        <td className="admin-empty-cell" colSpan={6}>
+                          No one has joined yet.
+                        </td>
+                      </tr>
+                    ) : null}
+                    {allPeopleRows.map((item) => (
+                      <AllPeopleRow
+                        key={item.id}
+                        item={item}
+                        isEditing={editingId === item.id}
+                        onAddToLineup={() => addToLineup(item.id)}
+                        onCancelEdit={() => setEditingId(null)}
+                        onEdit={() => setEditingId(item.id)}
+                        onHide={() => hide(item.id)}
+                        onMoveToPool={() => removeFromLineup(item.id)}
+                        onRestore={() => restore(item.id)}
+                        onSaveEdit={(values) => saveEdit(item.id, values)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
               </div>
-
-              {isAdding ? (
-                <article className="queue-item" style={{ marginBottom: 12 }}>
-                  <p className="queue-title">Add a person to the lineup</p>
-                  <SubmissionForm
-                    submitLabel="Add to lineup"
-                    onSave={saveNew}
-                    onCancel={() => setIsAdding(false)}
-                  />
-                </article>
-              ) : null}
-
-              <SortableContext items={board.lineup} strategy={verticalListSortingStrategy}>
-                <DroppableList id="lineup">
-                  {board.lineup.length === 0 ? (
-                    <p className="muted drop-hint">Drag people here from All people.</p>
-                  ) : null}
-                  {board.lineup.map((id, index) => {
-                    const item = itemsById.get(id);
-                    if (!item) return null;
-                    return (
-                      <PersonCard
-                        key={id}
-                        item={item}
-                        topLabel={index === 0 ? "Now demoing" : index === 1 ? "Up next" : `#${index + 1}`}
-                        topLabelTone={index <= 1 ? "green" : "blue"}
-                        isEditing={editingId === id}
-                        onEdit={() => setEditingId(id)}
-                        onCancelEdit={() => setEditingId(null)}
-                        onSaveEdit={(values) => saveEdit(id, values)}
-                        onHide={() => hide(id)}
-                      />
-                    );
-                  })}
-                </DroppableList>
-              </SortableContext>
-            </div>
-
-            <div className="panel panel-pad">
-              <h2 style={{ marginBottom: 14 }}>All people</h2>
-
-              <SortableContext items={board.pool} strategy={verticalListSortingStrategy}>
-                <DroppableList id="pool">
-                  {board.pool.length === 0 ? (
-                    <p className="muted drop-hint">
-                      Everyone who submits lands here. Drag them into the lineup.
+            ) : (
+              <>
+                <div className="lineup-toolbar">
+                  <div>
+                    <h2 style={{ margin: 0 }}>Lineup</h2>
+                    <p className="muted" style={{ margin: "4px 0 0" }}>
+                      Drag rows to set the live running order.
                     </p>
-                  ) : null}
-                  {board.pool.map((id) => {
-                    const item = itemsById.get(id);
-                    if (!item) return null;
-                    return (
-                      <PersonCard
-                        key={id}
-                        item={item}
-                        isEditing={editingId === id}
-                        onEdit={() => setEditingId(id)}
-                        onCancelEdit={() => setEditingId(null)}
-                        onSaveEdit={(values) => saveEdit(id, values)}
-                        onHide={() => hide(id)}
-                      />
-                    );
-                  })}
-                </DroppableList>
-              </SortableContext>
-
-              {admin.hidden.length > 0 ? (
-                <div style={{ marginTop: 18 }}>
-                  <h3 style={{ marginBottom: 10 }}>Hidden</h3>
-                  <div className="queue-list">
-                    {admin.hidden.map((item: AdminSubmission) =>
-                      editingId === item.id ? (
-                        <article className="queue-item" key={item.id}>
-                          <SubmissionForm
-                            initial={item}
-                            submitLabel="Save changes"
-                            onSave={(values) => saveEdit(item.id, values)}
-                            onCancel={() => setEditingId(null)}
-                          />
-                        </article>
-                      ) : (
-                        <article className="queue-item" key={item.id}>
-                          <div className="queue-title">{item.demoTitle}</div>
-                          <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
-                          <Contact item={item} />
-                          <div className="actions" style={{ marginTop: 0 }}>
-                            <Button variant="ghost" size="sm" onClick={() => setEditingId(item.id)} type="button">
-                              Edit
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => restore(item.id)} type="button">
-                              Restore to pool
-                            </Button>
-                          </div>
-                        </article>
-                      ),
-                    )}
                   </div>
+                  <label className="target-field">
+                    <span>{lineupCount} /</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      defaultValue={lineupTarget ?? ""}
+                      placeholder="e.g. 8"
+                      onBlur={(event) => commitTarget(event.currentTarget.value)}
+                    />
+                  </label>
                 </div>
-              ) : null}
-            </div>
+
+                {isAdding ? (
+                  <div className="admin-inline-form">
+                    <p className="queue-title">Add a person to the lineup</p>
+                    <SubmissionForm
+                      submitLabel="Add to lineup"
+                      onSave={saveNew}
+                      onCancel={() => setIsAdding(false)}
+                    />
+                  </div>
+                ) : null}
+
+                <div className="admin-table-wrap">
+                  <table className="admin-table admin-lineup-table">
+                    <thead>
+                      <tr>
+                        <th aria-label="Drag handle" />
+                        <th>Position</th>
+                        <th>Demo</th>
+                        <th>Presenter</th>
+                        <th>Category</th>
+                        <th>Contact</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <SortableContext items={board.lineup} strategy={verticalListSortingStrategy}>
+                      <DroppableTableBody id="lineup" emptyMessage="Use All people to add someone to the lineup.">
+                        {board.lineup.map((id, index) => {
+                          const item = itemsById.get(id);
+                          if (!item) return null;
+                          return (
+                            <LineupRow
+                              key={id}
+                              item={item}
+                              positionLabel={lineupPositionLabel(index)}
+                              statusTone={index <= 1 ? "green" : "blue"}
+                              isEditing={editingId === id}
+                              onCancelEdit={() => setEditingId(null)}
+                              onEdit={() => setEditingId(id)}
+                              onHide={() => hide(id)}
+                              onMoveToPool={() => removeFromLineup(id)}
+                              onSaveEdit={(values) => saveEdit(id, values)}
+                            />
+                          );
+                        })}
+                      </DroppableTableBody>
+                    </SortableContext>
+                  </table>
+                </div>
+              </>
+            )}
           </section>
 
           <DragOverlay>
@@ -717,51 +767,55 @@ export default function AdminPage() {
           </DragOverlay>
         </DndContext>
 
-        {admin.inactive.length > 0 ? (
-          <section className="panel panel-pad" style={{ marginTop: 18 }}>
-            <h2>Done / inactive</h2>
-            <div className="queue-list">
-              {admin.inactive.map((item: AdminSubmission) => (
-                <article className="queue-item" key={item.id}>
-                  <div className="queue-title">{item.demoTitle}</div>
-                  <span className="pill yellow">{item.status}</span>
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
       </div>
     </main>
   );
 }
 
-function DroppableList({ id, children }: { id: ColumnId; children: React.ReactNode }) {
+function DroppableTableBody({
+  id,
+  children,
+  emptyMessage,
+}: {
+  id: ColumnId;
+  children: React.ReactNode;
+  emptyMessage: string;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id });
+  const hasChildren = Boolean(React.Children.toArray(children).filter(Boolean).length);
   return (
-    <div ref={setNodeRef} className={`queue-list droppable ${isOver ? "is-over" : ""}`}>
-      {children}
-    </div>
+    <tbody ref={setNodeRef} className={`admin-table-body droppable ${isOver ? "is-over" : ""}`}>
+      {hasChildren ? children : (
+        <tr>
+          <td className="admin-empty-cell" colSpan={7}>
+            {emptyMessage}
+          </td>
+        </tr>
+      )}
+    </tbody>
   );
 }
 
-function PersonCard({
+function LineupRow({
   item,
-  topLabel,
-  topLabelTone = "blue",
+  positionLabel,
+  statusTone,
   isEditing,
   onEdit,
   onCancelEdit,
   onSaveEdit,
   onHide,
+  onMoveToPool,
 }: {
   item: AdminSubmission;
-  topLabel?: string;
-  topLabelTone?: "green" | "blue";
+  positionLabel: string;
+  statusTone: StatusTone;
   isEditing: boolean;
   onEdit: () => void;
   onCancelEdit: () => void;
   onSaveEdit: (values: SubmissionFields) => Promise<void> | void;
   onHide: () => void;
+  onMoveToPool: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
@@ -774,55 +828,210 @@ function PersonCard({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  return (
-    <article ref={setNodeRef} style={style} className="queue-item">
-      {isEditing ? (
-        <SubmissionForm
-          initial={item}
-          submitLabel="Save changes"
-          onSave={onSaveEdit}
-          onCancel={onCancelEdit}
-        />
-      ) : (
-        <>
-          <div className="queue-row">
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-              <button
-                className="drag-handle"
-                type="button"
-                aria-label={`Reorder ${item.demoTitle}`}
-                {...attributes}
-                {...listeners}
-              >
-                <GripVertical size={16} aria-hidden />
-              </button>
-              <div>
-                {topLabel ? (
-                  <span className={`pill ${topLabelTone === "green" ? "green" : ""}`}>{topLabel}</span>
-                ) : null}
-                <div className="queue-title" style={{ marginTop: topLabel ? 8 : 0 }}>
-                  {item.demoTitle}
-                </div>
-                <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
-              </div>
-            </div>
-            <span className="pill green">{item.category || "demo"}</span>
-          </div>
+  if (isEditing) {
+    return (
+      <tr ref={setNodeRef} style={style} className="admin-table-edit-row">
+        <td colSpan={7}>
+          <SubmissionForm
+            initial={item}
+            submitLabel="Save changes"
+            onSave={onSaveEdit}
+            onCancel={onCancelEdit}
+          />
+        </td>
+      </tr>
+    );
+  }
 
-          <p className="muted" style={{ marginBottom: 0 }}>{item.description}</p>
-          <Contact item={item} />
-          <div className="actions" style={{ marginTop: 0 }}>
-            <Button variant="ghost" size="sm" onClick={onEdit} type="button">
-              Edit
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onHide} type="button">
-              Hide
-            </Button>
-          </div>
-        </>
-      )}
-    </article>
+  return (
+    <tr ref={setNodeRef} style={style} className={isDragging ? "is-dragging" : ""}>
+      <td className="admin-col-handle">
+        <button
+          className="drag-handle"
+          type="button"
+          aria-label={`Reorder ${item.demoTitle}`}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical size={16} aria-hidden />
+        </button>
+      </td>
+      <td>
+        <span className={`pill ${statusTone === "green" ? "green" : ""}`}>{positionLabel}</span>
+      </td>
+      <td className="admin-demo-cell">
+        <span className="queue-title">{item.demoTitle}</span>
+        {item.description ? <span className="muted">{item.description}</span> : null}
+      </td>
+      <td>{item.name}</td>
+      <td>
+        <span className="pill green">{item.category || "demo"}</span>
+      </td>
+      <td>
+        <Contact item={item} />
+      </td>
+      <td>
+        <div className="table-actions">
+          <Button variant="ghost" size="sm" onClick={onEdit} type="button">
+            Edit
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onMoveToPool} type="button">
+            Move to all
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onHide} type="button">
+            Hide
+          </Button>
+        </div>
+      </td>
+    </tr>
   );
+}
+
+function AllPeopleRow({
+  item,
+  isEditing,
+  onAddToLineup,
+  onEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onHide,
+  onMoveToPool,
+  onRestore,
+}: {
+  item: RosterRow;
+  isEditing: boolean;
+  onAddToLineup: () => void;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (values: SubmissionFields) => Promise<void> | void;
+  onHide: () => void;
+  onMoveToPool: () => void;
+  onRestore: () => void;
+}) {
+  if (isEditing) {
+    return (
+      <tr className="admin-table-edit-row">
+        <td colSpan={6}>
+          <SubmissionForm
+            initial={item}
+            submitLabel="Save changes"
+            onSave={onSaveEdit}
+            onCancel={onCancelEdit}
+          />
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr>
+      <td>
+        <span className={`pill ${item.statusTone === "green" ? "green" : item.statusTone === "yellow" ? "yellow" : ""}`}>
+          {item.statusLabel}
+        </span>
+      </td>
+      <td className="admin-demo-cell">
+        <span className="queue-title">{item.demoTitle}</span>
+        {item.description ? <span className="muted">{item.description}</span> : null}
+      </td>
+      <td>{item.name}</td>
+      <td>
+        <span className="pill green">{item.category || "demo"}</span>
+      </td>
+      <td>
+        <Contact item={item} />
+      </td>
+      <td>
+        <div className="table-actions">
+          {item.rosterStatus === "pool" ? (
+            <Button variant="outline" size="sm" onClick={onAddToLineup} type="button">
+              Add to lineup
+            </Button>
+          ) : null}
+          {item.rosterStatus === "lineup" ? (
+            <Button variant="ghost" size="sm" onClick={onMoveToPool} type="button">
+              Move to all
+            </Button>
+          ) : null}
+          {item.rosterStatus === "hidden" ? (
+            <Button variant="outline" size="sm" onClick={onRestore} type="button">
+              Restore
+            </Button>
+          ) : null}
+          {item.rosterStatus !== "inactive" ? (
+            <>
+              <Button variant="ghost" size="sm" onClick={onEdit} type="button">
+                Edit
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onHide} type="button">
+                Hide
+              </Button>
+            </>
+          ) : null}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function buildRosterRows(
+  admin: { hidden: AdminSubmission[]; inactive: AdminSubmission[] },
+  board: { lineup: Id<"submissions">[]; pool: Id<"submissions">[] },
+  itemsById: Map<Id<"submissions">, AdminSubmission>,
+): RosterRow[] {
+  const lineupRows = board.lineup.flatMap((id, index): RosterRow[] => {
+    const item = itemsById.get(id);
+    if (!item) return [];
+    const positionLabel = lineupPositionLabel(index);
+    return [
+      {
+        ...item,
+        positionLabel,
+        rosterStatus: "lineup",
+        statusLabel: positionLabel,
+        statusTone: index <= 1 ? "green" : "blue",
+      },
+    ];
+  });
+
+  const poolRows = board.pool
+    .map((id) => itemsById.get(id))
+    .filter((item): item is AdminSubmission => Boolean(item))
+    .map((item) => ({
+      ...item,
+      rosterStatus: "pool" as const,
+      statusLabel: "Waiting",
+      statusTone: "blue" as const,
+    }));
+
+  const hiddenRows = admin.hidden.map((item) => ({
+    ...item,
+    rosterStatus: "hidden" as const,
+    statusLabel: "Hidden",
+    statusTone: "yellow" as const,
+  }));
+
+  const inactiveRows = admin.inactive.map((item) => ({
+    ...item,
+    rosterStatus: "inactive" as const,
+    statusLabel: inactiveStatusLabel(item.status),
+    statusTone: "yellow" as const,
+  }));
+
+  return [...lineupRows, ...poolRows, ...hiddenRows, ...inactiveRows];
+}
+
+function lineupPositionLabel(index: number) {
+  if (index === 0) return "Now demoing";
+  if (index === 1) return "Up next";
+  return `#${index + 1}`;
+}
+
+function inactiveStatusLabel(status: string) {
+  if (status === "done") return "Presented";
+  if (status === "no_show") return "No-show";
+  if (status === "withdrawn") return "Withdrawn";
+  return status;
 }
 
 function SubmissionForm({

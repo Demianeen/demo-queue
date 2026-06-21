@@ -821,6 +821,243 @@ h3 {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
+.admin-workspace {
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.admin-tabs {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.38);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.68);
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 10px;
+}
+
+.admin-tab {
+  align-items: center;
+  background: transparent;
+  border-radius: 8px;
+  color: var(--app-muted);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 850;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+}
+
+.admin-tab:hover {
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--app-ink);
+}
+
+.admin-tab.is-active {
+  background: #ffffff;
+  box-shadow: 0 8px 20px -16px rgba(16, 18, 60, 0.35);
+  color: var(--app-ink);
+}
+
+.admin-tab-count {
+  align-items: center;
+  background: var(--app-soft-blue);
+  border-radius: 999px;
+  color: var(--app-accent-dark);
+  display: inline-flex;
+  font-size: 11px;
+  justify-content: center;
+  min-width: 22px;
+  padding: 3px 7px;
+}
+
+.lineup-toolbar {
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.64);
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 18px 18px 14px;
+}
+
+.admin-inline-form {
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 8px;
+  margin: 14px 18px 0;
+  padding: 14px;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  min-width: 1040px;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-table th {
+  background: rgba(246, 247, 251, 0.72);
+  border-bottom: 1px solid var(--app-line);
+  color: var(--app-muted);
+  font-size: 11px;
+  font-weight: 850;
+  padding: 9px 12px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.admin-table td {
+  background: rgba(255, 255, 255, 0.4);
+  border-bottom: 1px solid rgba(230, 227, 245, 0.72);
+  color: var(--app-ink);
+  padding: 9px 12px;
+}
+
+.admin-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.admin-table tr.is-dragging td {
+  background: var(--app-soft-green);
+}
+
+.admin-table .pill {
+  font-size: 11px;
+  padding: 4px 7px;
+}
+
+.admin-col-handle {
+  width: 44px;
+}
+
+.admin-table th:nth-child(1),
+.admin-table td:nth-child(1) {
+  width: 90px;
+}
+
+.admin-table th:nth-child(2),
+.admin-table td:nth-child(2) {
+  width: 34%;
+}
+
+.admin-table th:nth-child(3),
+.admin-table td:nth-child(3) {
+  width: 18%;
+}
+
+.admin-table th:nth-child(4),
+.admin-table td:nth-child(4) {
+  width: 110px;
+}
+
+.admin-table th:nth-child(5),
+.admin-table td:nth-child(5) {
+  width: 180px;
+}
+
+.admin-table th:nth-child(6),
+.admin-table td:nth-child(6) {
+  width: 210px;
+}
+
+.admin-lineup-table th:nth-child(1),
+.admin-lineup-table td:nth-child(1) {
+  width: 44px;
+}
+
+.admin-lineup-table th:nth-child(2),
+.admin-lineup-table td:nth-child(2) {
+  width: 120px;
+}
+
+.admin-lineup-table th:nth-child(3),
+.admin-lineup-table td:nth-child(3) {
+  width: 30%;
+}
+
+.admin-lineup-table th:nth-child(4),
+.admin-lineup-table td:nth-child(4) {
+  width: 15%;
+}
+
+.admin-lineup-table th:nth-child(5),
+.admin-lineup-table td:nth-child(5) {
+  width: 110px;
+}
+
+.admin-lineup-table th:nth-child(6),
+.admin-lineup-table td:nth-child(6) {
+  width: 180px;
+}
+
+.admin-lineup-table th:nth-child(7),
+.admin-lineup-table td:nth-child(7) {
+  width: 220px;
+}
+
+.admin-demo-cell {
+  max-width: 360px;
+  min-width: 260px;
+}
+
+.admin-demo-cell > span {
+  display: block;
+}
+
+.admin-demo-cell .muted {
+  display: -webkit-box;
+  font-size: 12px;
+  line-height: 1.25;
+  margin-top: 3px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.admin-table .contact-list {
+  font-size: 12px;
+  gap: 2px;
+  line-height: 1.25;
+}
+
+.table-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.admin-table-edit-row td {
+  background: rgba(255, 255, 255, 0.7);
+  padding: 14px;
+}
+
+.admin-empty-cell {
+  color: var(--app-muted);
+  font-weight: 700;
+  padding: 24px !important;
+  text-align: center !important;
+}
+
+.admin-table-body.droppable.is-over td {
+  background: var(--app-soft-green);
+}
+
 .admin-aside {
   display: grid;
   gap: 18px;

@@ -10,6 +10,12 @@ export default defineSchema({
     queuePublished: v.boolean(),
     showMeetLinkOnStage: v.optional(v.boolean()),
     lineupTarget: v.optional(v.number()),
+    stageTimerStatus: v.optional(
+      v.union(v.literal("idle"), v.literal("running"), v.literal("paused")),
+    ),
+    stageTimerDurationMs: v.optional(v.number()),
+    stageTimerRemainingMs: v.optional(v.number()),
+    stageTimerEndsAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),

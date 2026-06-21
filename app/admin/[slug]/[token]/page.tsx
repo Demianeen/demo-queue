@@ -2,11 +2,10 @@
 
 import React, { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { QRCodeSVG } from "qrcode.react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
+import { stagePath } from "@/lib/routes";
 import { randomToken } from "@/lib/tokens";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -587,31 +586,11 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <aside
-            className="panel panel-pad"
-            style={{ flex: "0 0 auto", width: 230, textAlign: "center" }}
-          >
-            <span
-              className="muted"
-              style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase" }}
-            >
-              Scan to submit
-            </span>
-            <div className="qr-box" style={{ marginTop: 8, padding: 10 }}>
-              <QRCodeSVG
-                value={absoluteUrl(submissionPath(params.slug))}
-                size={180}
-                marginSize={2}
-              />
-            </div>
-            <a
-              className={cn(buttonVariants({ variant: "outline" }), "mt-3 w-full")}
-              href={stagePath(params.slug)}
-              target="_blank"
-            >
-              Open stage
-            </a>
-          </aside>
+          <StagePreviewPanel
+            eventName={admin.event.name}
+            isLive={queueIsLive}
+            slug={params.slug}
+          />
         </div>
 
         <DndContext
@@ -769,6 +748,43 @@ export default function AdminPage() {
 
       </div>
     </main>
+  );
+}
+
+function StagePreviewPanel({
+  eventName,
+  isLive,
+  slug,
+}: {
+  eventName: string;
+  isLive: boolean;
+  slug: string;
+}) {
+  const url = stagePath(slug);
+
+  return (
+    <aside className="panel admin-stage-preview-panel">
+      <div className="admin-stage-preview-heading">
+        <span className="muted">Stage preview</span>
+        <span className={isLive ? "pill green" : "pill yellow"}>{isLive ? "Live" : "Draft"}</span>
+      </div>
+      <div className="admin-stage-preview-viewport">
+        <iframe
+          className="admin-stage-preview-frame"
+          src={url}
+          tabIndex={-1}
+          title={`${eventName} stage preview`}
+        />
+      </div>
+      <a
+        className={cn(buttonVariants({ variant: "outline" }), "w-full")}
+        href={url}
+        rel="noreferrer"
+        target="_blank"
+      >
+        Open stage
+      </a>
+    </aside>
   );
 }
 

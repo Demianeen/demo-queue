@@ -678,23 +678,32 @@ h3 {
   margin: 12px 0 0;
 }
 
-.stage-join-link {
-  align-items: center;
-  background: var(--app-ink);
-  border-radius: 999px;
-  color: #ffffff;
-  display: inline-flex;
-  font-size: 16px;
-  font-weight: 850;
-  justify-content: center;
+.stage-meet-card {
+  background: rgba(255, 255, 255, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
   margin-top: 14px;
-  min-height: 42px;
-  padding: 0 18px;
-  text-decoration: none;
+  padding: 10px 12px;
 }
 
-.stage-join-link:hover {
-  background: #20222b;
+.stage-meet-label {
+  color: var(--cx-indigo);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.stage-meet-url {
+  color: var(--app-ink);
+  font-size: clamp(16px, 1.05vw, 21px);
+  font-weight: 850;
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
 }
 
 @keyframes stage-current-promote {

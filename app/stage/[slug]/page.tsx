@@ -20,6 +20,7 @@ export default function StagePage() {
   const [visibleUpcomingLimit, setVisibleUpcomingLimit] = useState<number | null>(null);
   const upcoming = allUpcoming.slice(0, visibleUpcomingLimit ?? allUpcoming.length);
   const hiddenLineupCount = Math.max((stage?.remainingCount ?? 0) - 1 - upcoming.length, 0);
+  const displayMeetUrl = stage?.meetUrl ? stage.meetUrl.replace(/^https?:\/\//, "").replace(/\/$/, "") : "";
   const stageRootRef = useRef<HTMLElement | null>(null);
   const lineupStackRef = useRef<HTMLDivElement | null>(null);
   const lineupListRef = useRef<HTMLOListElement | null>(null);
@@ -201,9 +202,12 @@ export default function StagePage() {
                 <p className="stage-lineup-more">+{hiddenLineupCount} more in the published lineup</p>
               ) : null}
               {stage.meetUrl ? (
-                <a className="stage-join-link" href={stage.meetUrl} target="_blank" rel="noreferrer">
-                  Join Meet
-                </a>
+                <div className="stage-meet-card">
+                  <span className="stage-meet-label">Meet link</span>
+                  <a className="stage-meet-url" href={stage.meetUrl} target="_blank" rel="noreferrer">
+                    {displayMeetUrl}
+                  </a>
+                </div>
               ) : null}
             </div>
           ) : (

@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { generateText, Output } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 
 // AI shuffle: pick + order the lineup from the pool based on the organizer's
@@ -33,6 +33,13 @@ export const aiShuffle = action({
       admin.event.lineupTarget && admin.event.lineupTarget > 0
         ? Math.min(admin.event.lineupTarget, people.length)
         : people.length;
+    const openaiApiKey = env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      throw new Error(
+        "OPENAI_API_KEY is not configured for this Convex deployment. Set it with `pnpm exec convex env set OPENAI_API_KEY <key>` before using AI shuffle.",
+      );
+    }
+    const openai = createOpenAI({ apiKey: openaiApiKey });
 
     const { output } = await generateText({
       model: openai(env.OPENAI_MODEL ?? "gpt-5.4"),

@@ -79,8 +79,8 @@ preview when using the `convex deploy --cmd` flow above. Convex injects it for
 the build. Local development still needs it in `.env.local`.
 
 Convex function environment variables are separate from Vercel build variables.
-They are set per Convex deployment, not in `.env.local`, and are declared in
-`convex/convex.config.ts` for deploy-time validation. Convex documents this at:
+They are set per Convex deployment, not in `.env.local`, and can be declared in
+`convex/convex.config.ts` for typed access and deploy-time validation. Convex documents this at:
 https://docs.convex.dev/production/environment-variables
 
 Local development expects `.env.local` with:
@@ -104,6 +104,8 @@ pnpm exec convex env set OPENAI_API_KEY <key>
 pnpm exec convex env set OPENAI_MODEL <fast-model-name>
 ```
 
+`OPENAI_API_KEY` is optional for deploys so previews and non-AI changes do not
+fail to ship, but AI shuffle throws a clear runtime error if it is missing.
 `OPENAI_MODEL` is optional, but setting it lets event operators pick a faster
 model without changing code.
 

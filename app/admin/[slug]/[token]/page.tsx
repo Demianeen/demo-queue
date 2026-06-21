@@ -1349,9 +1349,10 @@ function DemoCell({ item }: { item: AdminSubmission }) {
 
 function CategoryCell({ category }: { category?: string }) {
   const fullCategory = category || "demo";
+  const visibleCategory = fullCategory.slice(0, SUBMISSION_FIELD_LIMITS.category);
   return (
     <span className="admin-category-text" aria-label={fullCategory} title={fullCategory}>
-      {fullCategory}
+      {visibleCategory}
     </span>
   );
 }

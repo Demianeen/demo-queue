@@ -765,6 +765,7 @@ h3 {
 }
 
 .queue-row > div {
+  flex: 1 1 0;
   min-width: 0;
 }
 
@@ -781,7 +782,15 @@ h3 {
   display: inline-flex;
   font-size: 12px;
   font-weight: 850;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding: 5px 9px;
+  white-space: normal;
+}
+
+.queue-row > .pill {
+  flex: 0 1 45%;
 }
 
 .pill.green {

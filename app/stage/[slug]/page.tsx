@@ -10,7 +10,7 @@ import { absoluteUrl, submissionPath } from "@/lib/routes";
 import { Skeleton } from "@/app/Skeleton";
 
 type StageTimer = {
-  status: "idle" | "running" | "paused" | "expired";
+  status: "idle" | "running" | "paused";
   durationMs: number;
   remainingMs: number;
   endsAt?: number;
@@ -18,10 +18,11 @@ type StageTimer = {
 };
 
 function formatTimer(ms: number) {
-  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
+  const absoluteSeconds = Math.abs(totalSeconds);
+  const minutes = Math.floor(absoluteSeconds / 60);
+  const seconds = absoluteSeconds % 60;
+  return `${totalSeconds < 0 ? "-" : ""}${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function useStageTimer(timer: StageTimer | undefined) {
@@ -55,20 +56,19 @@ function useStageTimer(timer: StageTimer | undefined) {
   const estimatedServerNow = timer.serverNow + (clientNow - receivedAt);
   const remainingMs =
     timer.status === "running" && timer.endsAt !== undefined
-      ? Math.max(0, timer.endsAt - estimatedServerNow)
+      ? timer.endsAt - estimatedServerNow
       : timer.remainingMs;
-  const status = timer.status === "running" && remainingMs <= 0 ? "expired" : timer.status;
   const label =
-    status === "running"
-      ? "Running"
-      : status === "paused"
+    timer.status === "running"
+      ? remainingMs < 0
+        ? "Over time"
+        : "On clock"
+      : timer.status === "paused"
         ? "Paused"
-        : status === "expired"
-          ? "Time"
-          : "Ready";
+        : "Ready";
 
   return {
-    status,
+    status: timer.status,
     label,
     remainingMs,
     display: formatTimer(remainingMs),
@@ -93,6 +93,11 @@ export default function StagePage() {
   const previousCurrentId = useRef<string | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
   const timer = useStageTimer(stage?.stageTimer);
+  const showTimer = timer.status !== "idle";
+  const timerStateClass = showTimer
+    ? ` has-timer is-${timer.status}${timer.remainingMs < 0 ? " is-overtime" : ""}`
+    : "";
+  const waitingCount = stage?.waitingCount ?? stage?.remainingCount ?? 0;
 
   useEffect(() => {
     if (!isLive || allUpcoming.length === 0) {
@@ -280,7 +285,7 @@ export default function StagePage() {
               ) : null}
             </div>
           ) : (
-            <div className="stage-qr-stack">
+            <div className={`stage-qr-stack${showTimer ? " has-timer" : ""}`}>
               <Image
                 src="/mascot.png"
                 alt=""
@@ -290,19 +295,23 @@ export default function StagePage() {
                 priority
                 className="stage-mascot"
               />
-              <div className={`stage-bento-timer is-${timer.status}`}>
+              <div className={`stage-bento-timer${timerStateClass}`}>
                 <div className="stage-bento-tile stage-bento-qr">
                   <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
                   <h3>Scan to demo</h3>
                 </div>
-                <div className="stage-bento-tile stage-bento-clock" aria-live="polite">
-                  <span className="stage-bento-label">{timer.label}</span>
-                  <strong>{timer.display}</strong>
-                </div>
-                <div className="stage-bento-tile stage-bento-count">
-                  <span className="stage-bento-label">Waiting</span>
-                  <strong>{stage.remainingCount}</strong>
-                </div>
+                {showTimer ? (
+                  <>
+                    <div className="stage-bento-tile stage-bento-clock" aria-live="polite">
+                      <span className="stage-bento-label">{timer.label}</span>
+                      <strong>{timer.display}</strong>
+                    </div>
+                    <div className="stage-bento-tile stage-bento-count">
+                      <span className="stage-bento-label">All people</span>
+                      <strong>{waitingCount}</strong>
+                    </div>
+                  </>
+                ) : null}
               </div>
             </div>
           )}

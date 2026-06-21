@@ -65,7 +65,7 @@ type SubmissionFields = {
 type ColumnId = "lineup" | "pool";
 
 type StageTimer = {
-  status: "idle" | "running" | "paused" | "expired";
+  status: "idle" | "running" | "paused";
   durationMs: number;
   remainingMs: number;
   endsAt?: number;
@@ -73,10 +73,11 @@ type StageTimer = {
 };
 
 function formatTimerMs(ms: number) {
-  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
+  const absoluteSeconds = Math.abs(totalSeconds);
+  const minutes = Math.floor(absoluteSeconds / 60);
+  const seconds = absoluteSeconds % 60;
+  return `${totalSeconds < 0 ? "-" : ""}${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function timerInputToMs(value: string, fallbackMs: number) {
@@ -111,6 +112,7 @@ function useTimerView(timer: StageTimer | undefined) {
   if (!timer) {
     return {
       status: "idle" as const,
+      label: "ready",
       remainingMs: 0,
       display: formatTimerMs(0),
     };
@@ -119,12 +121,20 @@ function useTimerView(timer: StageTimer | undefined) {
   const estimatedServerNow = timer.serverNow + (clientNow - receivedAt);
   const remainingMs =
     timer.status === "running" && timer.endsAt !== undefined
-      ? Math.max(0, timer.endsAt - estimatedServerNow)
+      ? timer.endsAt - estimatedServerNow
       : timer.remainingMs;
-  const status = timer.status === "running" && remainingMs <= 0 ? "expired" : timer.status;
+  const label =
+    timer.status === "running"
+      ? remainingMs < 0
+        ? "over time"
+        : "on clock"
+      : timer.status === "paused"
+        ? "paused"
+        : "ready";
 
   return {
-    status,
+    status: timer.status,
+    label,
     remainingMs,
     display: formatTimerMs(remainingMs),
   };
@@ -660,8 +670,8 @@ export default function AdminPage() {
                   <Clock size={16} aria-hidden />
                   Stage timer
                 </span>
-                <span className={`pill ${timerIsRunning ? "green" : stageTimerView.status === "expired" ? "yellow" : ""}`}>
-                  {stageTimerView.status}
+                <span className={`pill ${timerIsRunning ? (stageTimerView.remainingMs < 0 ? "yellow" : "green") : ""}`}>
+                  {stageTimerView.label}
                 </span>
               </div>
               <div className="stage-timer-admin-body">

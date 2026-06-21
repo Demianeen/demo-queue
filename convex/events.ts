@@ -12,7 +12,8 @@ const DEFAULT_STAGE_TIMER_MS = 5 * 60 * 1000;
 const MIN_STAGE_TIMER_DURATION_MS = 60 * 1000;
 const MAX_STAGE_TIMER_MS = 99 * 60 * 1000;
 const MIN_STAGE_TIMER_MS = 0;
-type PublicStageTimerStatus = "idle" | "running" | "paused" | "expired";
+const MIN_OVERTIME_TIMER_MS = -MAX_STAGE_TIMER_MS;
+type PublicStageTimerStatus = "idle" | "running" | "paused";
 
 const publicSubmissionFields = (submission: Doc<"submissions">) => ({
   id: submission._id,
@@ -73,6 +74,14 @@ function clampTimerMs(value: number) {
   return Math.max(MIN_STAGE_TIMER_MS, Math.min(MAX_STAGE_TIMER_MS, Math.round(value)));
 }
 
+function clampSignedTimerMs(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_STAGE_TIMER_MS;
+  }
+
+  return Math.max(MIN_OVERTIME_TIMER_MS, Math.min(MAX_STAGE_TIMER_MS, Math.round(value)));
+}
+
 function stageTimerDuration(event: Doc<"events">) {
   return clampTimerDurationMs(event.stageTimerDurationMs ?? DEFAULT_STAGE_TIMER_MS);
 }
@@ -92,20 +101,18 @@ function currentStageTimerRemaining(event: Doc<"events">, now: number) {
   const durationMs = stageTimerDuration(event);
 
   if (event.stageTimerStatus === "running" && event.stageTimerEndsAt !== undefined) {
-    return clampTimerMs(event.stageTimerEndsAt - now);
+    return clampSignedTimerMs(event.stageTimerEndsAt - now);
   }
 
-  return clampTimerMs(event.stageTimerRemainingMs ?? durationMs);
+  return event.stageTimerStatus === "paused"
+    ? clampSignedTimerMs(event.stageTimerRemainingMs ?? durationMs)
+    : clampTimerMs(event.stageTimerRemainingMs ?? durationMs);
 }
 
 function publicStageTimer(event: Doc<"events">, now = Date.now()) {
   const durationMs = stageTimerDuration(event);
   const remainingMs = currentStageTimerRemaining(event, now);
-  const storedStatus = event.stageTimerStatus ?? "idle";
-  const status: PublicStageTimerStatus =
-    storedStatus === "running" && remainingMs <= 0
-      ? "expired"
-      : storedStatus;
+  const status: PublicStageTimerStatus = event.stageTimerStatus ?? "idle";
 
   return {
     status,
@@ -233,6 +240,9 @@ export const getStage = query({
       .collect();
 
     const lineup = lineupSorted(submissions);
+    const activeSubmissionCount = submissions.filter(
+      (submission) => submission.status === "queued" || submission.status === "candidate",
+    ).length;
     const stageLineup = event.queuePublished ? lineup.slice(0, STAGE_LINEUP_LIMIT) : [];
     const current = stageLineup[0] ?? null;
     const upNext = stageLineup[1] ?? null;
@@ -250,6 +260,7 @@ export const getStage = query({
       upNext: upNext ? publicSubmissionFields(upNext) : null,
       lineup: stageLineup.map(publicSubmissionFields),
       remainingCount: lineup.length,
+      waitingCount: activeSubmissionCount,
       meetUrl: event.queuePublished && showMeetLinkOnStage ? event.meetUrl : null,
     };
   },
@@ -641,8 +652,9 @@ export const adjustStageTimer = mutation({
     requireAdmin(event, args.adminToken);
 
     const now = Date.now();
-    const remainingMs = clampTimerMs(currentStageTimerRemaining(event, now) + args.deltaMs);
-    const isRunning = event.stageTimerStatus === "running" && remainingMs > 0;
+    const isRunning = event.stageTimerStatus === "running";
+    const nextRemainingMs = currentStageTimerRemaining(event, now) + args.deltaMs;
+    const remainingMs = isRunning ? clampSignedTimerMs(nextRemainingMs) : clampTimerMs(nextRemainingMs);
 
     await ctx.db.patch(event._id, {
       stageTimerStatus: isRunning ? "running" : event.stageTimerStatus ?? "idle",

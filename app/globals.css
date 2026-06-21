@@ -505,8 +505,14 @@ h3 {
 }
 
 .stage-qr-stack {
+  justify-self: center;
   position: relative;
   padding-top: 92px;
+  width: min(100%, 332px);
+}
+
+.stage-qr-stack.has-timer {
+  width: min(100%, 360px);
 }
 
 .stage-mascot {
@@ -538,8 +544,12 @@ h3 {
 .stage-bento-timer {
   display: grid;
   gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+}
+
+.stage-bento-timer.has-timer {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  width: min(100%, 390px);
 }
 
 .stage-bento-tile {
@@ -554,7 +564,12 @@ h3 {
 }
 
 .stage-bento-qr {
+  align-items: center;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  flex-direction: column;
   grid-column: 1 / -1;
+  justify-content: center;
   text-align: center;
 }
 
@@ -562,7 +577,7 @@ h3 {
   display: block;
   height: auto;
   margin: 0 auto;
-  max-width: 264px;
+  max-width: 254px;
   width: 100%;
 }
 
@@ -577,13 +592,14 @@ h3 {
   color: #ffffff;
 }
 
-.stage-bento-timer.is-expired .stage-bento-clock {
+.stage-bento-timer.is-overtime .stage-bento-clock {
   background: #b42318;
 }
 
 .stage-bento-clock strong {
   display: block;
   font-size: 64px;
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   line-height: 0.92;
   margin-top: 8px;

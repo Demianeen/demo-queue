@@ -1,6 +1,48 @@
 // Shared, framework-free validators used by both the submission form and the
 // participant contact-edit form so the two stay consistent.
 
+export const SUBMISSION_FIELD_LIMITS = {
+  name: 60,
+  demoTitle: 64,
+  description: 240,
+  phone: 32,
+  email: 254,
+  twitter: 200,
+  linkedin: 300,
+  category: 24,
+} as const;
+
+export type SubmissionFieldName = keyof typeof SUBMISSION_FIELD_LIMITS;
+
+export const SUBMISSION_FIELD_LABELS: Record<SubmissionFieldName, string> = {
+  name: "Name",
+  demoTitle: "Demo title",
+  description: "Description",
+  phone: "Phone number",
+  email: "Email",
+  twitter: "Twitter/X",
+  linkedin: "LinkedIn",
+  category: "Category",
+};
+
+export function isWithinFieldLimit(field: SubmissionFieldName, value: string) {
+  return value.trim().length <= SUBMISSION_FIELD_LIMITS[field];
+}
+
+export function fieldLimitError(field: SubmissionFieldName, value: string) {
+  if (isWithinFieldLimit(field, value)) return "";
+  return `${SUBMISSION_FIELD_LABELS[field]} must be ${SUBMISSION_FIELD_LIMITS[field]} characters or fewer.`;
+}
+
+export function firstFieldLimitError(fields: Partial<Record<SubmissionFieldName, string>>) {
+  for (const field of Object.keys(fields) as SubmissionFieldName[]) {
+    const error = fieldLimitError(field, fields[field] ?? "");
+    if (error) return error;
+  }
+
+  return "";
+}
+
 export function isValidPhone(value: string) {
   const trimmed = value.trim();
   const digits = trimmed.replace(/\D/g, "");

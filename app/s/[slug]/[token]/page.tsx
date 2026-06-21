@@ -5,7 +5,13 @@ import { useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Skeleton } from "@/app/Skeleton";
-import { isValidLinkedin, isValidPhone, isValidTwitter } from "@/lib/validation";
+import {
+  SUBMISSION_FIELD_LIMITS,
+  firstFieldLimitError,
+  isValidLinkedin,
+  isValidPhone,
+  isValidTwitter,
+} from "@/lib/validation";
 import { Brand } from "@/app/Brand";
 
 const statusLabels: Record<string, string> = {
@@ -60,6 +66,12 @@ export default function ParticipantStatusPage() {
     const phone = read("phone");
     const twitter = read("twitter");
     const linkedin = read("linkedin");
+    const lengthError = firstFieldLimitError({
+      phone,
+      email: read("email"),
+      twitter,
+      linkedin,
+    });
 
     setMessage("");
     setPhoneError("");
@@ -68,6 +80,10 @@ export default function ParticipantStatusPage() {
     setSocialError("");
 
     let valid = true;
+    if (lengthError) {
+      setSocialError(lengthError);
+      valid = false;
+    }
     if (!isValidPhone(phone)) {
       setPhoneError("Enter a valid phone number (7-15 digits).");
       valid = false;
@@ -146,6 +162,7 @@ export default function ParticipantStatusPage() {
               inputMode="tel"
               placeholder="+1 555 123 4567"
               defaultValue={participant.submission.phone}
+              maxLength={SUBMISSION_FIELD_LIMITS.phone}
               required
             />
             {phoneError ? <FieldError>{phoneError}</FieldError> : null}
@@ -159,6 +176,7 @@ export default function ParticipantStatusPage() {
               type="email"
               placeholder="you@example.com"
               defaultValue={participant.submission.email ?? ""}
+              maxLength={SUBMISSION_FIELD_LIMITS.email}
             />
           </div>
 
@@ -169,6 +187,7 @@ export default function ParticipantStatusPage() {
               name="twitter"
               placeholder="@handle or x.com/handle"
               defaultValue={participant.submission.twitter ?? ""}
+              maxLength={SUBMISSION_FIELD_LIMITS.twitter}
             />
             {twitterError ? <FieldError>{twitterError}</FieldError> : null}
           </div>
@@ -180,6 +199,7 @@ export default function ParticipantStatusPage() {
               name="linkedin"
               placeholder="linkedin.com/in/you"
               defaultValue={participant.submission.linkedin ?? ""}
+              maxLength={SUBMISSION_FIELD_LIMITS.linkedin}
             />
             {linkedinError ? <FieldError>{linkedinError}</FieldError> : null}
           </div>

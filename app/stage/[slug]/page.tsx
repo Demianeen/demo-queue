@@ -296,11 +296,9 @@ export default function StagePage() {
                   priority
                   className="stage-mascot"
                 />
-                <div className="stage-bento-tile stage-bento-qr">
-                  <div className="stage-qr-code-frame">
-                    <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
-                  </div>
-                  <h3>Scan to demo</h3>
+                <div className="qr-box">
+                  <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
+                  <h3 style={{ marginTop: 14 }}>Scan to demo</h3>
                 </div>
               </div>
               {showTimer ? (

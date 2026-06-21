@@ -502,6 +502,7 @@ h3 {
   align-content: center;
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .stage-qr-shell {
@@ -517,7 +518,7 @@ h3 {
   align-items: start;
   color: rgba(16, 19, 24, 0.84);
   display: flex;
-  gap: 30px;
+  gap: 45px;
   justify-self: stretch;
   min-width: 0;
   width: 100%;

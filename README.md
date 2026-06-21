@@ -158,10 +158,12 @@ pnpm queue:prod -- rank --count 5 --admin-url "https://.../admin/<slug>/<token>"
 pnpm queue:prod -- set-lineup --ids id1,id2,id3,id4,id5 --admin-url "https://.../admin/<slug>/<token>" --yes
 ```
 
-Full admin URLs are the fastest production path. For `snapshot`, `rank`,
-`set-lineup`, and `set-best`, the helper can infer the public Convex deployment
-URL from the deployed app and query Convex directly, so a fresh worktree does
-not need `.env.local` when `--admin-url` is a full `https://.../admin/...` URL.
+Full admin URLs are the authoritative production path. For `snapshot`, `rank`,
+`set-lineup`, and `set-best`, the helper infers the public Convex deployment URL
+only from the deployed app named by the full `https://.../admin/...` URL and
+queries Convex directly. It does not read `.env.local` for target selection in
+that mode, so a local dev `NEXT_PUBLIC_CONVEX_URL` cannot override the pasted
+production admin URL.
 
 Local queue commands use the deployment selected by `.env.local`. Production
 queue commands can use `--prod` via `pnpm queue:prod`, or `.env.local` can point

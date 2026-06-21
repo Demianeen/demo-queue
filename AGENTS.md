@@ -42,10 +42,12 @@ helper prints a full URL using `--site-url`, `DEMO_QUEUE_SITE_URL`, Vercel URL
 env vars, localhost for non-production, or the stable production default
 `https://demo-queue-tau.vercel.app`.
 
-A full `https://.../admin/<slug>/<token>` admin URL is the fastest production
-path. For `snapshot`, `rank`, `set-lineup`, and `set-best`, the helper can infer
-the public Convex deployment URL from the deployed app and query Convex directly,
-so do not copy `.env.local` first when a full admin URL is already available.
+A full `https://.../admin/<slug>/<token>` admin URL is the authoritative
+production path. For `snapshot`, `rank`, `set-lineup`, and `set-best`, the
+helper infers the public Convex deployment URL only from the deployed app named
+by that URL and queries Convex directly, so do not copy `.env.local` first when a
+full admin URL is already available. In this mode, local env cannot override the
+pasted production admin URL.
 When reporting helper results with IDs, paste the helper rows exactly or omit
 IDs if they are not needed. Do not manually retype submission IDs from memory.
 

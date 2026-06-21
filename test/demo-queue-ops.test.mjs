@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  convexUrlForArgs,
   extractScriptSrcs,
   findConvexUrlCandidates,
   findRuntimeConvexUrl,
@@ -20,6 +21,18 @@ function withTempCwd(fn) {
   chdir(dir);
   try {
     fn();
+  } finally {
+    chdir(previousCwd);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function withTempCwdAsync(fn) {
+  const previousCwd = process.cwd();
+  const dir = mkdtempSync(join(tmpdir(), "demo-queue-env-"));
+  chdir(dir);
+  try {
+    await fn();
   } finally {
     chdir(previousCwd);
     rmSync(dir, { recursive: true, force: true });
@@ -104,4 +117,33 @@ test("findRuntimeConvexUrl prefers the app runtime env value", () => {
 
   assert.equal(findRuntimeConvexUrl(chunk), "https://giant-egret-456.convex.cloud");
   assert.deepEqual(findConvexUrlCandidates(chunk), ["https://giant-egret-456.convex.cloud"]);
+});
+
+test("convexUrlForArgs treats full admin URLs as authoritative over local env", async (t) => {
+  const fetchedUrls = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const href = String(url);
+    fetchedUrls.push(href);
+    if (href === "https://demo-queue-tau.vercel.app/admin/event-slug/admin-token") {
+      return new Response('<script src="/_next/static/chunks/app/admin-page.js"></script>');
+    }
+    if (href === "https://demo-queue-tau.vercel.app/_next/static/chunks/app/admin-page.js") {
+      return new Response(
+        'experimental__runtimeEnv:{NEXT_PUBLIC_CONVEX_URL:"https://giant-egret-456.convex.cloud"}',
+      );
+    }
+    assert.fail(`Unexpected fetch URL: ${href}`);
+  });
+
+  await withTempCwdAsync(async () => {
+    writeFileSync(".env.local", "NEXT_PUBLIC_CONVEX_URL=https://precious-elk-564.convex.cloud\n");
+
+    const args = parseAdminUrl("https://demo-queue-tau.vercel.app/admin/event-slug/admin-token");
+
+    assert.equal(await convexUrlForArgs(args), "https://giant-egret-456.convex.cloud");
+    assert.deepEqual(fetchedUrls, [
+      "https://demo-queue-tau.vercel.app/admin/event-slug/admin-token",
+      "https://demo-queue-tau.vercel.app/_next/static/chunks/app/admin-page.js",
+    ]);
+  });
 });

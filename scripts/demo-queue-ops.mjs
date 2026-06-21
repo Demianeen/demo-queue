@@ -200,6 +200,16 @@ async function runConvexHttp(convexUrl, type, functionName, payload) {
 }
 
 async function convexUrlForArgs(args) {
+  if (args.adminSiteUrl) {
+    const inferred = await inferConvexUrlFromSite(normalizeSiteUrl(args.adminSiteUrl), args);
+    if (!inferred) {
+      throw new Error(
+        "Could not infer Convex URL from --admin-url. Check that the URL points at a deployed demo-queue app.",
+      );
+    }
+    return inferred;
+  }
+
   const env = localProcessEnv();
   if (env.NEXT_PUBLIC_CONVEX_URL) return env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -586,6 +596,7 @@ export {
   extractScriptSrcs,
   findConvexUrlCandidates,
   findRuntimeConvexUrl,
+  convexUrlForArgs,
   localProcessEnv,
   parseAdminUrl,
   readLocalEnv,

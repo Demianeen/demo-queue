@@ -8,6 +8,11 @@ import {
 } from "../lib/validation";
 
 const STAGE_LINEUP_LIMIT = 10;
+const DEFAULT_STAGE_TIMER_MS = 5 * 60 * 1000;
+const MIN_STAGE_TIMER_DURATION_MS = 60 * 1000;
+const MAX_STAGE_TIMER_MS = 99 * 60 * 1000;
+const MIN_STAGE_TIMER_MS = 0;
+type PublicStageTimerStatus = "idle" | "running" | "paused" | "expired";
 
 const publicSubmissionFields = (submission: Doc<"submissions">) => ({
   id: submission._id,
@@ -58,6 +63,57 @@ function sortQueue(a: Doc<"submissions">, b: Doc<"submissions">) {
 // queueOrder. Position 0 is "now demoing" (current), position 1 is "up next".
 function lineupSorted(submissions: Doc<"submissions">[]) {
   return submissions.filter((submission) => submission.status === "queued").sort(sortQueue);
+}
+
+function clampTimerMs(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_STAGE_TIMER_MS;
+  }
+
+  return Math.max(MIN_STAGE_TIMER_MS, Math.min(MAX_STAGE_TIMER_MS, Math.round(value)));
+}
+
+function stageTimerDuration(event: Doc<"events">) {
+  return clampTimerDurationMs(event.stageTimerDurationMs ?? DEFAULT_STAGE_TIMER_MS);
+}
+
+function clampTimerDurationMs(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_STAGE_TIMER_MS;
+  }
+
+  return Math.max(
+    MIN_STAGE_TIMER_DURATION_MS,
+    Math.min(MAX_STAGE_TIMER_MS, Math.round(value)),
+  );
+}
+
+function currentStageTimerRemaining(event: Doc<"events">, now: number) {
+  const durationMs = stageTimerDuration(event);
+
+  if (event.stageTimerStatus === "running" && event.stageTimerEndsAt !== undefined) {
+    return clampTimerMs(event.stageTimerEndsAt - now);
+  }
+
+  return clampTimerMs(event.stageTimerRemainingMs ?? durationMs);
+}
+
+function publicStageTimer(event: Doc<"events">, now = Date.now()) {
+  const durationMs = stageTimerDuration(event);
+  const remainingMs = currentStageTimerRemaining(event, now);
+  const storedStatus = event.stageTimerStatus ?? "idle";
+  const status: PublicStageTimerStatus =
+    storedStatus === "running" && remainingMs <= 0
+      ? "expired"
+      : storedStatus;
+
+  return {
+    status,
+    durationMs,
+    remainingMs,
+    endsAt: event.stageTimerStatus === "running" ? event.stageTimerEndsAt : undefined,
+    serverNow: now,
+  };
 }
 
 async function logAction(
@@ -170,6 +226,7 @@ export const getStage = query({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {
     const event = await eventBySlug(ctx, slug);
+    const now = Date.now();
     const submissions = await ctx.db
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
@@ -188,6 +245,7 @@ export const getStage = query({
         queuePublished: event.queuePublished,
         showMeetLinkOnStage,
       },
+      stageTimer: publicStageTimer(event, now),
       current: current ? publicSubmissionFields(current) : null,
       upNext: upNext ? publicSubmissionFields(upNext) : null,
       lineup: stageLineup.map(publicSubmissionFields),
@@ -217,6 +275,7 @@ export const getAdmin = query({
         queuePublished: event.queuePublished,
         showMeetLinkOnStage: event.showMeetLinkOnStage ?? false,
         lineupTarget: event.lineupTarget,
+        stageTimer: publicStageTimer(event),
       },
       lineup: lineupSorted(submissions).map(adminSubmissionFields),
       pool: submissions
@@ -497,6 +556,101 @@ export const setStageMeetLinkVisible = mutation({
       args.visible ? "stage_meet_link_enabled" : "stage_meet_link_disabled",
       "admin",
     );
+  },
+});
+
+export const startStageTimer = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const now = Date.now();
+    const durationMs = stageTimerDuration(event);
+    const currentRemainingMs = currentStageTimerRemaining(event, now);
+    const remainingMs = currentRemainingMs > 0 ? currentRemainingMs : durationMs;
+
+    await ctx.db.patch(event._id, {
+      stageTimerStatus: "running",
+      stageTimerDurationMs: durationMs,
+      stageTimerRemainingMs: remainingMs,
+      stageTimerEndsAt: now + remainingMs,
+      updatedAt: now,
+    });
+    await logAction(ctx, event._id, "stage_timer_started", "admin", String(remainingMs));
+  },
+});
+
+export const pauseStageTimer = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const now = Date.now();
+    const remainingMs = currentStageTimerRemaining(event, now);
+
+    await ctx.db.patch(event._id, {
+      stageTimerStatus: "paused",
+      stageTimerRemainingMs: remainingMs,
+      stageTimerEndsAt: undefined,
+      updatedAt: now,
+    });
+    await logAction(ctx, event._id, "stage_timer_paused", "admin", String(remainingMs));
+  },
+});
+
+export const resetStageTimer = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    durationMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const now = Date.now();
+    const durationMs = clampTimerDurationMs(args.durationMs ?? stageTimerDuration(event));
+
+    await ctx.db.patch(event._id, {
+      stageTimerStatus: "idle",
+      stageTimerDurationMs: durationMs,
+      stageTimerRemainingMs: durationMs,
+      stageTimerEndsAt: undefined,
+      updatedAt: now,
+    });
+    await logAction(ctx, event._id, "stage_timer_reset", "admin", String(durationMs));
+  },
+});
+
+export const adjustStageTimer = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    deltaMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const now = Date.now();
+    const remainingMs = clampTimerMs(currentStageTimerRemaining(event, now) + args.deltaMs);
+    const isRunning = event.stageTimerStatus === "running" && remainingMs > 0;
+
+    await ctx.db.patch(event._id, {
+      stageTimerStatus: isRunning ? "running" : event.stageTimerStatus ?? "idle",
+      stageTimerRemainingMs: remainingMs,
+      stageTimerEndsAt: isRunning ? now + remainingMs : undefined,
+      updatedAt: now,
+    });
+    await logAction(ctx, event._id, "stage_timer_adjusted", "admin", String(args.deltaMs));
   },
 });
 

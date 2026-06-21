@@ -9,6 +9,72 @@ import { api } from "../../../convex/_generated/api";
 import { absoluteUrl, submissionPath } from "@/lib/routes";
 import { Skeleton } from "@/app/Skeleton";
 
+type StageTimer = {
+  status: "idle" | "running" | "paused" | "expired";
+  durationMs: number;
+  remainingMs: number;
+  endsAt?: number;
+  serverNow: number;
+};
+
+function formatTimer(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function useStageTimer(timer: StageTimer | undefined) {
+  const [clientNow, setClientNow] = useState(() => Date.now());
+  const [receivedAt, setReceivedAt] = useState(() => Date.now());
+
+  useEffect(() => {
+    setReceivedAt(Date.now());
+    setClientNow(Date.now());
+  }, [timer?.serverNow, timer?.endsAt, timer?.remainingMs, timer?.status]);
+
+  useEffect(() => {
+    if (!timer || timer.status !== "running") return;
+
+    const interval = window.setInterval(() => {
+      setClientNow(Date.now());
+    }, 250);
+
+    return () => window.clearInterval(interval);
+  }, [timer]);
+
+  if (!timer) {
+    return {
+      status: "idle" as const,
+      label: "Ready",
+      remainingMs: 0,
+      display: "0:00",
+    };
+  }
+
+  const estimatedServerNow = timer.serverNow + (clientNow - receivedAt);
+  const remainingMs =
+    timer.status === "running" && timer.endsAt !== undefined
+      ? Math.max(0, timer.endsAt - estimatedServerNow)
+      : timer.remainingMs;
+  const status = timer.status === "running" && remainingMs <= 0 ? "expired" : timer.status;
+  const label =
+    status === "running"
+      ? "Running"
+      : status === "paused"
+        ? "Paused"
+        : status === "expired"
+          ? "Time"
+          : "Ready";
+
+  return {
+    status,
+    label,
+    remainingMs,
+    display: formatTimer(remainingMs),
+  };
+}
+
 export default function StagePage() {
   const params = useParams<{ slug: string }>();
   const stage = useQuery(api.events.getStage, { slug: params.slug });
@@ -26,6 +92,7 @@ export default function StagePage() {
   const lineupListRef = useRef<HTMLOListElement | null>(null);
   const previousCurrentId = useRef<string | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
+  const timer = useStageTimer(stage?.stageTimer);
 
   useEffect(() => {
     if (!isLive || allUpcoming.length === 0) {
@@ -223,10 +290,19 @@ export default function StagePage() {
                 priority
                 className="stage-mascot"
               />
-              <div className="qr-box">
-                <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
-                <h3 style={{ marginTop: 14 }}>Scan to demo</h3>
-                <p className="muted" style={{ marginBottom: 0 }}>{stage.remainingCount} waiting</p>
+              <div className={`stage-bento-timer is-${timer.status}`}>
+                <div className="stage-bento-tile stage-bento-qr">
+                  <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
+                  <h3>Scan to demo</h3>
+                </div>
+                <div className="stage-bento-tile stage-bento-clock" aria-live="polite">
+                  <span className="stage-bento-label">{timer.label}</span>
+                  <strong>{timer.display}</strong>
+                </div>
+                <div className="stage-bento-tile stage-bento-count">
+                  <span className="stage-bento-label">Waiting</span>
+                  <strong>{stage.remainingCount}</strong>
+                </div>
               </div>
             </div>
           )}

@@ -35,7 +35,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown, GripVertical } from "lucide-react";
+import { ChevronDown, Clock, Minus, Pause, Play, Plus, RotateCcw, GripVertical } from "lucide-react";
 
 type AdminSubmission = {
   id: Id<"submissions">;
@@ -64,6 +64,72 @@ type SubmissionFields = {
 
 type ColumnId = "lineup" | "pool";
 
+type StageTimer = {
+  status: "idle" | "running" | "paused" | "expired";
+  durationMs: number;
+  remainingMs: number;
+  endsAt?: number;
+  serverNow: number;
+};
+
+function formatTimerMs(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function timerInputToMs(value: string, fallbackMs: number) {
+  const minutes = Number.parseFloat(value);
+  if (!Number.isFinite(minutes)) return fallbackMs;
+  return Math.max(60 * 1000, Math.min(99 * 60 * 1000, Math.round(minutes * 60 * 1000)));
+}
+
+function timerMsToInputMinutes(ms: number) {
+  return String(Math.max(1, Math.round(ms / 60000)));
+}
+
+function useTimerView(timer: StageTimer | undefined) {
+  const [clientNow, setClientNow] = useState(() => Date.now());
+  const [receivedAt, setReceivedAt] = useState(() => Date.now());
+
+  useEffect(() => {
+    setReceivedAt(Date.now());
+    setClientNow(Date.now());
+  }, [timer?.serverNow, timer?.endsAt, timer?.remainingMs, timer?.status]);
+
+  useEffect(() => {
+    if (!timer || timer.status !== "running") return;
+
+    const interval = window.setInterval(() => {
+      setClientNow(Date.now());
+    }, 250);
+
+    return () => window.clearInterval(interval);
+  }, [timer]);
+
+  if (!timer) {
+    return {
+      status: "idle" as const,
+      remainingMs: 0,
+      display: formatTimerMs(0),
+    };
+  }
+
+  const estimatedServerNow = timer.serverNow + (clientNow - receivedAt);
+  const remainingMs =
+    timer.status === "running" && timer.endsAt !== undefined
+      ? Math.max(0, timer.endsAt - estimatedServerNow)
+      : timer.remainingMs;
+  const status = timer.status === "running" && remainingMs <= 0 ? "expired" : timer.status;
+
+  return {
+    status,
+    remainingMs,
+    display: formatTimerMs(remainingMs),
+  };
+}
+
 export default function AdminPage() {
   const params = useParams<{ slug: string; token: string }>();
   const admin = useQuery(api.events.getAdmin, {
@@ -81,6 +147,10 @@ export default function AdminPage() {
   const updateSubmission = useMutation(api.events.updateSubmission);
   const setLineupTarget = useMutation(api.events.setLineupTarget);
   const setStageMeetLinkVisible = useMutation(api.events.setStageMeetLinkVisible);
+  const startStageTimer = useMutation(api.events.startStageTimer);
+  const pauseStageTimer = useMutation(api.events.pauseStageTimer);
+  const resetStageTimer = useMutation(api.events.resetStageTimer);
+  const adjustStageTimer = useMutation(api.events.adjustStageTimer);
   const shuffleLineup = useMutation(api.events.shuffleLineup);
   const aiShuffle = useAction(api.ai.aiShuffle);
 
@@ -128,6 +198,7 @@ export default function AdminPage() {
   const [aiError, setAiError] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const [liveMenuOpen, setLiveMenuOpen] = useState(false);
+  const [timerMinutesInput, setTimerMinutesInput] = useState("");
   const [board, setBoard] = useState<{ lineup: Id<"submissions">[]; pool: Id<"submissions">[] }>({
     lineup: [],
     pool: [],
@@ -155,6 +226,13 @@ export default function AdminPage() {
       pool: admin.pool.map((item) => item.id),
     });
   }, [admin, activeId]);
+
+  const timerDurationMs = admin?.event.stageTimer?.durationMs;
+  useEffect(() => {
+    if (timerDurationMs === undefined) return;
+    setTimerMinutesInput(timerMsToInputMinutes(timerDurationMs));
+  }, [timerDurationMs]);
+  const stageTimerView = useTimerView(admin?.event.stageTimer);
 
   useEffect(() => {
     if (!liveMenuOpen) return;
@@ -337,6 +415,35 @@ export default function AdminPage() {
     });
   }
 
+  async function startTimer() {
+    await startStageTimer({ slug: params.slug, adminToken: params.token });
+  }
+
+  async function pauseTimer() {
+    await pauseStageTimer({ slug: params.slug, adminToken: params.token });
+  }
+
+  async function resetTimer() {
+    const durationMs = timerInputToMs(
+      timerMinutesInput,
+      admin?.event.stageTimer?.durationMs ?? 5 * 60 * 1000,
+    );
+    await resetStageTimer({
+      slug: params.slug,
+      adminToken: params.token,
+      durationMs,
+    });
+    setTimerMinutesInput(timerMsToInputMinutes(durationMs));
+  }
+
+  async function adjustTimer(deltaMs: number) {
+    await adjustStageTimer({
+      slug: params.slug,
+      adminToken: params.token,
+      deltaMs,
+    });
+  }
+
   async function saveNew(values: SubmissionFields) {
     await adminAddSubmission({
       slug: params.slug,
@@ -424,6 +531,7 @@ export default function AdminPage() {
 
   const activeItem = activeId ? itemsById.get(activeId) : null;
   const lineupCount = board.lineup.length;
+  const timerIsRunning = stageTimerView.status === "running";
 
   return (
     <main className="page">
@@ -544,6 +652,73 @@ export default function AdminPage() {
                 Published lineup participants see it on their status pages. Stage visibility is off
                 unless you enable it after publishing.
               </span>
+            </div>
+
+            <div className="stage-timer-admin">
+              <div className="stage-timer-admin-heading">
+                <span className="stage-timer-admin-title">
+                  <Clock size={16} aria-hidden />
+                  Stage timer
+                </span>
+                <span className={`pill ${timerIsRunning ? "green" : stageTimerView.status === "expired" ? "yellow" : ""}`}>
+                  {stageTimerView.status}
+                </span>
+              </div>
+              <div className="stage-timer-admin-body">
+                <div className="stage-timer-readout">{stageTimerView.display}</div>
+                <div className="stage-timer-controls" aria-label="Stage timer controls">
+                  <Button
+                    variant={timerIsRunning ? "outline" : "default"}
+                    onClick={timerIsRunning ? pauseTimer : startTimer}
+                    type="button"
+                  >
+                    {timerIsRunning ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
+                    {timerIsRunning ? "Pause" : "Start"}
+                  </Button>
+                  <Button variant="outline" onClick={resetTimer} type="button">
+                    <RotateCcw size={16} aria-hidden />
+                    Reset
+                  </Button>
+                  <Button
+                    aria-label="Subtract 1 minute"
+                    variant="outline"
+                    onClick={() => adjustTimer(-60 * 1000)}
+                    type="button"
+                  >
+                    <Minus size={16} aria-hidden />
+                    1m
+                  </Button>
+                  <Button
+                    aria-label="Add 1 minute"
+                    variant="outline"
+                    onClick={() => adjustTimer(60 * 1000)}
+                    type="button"
+                  >
+                    <Plus size={16} aria-hidden />
+                    1m
+                  </Button>
+                  <Button
+                    aria-label="Add 5 minutes"
+                    variant="outline"
+                    onClick={() => adjustTimer(5 * 60 * 1000)}
+                    type="button"
+                  >
+                    <Plus size={16} aria-hidden />
+                    5m
+                  </Button>
+                </div>
+                <label className="stage-timer-duration">
+                  <span>Duration minutes</span>
+                  <input
+                    inputMode="decimal"
+                    min={1}
+                    max={99}
+                    type="number"
+                    value={timerMinutesInput}
+                    onChange={(event) => setTimerMinutesInput(event.currentTarget.value)}
+                  />
+                </label>
+              </div>
             </div>
           </div>
 

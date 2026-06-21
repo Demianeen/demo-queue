@@ -535,6 +535,79 @@ h3 {
   width: 100%;
 }
 
+.stage-bento-timer {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  width: min(100%, 390px);
+}
+
+.stage-bento-tile {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 8px;
+  box-shadow: 0 18px 42px -30px rgba(11, 12, 16, 0.52);
+  color: var(--app-ink);
+  min-width: 0;
+  overflow: hidden;
+  padding: 16px;
+}
+
+.stage-bento-qr {
+  grid-column: 1 / -1;
+  text-align: center;
+}
+
+.stage-bento-qr svg {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  max-width: 264px;
+  width: 100%;
+}
+
+.stage-bento-qr h3 {
+  font-size: 22px;
+  line-height: 1.1;
+  margin: 14px 0 0;
+}
+
+.stage-bento-clock {
+  background: #101318;
+  color: #ffffff;
+}
+
+.stage-bento-timer.is-expired .stage-bento-clock {
+  background: #b42318;
+}
+
+.stage-bento-clock strong {
+  display: block;
+  font-size: 64px;
+  letter-spacing: 0;
+  line-height: 0.92;
+  margin-top: 8px;
+  white-space: nowrap;
+}
+
+.stage-bento-count strong {
+  display: block;
+  font-size: 48px;
+  letter-spacing: 0;
+  line-height: 0.9;
+  margin-top: 8px;
+}
+
+.stage-bento-label {
+  color: currentColor;
+  display: block;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0;
+  opacity: 0.72;
+  text-transform: uppercase;
+}
+
 .stage-card {
   background: var(--app-panel);
   border: 1px solid rgba(255, 255, 255, 0.6);
@@ -881,6 +954,81 @@ h3 {
 .stage-meet-toggle:has(input:disabled) {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.stage-timer-admin {
+  background: rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  margin-top: 14px;
+  max-width: 560px;
+  padding: 14px;
+}
+
+.stage-timer-admin-heading {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.stage-timer-admin-title {
+  align-items: center;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 850;
+  gap: 6px;
+  text-transform: uppercase;
+}
+
+.stage-timer-admin-body {
+  display: grid;
+  gap: 12px;
+}
+
+.stage-timer-readout {
+  background: #101318;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 44px;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+  padding: 14px 16px;
+}
+
+.stage-timer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stage-timer-duration {
+  align-items: center;
+  color: var(--app-muted);
+  display: flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 8px;
+}
+
+.stage-timer-duration input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  color: var(--app-ink);
+  font-weight: 800;
+  min-height: 34px;
+  padding: 6px 9px;
+  width: 86px;
+}
+
+.stage-timer-duration input::-webkit-outer-spin-button,
+.stage-timer-duration input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .split-action {

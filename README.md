@@ -147,23 +147,27 @@ https://vercel.com/docs/environment-variables/system-environment-variables
 
 ## Queue ops
 
-For live events, use the fast queue helper instead of asking an agent to
-rediscover the data model:
+For live events, use the fast queue helper to get queue data into the model
+instead of asking an agent to rediscover the data model:
 
 ```bash
+pnpm queue -- model-context
+pnpm queue -- model-context --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"
 pnpm queue -- snapshot
-pnpm queue -- snapshot --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"
+pnpm queue:prod -- model-context --admin-url "https://.../admin/<slug>/<token>"
 pnpm queue:prod -- snapshot --admin-url "https://.../admin/<slug>/<token>"
-pnpm queue:prod -- rank --count 5 --admin-url "https://.../admin/<slug>/<token>"
-pnpm queue:prod -- set-lineup --ids id1,id2,id3,id4,id5 --admin-url "https://.../admin/<slug>/<token>" --yes
 ```
 
-Full admin URLs are the authoritative production path. For `snapshot`, `rank`,
-`set-lineup`, and `set-best`, the helper infers the public Convex deployment URL
-only from the deployed app named by the full `https://.../admin/...` URL and
-queries Convex directly. It does not read `.env.local` for target selection in
-that mode, so a local dev `NEXT_PUBLIC_CONVEX_URL` cannot override the pasted
-production admin URL.
+Full admin URLs are the authoritative production path. For `model-context` and
+`snapshot`, the helper infers the public Convex deployment URL only from the
+deployed app named by the full `https://.../admin/...` URL and queries Convex
+directly. It does not read `.env.local` for target selection in that mode, so a
+local dev `NEXT_PUBLIC_CONVEX_URL` cannot override the pasted production admin
+URL.
+
+The helper is read-only and data-only. It does not rank, score, choose, or
+mutate demos. For "best N demos" requests, run `model-context`, then have the
+model rank from the returned descriptions, categories, statuses, and queue order.
 
 Local queue commands use the deployment selected by `.env.local`. Production
 queue commands can use `--prod` via `pnpm queue:prod`, or `.env.local` can point
@@ -181,12 +185,13 @@ If you do not have the admin URL, omit it and the helper will use production
 Convex table reads to pick the latest real published event:
 
 ```bash
-pnpm queue:prod -- rank --count 5
+pnpm queue:prod -- model-context
 ```
 
-The helper prints names, titles, categories, statuses, queue order, and IDs. It
-does not print phone numbers, emails, participant tokens, or admin tokens unless
-you explicitly pass `--show-admin-url`.
+`model-context` prints names, titles, descriptions, categories, statuses, queue
+order, and IDs as JSON for the model. It redacts contact-looking text and does
+not print participant tokens or admin tokens. `snapshot --show-admin-url` prints
+an admin URL only when explicitly requested.
 
 ## Manual test cases
 

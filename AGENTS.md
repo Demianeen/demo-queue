@@ -14,7 +14,34 @@ Convex agent skills for common tasks can be installed by running
 
 ## Demo queue inspection
 
-When a user asks who is in the queue, use the Convex CLI table commands instead of guessing from UI state. If the user says "prod queue" or "production queue", use `--prod`; otherwise use the default dev deployment unless they name a deployment.
+When a user asks who is in the queue, wants the best N demos, asks for the admin
+URL, or asks to set/update the live lineup, use the deterministic helper first
+so Codex does not spend event time rediscovering routes, schemas, function
+specs, Vercel aliases, or browser verification paths:
+
+```bash
+pnpm queue:prod -- snapshot --admin-url "https://.../admin/<slug>/<token>"
+pnpm queue:prod -- rank --count 5 --admin-url "https://.../admin/<slug>/<token>"
+pnpm queue:prod -- set-lineup --ids id1,id2,id3,id4,id5 --admin-url "https://.../admin/<slug>/<token>" --yes
+pnpm queue:prod -- set-best --count 5 --admin-url "https://.../admin/<slug>/<token>" --yes
+pnpm queue:prod -- snapshot --show-admin-url
+```
+
+If no admin URL is available, the helper falls back to Convex table reads and
+chooses the latest real user-facing event. Normal output intentionally omits
+phone numbers, emails, participant tokens, and admin tokens. Pass
+`--show-admin-url` only when the user explicitly asks for the admin URL. The
+helper prints a full URL using `DEMO_QUEUE_SITE_URL`, `--site-url`, or the
+stable production default `https://demo-queue-tau.vercel.app`.
+
+When using Codex for production Convex commands, request escalated network
+permission on the first command. Waiting for a sandboxed prod command to fail can
+add 30 seconds before any useful data is returned.
+
+Use raw Convex CLI table commands only when the helper does not fit, the user
+explicitly asks for table output, or you need to debug the helper itself. If the
+user says "prod queue" or "production queue", use `--prod`; otherwise use the
+default dev deployment unless they name a deployment.
 
 1. Read events first:
 

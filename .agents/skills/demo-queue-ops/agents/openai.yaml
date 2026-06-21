@@ -1,0 +1,4 @@
+interface:
+  display_name: "Demo Queue Ops"
+  short_description: "Fast production queue operations"
+  default_prompt: "Use $demo-queue-ops to inspect or update the demo queue quickly."

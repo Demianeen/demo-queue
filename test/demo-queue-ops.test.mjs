@@ -5,7 +5,14 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { localProcessEnv, readLocalEnv } from "../scripts/demo-queue-ops.mjs";
+import {
+  extractScriptSrcs,
+  findConvexUrlCandidates,
+  findRuntimeConvexUrl,
+  localProcessEnv,
+  parseAdminUrl,
+  readLocalEnv,
+} from "../scripts/demo-queue-ops.mjs";
 
 function withTempCwd(fn) {
   const previousCwd = process.cwd();
@@ -64,4 +71,37 @@ test("localProcessEnv lets command environment override env files", () => {
     assert.equal(env.CONVEX_DEPLOYMENT, "dev:from-process");
     assert.equal(env.DEMO_QUEUE_SITE_URL, "https://from-process.example");
   });
+});
+
+test("parseAdminUrl keeps the admin site origin for direct HTTP fallback", () => {
+  assert.deepEqual(
+    parseAdminUrl("https://demo-queue-tau.vercel.app/admin/event-slug/admin-token"),
+    {
+      slug: "event-slug",
+      adminToken: "admin-token",
+      adminSiteUrl: "https://demo-queue-tau.vercel.app",
+    },
+  );
+});
+
+test("extractScriptSrcs resolves deployed Next chunks", () => {
+  const html = [
+    '<script src="/_next/static/chunks/app/layout.js"></script>',
+    '<script async="" src="https://cdn.example/chunk.js"></script>',
+  ].join("");
+
+  assert.deepEqual(extractScriptSrcs(html, "https://demo-queue-tau.vercel.app"), [
+    "https://demo-queue-tau.vercel.app/_next/static/chunks/app/layout.js",
+    "https://cdn.example/chunk.js",
+  ]);
+});
+
+test("findRuntimeConvexUrl prefers the app runtime env value", () => {
+  const chunk = [
+    'ConvexReactClient requires a URL like "https://happy-otter-123.convex.cloud"',
+    'experimental__runtimeEnv:{NEXT_PUBLIC_CONVEX_URL:"https://giant-egret-456.convex.cloud"}',
+  ].join(";");
+
+  assert.equal(findRuntimeConvexUrl(chunk), "https://giant-egret-456.convex.cloud");
+  assert.deepEqual(findConvexUrlCandidates(chunk), ["https://giant-egret-456.convex.cloud"]);
 });

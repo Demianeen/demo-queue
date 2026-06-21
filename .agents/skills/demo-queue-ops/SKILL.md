@@ -28,7 +28,7 @@ If the user asks for production data and the command needs network access, reque
 
 ## Defaults
 
-- Prefer an admin URL when available. It gives the script `slug` and `adminToken` directly and avoids full table discovery.
+- Prefer a full admin URL when available. It gives the script `slug`, `adminToken`, and site origin directly, avoids table discovery, and lets the helper infer the public Convex URL from the deployed app without copying `.env.local`.
 - If no admin URL is available, let the script choose the latest real user-facing production event.
 - Use `rank` for read-only shortlist requests.
 - Use `set-lineup --ids ... --yes` when the user already selected demos.

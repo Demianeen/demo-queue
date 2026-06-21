@@ -1,0 +1,67 @@
+import assert from "node:assert/strict";
+import { chdir } from "node:process";
+import test from "node:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { localProcessEnv, readLocalEnv } from "../scripts/demo-queue-ops.mjs";
+
+function withTempCwd(fn) {
+  const previousCwd = process.cwd();
+  const dir = mkdtempSync(join(tmpdir(), "demo-queue-env-"));
+  chdir(dir);
+  try {
+    fn();
+  } finally {
+    chdir(previousCwd);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("readLocalEnv handles Convex generated inline comments", () => {
+  withTempCwd(() => {
+    writeFileSync(
+      ".env.local",
+      [
+        "CONVEX_DEPLOYMENT=dev:precious-elk-564 # team: feliche-demian-netliukh, project: demo-queue",
+        'QUOTED_VALUE="keep # inside quotes"',
+      ].join("\n"),
+    );
+
+    assert.deepEqual(readLocalEnv(), {
+      CONVEX_DEPLOYMENT: "dev:precious-elk-564",
+      QUOTED_VALUE: "keep # inside quotes",
+    });
+  });
+});
+
+test("localProcessEnv lets command environment override env files", () => {
+  withTempCwd(() => {
+    writeFileSync(
+      ".env",
+      [
+        "CONVEX_DEPLOYMENT=dev:from-env",
+        "DEMO_QUEUE_SITE_URL=https://from-env.example",
+      ].join("\n"),
+    );
+    writeFileSync(
+      ".env.local",
+      [
+        "CONVEX_DEPLOYMENT=dev:from-local",
+        "DEMO_QUEUE_SITE_URL=https://from-local.example",
+      ].join("\n"),
+    );
+
+    assert.equal(readLocalEnv().CONVEX_DEPLOYMENT, "dev:from-local");
+    assert.equal(readLocalEnv().DEMO_QUEUE_SITE_URL, "https://from-local.example");
+
+    const env = localProcessEnv({
+      CONVEX_DEPLOYMENT: "dev:from-process",
+      DEMO_QUEUE_SITE_URL: "https://from-process.example",
+    });
+
+    assert.equal(env.CONVEX_DEPLOYMENT, "dev:from-process");
+    assert.equal(env.DEMO_QUEUE_SITE_URL, "https://from-process.example");
+  });
+});

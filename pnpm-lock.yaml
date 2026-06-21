@@ -38,6 +38,9 @@ importers:
       convex:
         specifier: ^1.28.0
         version: 1.40.0(react@19.2.7)
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
       geist:
         specifier: ^1.7.2
         version: 1.7.2(next@15.5.19(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))

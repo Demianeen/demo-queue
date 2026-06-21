@@ -8,6 +8,11 @@ description: Fast demo-queue production operations for Codex and event operators
 ## Fast Path
 
 Use `pnpm queue` or `pnpm queue:prod` before manual schema or route exploration.
+For event-time queue inspection, ranking, or lineup requests, run the matching
+helper command immediately after reading this skill. Do not read memory,
+rollout summaries, Convex schema, or route files before the first helper attempt
+unless the user explicitly asks for historical context or implementation
+debugging.
 
 ```bash
 pnpm queue -- snapshot

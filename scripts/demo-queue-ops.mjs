@@ -3,6 +3,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { parse as parseDotenv } from "dotenv";
 
 const STATUS_ORDER = new Map([
   ["queued", 0],
@@ -120,7 +122,7 @@ function runConvex(args, { json = true } = {}) {
   const fullArgs = ["exec", "convex", ...args];
   const result = spawnSync("pnpm", fullArgs, {
     encoding: "utf8",
-    env: { ...process.env, ...readLocalEnv() },
+    env: localProcessEnv(),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -162,24 +164,13 @@ function readLocalEnv() {
   for (const file of [".env", ".env.local"]) {
     const path = join(process.cwd(), file);
     if (!existsSync(path)) continue;
-    const lines = readFileSync(path, "utf8").split(/\r?\n/);
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const separator = trimmed.indexOf("=");
-      if (separator === -1) continue;
-      const key = trimmed.slice(0, separator).trim();
-      let value = trimmed.slice(separator + 1).trim();
-      if (
-        (value.startsWith("\"") && value.endsWith("\"")) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      if (key) values[key] = value;
-    }
+    Object.assign(values, parseDotenv(readFileSync(path, "utf8")));
   }
   return values;
+}
+
+function localProcessEnv(processEnv = process.env) {
+  return { ...readLocalEnv(), ...processEnv };
 }
 
 function deploymentFlags(args) {
@@ -361,7 +352,7 @@ function printSnapshot(admin, args) {
 }
 
 function adminUrl(admin, args) {
-  const env = { ...process.env, ...readLocalEnv() };
+  const env = localProcessEnv();
   const siteUrl = normalizeSiteUrl(args.siteUrl ?? env.DEMO_QUEUE_SITE_URL ?? defaultSiteUrl(args, env));
   return `${siteUrl}/admin/${admin.event.slug}/${admin.event.adminToken}`;
 }
@@ -485,9 +476,13 @@ function main() {
   }
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error.message);
-  usage(1);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error.message);
+    usage(1);
+  }
 }
+
+export { localProcessEnv, readLocalEnv };

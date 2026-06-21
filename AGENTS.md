@@ -19,6 +19,11 @@ URL, or asks to set/update the live lineup, use the deterministic helper first
 so Codex does not spend event time rediscovering routes, schemas, function
 specs, Vercel aliases, or browser verification paths:
 
+For event-time queue inspection, ranking, or lineup requests, run the matching
+helper command before reading memory, rollout summaries, Convex schema, or route
+files. Use old memory only after the helper fails or when the user explicitly
+asks for historical context.
+
 ```bash
 pnpm queue -- snapshot
 pnpm queue -- snapshot --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"

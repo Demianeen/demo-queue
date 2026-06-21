@@ -9,8 +9,9 @@ description: Fast demo-queue data retrieval for Codex and event operators. Use w
 
 Use `pnpm queue` or `pnpm queue:prod` before manual schema or route exploration.
 For event-time queue inspection or ranking requests, run `model-context`
-immediately after reading this skill. The helper is data-only: it fetches queue
-context for the model, and the model must do the ranking judgment itself. Do not
+immediately after reading this skill. The helper only fetches queue context for
+the model. It does not rank, choose, or update demos. The model must do the
+ranking judgment itself. Do not
 read memory, rollout summaries, Convex schema, or route files before the first
 helper attempt unless the user explicitly asks for historical context or
 implementation debugging.

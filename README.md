@@ -165,9 +165,10 @@ directly. It does not read `.env.local` for target selection in that mode, so a
 local dev `NEXT_PUBLIC_CONVEX_URL` cannot override the pasted production admin
 URL.
 
-The helper is read-only and data-only. It does not rank, score, choose, or
-mutate demos. For "best N demos" requests, run `model-context`, then have the
-model rank from the returned descriptions, categories, statuses, and queue order.
+The helper only fetches queue data for the model. It does not rank, score,
+choose, or update demos. For "best N demos" requests, run `model-context`, then
+have the model rank from the returned descriptions, categories, statuses, and
+queue order.
 
 Local queue commands use the deployment selected by `.env.local`. Production
 queue commands can use `--prod` via `pnpm queue:prod`, or `.env.local` can point

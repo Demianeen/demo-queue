@@ -1,6 +1,6 @@
 "use node";
 
-import { action } from "./_generated/server";
+import { action, env } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
@@ -35,7 +35,7 @@ export const aiShuffle = action({
         : people.length;
 
     const { output } = await generateText({
-      model: openai(process.env.OPENAI_MODEL ?? "gpt-5.4"),
+      model: openai(env.OPENAI_MODEL ?? "gpt-5.4"),
       output: Output.object({
         schema: z.object({
           orderedIds: z

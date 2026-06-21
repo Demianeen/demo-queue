@@ -17,6 +17,7 @@ const TEST_EVENT_RE = /\b(qa|layout|smoke|local-test|e2e|test)\b/i;
 const STRONG_HOOK_RE = /\b(live|demo|no slides|3-min|workflow|onboarding|ships?|show)\b/i;
 const WEAK_PLACEHOLDER_RE = /\b(test|whatever|placeholder|lorem|sample)\b/i;
 const DEFAULT_SITE_URL = "https://demo-queue-tau.vercel.app";
+const DEFAULT_LOCAL_SITE_URL = "http://localhost:3000";
 
 function usage(exitCode = 1) {
   const stream = exitCode === 0 ? process.stdout : process.stderr;
@@ -25,10 +26,13 @@ function usage(exitCode = 1) {
   pnpm queue:prod -- rank [--count 5] [--admin-url URL | --slug SLUG --admin-token TOKEN]
   pnpm queue:prod -- set-lineup --ids ID1,ID2,... [--admin-url URL | --slug SLUG --admin-token TOKEN] --yes
   pnpm queue:prod -- set-best [--count 5] [--admin-url URL | --slug SLUG --admin-token TOKEN] --yes
+  pnpm queue -- snapshot
+  pnpm queue -- snapshot --deployment PREVIEW_REFERENCE --site-url https://preview-url.vercel.app
 
 Notes:
   --prod is added by the package script.
-  --show-admin-url prints a full URL using --site-url, DEMO_QUEUE_SITE_URL, or ${DEFAULT_SITE_URL}.
+  --deployment is passed through to Convex for dev, preview, staging, local, or named deployments.
+  --show-admin-url prints a full URL using --site-url, DEMO_QUEUE_SITE_URL, Vercel URL env vars, or a deployment-specific default.
   Mutations require --yes.
   Normal output omits phone numbers, emails, participant tokens, and admin tokens.
 `);
@@ -50,6 +54,8 @@ function parseArgs(argv) {
     if (arg === "--help" || arg === "-h") usage(0);
     if (arg === "--prod") {
       args.prod = true;
+    } else if (arg === "--deployment") {
+      args.deployment = argv[++i];
     } else if (arg === "--yes") {
       args.yes = true;
     } else if (arg === "--show-admin-url") {
@@ -78,7 +84,18 @@ function parseArgs(argv) {
     throw new Error("--count must be a positive number");
   }
   args.count = Math.round(args.count);
+  validateDeploymentSelector(args);
   return args;
+}
+
+function validateDeploymentSelector(args) {
+  const selectors = [
+    args.prod ? "--prod" : null,
+    args.deployment ? "--deployment" : null,
+  ].filter(Boolean);
+  if (selectors.length > 1) {
+    throw new Error(`Choose only one Convex deployment selector: ${selectors.join(", ")}`);
+  }
 }
 
 function parseAdminUrl(value) {
@@ -111,10 +128,12 @@ function runConvex(args, { json = true } = {}) {
     const detail = [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
     if (detail.includes("No CONVEX_DEPLOYMENT set")) {
       throw new Error(
-        "CONVEX_DEPLOYMENT is not configured. Copy/create .env.local with CONVEX_DEPLOYMENT or run pnpm convex:dev before production queue ops.",
+        "CONVEX_DEPLOYMENT is not configured. Copy/create .env.local with CONVEX_DEPLOYMENT or choose a deployment with --prod/--deployment.",
       );
     }
-    throw new Error(`pnpm ${fullArgs.join(" ")} failed\n${detail}`);
+    throw new Error(
+      `pnpm ${redactSensitiveArgs(fullArgs).join(" ")} failed\n${redactSensitiveText(detail)}`,
+    );
   }
 
   const stdout = result.stdout.trim();
@@ -126,6 +145,16 @@ function runConvex(args, { json = true } = {}) {
   } catch (error) {
     throw new Error(`Could not parse Convex JSON output: ${error.message}\n${stdout}`);
   }
+}
+
+function redactSensitiveArgs(args) {
+  return args.map((arg) => redactSensitiveText(arg));
+}
+
+function redactSensitiveText(text) {
+  return text
+    .replace(/"adminToken"\s*:\s*"[^"]+"/g, '"adminToken":"<redacted>"')
+    .replace(/\/admin\/([^/\s"]+)\/([^/\s"]+)/g, "/admin/$1/<redacted>");
 }
 
 function readLocalEnv() {
@@ -153,8 +182,11 @@ function readLocalEnv() {
   return values;
 }
 
-function deploymentFlag(args) {
-  return args.prod ? ["--prod"] : [];
+function deploymentFlags(args) {
+  const flags = [];
+  if (args.prod) flags.push("--prod");
+  if (args.deployment) flags.push("--deployment", args.deployment);
+  return flags;
 }
 
 function toAdminShape(event, submissions) {
@@ -227,7 +259,7 @@ function loadAdmin(args) {
       "run",
       "events:getAdmin",
       JSON.stringify({ slug: args.slug, adminToken: args.adminToken }),
-      ...deploymentFlag(args),
+      ...deploymentFlags(args),
     ]);
     return {
       ...admin,
@@ -238,7 +270,7 @@ function loadAdmin(args) {
     };
   }
 
-  const events = runConvex(["data", "events", "--format", "json", ...deploymentFlag(args)]);
+  const events = runConvex(["data", "events", "--format", "json", ...deploymentFlags(args)]);
   const event = pickEvent(events, args.slug);
   const submissions = runConvex([
     "data",
@@ -247,7 +279,7 @@ function loadAdmin(args) {
     "1000",
     "--format",
     "json",
-    ...deploymentFlag(args),
+    ...deploymentFlags(args),
   ]);
   return toAdminShape(event, submissions);
 }
@@ -329,13 +361,23 @@ function printSnapshot(admin, args) {
 }
 
 function adminUrl(admin, args) {
-  const env = readLocalEnv();
-  const siteUrl = normalizeSiteUrl(args.siteUrl ?? env.DEMO_QUEUE_SITE_URL ?? DEFAULT_SITE_URL);
+  const env = { ...process.env, ...readLocalEnv() };
+  const siteUrl = normalizeSiteUrl(args.siteUrl ?? env.DEMO_QUEUE_SITE_URL ?? defaultSiteUrl(args, env));
   return `${siteUrl}/admin/${admin.event.slug}/${admin.event.adminToken}`;
 }
 
+function defaultSiteUrl(args, env) {
+  if (args.prod && env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
+  if (env.VERCEL_BRANCH_URL) return `https://${env.VERCEL_BRANCH_URL}`;
+  if (env.VERCEL_URL) return `https://${env.VERCEL_URL}`;
+  if (args.prod) return DEFAULT_SITE_URL;
+  return DEFAULT_LOCAL_SITE_URL;
+}
+
 function normalizeSiteUrl(value) {
-  if (!value) return DEFAULT_SITE_URL;
+  if (!value) return DEFAULT_LOCAL_SITE_URL;
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
@@ -389,7 +431,7 @@ function setLineup(admin, args, ids) {
       adminToken: admin.event.adminToken,
       orderedIds: ids,
     }),
-    ...deploymentFlag(args),
+    ...deploymentFlags(args),
   ]);
 
   const verified = runConvex([
@@ -399,13 +441,13 @@ function setLineup(admin, args, ids) {
       slug: admin.event.slug,
       adminToken: admin.event.adminToken,
     }),
-    ...deploymentFlag(args),
+    ...deploymentFlags(args),
   ]);
   const stage = runConvex([
     "run",
     "events:getStage",
     JSON.stringify({ slug: admin.event.slug }),
-    ...deploymentFlag(args),
+    ...deploymentFlags(args),
   ]);
 
   console.log(`Applied lineup for ${verified.event.name} (${verified.event.slug})`);

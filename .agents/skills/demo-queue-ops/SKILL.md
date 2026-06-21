@@ -7,9 +7,11 @@ description: Fast demo-queue production operations for Codex and event operators
 
 ## Fast Path
 
-Use `pnpm queue:prod` before manual schema or route exploration.
+Use `pnpm queue` or `pnpm queue:prod` before manual schema or route exploration.
 
 ```bash
+pnpm queue -- snapshot
+pnpm queue -- snapshot --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"
 pnpm queue:prod -- snapshot --admin-url "https://.../admin/<slug>/<token>"
 pnpm queue:prod -- rank --count 5 --admin-url "https://.../admin/<slug>/<token>"
 pnpm queue:prod -- set-lineup --ids id1,id2,id3,id4,id5 --admin-url "https://.../admin/<slug>/<token>" --yes
@@ -26,7 +28,8 @@ If the user asks for production data and the command needs network access, reque
 - Use `rank` for read-only shortlist requests.
 - Use `set-lineup --ids ... --yes` when the user already selected demos.
 - Use `set-best --count N --yes` only when the user explicitly asks to apply the script-ranked top N.
-- Use `snapshot --show-admin-url` when the user asks for the admin UI link. It prints a full URL using `DEMO_QUEUE_SITE_URL`, `--site-url`, or the stable production default.
+- Use `snapshot --show-admin-url` when the user asks for the admin UI link. It prints a full URL using `--site-url`, `DEMO_QUEUE_SITE_URL`, Vercel URL env vars, localhost for non-production, or the stable production default.
+- For local/dev data, use `pnpm queue`. For production, use `pnpm queue:prod`. For preview, pass the Convex preview deployment reference with `--deployment <reference>` and pass `--site-url` when printing a preview admin URL.
 - Verify live data with the script output or `events:getStage`; do browser verification only when the user asks about rendered UI or after code/UI changes.
 - Do not expose phone numbers, emails, participant tokens, or admin tokens unless the user explicitly asks for contact details or an admin URL.
 

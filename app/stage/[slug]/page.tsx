@@ -10,6 +10,72 @@ import { absoluteUrl, submissionPath } from "@/lib/routes";
 import { Skeleton } from "@/app/Skeleton";
 import { cn } from "@/lib/utils";
 
+type StageTimer = {
+  status: "idle" | "running" | "paused";
+  durationMs: number;
+  remainingMs: number;
+  endsAt?: number;
+  serverNow: number;
+};
+
+function formatTimer(ms: number) {
+  const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
+  const absoluteSeconds = Math.abs(totalSeconds);
+  const minutes = Math.floor(absoluteSeconds / 60);
+  const seconds = absoluteSeconds % 60;
+  return `${totalSeconds < 0 ? "-" : ""}${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function useStageTimer(timer: StageTimer | undefined) {
+  const [clientNow, setClientNow] = useState(() => Date.now());
+  const [receivedAt, setReceivedAt] = useState(() => Date.now());
+
+  useEffect(() => {
+    setReceivedAt(Date.now());
+    setClientNow(Date.now());
+  }, [timer?.serverNow, timer?.endsAt, timer?.remainingMs, timer?.status]);
+
+  useEffect(() => {
+    if (!timer || timer.status !== "running") return;
+
+    const interval = window.setInterval(() => {
+      setClientNow(Date.now());
+    }, 250);
+
+    return () => window.clearInterval(interval);
+  }, [timer]);
+
+  if (!timer) {
+    return {
+      status: "idle" as const,
+      label: "Ready",
+      remainingMs: 0,
+      display: "0:00",
+    };
+  }
+
+  const estimatedServerNow = timer.serverNow + (clientNow - receivedAt);
+  const remainingMs =
+    timer.status === "running" && timer.endsAt !== undefined
+      ? timer.endsAt - estimatedServerNow
+      : timer.remainingMs;
+  const label =
+    timer.status === "running"
+      ? remainingMs < 0
+        ? "Over time"
+        : "On clock"
+      : timer.status === "paused"
+        ? "Paused"
+        : "Ready";
+
+  return {
+    status: timer.status,
+    label,
+    remainingMs,
+    display: formatTimer(remainingMs),
+  };
+}
+
 export default function StagePage() {
   const params = useParams<{ slug: string }>();
   const searchParams = useSearchParams();
@@ -29,6 +95,12 @@ export default function StagePage() {
   const lineupListRef = useRef<HTMLOListElement | null>(null);
   const previousCurrentId = useRef<string | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
+  const timer = useStageTimer(stage?.stageTimer);
+  const showTimer = timer.status !== "idle";
+  const timerStateClass = showTimer
+    ? ` is-${timer.status}${timer.remainingMs < 0 ? " is-overtime" : ""}`
+    : "";
+  const waitingCount = stage?.waitingCount ?? stage?.remainingCount ?? 0;
 
   useEffect(() => {
     if (!isLive || allUpcoming.length === 0) {
@@ -219,21 +291,34 @@ export default function StagePage() {
               ) : null}
             </div>
           ) : (
-            <div className="stage-qr-stack">
-              <Image
-                src="/mascot.png"
-                alt=""
-                aria-hidden
-                width={130}
-                height={110}
-                priority
-                className="stage-mascot"
-              />
-              <div className="qr-box">
-                <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
-                <h3 style={{ marginTop: 14 }}>Scan to demo</h3>
-                <p className="muted" style={{ marginBottom: 0 }}>{stage.remainingCount} waiting</p>
+            <div className="stage-qr-shell">
+              <div className="stage-qr-stack">
+                <Image
+                  src="/mascot.png"
+                  alt=""
+                  aria-hidden
+                  width={130}
+                  height={110}
+                  priority
+                  className="stage-mascot"
+                />
+                <div className="qr-box">
+                  <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
+                  <h3 style={{ marginTop: 14 }}>Scan to demo</h3>
+                </div>
               </div>
+              {showTimer ? (
+                <div className={`stage-timer-strip${timerStateClass}`} aria-live="polite">
+                  <div className="stage-timer-strip-clock">
+                    <span>{timer.label}</span>
+                    <strong>{timer.display}</strong>
+                  </div>
+                  <div className="stage-timer-strip-count">
+                    <span>In queue</span>
+                    <strong>{waitingCount}</strong>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </aside>

@@ -502,6 +502,73 @@ h3 {
   align-content: center;
   display: grid;
   gap: 16px;
+  min-width: 0;
+}
+
+.stage-qr-shell {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  justify-self: stretch;
+  min-width: 0;
+  width: 100%;
+}
+
+.stage-timer-strip {
+  align-items: start;
+  color: rgba(16, 19, 24, 0.84);
+  display: flex;
+  gap: 45px;
+  justify-self: stretch;
+  min-width: 0;
+  width: 100%;
+}
+
+.stage-timer-strip.is-overtime {
+  color: #9f1f17;
+}
+
+.stage-timer-strip-clock {
+  flex: none;
+  min-width: 0;
+}
+
+.stage-timer-strip-clock span,
+.stage-timer-strip-count span {
+  display: block;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+  opacity: 0.62;
+  text-transform: uppercase;
+}
+
+.stage-timer-strip-clock strong {
+  display: block;
+  font-size: clamp(48px, 12vw, 76px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 0.88;
+  margin-top: 6px;
+  white-space: nowrap;
+}
+
+.stage-timer-strip-count {
+  color: var(--app-ink);
+  flex: none;
+  min-width: 72px;
+  text-align: left;
+}
+
+.stage-timer-strip-count strong {
+  display: block;
+  font-size: 56px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 0.95;
+  margin-top: 6px;
 }
 
 .stage-preview-mode {
@@ -533,6 +600,7 @@ h3 {
 .stage-qr-stack {
   position: relative;
   padding-top: 92px;
+  width: 100%;
 }
 
 .stage-mascot {
@@ -559,6 +627,58 @@ h3 {
   display: block;
   height: auto;
   width: 100%;
+}
+
+.stage-bento-tile {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 8px;
+  box-shadow: 0 18px 42px -30px rgba(11, 12, 16, 0.52);
+  color: var(--app-ink);
+  min-width: 0;
+  overflow: hidden;
+  padding: 16px;
+}
+
+.stage-bento-qr {
+  align-items: center;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 22px 22px 20px;
+  text-align: center;
+}
+
+.stage-qr-code-frame {
+  aspect-ratio: 1 / 1;
+  display: grid;
+  max-width: 268px;
+  place-items: center;
+  width: 100%;
+}
+
+.stage-qr-code-frame svg {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.stage-bento-qr h3 {
+  font-size: 22px;
+  line-height: 1.1;
+  margin: 14px 0 0;
+}
+
+.stage-bento-label {
+  color: currentColor;
+  display: block;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0;
+  opacity: 0.72;
+  text-transform: uppercase;
 }
 
 .stage-card {
@@ -1281,6 +1401,87 @@ h3 {
 .stage-meet-toggle:has(input:disabled) {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.stage-timer-admin {
+  background: rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  margin-top: 14px;
+  max-width: 560px;
+  padding: 14px;
+}
+
+.stage-timer-admin-heading {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.stage-timer-admin-title {
+  align-items: center;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 850;
+  gap: 6px;
+  text-transform: uppercase;
+}
+
+.stage-timer-admin-body {
+  display: grid;
+  gap: 12px;
+}
+
+.stage-timer-readout {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 8px;
+  color: var(--app-ink);
+  font-size: 44px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+  padding: 14px 16px;
+}
+
+.stage-timer-admin.is-overtime .stage-timer-readout {
+  color: #9f1f17;
+}
+
+.stage-timer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stage-timer-duration {
+  align-items: center;
+  color: var(--app-muted);
+  display: flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 8px;
+}
+
+.stage-timer-duration input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  color: var(--app-ink);
+  font-weight: 800;
+  min-height: 34px;
+  padding: 6px 9px;
+  width: 86px;
+}
+
+.stage-timer-duration input::-webkit-outer-spin-button,
+.stage-timer-duration input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .split-action {

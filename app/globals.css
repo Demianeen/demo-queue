@@ -934,6 +934,16 @@ h3 {
   outline: none;
 }
 
+.split-action-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.split-action-item:disabled:hover,
+.split-action-item:disabled:focus {
+  background: transparent;
+}
+
 .split-action-item span {
   font-size: 14px;
   font-weight: 800;

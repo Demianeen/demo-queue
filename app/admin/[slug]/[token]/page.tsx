@@ -6,7 +6,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
+import { absoluteUrl, adminPath, stagePath, submissionPath } from "@/lib/routes";
 import { randomToken } from "@/lib/tokens";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -76,6 +76,7 @@ export default function AdminPage() {
   const restoreSubmission = useMutation(api.events.restoreSubmission);
   const pickNext = useMutation(api.events.pickNext);
   const skipCurrent = useMutation(api.events.skipCurrent);
+  const markNoShow = useMutation(api.events.markNoShow);
   const clearQueue = useMutation(api.events.clearQueue);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const updateSubmission = useMutation(api.events.updateSubmission);
@@ -329,6 +330,15 @@ export default function AdminPage() {
     await skipCurrent({ slug: params.slug, adminToken: params.token });
   }
 
+  async function noShow() {
+    if (!queueIsLive || !currentLineupItem) return;
+    setLiveMenuOpen(false);
+    await markNoShow({
+      slug: params.slug,
+      adminToken: params.token,
+    });
+  }
+
   async function toggleStageMeetLink(visible: boolean) {
     await setStageMeetLinkVisible({
       slug: params.slug,
@@ -424,6 +434,8 @@ export default function AdminPage() {
 
   const activeItem = activeId ? itemsById.get(activeId) : null;
   const lineupCount = board.lineup.length;
+  const currentLineupItem = board.lineup[0] ? itemsById.get(board.lineup[0]) : null;
+  const adminUrl = absoluteUrl(adminPath(params.slug, params.token));
 
   return (
     <main className="page">
@@ -472,6 +484,16 @@ export default function AdminPage() {
                       <button className="split-action-item" onClick={skip} role="menuitem" type="button">
                         <span>Skip for now</span>
                         <small>Move current presenter to the bottom of the lineup.</small>
+                      </button>
+                      <button
+                        className="split-action-item"
+                        disabled={!currentLineupItem}
+                        onClick={noShow}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <span>Mark no-show</span>
+                        <small>Remove current presenter and list them under No-shows.</small>
                       </button>
                     </div>
                   ) : null}
@@ -543,6 +565,14 @@ export default function AdminPage() {
               <span className="muted" style={{ fontSize: 12 }}>
                 Published lineup participants see it on their status pages. Stage visibility is off
                 unless you enable it after publishing.
+              </span>
+            </div>
+
+            <div className="field" style={{ maxWidth: 520, marginTop: 12 }}>
+              <label htmlFor="adminUrl">Admin link</label>
+              <input id="adminUrl" readOnly value={adminUrl} />
+              <span className="muted" style={{ fontSize: 12 }}>
+                Use this exact private link when identifying the event for operations.
               </span>
             </div>
           </div>
@@ -717,21 +747,78 @@ export default function AdminPage() {
           </DragOverlay>
         </DndContext>
 
-        {admin.inactive.length > 0 ? (
-          <section className="panel panel-pad" style={{ marginTop: 18 }}>
-            <h2>Done / inactive</h2>
-            <div className="queue-list">
-              {admin.inactive.map((item: AdminSubmission) => (
-                <article className="queue-item" key={item.id}>
-                  <div className="queue-title">{item.demoTitle}</div>
-                  <span className="pill yellow">{item.status}</span>
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
+        <HistorySection
+          title="Presented"
+          description="Completed demos stay separate from skipped or withdrawn entries."
+          items={admin.completed}
+          badge="Presented"
+          badgeTone="green"
+          showDescription
+        />
+
+        <HistorySection
+          title="No-shows"
+          description="Presenters marked no-show stay out of the presented list."
+          items={admin.noShows}
+          badge="No-show"
+          badgeTone="yellow"
+        />
+
+        <HistorySection
+          title="Withdrawn"
+          description="Withdrawn submissions are kept separate from completed demos."
+          items={admin.withdrawn}
+          badge="Withdrawn"
+          badgeTone="yellow"
+        />
       </div>
     </main>
+  );
+}
+
+function HistorySection({
+  title,
+  description,
+  items,
+  badge,
+  badgeTone,
+  showDescription = false,
+}: {
+  title: string;
+  description: string;
+  items: AdminSubmission[];
+  badge: string;
+  badgeTone: "green" | "yellow";
+  showDescription?: boolean;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="panel panel-pad" style={{ marginTop: 18 }}>
+      <h2>{title}</h2>
+      <p className="muted" style={{ marginTop: -4 }}>{description}</p>
+      <div className="queue-list">
+        {items.map((item) => (
+          <article className="queue-item" key={item.id}>
+            <div className="queue-row">
+              <div>
+                <div className="queue-title">{item.demoTitle}</div>
+                <p className="muted" style={{ marginBottom: 0 }}>{item.name}</p>
+              </div>
+              <span className={`pill ${badgeTone === "green" ? "green" : "yellow"}`}>
+                {badge}
+              </span>
+            </div>
+            {item.category ? <span className="pill green">{item.category}</span> : null}
+            {showDescription ? (
+              <p className="muted" style={{ marginBottom: 0 }}>{item.description}</p>
+            ) : null}
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 

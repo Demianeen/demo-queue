@@ -11,8 +11,10 @@ import {
   findConvexUrlCandidates,
   findRuntimeConvexUrl,
   localProcessEnv,
+  parseArgs,
   parseAdminUrl,
   readLocalEnv,
+  toModelContext,
 } from "../scripts/demo-queue-ops.mjs";
 
 function withTempCwd(fn) {
@@ -146,4 +148,90 @@ test("convexUrlForArgs treats full admin URLs as authoritative over local env", 
       "https://demo-queue-tau.vercel.app/_next/static/chunks/app/admin-page.js",
     ]);
   });
+});
+
+test("toModelContext returns data for model ranking without helper scores", () => {
+  const context = toModelContext({
+    event: {
+      id: "event-id",
+      name: "Demo Night",
+      slug: "demo-night",
+      lineupTarget: 5,
+      queuePublished: true,
+      adminToken: "secret-admin-token",
+    },
+    lineup: [
+      {
+        id: "queued-id",
+        name: "Queued Person",
+        demoTitle: "Queued Demo",
+        description: "A workflow demo. Email me at queued@example.com.",
+        category: "Developer Tools",
+        status: "queued",
+        queueOrder: 1,
+        createdAt: 10,
+        updatedAt: 20,
+      },
+    ],
+    pool: [
+      {
+        id: "candidate-id",
+        name: "Candidate Person",
+        demoTitle: "Candidate Demo",
+        description: "Call +44 20 7946 0958 after the show.",
+        category: "AI",
+        status: "candidate",
+        createdAt: 30,
+        updatedAt: 40,
+      },
+    ],
+    hidden: [],
+    inactive: [],
+  });
+
+  assert.deepEqual(context.event, {
+    id: "event-id",
+    name: "Demo Night",
+    slug: "demo-night",
+    lineupTarget: 5,
+    queuePublished: true,
+  });
+  assert.equal(context.eligible.lineup[0].description, "A workflow demo. Email me at <redacted-email>.");
+  assert.equal(context.eligible.pool[0].description, "Call <redacted-phone> after the show.");
+  assert.equal("score" in context.eligible.lineup[0], false);
+  assert.equal("reasons" in context.eligible.lineup[0], false);
+  assert.equal("adminToken" in context.event, false);
+});
+
+test("toModelContext treats missing optional submission groups as empty arrays", () => {
+  const context = toModelContext({
+    event: {
+      id: "event-id",
+      name: "Demo Night",
+      slug: "demo-night",
+      queuePublished: false,
+    },
+    lineup: [],
+    pool: [],
+  });
+
+  assert.deepEqual(context.eligible.lineup, []);
+  assert.deepEqual(context.eligible.pool, []);
+  assert.deepEqual(context.ineligible.hidden, []);
+  assert.deepEqual(context.ineligible.inactive, []);
+});
+
+test("parseArgs rejects helper-owned ranking and mutation commands", () => {
+  assert.throws(
+    () => parseArgs(["rank", "--count", "5"]),
+    /"rank" is not supported\. This helper only fetches queue data for the model\./,
+  );
+  assert.throws(
+    () => parseArgs(["set-best", "--count", "5", "--yes"]),
+    /"set-best" is not supported\. This helper only fetches queue data for the model\./,
+  );
+  assert.throws(
+    () => parseArgs(["set-lineup", "--ids", "abc", "--yes"]),
+    /"set-lineup" is not supported\. This helper only fetches queue data for the model\./,
+  );
 });

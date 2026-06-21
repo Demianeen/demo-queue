@@ -101,8 +101,9 @@ export default function AdminPage() {
       const byId = new Map(
         [...cur.lineup, ...cur.pool, ...cur.hidden].map((e) => [e.id, e] as const),
       );
-      const ordered = new Set(args.orderedIds);
-      const newLineup = args.orderedIds
+      const orderedIds = uniqueSubmissionIds(args.orderedIds);
+      const ordered = new Set(orderedIds);
+      const newLineup = orderedIds
         .map((id) => byId.get(id))
         .filter((e): e is (typeof cur.lineup)[number] => Boolean(e));
       store.setQuery(api.events.getAdmin, qa, {
@@ -162,9 +163,11 @@ export default function AdminPage() {
   // while a drag is in flight (that would yank a card out from under the cursor).
   useEffect(() => {
     if (activeId || !admin) return;
+    const lineup = uniqueSubmissionIds(admin.lineup.map((item) => item.id));
+    const lineupSet = new Set(lineup);
     setBoard({
-      lineup: admin.lineup.map((item) => item.id),
-      pool: admin.pool.map((item) => item.id),
+      lineup,
+      pool: uniqueSubmissionIds(admin.pool.map((item) => item.id).filter((id) => !lineupSet.has(id))),
     });
   }, [admin, activeId]);
 
@@ -761,6 +764,7 @@ function StagePreviewPanel({
   slug: string;
 }) {
   const url = stagePath(slug);
+  const previewUrl = `${url}?preview=admin`;
 
   return (
     <aside className="panel admin-stage-preview-panel">
@@ -771,7 +775,7 @@ function StagePreviewPanel({
       <div className="admin-stage-preview-viewport">
         <iframe
           className="admin-stage-preview-frame"
-          src={url}
+          src={previewUrl}
           tabIndex={-1}
           title={`${eventName} stage preview`}
         />
@@ -961,7 +965,11 @@ function AllPeopleRow({
           menuLabel={`More actions for ${item.name}`}
           menuItems={
             item.rosterStatus === "inactive"
-              ? [{ label: "Move to all", onSelect: onRestore }]
+              ? [
+                  { label: "Move to all", onSelect: onRestore },
+                  { label: "Edit", onSelect: onEdit },
+                  { label: "Hide", onSelect: onHide },
+                ]
               : [
                   item.rosterStatus === "pool"
                     ? { label: "Add to lineup", onSelect: onAddToLineup }
@@ -1079,6 +1087,15 @@ function buildRosterRows(
   return [...lineupRows, ...poolRows, ...hiddenRows, ...inactiveRows].filter((row) => {
     if (seen.has(row.id)) return false;
     seen.add(row.id);
+    return true;
+  });
+}
+
+function uniqueSubmissionIds(ids: Id<"submissions">[]) {
+  const seen = new Set<Id<"submissions">>();
+  return ids.filter((id) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
     return true;
   });
 }

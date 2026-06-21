@@ -504,6 +504,32 @@ h3 {
   gap: 16px;
 }
 
+.stage-preview-mode {
+  padding: 34px 38px;
+}
+
+.stage-preview-mode .stage-mark {
+  display: none;
+}
+
+.stage-preview-mode .stage-grid {
+  gap: 30px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  min-height: calc(100vh - 68px);
+}
+
+.stage-preview-mode .stage-title {
+  font-size: clamp(76px, 9vw, 136px);
+}
+
+.stage-preview-mode .stage-subtitle {
+  font-size: clamp(30px, 3vw, 52px);
+}
+
+.stage-preview-mode .stage-lineup-empty h2 {
+  font-size: clamp(44px, 3.4vw, 68px);
+}
+
 .stage-qr-stack {
   position: relative;
   padding-top: 92px;
@@ -828,8 +854,8 @@ h3 {
 
 .admin-tabs {
   align-items: center;
-  background: rgba(255, 255, 255, 0.38);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.68);
+  background: #ffffff;
+  border-bottom: 1px solid rgba(20, 20, 20, 0.1);
   display: flex;
   gap: 6px;
   overflow-x: auto;
@@ -840,34 +866,35 @@ h3 {
   align-items: center;
   background: transparent;
   border-radius: 8px;
-  color: var(--app-muted);
+  color: rgba(20, 20, 20, 0.58);
   display: inline-flex;
   flex: 0 0 auto;
   font-size: 14px;
-  font-weight: 850;
+  font-weight: 650;
   gap: 8px;
   min-height: 40px;
   padding: 0 14px;
 }
 
 .admin-tab:hover {
-  background: rgba(255, 255, 255, 0.56);
-  color: var(--app-ink);
+  background: rgba(20, 20, 20, 0.04);
+  color: #111111;
 }
 
 .admin-tab.is-active {
   background: #ffffff;
-  box-shadow: 0 8px 20px -16px rgba(16, 18, 60, 0.35);
-  color: var(--app-ink);
+  box-shadow: none;
+  color: #111111;
 }
 
 .admin-tab-count {
   align-items: center;
-  background: var(--app-soft-blue);
+  background: rgba(20, 20, 20, 0.06);
   border-radius: 999px;
-  color: var(--app-accent-dark);
+  color: #111111;
   display: inline-flex;
   font-size: 11px;
+  font-weight: 650;
   justify-content: center;
   min-width: 22px;
   padding: 3px 7px;

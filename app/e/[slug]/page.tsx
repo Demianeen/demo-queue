@@ -91,8 +91,8 @@ export default function SubmissionPage() {
         <Brand label={stage?.event.name ?? "Demo Queue"} />
         <h1>Submit your demo.</h1>
         <p className="lead">
-          You will get a private status link after submitting. The Meet link appears there only when
-          you are up next or presenting.
+          You will get a private status link after submitting. The Meet link appears there once you
+          are in the published lineup.
         </p>
 
         <form className="form" onSubmit={onSubmit} style={{ marginTop: 24 }}>

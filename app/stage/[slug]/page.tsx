@@ -14,8 +14,11 @@ export default function StagePage() {
   const stage = useQuery(api.events.getStage, { slug: params.slug });
   const submissionUrl = absoluteUrl(submissionPath(params.slug));
   const currentId = stage?.current?.id ?? "empty";
-  const upNextId = stage?.upNext?.id ?? "empty";
+  const lineupIds = stage?.lineup.map((item) => item.id).join("-") ?? "empty";
   const isLive = stage?.event.queuePublished ?? false;
+  const visibleLineupCount = stage?.lineup.length ?? 0;
+  const hiddenLineupCount = Math.max((stage?.remainingCount ?? 0) - visibleLineupCount, 0);
+  const upcoming = stage?.lineup.slice(1) ?? [];
   const previousCurrentId = useRef<string | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
 
@@ -78,12 +81,37 @@ export default function StagePage() {
 
         <aside className="stage-side">
           {isLive ? (
-            <div className="stage-next" key={upNextId}>
-              <p className="stage-label">Up next</p>
-              <h2 className="stage-next-title">{stage.upNext?.name ?? "End of the lineup"}</h2>
-              <p className="stage-next-subtitle">
-                {stage.upNext?.demoTitle ?? "This is the last demo."}
-              </p>
+            <div className="stage-lineup-stack" key={lineupIds}>
+              <div className="stage-lineup-header">
+                <p className="stage-label">Coming up</p>
+                <span>{stage.remainingCount} in lineup</span>
+              </div>
+              {upcoming.length > 0 ? (
+                <ol className="stage-lineup-list">
+                  {upcoming.map((item, index) => (
+                    <li className={index === 0 ? "is-next" : ""} key={item.id}>
+                      <span className="stage-lineup-position">
+                        {index === 0 ? "Up next" : `#${index + 2}`}
+                      </span>
+                      <span className="stage-lineup-person">{item.name}</span>
+                      <span className="stage-lineup-demo">{item.demoTitle}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <div className="stage-lineup-empty">
+                  <h2>End of the lineup</h2>
+                  <p>This is the last demo.</p>
+                </div>
+              )}
+              {hiddenLineupCount > 0 ? (
+                <p className="stage-lineup-more">+{hiddenLineupCount} more in the published lineup</p>
+              ) : null}
+              {stage.meetUrl ? (
+                <a className="stage-join-link" href={stage.meetUrl} target="_blank" rel="noreferrer">
+                  Join Meet
+                </a>
+              ) : null}
             </div>
           ) : (
             <div className="stage-qr-stack">

@@ -2,6 +2,8 @@ import { ConvexError, v } from "convex/values";
 import { DatabaseReader, DatabaseWriter, mutation, query } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 
+const STAGE_LINEUP_LIMIT = 10;
+
 const publicSubmissionFields = (submission: Doc<"submissions">) => ({
   id: submission._id,
   name: submission.name,
@@ -93,6 +95,7 @@ export const createEvent = mutation({
       meetUrl: args.meetUrl.trim(),
       adminToken: args.adminToken,
       queuePublished: false,
+      showMeetLinkOnStage: false,
       createdAt: now,
       updatedAt: now,
     });
@@ -119,18 +122,23 @@ export const getStage = query({
       .collect();
 
     const lineup = lineupSorted(submissions);
-    const current = event.queuePublished ? lineup[0] : null;
-    const upNext = event.queuePublished ? lineup[1] : null;
+    const stageLineup = event.queuePublished ? lineup.slice(0, STAGE_LINEUP_LIMIT) : [];
+    const current = stageLineup[0] ?? null;
+    const upNext = stageLineup[1] ?? null;
+    const showMeetLinkOnStage = event.showMeetLinkOnStage ?? false;
 
     return {
       event: {
         name: event.name,
         slug: event.slug,
         queuePublished: event.queuePublished,
+        showMeetLinkOnStage,
       },
       current: current ? publicSubmissionFields(current) : null,
       upNext: upNext ? publicSubmissionFields(upNext) : null,
+      lineup: stageLineup.map(publicSubmissionFields),
       remainingCount: lineup.length,
+      meetUrl: event.queuePublished && showMeetLinkOnStage ? event.meetUrl : null,
     };
   },
 });
@@ -153,6 +161,7 @@ export const getAdmin = query({
         slug: event.slug,
         meetUrl: event.meetUrl,
         queuePublished: event.queuePublished,
+        showMeetLinkOnStage: event.showMeetLinkOnStage ?? false,
         lineupTarget: event.lineupTarget,
       },
       lineup: lineupSorted(submissions).map(adminSubmissionFields),
@@ -432,6 +441,33 @@ export const publishQueue = mutation({
   },
 });
 
+export const setStageMeetLinkVisible = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    visible: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    if (args.visible && !event.queuePublished) {
+      throw new ConvexError("Publish the queue before showing the Meet link on stage");
+    }
+
+    await ctx.db.patch(event._id, {
+      showMeetLinkOnStage: args.visible,
+      updatedAt: Date.now(),
+    });
+    await logAction(
+      ctx,
+      event._id,
+      args.visible ? "stage_meet_link_enabled" : "stage_meet_link_disabled",
+      "admin",
+    );
+  },
+});
+
 export const hideSubmission = mutation({
   args: {
     slug: v.string(),
@@ -671,6 +707,10 @@ export const pickNext = mutation({
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
     requireAdmin(event, args.adminToken);
+    if (!event.queuePublished) {
+      return;
+    }
+
     const submissions = await ctx.db
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
@@ -689,6 +729,40 @@ export const pickNext = mutation({
     });
 
     await logAction(ctx, event._id, "pick_next", "admin");
+  },
+});
+
+export const skipCurrent = mutation({
+  args: { slug: v.string(), adminToken: v.string() },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    if (!event.queuePublished) {
+      return;
+    }
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+
+    const lineup = lineupSorted(submissions);
+    const current = lineup[0];
+    if (!current || lineup.length < 2) {
+      return;
+    }
+
+    const lastQueueOrder = lineup.reduce(
+      (max, submission) => Math.max(max, submission.queueOrder ?? 0),
+      0,
+    );
+
+    await ctx.db.patch(current._id, {
+      queueOrder: lastQueueOrder + 1,
+      updatedAt: Date.now(),
+    });
+
+    await logAction(ctx, event._id, "current_skipped", "admin", current._id);
   },
 });
 
@@ -712,7 +786,11 @@ export const clearQueue = mutation({
       await ctx.db.delete(submission._id);
     }
 
-    await ctx.db.patch(event._id, { queuePublished: false, updatedAt: Date.now() });
+    await ctx.db.patch(event._id, {
+      queuePublished: false,
+      showMeetLinkOnStage: false,
+      updatedAt: Date.now(),
+    });
     await logAction(ctx, event._id, "queue_cleared", "admin");
   },
 });

@@ -205,6 +205,56 @@ export const generateUploadUrl = mutation({
   },
 });
 
+export const getEventMeta = query({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const event = await eventBySlug(ctx, slug);
+
+    return {
+      name: event.name,
+      slug: event.slug,
+    };
+  },
+});
+
+export const getAdminEventMeta = query({
+  args: { slug: v.string(), adminToken: v.string() },
+  handler: async (ctx, { slug, adminToken }) => {
+    const event = await eventBySlug(ctx, slug);
+    requireAdmin(event, adminToken);
+
+    return {
+      name: event.name,
+      slug: event.slug,
+    };
+  },
+});
+
+export const getParticipantMeta = query({
+  args: { slug: v.string(), participantToken: v.string() },
+  handler: async (ctx, { slug, participantToken }) => {
+    const event = await eventBySlug(ctx, slug);
+    const submission = await ctx.db
+      .query("submissions")
+      .withIndex("by_participant_token", (q) => q.eq("participantToken", participantToken))
+      .unique();
+
+    if (!submission || submission.eventId !== event._id) {
+      throw new ConvexError("Submission not found");
+    }
+
+    return {
+      event: {
+        name: event.name,
+        slug: event.slug,
+      },
+      submission: {
+        demoTitle: submission.demoTitle,
+      },
+    };
+  },
+});
+
 export const getStage = query({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {

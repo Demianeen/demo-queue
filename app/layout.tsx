@@ -5,7 +5,10 @@ import { ConvexClientProvider } from "./ConvexClientProvider";
 import { PageBackground } from "./PageBackground";
 
 export const metadata: Metadata = {
-  title: "Demo Queue",
+  title: {
+    default: "Demo Queue",
+    template: "%s | Demo Queue",
+  },
   description: "Realtime queue and picker for demo nights",
 };
 

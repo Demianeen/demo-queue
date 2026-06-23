@@ -95,10 +95,16 @@ export default function StagePage() {
   const lineupListRef = useRef<HTMLOListElement | null>(null);
   const previousCurrentId = useRef<string | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
-  const timer = useStageTimer(stage?.stageTimer);
-  const showTimer = timer.status !== "idle";
-  const timerStateClass = showTimer
-    ? ` is-${timer.status}${timer.remainingMs < 0 ? " is-overtime" : ""}`
+  const queueTimer = useStageTimer(stage?.stageTimer);
+  const demoTimer = useStageTimer(stage?.demoTimer);
+  const showQueueTimer = stage?.event.showStageTimerOnStage ?? false;
+  const showDemoTimer =
+    isLive && Boolean(stage?.current) && (stage?.event.showDemoTimerOnStage ?? false);
+  const queueTimerStateClass = showQueueTimer
+    ? ` is-${queueTimer.status}${queueTimer.remainingMs < 0 ? " is-overtime" : ""}`
+    : "";
+  const demoTimerStateClass = showDemoTimer
+    ? ` is-${demoTimer.status}${demoTimer.remainingMs < 0 ? " is-overtime" : ""}`
     : "";
   const waitingCount = stage?.waitingCount ?? stage?.remainingCount ?? 0;
 
@@ -248,6 +254,12 @@ export default function StagePage() {
             <p className="stage-label">Now demoing</p>
             <div className="stage-title">{stage.current?.name ?? "Queue opening soon"}</div>
             <div className="stage-subtitle">{stage.current?.demoTitle ?? stage.event.name}</div>
+            {showDemoTimer ? (
+              <div className={`stage-demo-timer${demoTimerStateClass}`} aria-live="polite">
+                <span>{demoTimer.label}</span>
+                <strong>{demoTimer.display}</strong>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -307,11 +319,11 @@ export default function StagePage() {
                   <h3 style={{ marginTop: 14 }}>Scan to demo</h3>
                 </div>
               </div>
-              {showTimer ? (
-                <div className={`stage-timer-strip${timerStateClass}`} aria-live="polite">
+              {showQueueTimer ? (
+                <div className={`stage-timer-strip${queueTimerStateClass}`} aria-live="polite">
                   <div className="stage-timer-strip-clock">
-                    <span>{timer.label}</span>
-                    <strong>{timer.display}</strong>
+                    <span>{queueTimer.label}</span>
+                    <strong>{queueTimer.display}</strong>
                   </div>
                   <div className="stage-timer-strip-count">
                     <span>In queue</span>

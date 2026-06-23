@@ -43,6 +43,7 @@ import {
   Play,
   Plus,
   RotateCcw,
+  Undo2,
   MoreHorizontal,
 } from "lucide-react";
 
@@ -92,6 +93,7 @@ type StageTimer = {
 };
 
 const DEFAULT_STAGE_TIMER_MS = 5 * 60 * 1000;
+const DEFAULT_DEMO_TIMER_MS = 2 * 60 * 1000;
 const MIN_STAGE_TIMER_MS = 0;
 const MIN_STAGE_TIMER_DURATION_MS = 60 * 1000;
 const MAX_STAGE_TIMER_MS = 99 * 60 * 1000;
@@ -214,10 +216,17 @@ export default function AdminPage() {
   const updateSubmission = useMutation(api.events.updateSubmission);
   const setLineupTarget = useMutation(api.events.setLineupTarget);
   const setStageMeetLinkVisible = useMutation(api.events.setStageMeetLinkVisible);
+  const setStageTimerVisible = useMutation(api.events.setStageTimerVisible);
   const startStageTimer = useMutation(api.events.startStageTimer);
   const pauseStageTimer = useMutation(api.events.pauseStageTimer);
   const resetStageTimer = useMutation(api.events.resetStageTimer);
   const adjustStageTimer = useMutation(api.events.adjustStageTimer);
+  const setDemoTimerVisible = useMutation(api.events.setDemoTimerVisible);
+  const setDemoTimerDuration = useMutation(api.events.setDemoTimerDuration);
+  const startDemoTimer = useMutation(api.events.startDemoTimer);
+  const pauseDemoTimer = useMutation(api.events.pauseDemoTimer);
+  const adjustDemoTimer = useMutation(api.events.adjustDemoTimer);
+  const restorePreviousPresenter = useMutation(api.events.restorePreviousPresenter);
   const shuffleLineup = useMutation(api.events.shuffleLineup);
   const aiShuffle = useAction(api.ai.aiShuffle);
 
@@ -267,8 +276,10 @@ export default function AdminPage() {
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const [liveMenuOpen, setLiveMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>("all");
-  const [timerMinutesInput, setTimerMinutesInput] = useState("");
-  const [timerOverride, setTimerOverride] = useState<StageTimer | null>(null);
+  const [queueTimerMinutesInput, setQueueTimerMinutesInput] = useState("");
+  const [demoTimerMinutesInput, setDemoTimerMinutesInput] = useState("");
+  const [queueTimerOverride, setQueueTimerOverride] = useState<StageTimer | null>(null);
+  const [demoTimerOverride, setDemoTimerOverride] = useState<StageTimer | null>(null);
   const [board, setBoard] = useState<{ lineup: Id<"submissions">[]; pool: Id<"submissions">[] }>({
     lineup: [],
     pool: [],
@@ -303,22 +314,38 @@ export default function AdminPage() {
     });
   }, [admin, activeId]);
 
-  const timerDurationMs = admin?.event.stageTimer?.durationMs;
+  const queueTimerDurationMs = admin?.event.stageTimer?.durationMs;
   useEffect(() => {
-    if (timerDurationMs === undefined) return;
-    setTimerMinutesInput(timerMsToInputMinutes(timerDurationMs));
-  }, [timerDurationMs]);
+    if (queueTimerDurationMs === undefined) return;
+    setQueueTimerMinutesInput(timerMsToInputMinutes(queueTimerDurationMs));
+  }, [queueTimerDurationMs]);
 
-  const effectiveStageTimer = timerOverride ?? admin?.event.stageTimer;
+  const demoTimerDurationMs = admin?.event.demoTimer?.durationMs;
+  useEffect(() => {
+    if (demoTimerDurationMs === undefined) return;
+    setDemoTimerMinutesInput(timerMsToInputMinutes(demoTimerDurationMs));
+  }, [demoTimerDurationMs]);
+
+  const effectiveStageTimer = queueTimerOverride ?? admin?.event.stageTimer;
   const stageTimerView = useTimerView(effectiveStageTimer);
+  const effectiveDemoTimer = demoTimerOverride ?? admin?.event.demoTimer;
+  const demoTimerView = useTimerView(effectiveDemoTimer);
 
   useEffect(() => {
     const serverTimer = admin?.event.stageTimer;
-    if (!timerOverride || !serverTimer) return;
-    if (timersMatchForOptimisticClear(serverTimer, timerOverride)) {
-      setTimerOverride(null);
+    if (!queueTimerOverride || !serverTimer) return;
+    if (timersMatchForOptimisticClear(serverTimer, queueTimerOverride)) {
+      setQueueTimerOverride(null);
     }
-  }, [admin?.event.stageTimer, timerOverride]);
+  }, [admin?.event.stageTimer, queueTimerOverride]);
+
+  useEffect(() => {
+    const serverTimer = admin?.event.demoTimer;
+    if (!demoTimerOverride || !serverTimer) return;
+    if (timersMatchForOptimisticClear(serverTimer, demoTimerOverride)) {
+      setDemoTimerOverride(null);
+    }
+  }, [admin?.event.demoTimer, demoTimerOverride]);
 
   useEffect(() => {
     if (!liveMenuOpen) return;
@@ -523,13 +550,17 @@ export default function AdminPage() {
     });
   }
 
-  function showTimerImmediately(timer: StageTimer) {
-    setTimerOverride(timer);
+  function showQueueTimerImmediately(timer: StageTimer) {
+    setQueueTimerOverride(timer);
   }
 
-  function updateTimerMinutesInput(value: string) {
+  function showDemoTimerImmediately(timer: StageTimer) {
+    setDemoTimerOverride(timer);
+  }
+
+  function updateQueueTimerMinutesInput(value: string) {
     const nextValue = normalizeTimerInputValue(value);
-    setTimerMinutesInput(nextValue);
+    setQueueTimerMinutesInput(nextValue);
     if (!effectiveStageTimer || stageTimerView.status === "running") return;
 
     const parsedMinutes = Number.parseFloat(nextValue);
@@ -537,7 +568,7 @@ export default function AdminPage() {
 
     const now = Date.now();
     const durationMs = timerInputToMs(nextValue, effectiveStageTimer.durationMs);
-    showTimerImmediately({
+    showQueueTimerImmediately({
       status: stageTimerView.status,
       durationMs,
       remainingMs: durationMs,
@@ -546,15 +577,47 @@ export default function AdminPage() {
     });
   }
 
-  function commitTimerMinutesInput() {
-    if (timerMinutesInput) return;
-    setTimerMinutesInput(timerMsToInputMinutes(effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS));
+  function updateDemoTimerMinutesInput(value: string) {
+    const nextValue = normalizeTimerInputValue(value);
+    setDemoTimerMinutesInput(nextValue);
+    if (!effectiveDemoTimer || demoTimerView.status !== "idle") return;
+
+    const parsedMinutes = Number.parseFloat(nextValue);
+    if (!Number.isFinite(parsedMinutes)) return;
+
+    const now = Date.now();
+    const durationMs = timerInputToMs(nextValue, effectiveDemoTimer.durationMs);
+    showDemoTimerImmediately({
+      status: demoTimerView.status,
+      durationMs,
+      remainingMs: durationMs,
+      endsAt: undefined,
+      serverNow: now,
+    });
   }
 
-  async function startTimer() {
+  async function commitQueueTimerMinutesInput() {
+    if (queueTimerMinutesInput) return;
+    setQueueTimerMinutesInput(timerMsToInputMinutes(effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS));
+  }
+
+  async function commitDemoTimerMinutesInput() {
+    if (!demoTimerMinutesInput) {
+      setDemoTimerMinutesInput(timerMsToInputMinutes(effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS));
+      return;
+    }
+
+    const durationMs = timerInputToMs(
+      demoTimerMinutesInput,
+      effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS,
+    );
+    await setDemoTimerDuration({ slug: params.slug, adminToken: params.token, durationMs });
+  }
+
+  async function startQueueTimer() {
     const now = Date.now();
     const durationMs = timerInputToMs(
-      timerMinutesInput,
+      queueTimerMinutesInput,
       effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
     );
     const remainingMs =
@@ -562,7 +625,7 @@ export default function AdminPage() {
         ? stageTimerView.remainingMs
         : durationMs;
 
-    showTimerImmediately({
+    showQueueTimerImmediately({
       status: "running",
       durationMs,
       remainingMs,
@@ -572,9 +635,9 @@ export default function AdminPage() {
     await startStageTimer({ slug: params.slug, adminToken: params.token, durationMs });
   }
 
-  async function pauseTimer() {
+  async function pauseQueueTimer() {
     const now = Date.now();
-    showTimerImmediately({
+    showQueueTimerImmediately({
       status: "paused",
       durationMs: effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
       remainingMs: stageTimerView.remainingMs,
@@ -584,12 +647,12 @@ export default function AdminPage() {
     await pauseStageTimer({ slug: params.slug, adminToken: params.token });
   }
 
-  async function resetTimer() {
+  async function resetQueueTimer() {
     const durationMs = timerInputToMs(
-      timerMinutesInput,
+      queueTimerMinutesInput,
       effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
     );
-    showTimerImmediately({
+    showQueueTimerImmediately({
       status: "idle",
       durationMs,
       remainingMs: durationMs,
@@ -601,16 +664,16 @@ export default function AdminPage() {
       adminToken: params.token,
       durationMs,
     });
-    setTimerMinutesInput(timerMsToInputMinutes(durationMs));
+    setQueueTimerMinutesInput(timerMsToInputMinutes(durationMs));
   }
 
-  async function adjustTimer(deltaMs: number) {
+  async function adjustQueueTimer(deltaMs: number) {
     const now = Date.now();
     const nextRemainingMs =
       stageTimerView.status === "running"
         ? clampSignedTimerMs(stageTimerView.remainingMs + deltaMs)
         : clampTimerMs(stageTimerView.remainingMs + deltaMs);
-    showTimerImmediately({
+    showQueueTimerImmediately({
       status: stageTimerView.status,
       durationMs: effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
       remainingMs: nextRemainingMs,
@@ -622,6 +685,77 @@ export default function AdminPage() {
       adminToken: params.token,
       deltaMs,
     });
+  }
+
+  async function startCurrentDemoTimer() {
+    const now = Date.now();
+    const durationMs = effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS;
+    const remainingMs =
+      demoTimerView.status === "paused" ? demoTimerView.remainingMs : durationMs;
+
+    showDemoTimerImmediately({
+      status: "running",
+      durationMs,
+      remainingMs,
+      endsAt: now + remainingMs,
+      serverNow: now,
+    });
+    await startDemoTimer({ slug: params.slug, adminToken: params.token });
+  }
+
+  async function pauseCurrentDemoTimer() {
+    const now = Date.now();
+    showDemoTimerImmediately({
+      status: "paused",
+      durationMs: effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS,
+      remainingMs: demoTimerView.remainingMs,
+      endsAt: undefined,
+      serverNow: now,
+    });
+    await pauseDemoTimer({ slug: params.slug, adminToken: params.token });
+  }
+
+  async function adjustCurrentDemoTimer(deltaMs: number) {
+    const now = Date.now();
+    const nextRemainingMs =
+      demoTimerView.status === "running" || demoTimerView.status === "paused"
+        ? clampSignedTimerMs(demoTimerView.remainingMs + deltaMs)
+        : clampTimerMs(demoTimerView.remainingMs + deltaMs);
+    showDemoTimerImmediately({
+      status: demoTimerView.status,
+      durationMs: effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS,
+      remainingMs: nextRemainingMs,
+      endsAt: demoTimerView.status === "running" ? now + nextRemainingMs : undefined,
+      serverNow: now,
+    });
+    await adjustDemoTimer({
+      slug: params.slug,
+      adminToken: params.token,
+      deltaMs,
+    });
+  }
+
+  async function toggleActiveTimerVisibility(visible: boolean) {
+    if (queueIsLive && currentLineupItem) {
+      await setDemoTimerVisible({ slug: params.slug, adminToken: params.token, visible });
+      return;
+    }
+
+    await setStageTimerVisible({ slug: params.slug, adminToken: params.token, visible });
+  }
+
+  async function restorePrevious() {
+    setLiveMenuOpen(false);
+    await restorePreviousPresenter({ slug: params.slug, adminToken: params.token });
+  }
+
+  async function livePrimaryAction() {
+    if (shouldStartDemoFromPrimary) {
+      await startCurrentDemoTimer();
+      return;
+    }
+
+    await next();
   }
 
   async function saveNew(values: SubmissionFields) {
@@ -722,8 +856,16 @@ export default function AdminPage() {
     board,
     itemsById,
   );
-  const timerIsRunning = stageTimerView.status === "running";
   const currentLineupItem = board.lineup[0] ? itemsById.get(board.lineup[0]) : null;
+  const activeTimerMode = queueIsLive && currentLineupItem ? "demo" : "queue";
+  const activeTimerView = activeTimerMode === "demo" ? demoTimerView : stageTimerView;
+  const activeTimerVisible =
+    activeTimerMode === "demo"
+      ? admin.event.showDemoTimerOnStage ?? false
+      : admin.event.showStageTimerOnStage ?? false;
+  const activeTimerIsRunning = activeTimerView.status === "running";
+  const shouldStartDemoFromPrimary =
+    activeTimerMode === "demo" && activeTimerVisible && demoTimerView.status === "idle";
 
   return (
     <main className="page">
@@ -754,8 +896,8 @@ export default function AdminPage() {
             <div className="actions" style={{ marginBottom: 14 }}>
               {queueIsLive ? (
                 <div className="split-action" ref={liveMenuRef}>
-                  <Button className="split-action-main" onClick={next} type="button">
-                    Advance
+                  <Button className="split-action-main" onClick={livePrimaryAction} type="button">
+                    {shouldStartDemoFromPrimary ? "Start timer" : "Advance"}
                   </Button>
                   <Button
                     aria-expanded={liveMenuOpen}
@@ -863,70 +1005,154 @@ export default function AdminPage() {
               </span>
             </div>
 
-            <div className={`stage-timer-admin${stageTimerView.remainingMs < 0 ? " is-overtime" : ""}`}>
+            <div className={`stage-timer-admin${activeTimerView.remainingMs < 0 ? " is-overtime" : ""}`}>
               <div className="stage-timer-admin-heading">
                 <span className="stage-timer-admin-title">
                   <Clock size={16} aria-hidden />
-                  Stage timer
+                  {activeTimerMode === "demo" ? "Demo timer" : "Queue timer"}
                 </span>
-                <span className={`pill ${timerIsRunning ? (stageTimerView.remainingMs < 0 ? "yellow" : "green") : ""}`}>
-                  {stageTimerView.label}
-                </span>
+                <label className="stage-meet-toggle">
+                  <input
+                    type="checkbox"
+                    checked={activeTimerVisible}
+                    onChange={(event) => toggleActiveTimerVisibility(event.currentTarget.checked)}
+                  />
+                  <span>Show on stage</span>
+                </label>
               </div>
               <div className="stage-timer-admin-body">
-                <div className="stage-timer-readout">{stageTimerView.display}</div>
-                <div className="stage-timer-controls" aria-label="Stage timer controls">
-                  <Button
-                    variant={timerIsRunning ? "outline" : "default"}
-                    onClick={timerIsRunning ? pauseTimer : startTimer}
-                    type="button"
+                <div className="stage-timer-readout-row">
+                  <div className="stage-timer-readout">{activeTimerView.display}</div>
+                  <span
+                    className={`pill ${activeTimerIsRunning ? (activeTimerView.remainingMs < 0 ? "yellow" : "green") : ""}`}
                   >
-                    {timerIsRunning ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
-                    {timerIsRunning ? "Pause" : "Start"}
-                  </Button>
-                  <Button variant="outline" onClick={resetTimer} type="button">
-                    <RotateCcw size={16} aria-hidden />
-                    Reset
-                  </Button>
-                  <Button
-                    aria-label="Subtract 1 minute"
-                    variant="outline"
-                    onClick={() => adjustTimer(-60 * 1000)}
-                    type="button"
-                  >
-                    <Minus size={16} aria-hidden />
-                    1m
-                  </Button>
-                  <Button
-                    aria-label="Add 1 minute"
-                    variant="outline"
-                    onClick={() => adjustTimer(60 * 1000)}
-                    type="button"
-                  >
-                    <Plus size={16} aria-hidden />
-                    1m
-                  </Button>
-                  <Button
-                    aria-label="Add 5 minutes"
-                    variant="outline"
-                    onClick={() => adjustTimer(5 * 60 * 1000)}
-                    type="button"
-                  >
-                    <Plus size={16} aria-hidden />
-                    5m
-                  </Button>
+                    {activeTimerView.label}
+                  </span>
                 </div>
+                {activeTimerMode === "queue" ? (
+                  <div className="stage-timer-controls" aria-label="Queue timer controls">
+                    <Button
+                      variant={activeTimerIsRunning ? "outline" : "default"}
+                      onClick={activeTimerIsRunning ? pauseQueueTimer : startQueueTimer}
+                      type="button"
+                    >
+                      {activeTimerIsRunning ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
+                      {activeTimerIsRunning ? "Pause" : "Start"}
+                    </Button>
+                    <Button variant="outline" onClick={resetQueueTimer} type="button">
+                      <RotateCcw size={16} aria-hidden />
+                      Reset
+                    </Button>
+                    <Button
+                      aria-label="Subtract 1 minute"
+                      title="Subtract 1 minute"
+                      variant="outline"
+                      onClick={() => adjustQueueTimer(-60 * 1000)}
+                      type="button"
+                    >
+                      <Minus size={16} aria-hidden />
+                      1m
+                    </Button>
+                    <Button
+                      aria-label="Add 1 minute"
+                      title="Add 1 minute"
+                      variant="outline"
+                      onClick={() => adjustQueueTimer(60 * 1000)}
+                      type="button"
+                    >
+                      <Plus size={16} aria-hidden />
+                      1m
+                    </Button>
+                    <Button
+                      aria-label="Add 5 minutes"
+                      title="Add 5 minutes"
+                      variant="outline"
+                      onClick={() => adjustQueueTimer(5 * 60 * 1000)}
+                      type="button"
+                    >
+                      <Plus size={16} aria-hidden />
+                      5m
+                    </Button>
+                    {admin.event.canRestorePrevious ? (
+                      <Button
+                        aria-label="Restore previous presenter"
+                        title="Restore previous presenter"
+                        variant="outline"
+                        size="icon"
+                        onClick={restorePrevious}
+                        type="button"
+                      >
+                        <Undo2 size={16} aria-hidden />
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="stage-timer-controls stage-timer-controls-icons" aria-label="Demo timer controls">
+                    <Button
+                      aria-label={activeTimerIsRunning ? "Pause timer" : "Start timer"}
+                      title={activeTimerIsRunning ? "Pause timer" : "Start timer"}
+                      variant={activeTimerIsRunning ? "outline" : "default"}
+                      size="icon"
+                      disabled={!activeTimerVisible}
+                      onClick={activeTimerIsRunning ? pauseCurrentDemoTimer : startCurrentDemoTimer}
+                      type="button"
+                    >
+                      {activeTimerIsRunning ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
+                    </Button>
+                    <Button
+                      aria-label="Subtract 30 seconds"
+                      title="Subtract 30 seconds"
+                      variant="outline"
+                      size="icon"
+                      disabled={!activeTimerVisible}
+                      onClick={() => adjustCurrentDemoTimer(-30 * 1000)}
+                      type="button"
+                    >
+                      <Minus size={16} aria-hidden />
+                    </Button>
+                    <Button
+                      aria-label="Add 30 seconds"
+                      title="Add 30 seconds"
+                      variant="outline"
+                      size="icon"
+                      disabled={!activeTimerVisible}
+                      onClick={() => adjustCurrentDemoTimer(30 * 1000)}
+                      type="button"
+                    >
+                      <Plus size={16} aria-hidden />
+                    </Button>
+                    <Button
+                      aria-label="Restore previous presenter"
+                      title="Restore previous presenter"
+                      variant="outline"
+                      size="icon"
+                      disabled={!admin.event.canRestorePrevious}
+                      onClick={restorePrevious}
+                      type="button"
+                    >
+                      <Undo2 size={16} aria-hidden />
+                    </Button>
+                  </div>
+                )}
                 <label className="stage-timer-duration">
-                  <span>Minutes</span>
+                  <span>{activeTimerMode === "demo" ? "Default minutes" : "Minutes"}</span>
                   <input
                     aria-label="Timer length in minutes"
                     inputMode="numeric"
                     maxLength={2}
                     pattern="[0-9]*"
                     type="text"
-                    value={timerMinutesInput}
-                    onBlur={commitTimerMinutesInput}
-                    onChange={(event) => updateTimerMinutesInput(event.currentTarget.value)}
+                    value={activeTimerMode === "demo" ? demoTimerMinutesInput : queueTimerMinutesInput}
+                    onBlur={() => {
+                      void (activeTimerMode === "demo"
+                        ? commitDemoTimerMinutesInput()
+                        : commitQueueTimerMinutesInput());
+                    }}
+                    onChange={(event) =>
+                      activeTimerMode === "demo"
+                        ? updateDemoTimerMinutesInput(event.currentTarget.value)
+                        : updateQueueTimerMinutesInput(event.currentTarget.value)
+                    }
                   />
                 </label>
               </div>

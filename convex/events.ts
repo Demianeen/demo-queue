@@ -877,6 +877,7 @@ export const resetStageTimer = mutation({
     const durationMs = clampTimerDurationMs(args.durationMs ?? stageTimerDuration(event));
 
     await ctx.db.patch(event._id, {
+      showStageTimerOnStage: false,
       stageTimerStatus: "idle",
       stageTimerDurationMs: durationMs,
       stageTimerRemainingMs: durationMs,

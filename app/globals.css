@@ -1488,6 +1488,14 @@ h3 {
   color: #9f1f17;
 }
 
+.stage-timer-note {
+  color: var(--app-muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  margin: -2px 0 0;
+}
+
 .stage-timer-controls {
   display: flex;
   flex-wrap: wrap;
@@ -1856,6 +1864,104 @@ h3 {
   flex-basis: 100%;
   font-size: 13px;
   font-weight: 600;
+}
+
+.admin-action-note {
+  color: var(--app-muted);
+  flex-basis: 100%;
+  font-size: 13px;
+  font-weight: 700;
+  margin: -4px 0 6px;
+}
+
+.admin-modal-backdrop {
+  align-items: center;
+  background: rgba(17, 24, 39, 0.34);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 60;
+}
+
+.admin-modal {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 14px;
+  box-shadow: 0 24px 80px rgba(23, 26, 38, 0.22);
+  color: var(--app-ink);
+  display: grid;
+  gap: 16px;
+  max-width: 420px;
+  padding: 22px;
+  width: min(100%, 420px);
+}
+
+.admin-modal-heading h2 {
+  font-size: 22px;
+  font-weight: 850;
+  letter-spacing: 0;
+  margin: 0 0 6px;
+}
+
+.admin-modal-heading p,
+.admin-modal-help {
+  color: var(--app-muted);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.admin-modal-field {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-modal-field span {
+  color: var(--app-muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.admin-modal-field input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  border: 1px solid var(--app-line);
+  border-radius: 10px;
+  color: var(--app-ink);
+  font-size: 20px;
+  font-weight: 850;
+  min-height: 48px;
+  padding: 0 14px;
+  width: 100%;
+}
+
+.admin-modal-field input:focus {
+  border-color: var(--cx-indigo);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+  outline: none;
+}
+
+.admin-modal-field input::-webkit-outer-spin-button,
+.admin-modal-field input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.admin-modal-error {
+  color: var(--app-bad);
+  font-size: 13px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.admin-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 @media (max-width: 860px) {

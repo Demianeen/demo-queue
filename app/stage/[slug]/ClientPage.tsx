@@ -107,6 +107,10 @@ export default function StagePage() {
     ? ` is-${demoTimer.status}${demoTimer.remainingMs < 0 ? " is-overtime" : ""}`
     : "";
   const waitingCount = stage?.waitingCount ?? stage?.remainingCount ?? 0;
+  const currentStageLabel = stage?.current ? "Now demoing" : isLive ? "Waiting for presenter" : "Now demoing";
+  const currentStageTitle = stage?.current?.name ?? (isLive ? "No one in the lineup" : "Queue opening soon");
+  const currentStageSubtitle =
+    stage?.current?.demoTitle ?? (isLive ? "Add someone to the lineup from admin." : stage?.event.name);
 
   useEffect(() => {
     if (!isLive || allUpcoming.length === 0) {
@@ -249,11 +253,11 @@ export default function StagePage() {
     >
       <span className="codex-mark stage-mark" aria-hidden />
       <section className="stage-grid">
-        <div className="stage-main">
-          <div className="stage-current-content" key={currentId}>
-            <p className="stage-label">Now demoing</p>
-            <div className="stage-title">{stage.current?.name ?? "Queue opening soon"}</div>
-            <div className="stage-subtitle">{stage.current?.demoTitle ?? stage.event.name}</div>
+          <div className="stage-main">
+            <div className="stage-current-content" key={currentId}>
+              <p className="stage-label">{currentStageLabel}</p>
+              <div className="stage-title">{currentStageTitle}</div>
+              <div className="stage-subtitle">{currentStageSubtitle}</div>
             {showDemoTimer ? (
               <div className={`stage-demo-timer${demoTimerStateClass}`} aria-live="polite">
                 <span>{demoTimer.label}</span>

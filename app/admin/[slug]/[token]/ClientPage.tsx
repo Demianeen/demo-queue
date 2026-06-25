@@ -273,6 +273,10 @@ export default function AdminPage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [testPeopleCount, setTestPeopleCount] = useState("10");
+  const [testPeopleOpen, setTestPeopleOpen] = useState(false);
+  const [testPeopleBusy, setTestPeopleBusy] = useState(false);
+  const [testPeopleMessage, setTestPeopleMessage] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const [liveMenuOpen, setLiveMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>("all");
@@ -777,36 +781,49 @@ export default function AdminPage() {
     setIsAdding(false);
   }
 
-  async function addTestPeople() {
-    const countInput = window.prompt("How many test people should I add to the pool? Max 1000.", "100");
-    const count = Number.parseInt(countInput ?? "", 10);
-    if (!Number.isFinite(count) || count <= 0) return;
+  async function addTestPeople(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const count = Number.parseInt(testPeopleCount, 10);
+    if (!Number.isFinite(count) || count <= 0) {
+      setTestPeopleMessage("Enter a number from 1 to 1000.");
+      return;
+    }
 
     const safeCount = Math.min(count, 1000);
     const batchSize = 25;
+    setTestPeopleBusy(true);
+    setTestPeopleMessage(`Adding ${safeCount} test people...`);
 
-    for (let start = 0; start < safeCount; start += batchSize) {
-      const batchCount = Math.min(batchSize, safeCount - start);
-      await Promise.all(
-        Array.from({ length: batchCount }, async () => {
-          const person = makeSamplePerson();
-          await adminAddSubmission({
-            slug: params.slug,
-            adminToken: params.token,
-            participantToken: randomToken(32),
-            name: person.name,
-            demoTitle: person.demoTitle,
-            description: person.description,
-            phone: person.phone,
-            email: person.email,
-            twitter: person.twitter,
-            linkedin: person.linkedin,
-            category: person.category,
-            queueOrder: Date.now(),
-            list: "pool",
-          });
-        }),
-      );
+    try {
+      for (let start = 0; start < safeCount; start += batchSize) {
+        const batchCount = Math.min(batchSize, safeCount - start);
+        await Promise.all(
+          Array.from({ length: batchCount }, async () => {
+            const person = makeSamplePerson();
+            await adminAddSubmission({
+              slug: params.slug,
+              adminToken: params.token,
+              participantToken: randomToken(32),
+              name: person.name,
+              demoTitle: person.demoTitle,
+              description: person.description,
+              phone: person.phone,
+              email: person.email,
+              twitter: person.twitter,
+              linkedin: person.linkedin,
+              category: person.category,
+              queueOrder: Date.now(),
+              list: "pool",
+            });
+          }),
+        );
+      }
+      setTestPeopleMessage(`Added ${safeCount} test people to All people.`);
+      setTestPeopleOpen(false);
+    } catch (error) {
+      setTestPeopleMessage(error instanceof Error ? error.message : "Could not add test people.");
+    } finally {
+      setTestPeopleBusy(false);
     }
   }
 
@@ -864,6 +881,12 @@ export default function AdminPage() {
       ? admin.event.showDemoTimerOnStage ?? false
       : admin.event.showStageTimerOnStage ?? false;
   const activeTimerIsRunning = activeTimerView.status === "running";
+  const timerAvailabilityMessage =
+    activeTimerMode === "demo"
+      ? "Start the timer when the presenter begins. Starting it also shows it on stage."
+      : queueIsLive
+        ? "Demo timer appears here after someone is in the lineup. Add a person to Lineup to make them the current presenter."
+        : "Demo timer appears here after the queue is live and someone is in the lineup.";
   const shouldStartDemoFromPrimary =
     activeTimerMode === "demo" && activeTimerVisible && demoTimerView.status === "idle";
 
@@ -953,7 +976,14 @@ export default function AdminPage() {
               >
                 Add person
               </Button>
-              <Button variant="ghost" onClick={addTestPeople} type="button">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setTestPeopleMessage("");
+                  setTestPeopleOpen(true);
+                }}
+                type="button"
+              >
                 Add test people
               </Button>
               {allPeopleRows.length > 0 ? (
@@ -963,8 +993,8 @@ export default function AdminPage() {
               ) : null}
             </div>
 
-            {!queueIsLive && aiOpen ? (
-              <div className="ai-shuffle-row">
+              {!queueIsLive && aiOpen ? (
+                <div className="ai-shuffle-row">
                 <input
                   value={aiPrompt}
                   onChange={(event) => setAiPrompt(event.target.value)}
@@ -982,8 +1012,63 @@ export default function AdminPage() {
                 {aiError ? (
                   <span className="ai-shuffle-error">{aiError}</span>
                 ) : null}
-              </div>
-            ) : null}
+                </div>
+              ) : null}
+              {testPeopleMessage ? (
+                <p className="admin-action-note">{testPeopleMessage}</p>
+              ) : null}
+
+              {testPeopleOpen ? (
+                <div
+                  aria-labelledby="test-people-title"
+                  aria-modal="true"
+                  className="admin-modal-backdrop"
+                  role="dialog"
+                >
+                  <form className="admin-modal" onSubmit={addTestPeople}>
+                    <div className="admin-modal-heading">
+                      <h2 id="test-people-title">Add test people</h2>
+                      <p>Add generated people to All people. Move any of them into Lineup to test presenter flow.</p>
+                    </div>
+                    <label className="admin-modal-field">
+                      <span>People to add</span>
+                      <input
+                        autoFocus
+                        aria-label="Number of test people"
+                        inputMode="numeric"
+                        maxLength={4}
+                        pattern="[0-9]*"
+                        type="text"
+                        value={testPeopleCount}
+                        onChange={(event) => {
+                          setTestPeopleCount(event.currentTarget.value.replace(/\D/g, "").slice(0, 4));
+                          setTestPeopleMessage("");
+                        }}
+                      />
+                    </label>
+                    <p className="admin-modal-help">Maximum 1000. They start in All people, not Lineup.</p>
+                    {testPeopleMessage ? (
+                      <p className="admin-modal-error">{testPeopleMessage}</p>
+                    ) : null}
+                    <div className="admin-modal-actions">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setTestPeopleOpen(false);
+                          setTestPeopleMessage("");
+                        }}
+                        disabled={testPeopleBusy}
+                        type="button"
+                      >
+                        Cancel
+                      </Button>
+                      <Button disabled={testPeopleBusy} type="submit">
+                        {testPeopleBusy ? "Adding..." : "Add people"}
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+              ) : null}
 
             <div className="field" style={{ maxWidth: 520 }}>
               <div className="field-heading">
@@ -1029,6 +1114,7 @@ export default function AdminPage() {
                     {activeTimerView.label}
                   </span>
                 </div>
+                <p className="stage-timer-note">{timerAvailabilityMessage}</p>
                 {activeTimerMode === "queue" ? (
                   <div className="stage-timer-controls" aria-label="Queue timer controls">
                     <Button

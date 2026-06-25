@@ -1445,6 +1445,7 @@ function StagePreviewPanel({
       <div className="admin-stage-preview-viewport">
         <iframe
           className="admin-stage-preview-frame"
+          scrolling="no"
           src={previewUrl}
           tabIndex={-1}
           title={`${eventName} stage preview`}

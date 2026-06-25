@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import { useQuery } from "convex/react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import { absoluteUrl, submissionPath } from "@/lib/routes";
@@ -78,10 +78,8 @@ function useStageTimer(timer: StageTimer | undefined) {
 
 export default function StagePage() {
   const params = useParams<{ slug: string }>();
-  const searchParams = useSearchParams();
   const stage = useQuery(api.events.getStage, { slug: params.slug });
   const submissionUrl = absoluteUrl(submissionPath(params.slug));
-  const isPreview = searchParams.get("preview") === "admin";
   const currentId = stage?.current?.id ?? "empty";
   const lineupIds = stage?.lineup.map((item) => item.id).join("-") ?? "empty";
   const isLive = stage?.event.queuePublished ?? false;
@@ -231,7 +229,7 @@ export default function StagePage() {
 
   if (!stage) {
     return (
-      <main className={cn("stage", isPreview && "stage-preview-mode")}>
+      <main className="stage">
         <section className="stage-grid">
           <div className="stage-main">
             <div>
@@ -250,7 +248,7 @@ export default function StagePage() {
 
   return (
     <main
-      className={cn("stage", isAdvancing && "stage-advancing", isPreview && "stage-preview-mode")}
+      className={cn("stage", isAdvancing && "stage-advancing")}
       ref={stageRootRef}
     >
       <span className="codex-mark stage-mark" aria-hidden />

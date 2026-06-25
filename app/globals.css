@@ -601,32 +601,6 @@ h3 {
   margin-top: 6px;
 }
 
-.stage-preview-mode {
-  padding: 34px 38px;
-}
-
-.stage-preview-mode .stage-mark {
-  display: none;
-}
-
-.stage-preview-mode .stage-grid {
-  gap: 30px;
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
-  min-height: calc(100vh - 68px);
-}
-
-.stage-preview-mode .stage-title {
-  font-size: clamp(76px, 9vw, 136px);
-}
-
-.stage-preview-mode .stage-subtitle {
-  font-size: clamp(30px, 3vw, 52px);
-}
-
-.stage-preview-mode .stage-lineup-empty h2 {
-  font-size: clamp(44px, 3.4vw, 68px);
-}
-
 .stage-qr-stack {
   position: relative;
   padding-top: 92px;

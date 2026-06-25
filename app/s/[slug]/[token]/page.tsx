@@ -11,7 +11,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const participant = await participantTitle(slug, token);
 
   return {
-    title: participant ? `${participant.demoTitle} status` : "Status",
+    title: participant ? `Status - ${participant.eventName}` : "Status",
     robots: {
       index: false,
       follow: false,

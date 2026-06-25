@@ -11,7 +11,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const title = await adminEventTitle(slug, token);
 
   return {
-    title: title ? `${title} admin` : "Admin",
+    title: title ? `Admin - ${title}` : "Admin",
     robots: {
       index: false,
       follow: false,

@@ -87,7 +87,9 @@ export default function StagePage() {
   const isLive = stage?.event.queuePublished ?? false;
   const allUpcoming = stage?.lineup.slice(1) ?? [];
   const [visibleUpcomingLimit, setVisibleUpcomingLimit] = useState<number | null>(null);
-  const upcoming = allUpcoming.slice(0, visibleUpcomingLimit ?? allUpcoming.length);
+  const visibleUpcomingCount =
+    allUpcoming.length === 0 ? 0 : Math.max(1, visibleUpcomingLimit ?? allUpcoming.length);
+  const upcoming = allUpcoming.slice(0, visibleUpcomingCount);
   const hiddenLineupCount = Math.max((stage?.remainingCount ?? 0) - 1 - upcoming.length, 0);
   const displayMeetUrl = stage?.meetUrl ? stage.meetUrl.replace(/^https?:\/\//, "").replace(/\/$/, "") : "";
   const stageRootRef = useRef<HTMLElement | null>(null);

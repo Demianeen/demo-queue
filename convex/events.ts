@@ -11,6 +11,7 @@ import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
 const DEFAULT_STAGE_TIMER_MS = 5 * 60 * 1000;
+const DEFAULT_DEMO_TIMER_MS = 2 * 60 * 1000;
 const MIN_STAGE_TIMER_DURATION_MS = 60 * 1000;
 const MAX_STAGE_TIMER_MS = 99 * 60 * 1000;
 const MIN_STAGE_TIMER_MS = 0;
@@ -68,17 +69,17 @@ function lineupSorted(submissions: Doc<"submissions">[]) {
   return submissions.filter((submission) => submission.status === "queued").sort(sortQueue);
 }
 
-function clampTimerMs(value: number) {
+function clampTimerMs(value: number, fallbackMs = DEFAULT_STAGE_TIMER_MS) {
   if (!Number.isFinite(value)) {
-    return DEFAULT_STAGE_TIMER_MS;
+    return fallbackMs;
   }
 
   return Math.max(MIN_STAGE_TIMER_MS, Math.min(MAX_STAGE_TIMER_MS, Math.round(value)));
 }
 
-function clampSignedTimerMs(value: number) {
+function clampSignedTimerMs(value: number, fallbackMs = DEFAULT_STAGE_TIMER_MS) {
   if (!Number.isFinite(value)) {
-    return DEFAULT_STAGE_TIMER_MS;
+    return fallbackMs;
   }
 
   return Math.max(MIN_OVERTIME_TIMER_MS, Math.min(MAX_STAGE_TIMER_MS, Math.round(value)));
@@ -88,9 +89,13 @@ function stageTimerDuration(event: Doc<"events">) {
   return clampTimerDurationMs(event.stageTimerDurationMs ?? DEFAULT_STAGE_TIMER_MS);
 }
 
-function clampTimerDurationMs(value: number) {
+function demoTimerDuration(event: Doc<"events">) {
+  return clampTimerDurationMs(event.demoTimerDurationMs ?? DEFAULT_DEMO_TIMER_MS, DEFAULT_DEMO_TIMER_MS);
+}
+
+function clampTimerDurationMs(value: number, fallbackMs = DEFAULT_STAGE_TIMER_MS) {
   if (!Number.isFinite(value)) {
-    return DEFAULT_STAGE_TIMER_MS;
+    return fallbackMs;
   }
 
   return Math.max(
@@ -111,6 +116,18 @@ function currentStageTimerRemaining(event: Doc<"events">, now: number) {
     : clampTimerMs(event.stageTimerRemainingMs ?? durationMs);
 }
 
+function currentDemoTimerRemaining(event: Doc<"events">, now: number) {
+  const durationMs = demoTimerDuration(event);
+
+  if (event.demoTimerStatus === "running" && event.demoTimerEndsAt !== undefined) {
+    return clampSignedTimerMs(event.demoTimerEndsAt - now);
+  }
+
+  return event.demoTimerStatus === "paused"
+    ? clampSignedTimerMs(event.demoTimerRemainingMs ?? durationMs)
+    : clampTimerMs(event.demoTimerRemainingMs ?? durationMs);
+}
+
 function publicStageTimer(event: Doc<"events">, now = Date.now()) {
   const durationMs = stageTimerDuration(event);
   const remainingMs = currentStageTimerRemaining(event, now);
@@ -121,6 +138,20 @@ function publicStageTimer(event: Doc<"events">, now = Date.now()) {
     durationMs,
     remainingMs,
     endsAt: event.stageTimerStatus === "running" ? event.stageTimerEndsAt : undefined,
+    serverNow: now,
+  };
+}
+
+function publicDemoTimer(event: Doc<"events">, now = Date.now()) {
+  const durationMs = demoTimerDuration(event);
+  const remainingMs = currentDemoTimerRemaining(event, now);
+  const status: PublicStageTimerStatus = event.demoTimerStatus ?? "idle";
+
+  return {
+    status,
+    durationMs,
+    remainingMs,
+    endsAt: event.demoTimerStatus === "running" ? event.demoTimerEndsAt : undefined,
     serverNow: now,
   };
 }
@@ -146,6 +177,14 @@ function zodToConvexError(error: unknown): never {
     throw new ConvexError(error.issues[0]?.message ?? "Invalid submission.");
   }
   throw error;
+}
+
+async function clearAdvanceSnapshot(ctx: { db: DatabaseWriter }, event: Doc<"events">, now = Date.now()) {
+  if (event.lastAdvanceSnapshot === undefined) return;
+  await ctx.db.patch(event._id, {
+    lastAdvanceSnapshot: undefined,
+    updatedAt: now,
+  });
 }
 
 function normalizeSubmissionTextFields(args: SubmissionTextInput): ReturnType<typeof parseSubmissionTextFields> {
@@ -189,6 +228,9 @@ export const createEvent = mutation({
       adminToken: args.adminToken,
       queuePublished: false,
       showMeetLinkOnStage: false,
+      showStageTimerOnStage: false,
+      showDemoTimerOnStage: false,
+      demoTimerDurationMs: DEFAULT_DEMO_TIMER_MS,
       createdAt: now,
       updatedAt: now,
     });
@@ -280,8 +322,11 @@ export const getStage = query({
         slug: event.slug,
         queuePublished: event.queuePublished,
         showMeetLinkOnStage,
+        showStageTimerOnStage: event.showStageTimerOnStage ?? false,
+        showDemoTimerOnStage: event.showDemoTimerOnStage ?? false,
       },
       stageTimer: publicStageTimer(event, now),
+      demoTimer: publicDemoTimer(event, now),
       current: current ? publicSubmissionFields(current) : null,
       upNext: upNext ? publicSubmissionFields(upNext) : null,
       lineup: stageLineup.map(publicSubmissionFields),
@@ -311,8 +356,12 @@ export const getAdmin = query({
         meetUrl: event.meetUrl,
         queuePublished: event.queuePublished,
         showMeetLinkOnStage: event.showMeetLinkOnStage ?? false,
+        showStageTimerOnStage: event.showStageTimerOnStage ?? false,
+        showDemoTimerOnStage: event.showDemoTimerOnStage ?? false,
         lineupTarget: event.lineupTarget,
         stageTimer: publicStageTimer(event),
+        demoTimer: publicDemoTimer(event),
+        canRestorePrevious: event.lastAdvanceSnapshot !== undefined,
       },
       lineup: lineupSorted(submissions).map(adminSubmissionFields),
       pool: submissions
@@ -602,6 +651,29 @@ export const setStageMeetLinkVisible = mutation({
   },
 });
 
+export const setStageTimerVisible = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    visible: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    await ctx.db.patch(event._id, {
+      showStageTimerOnStage: args.visible,
+      updatedAt: Date.now(),
+    });
+    await logAction(
+      ctx,
+      event._id,
+      args.visible ? "stage_timer_visible" : "stage_timer_hidden",
+      "admin",
+    );
+  },
+});
+
 export const startStageTimer = mutation({
   args: {
     slug: v.string(),
@@ -621,6 +693,7 @@ export const startStageTimer = mutation({
         : durationMs;
 
     await ctx.db.patch(event._id, {
+      showStageTimerOnStage: true,
       stageTimerStatus: "running",
       stageTimerDurationMs: durationMs,
       stageTimerRemainingMs: remainingMs,
@@ -628,6 +701,143 @@ export const startStageTimer = mutation({
       updatedAt: now,
     });
     await logAction(ctx, event._id, "stage_timer_started", "admin", String(remainingMs));
+  },
+});
+
+export const setDemoTimerVisible = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    visible: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const now = Date.now();
+    const patch: Partial<Doc<"events">> = {
+      showDemoTimerOnStage: args.visible,
+      updatedAt: now,
+    };
+
+    if (args.visible && event.demoTimerStatus === undefined) {
+      const durationMs = demoTimerDuration(event);
+      patch.demoTimerStatus = "idle";
+      patch.demoTimerDurationMs = durationMs;
+      patch.demoTimerRemainingMs = durationMs;
+      patch.demoTimerEndsAt = undefined;
+    }
+
+    await ctx.db.patch(event._id, patch);
+    await logAction(
+      ctx,
+      event._id,
+      args.visible ? "demo_timer_visible" : "demo_timer_hidden",
+      "admin",
+    );
+  },
+});
+
+export const setDemoTimerDuration = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    durationMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const durationMs = clampTimerDurationMs(args.durationMs);
+    const patch: Partial<Doc<"events">> = {
+      demoTimerDurationMs: durationMs,
+      updatedAt: Date.now(),
+    };
+
+    if ((event.demoTimerStatus ?? "idle") === "idle") {
+      patch.demoTimerRemainingMs = durationMs;
+      patch.demoTimerEndsAt = undefined;
+    }
+
+    await ctx.db.patch(event._id, patch);
+    await logAction(ctx, event._id, "demo_timer_duration_set", "admin", String(durationMs));
+  },
+});
+
+export const startDemoTimer = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const now = Date.now();
+    const durationMs = demoTimerDuration(event);
+    const currentRemainingMs = currentDemoTimerRemaining(event, now);
+    const remainingMs =
+      event.demoTimerStatus === "paused" ? currentRemainingMs : durationMs;
+
+    await ctx.db.patch(event._id, {
+      showDemoTimerOnStage: true,
+      demoTimerStatus: "running",
+      demoTimerDurationMs: durationMs,
+      demoTimerRemainingMs: remainingMs,
+      demoTimerEndsAt: now + remainingMs,
+      updatedAt: now,
+    });
+    await logAction(ctx, event._id, "demo_timer_started", "admin", String(remainingMs));
+  },
+});
+
+export const pauseDemoTimer = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const now = Date.now();
+    const remainingMs = currentDemoTimerRemaining(event, now);
+
+    await ctx.db.patch(event._id, {
+      demoTimerStatus: "paused",
+      demoTimerRemainingMs: remainingMs,
+      demoTimerEndsAt: undefined,
+      updatedAt: now,
+    });
+    await logAction(ctx, event._id, "demo_timer_paused", "admin", String(remainingMs));
+  },
+});
+
+export const adjustDemoTimer = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    deltaMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const now = Date.now();
+    const isRunning = event.demoTimerStatus === "running";
+    const nextRemainingMs = currentDemoTimerRemaining(event, now) + args.deltaMs;
+    const remainingMs =
+      isRunning || event.demoTimerStatus === "paused"
+        ? clampSignedTimerMs(nextRemainingMs)
+        : clampTimerMs(nextRemainingMs);
+
+    await ctx.db.patch(event._id, {
+      demoTimerStatus: isRunning ? "running" : event.demoTimerStatus ?? "idle",
+      demoTimerRemainingMs: remainingMs,
+      demoTimerEndsAt: isRunning ? now + remainingMs : undefined,
+      updatedAt: now,
+    });
+    await logAction(ctx, event._id, "demo_timer_adjusted", "admin", String(args.deltaMs));
   },
 });
 
@@ -717,11 +927,13 @@ export const hideSubmission = mutation({
       throw new ConvexError("Submission not found");
     }
 
+    const now = Date.now();
     await ctx.db.patch(args.submissionId, {
       status: "hidden",
       queueOrder: undefined,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
+    await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_hidden", "admin", args.submissionId);
   },
 });
@@ -741,13 +953,15 @@ export const restoreSubmission = mutation({
       throw new ConvexError("Submission not found");
     }
 
+    const now = Date.now();
     // Restoring a hidden person returns them to the pool, not straight into the
     // lineup; the admin drags them into the running order if they want them.
     await ctx.db.patch(args.submissionId, {
       status: "candidate",
       queueOrder: undefined,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
+    await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_restored", "admin", args.submissionId);
   },
 });
@@ -782,6 +996,7 @@ export const reorderLineup = mutation({
       });
     }
 
+    await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_reordered", "admin");
   },
 });
@@ -824,6 +1039,7 @@ export const shuffleLineup = mutation({
       });
     }
 
+    await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_shuffled", "admin");
   },
 });
@@ -865,6 +1081,7 @@ export const setLineupOrder = mutation({
       }
     }
 
+    await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_ai_ordered", "admin");
   },
 });
@@ -885,11 +1102,13 @@ export const moveToPool = mutation({
       throw new ConvexError("Submission not found");
     }
 
+    const now = Date.now();
     await ctx.db.patch(args.submissionId, {
       status: "candidate",
       queueOrder: undefined,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
+    await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_to_pool", "admin", args.submissionId);
   },
 });
@@ -931,11 +1150,13 @@ export const markNoShow = mutation({
       return;
     }
 
+    const now = Date.now();
     await ctx.db.patch(current._id, {
       status: "no_show",
       queueOrder: undefined,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
+    await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_no_show", "admin", current._id);
   },
 });
@@ -963,13 +1184,76 @@ export const pickNext = mutation({
       return;
     }
 
+    const now = Date.now();
+    const demoDurationMs = demoTimerDuration(event);
+    const demoRemainingMs = currentDemoTimerRemaining(event, now);
+    const demoTimerStatus = event.demoTimerStatus ?? "idle";
+
     await ctx.db.patch(current._id, {
       status: "done",
       queueOrder: undefined,
-      updatedAt: Date.now(),
+      updatedAt: now,
+    });
+
+    await ctx.db.patch(event._id, {
+      lastAdvanceSnapshot: {
+        createdAt: now,
+        currentSubmissionId: current._id,
+        currentQueueOrder: current.queueOrder,
+        demoTimerStatus,
+        demoTimerDurationMs: demoDurationMs,
+        demoTimerRemainingMs: demoRemainingMs,
+      },
+      demoTimerStatus: "idle",
+      demoTimerDurationMs: demoDurationMs,
+      demoTimerRemainingMs: demoDurationMs,
+      demoTimerEndsAt: undefined,
+      updatedAt: now,
     });
 
     await logAction(ctx, event._id, "pick_next", "admin");
+  },
+});
+
+export const restorePreviousPresenter = mutation({
+  args: { slug: v.string(), adminToken: v.string() },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    const snapshot = event.lastAdvanceSnapshot;
+    if (!snapshot) {
+      return;
+    }
+
+    const submission = await ctx.db.get(snapshot.currentSubmissionId);
+    if (!submission || submission.eventId !== event._id) {
+      await ctx.db.patch(event._id, { lastAdvanceSnapshot: undefined, updatedAt: Date.now() });
+      return;
+    }
+
+    const now = Date.now();
+    const restoredStatus = snapshot.demoTimerStatus === "idle" ? "idle" : "paused";
+    const restoredRemainingMs =
+      restoredStatus === "idle"
+        ? snapshot.demoTimerDurationMs
+        : clampSignedTimerMs(snapshot.demoTimerRemainingMs);
+
+    await ctx.db.patch(snapshot.currentSubmissionId, {
+      status: "queued",
+      queueOrder: snapshot.currentQueueOrder ?? now,
+      updatedAt: now,
+    });
+
+    await ctx.db.patch(event._id, {
+      lastAdvanceSnapshot: undefined,
+      demoTimerStatus: restoredStatus,
+      demoTimerDurationMs: snapshot.demoTimerDurationMs,
+      demoTimerRemainingMs: restoredRemainingMs,
+      demoTimerEndsAt: undefined,
+      updatedAt: now,
+    });
+
+    await logAction(ctx, event._id, "previous_presenter_restored", "admin", snapshot.currentSubmissionId);
   },
 });
 
@@ -998,10 +1282,12 @@ export const skipCurrent = mutation({
       0,
     );
 
+    const now = Date.now();
     await ctx.db.patch(current._id, {
       queueOrder: lastQueueOrder + 1,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
+    await clearAdvanceSnapshot(ctx, event, now);
 
     await logAction(ctx, event._id, "current_skipped", "admin", current._id);
   },
@@ -1030,6 +1316,9 @@ export const clearQueue = mutation({
     await ctx.db.patch(event._id, {
       queuePublished: false,
       showMeetLinkOnStage: false,
+      showStageTimerOnStage: false,
+      showDemoTimerOnStage: false,
+      lastAdvanceSnapshot: undefined,
       updatedAt: Date.now(),
     });
     await logAction(ctx, event._id, "queue_cleared", "admin");

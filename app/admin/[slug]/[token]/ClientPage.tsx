@@ -874,18 +874,21 @@ export default function AdminPage() {
     itemsById,
   );
   const currentLineupItem = board.lineup[0] ? itemsById.get(board.lineup[0]) : null;
-  const activeTimerMode = queueIsLive && currentLineupItem ? "demo" : "queue";
-  const activeTimerView = activeTimerMode === "demo" ? demoTimerView : stageTimerView;
+  const activeTimerMode = !queueIsLive ? "queue" : currentLineupItem ? "demo" : "empty";
+  const timerIsDemoLike = activeTimerMode !== "queue";
+  const activeTimerView = timerIsDemoLike ? demoTimerView : stageTimerView;
   const activeTimerVisible =
     activeTimerMode === "demo"
       ? admin.event.showDemoTimerOnStage ?? false
-      : admin.event.showStageTimerOnStage ?? false;
+      : activeTimerMode === "queue"
+        ? admin.event.showStageTimerOnStage ?? false
+        : false;
   const activeTimerIsRunning = activeTimerView.status === "running";
   const timerAvailabilityMessage =
     activeTimerMode === "demo"
       ? "Start the timer when the presenter begins. Starting it also shows it on stage."
-      : queueIsLive
-        ? "Demo timer appears here after someone is in the lineup. Add a person to Lineup to make them the current presenter."
+      : activeTimerMode === "empty"
+        ? "No presenter is on stage yet."
         : "Demo timer appears here after the queue is live and someone is in the lineup.";
   const shouldStartDemoFromPrimary =
     activeTimerMode === "demo" && activeTimerVisible && demoTimerView.status === "idle";
@@ -1094,12 +1097,13 @@ export default function AdminPage() {
               <div className="stage-timer-admin-heading">
                 <span className="stage-timer-admin-title">
                   <Clock size={16} aria-hidden />
-                  {activeTimerMode === "demo" ? "Demo timer" : "Queue timer"}
+                  {timerIsDemoLike ? "Demo timer" : "Queue timer"}
                 </span>
                 <label className="stage-meet-toggle">
                   <input
                     type="checkbox"
                     checked={activeTimerVisible}
+                    disabled={activeTimerMode === "empty"}
                     onChange={(event) => toggleActiveTimerVisibility(event.currentTarget.checked)}
                   />
                   <span>Show on stage</span>
@@ -1172,7 +1176,7 @@ export default function AdminPage() {
                       </Button>
                     ) : null}
                   </div>
-                ) : (
+                ) : activeTimerMode === "demo" ? (
                   <div className="stage-timer-controls stage-timer-controls-icons" aria-label="Demo timer controls">
                     <Button
                       aria-label={activeTimerIsRunning ? "Pause timer" : "Start timer"}
@@ -1217,25 +1221,29 @@ export default function AdminPage() {
                       type="button"
                     >
                       <Undo2 size={16} aria-hidden />
-                    </Button>
+                      </Button>
+                    </div>
+                ) : (
+                  <div className="stage-timer-empty-state" aria-label="Demo timer unavailable">
+                    Move someone from All people to Lineup to enable presenter timer controls.
                   </div>
                 )}
                 <label className="stage-timer-duration">
-                  <span>{activeTimerMode === "demo" ? "Default minutes" : "Minutes"}</span>
+                  <span>{timerIsDemoLike ? "Default minutes" : "Minutes"}</span>
                   <input
                     aria-label="Timer length in minutes"
                     inputMode="numeric"
                     maxLength={2}
                     pattern="[0-9]*"
                     type="text"
-                    value={activeTimerMode === "demo" ? demoTimerMinutesInput : queueTimerMinutesInput}
+                    value={timerIsDemoLike ? demoTimerMinutesInput : queueTimerMinutesInput}
                     onBlur={() => {
-                      void (activeTimerMode === "demo"
+                      void (timerIsDemoLike
                         ? commitDemoTimerMinutesInput()
                         : commitQueueTimerMinutesInput());
                     }}
                     onChange={(event) =>
-                      activeTimerMode === "demo"
+                      timerIsDemoLike
                         ? updateDemoTimerMinutesInput(event.currentTarget.value)
                         : updateQueueTimerMinutesInput(event.currentTarget.value)
                     }

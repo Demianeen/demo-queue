@@ -1506,6 +1506,17 @@ h3 {
   align-items: center;
 }
 
+.stage-timer-empty-state {
+  background: rgba(255, 255, 255, 0.46);
+  border: 1px dashed rgba(91, 97, 112, 0.32);
+  border-radius: 8px;
+  color: var(--app-muted);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+  padding: 12px 14px;
+}
+
 .stage-timer-duration {
   align-items: center;
   color: var(--app-muted);

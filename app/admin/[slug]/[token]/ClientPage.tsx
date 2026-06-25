@@ -884,14 +884,23 @@ export default function AdminPage() {
         ? admin.event.showStageTimerOnStage ?? false
         : false;
   const activeTimerIsRunning = activeTimerView.status === "running";
+  const activeTimerIsPaused = activeTimerView.status === "paused";
   const timerAvailabilityMessage =
     activeTimerMode === "demo"
-      ? "Start the timer when the presenter begins. Starting it also shows it on stage."
+      ? activeTimerIsRunning
+        ? "Timer is on stage. Pause or adjust it if needed, then advance when this demo is done."
+        : activeTimerIsPaused
+          ? "Timer is paused. Resume when the presenter continues, or advance when this demo is done."
+          : "Start the timer when the presenter begins. Starting it also shows it on stage."
       : activeTimerMode === "empty"
         ? "No presenter is on stage yet."
         : "Demo timer appears here after the queue is live and someone is in the lineup.";
-  const shouldStartDemoFromPrimary =
-    activeTimerMode === "demo" && activeTimerVisible && demoTimerView.status === "idle";
+  const demoTimerControlLabel = activeTimerIsRunning
+    ? "Pause timer"
+    : activeTimerIsPaused
+      ? "Resume timer"
+      : "Start timer";
+  const shouldStartDemoFromPrimary = activeTimerMode === "demo" && demoTimerView.status === "idle";
 
   return (
     <main className="page">
@@ -1179,11 +1188,10 @@ export default function AdminPage() {
                 ) : activeTimerMode === "demo" ? (
                   <div className="stage-timer-controls stage-timer-controls-icons" aria-label="Demo timer controls">
                     <Button
-                      aria-label={activeTimerIsRunning ? "Pause timer" : "Start timer"}
-                      title={activeTimerIsRunning ? "Pause timer" : "Start timer"}
+                      aria-label={demoTimerControlLabel}
+                      title={demoTimerControlLabel}
                       variant={activeTimerIsRunning ? "outline" : "default"}
                       size="icon"
-                      disabled={!activeTimerVisible}
                       onClick={activeTimerIsRunning ? pauseCurrentDemoTimer : startCurrentDemoTimer}
                       type="button"
                     >
@@ -1194,7 +1202,6 @@ export default function AdminPage() {
                       title="Subtract 30 seconds"
                       variant="outline"
                       size="icon"
-                      disabled={!activeTimerVisible}
                       onClick={() => adjustCurrentDemoTimer(-30 * 1000)}
                       type="button"
                     >
@@ -1205,7 +1212,6 @@ export default function AdminPage() {
                       title="Add 30 seconds"
                       variant="outline"
                       size="icon"
-                      disabled={!activeTimerVisible}
                       onClick={() => adjustCurrentDemoTimer(30 * 1000)}
                       type="button"
                     >
@@ -1439,6 +1445,7 @@ function StagePreviewPanel({
       <div className="admin-stage-preview-viewport">
         <iframe
           className="admin-stage-preview-frame"
+          scrolling="no"
           src={previewUrl}
           tabIndex={-1}
           title={`${eventName} stage preview`}

@@ -1434,7 +1434,6 @@ function StagePreviewPanel({
   slug: string;
 }) {
   const url = stagePath(slug);
-  const previewUrl = `${url}?preview=admin`;
 
   return (
     <aside className="panel admin-stage-preview-panel">
@@ -1446,7 +1445,7 @@ function StagePreviewPanel({
         <iframe
           className="admin-stage-preview-frame"
           scrolling="no"
-          src={previewUrl}
+          src={url}
           tabIndex={-1}
           title={`${eventName} stage preview`}
         />

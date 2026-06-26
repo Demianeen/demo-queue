@@ -890,6 +890,8 @@ export default function AdminPage() {
     if (!confirmed) return;
     setEditingId(null);
     setIsAdding(false);
+    setQueueTimerOverride(null);
+    setDemoTimerOverride(null);
     await clearQueue({ slug: params.slug, adminToken: params.token });
   }
 

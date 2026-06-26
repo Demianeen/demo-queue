@@ -547,8 +547,10 @@ h3 {
 .stage-timer-strip {
   align-items: start;
   color: rgba(16, 19, 24, 0.84);
-  display: flex;
-  gap: 45px;
+  column-gap: clamp(18px, 5cqw, 36px);
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
   justify-self: stretch;
   min-width: 0;
   width: 100%;
@@ -559,7 +561,6 @@ h3 {
 }
 
 .stage-timer-strip-clock {
-  flex: none;
   min-width: 0;
 }
 
@@ -576,7 +577,7 @@ h3 {
 
 .stage-timer-strip-clock strong {
   display: block;
-  font-size: clamp(48px, 12vw, 76px);
+  font-size: clamp(42px, 16cqw, 70px);
   font-variant-numeric: tabular-nums;
   font-weight: 900;
   letter-spacing: 0;
@@ -587,14 +588,14 @@ h3 {
 
 .stage-timer-strip-count {
   color: var(--app-ink);
-  flex: none;
-  min-width: 72px;
+  justify-self: end;
+  min-width: 0;
   text-align: left;
 }
 
 .stage-timer-strip-count strong {
   display: block;
-  font-size: 56px;
+  font-size: clamp(42px, 13cqw, 56px);
   font-weight: 900;
   letter-spacing: 0;
   line-height: 0.95;
@@ -1037,7 +1038,7 @@ h3 {
   background: rgba(255, 255, 255, 0.54);
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 8px;
-  margin: 14px 18px 0;
+  margin: 14px 18px 18px;
   padding: 14px;
 }
 
@@ -1324,7 +1325,7 @@ h3 {
 }
 
 .admin-stage-preview-viewport {
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 4 / 3;
   background: #070811;
   border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: 8px;

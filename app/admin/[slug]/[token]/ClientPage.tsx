@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { stagePath } from "@/lib/routes";
+import { socialUrl } from "@/lib/social";
 import { randomToken } from "@/lib/tokens";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -217,6 +218,7 @@ export default function AdminPage() {
   const setLineupTarget = useMutation(api.events.setLineupTarget);
   const setStageMeetLinkVisible = useMutation(api.events.setStageMeetLinkVisible);
   const setStageTimerVisible = useMutation(api.events.setStageTimerVisible);
+  const setStageTimerDuration = useMutation(api.events.setStageTimerDuration);
   const startStageTimer = useMutation(api.events.startStageTimer);
   const pauseStageTimer = useMutation(api.events.pauseStageTimer);
   const resetStageTimer = useMutation(api.events.resetStageTimer);
@@ -273,7 +275,7 @@ export default function AdminPage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
-  const [testPeopleCount, setTestPeopleCount] = useState("10");
+  const [testPeopleCount, setTestPeopleCount] = useState("100");
   const [testPeopleOpen, setTestPeopleOpen] = useState(false);
   const [testPeopleBusy, setTestPeopleBusy] = useState(false);
   const [testPeopleMessage, setTestPeopleMessage] = useState("");
@@ -319,12 +321,14 @@ export default function AdminPage() {
   }, [admin, activeId]);
 
   const queueTimerDurationMs = admin?.event.stageTimer?.durationMs;
+  const queueTimerStatus = admin?.event.stageTimer?.status;
   useEffect(() => {
     if (queueTimerDurationMs === undefined) return;
     setQueueTimerMinutesInput(timerMsToInputMinutes(queueTimerDurationMs));
   }, [queueTimerDurationMs]);
 
   const demoTimerDurationMs = admin?.event.demoTimer?.durationMs;
+  const demoTimerStatus = admin?.event.demoTimer?.status;
   useEffect(() => {
     if (demoTimerDurationMs === undefined) return;
     setDemoTimerMinutesInput(timerMsToInputMinutes(demoTimerDurationMs));
@@ -350,6 +354,50 @@ export default function AdminPage() {
       setDemoTimerOverride(null);
     }
   }, [admin?.event.demoTimer, demoTimerOverride]);
+
+  useEffect(() => {
+    if (!queueTimerMinutesInput || queueTimerDurationMs === undefined || queueTimerStatus === "running") {
+      return;
+    }
+
+    const durationMs = timerInputToMs(queueTimerMinutesInput, queueTimerDurationMs);
+    if (durationMs === queueTimerDurationMs) return;
+
+    const timeoutId = window.setTimeout(() => {
+      void setStageTimerDuration({ slug: params.slug, adminToken: params.token, durationMs });
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    queueTimerMinutesInput,
+    queueTimerDurationMs,
+    queueTimerStatus,
+    params.slug,
+    params.token,
+    setStageTimerDuration,
+  ]);
+
+  useEffect(() => {
+    if (!demoTimerMinutesInput || demoTimerDurationMs === undefined || demoTimerStatus !== "idle") {
+      return;
+    }
+
+    const durationMs = timerInputToMs(demoTimerMinutesInput, demoTimerDurationMs);
+    if (durationMs === demoTimerDurationMs) return;
+
+    const timeoutId = window.setTimeout(() => {
+      void setDemoTimerDuration({ slug: params.slug, adminToken: params.token, durationMs });
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    demoTimerMinutesInput,
+    demoTimerDurationMs,
+    demoTimerStatus,
+    params.slug,
+    params.token,
+    setDemoTimerDuration,
+  ]);
 
   useEffect(() => {
     if (!liveMenuOpen) return;
@@ -600,19 +648,27 @@ export default function AdminPage() {
     });
   }
 
-  async function commitQueueTimerMinutesInput() {
-    if (queueTimerMinutesInput) return;
-    setQueueTimerMinutesInput(timerMsToInputMinutes(effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS));
+  async function commitQueueTimerMinutesInput(nextInput = queueTimerMinutesInput) {
+    if (!nextInput) {
+      setQueueTimerMinutesInput(timerMsToInputMinutes(effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS));
+      return;
+    }
+
+    const durationMs = timerInputToMs(
+      nextInput,
+      effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
+    );
+    await setStageTimerDuration({ slug: params.slug, adminToken: params.token, durationMs });
   }
 
-  async function commitDemoTimerMinutesInput() {
-    if (!demoTimerMinutesInput) {
+  async function commitDemoTimerMinutesInput(nextInput = demoTimerMinutesInput) {
+    if (!nextInput) {
       setDemoTimerMinutesInput(timerMsToInputMinutes(effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS));
       return;
     }
 
     const durationMs = timerInputToMs(
-      demoTimerMinutesInput,
+      nextInput,
       effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS,
     );
     await setDemoTimerDuration({ slug: params.slug, adminToken: params.token, durationMs });
@@ -834,6 +890,8 @@ export default function AdminPage() {
     if (!confirmed) return;
     setEditingId(null);
     setIsAdding(false);
+    setQueueTimerOverride(null);
+    setDemoTimerOverride(null);
     await clearQueue({ slug: params.slug, adminToken: params.token });
   }
 
@@ -891,7 +949,9 @@ export default function AdminPage() {
         ? "Timer is on stage. Pause or adjust it if needed, then advance when this demo is done."
         : activeTimerIsPaused
           ? "Timer is paused. Resume when the presenter continues, or advance when this demo is done."
-          : "Start the timer when the presenter begins. Starting it also shows it on stage."
+          : activeTimerVisible
+            ? "Start the timer when the presenter begins."
+            : "Turn on Show on stage to use the demo timer for this presenter."
       : activeTimerMode === "empty"
         ? "No presenter is on stage yet."
         : "Demo timer appears here after the queue is live and someone is in the lineup.";
@@ -900,7 +960,9 @@ export default function AdminPage() {
     : activeTimerIsPaused
       ? "Resume timer"
       : "Start timer";
-  const shouldStartDemoFromPrimary = activeTimerMode === "demo" && demoTimerView.status === "idle";
+  const shouldStartDemoFromPrimary =
+    activeTimerMode === "demo" && activeTimerVisible && demoTimerView.status === "idle";
+  const livePrimaryLabel = shouldStartDemoFromPrimary ? "Start timer" : "Advance";
 
   return (
     <main className="page">
@@ -932,7 +994,7 @@ export default function AdminPage() {
               {queueIsLive ? (
                 <div className="split-action" ref={liveMenuRef}>
                   <Button className="split-action-main" onClick={livePrimaryAction} type="button">
-                    {shouldStartDemoFromPrimary ? "Start timer" : "Advance"}
+                    {livePrimaryLabel}
                   </Button>
                   <Button
                     aria-expanded={liveMenuOpen}
@@ -1243,10 +1305,10 @@ export default function AdminPage() {
                     pattern="[0-9]*"
                     type="text"
                     value={timerIsDemoLike ? demoTimerMinutesInput : queueTimerMinutesInput}
-                    onBlur={() => {
+                    onBlur={(event) => {
                       void (timerIsDemoLike
-                        ? commitDemoTimerMinutesInput()
-                        : commitQueueTimerMinutesInput());
+                        ? commitDemoTimerMinutesInput(event.currentTarget.value)
+                        : commitQueueTimerMinutesInput(event.currentTarget.value));
                     }}
                     onChange={(event) =>
                       timerIsDemoLike
@@ -1699,7 +1761,14 @@ function RowActions({
           </summary>
           <div className="table-row-menu-content">
             {menuItems.map((action) => (
-              <button key={action.label} onClick={action.onSelect} type="button">
+              <button
+                key={action.label}
+                onClick={(event) => {
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                  action.onSelect();
+                }}
+                type="button"
+              >
                 {action.label}
               </button>
             ))}
@@ -1944,12 +2013,4 @@ function Contact({ item }: { item: AdminSubmission }) {
       ) : null}
     </div>
   );
-}
-
-function socialUrl(kind: "twitter" | "linkedin", value: string) {
-  if (/^https?:\/\//i.test(value)) return value;
-  const clean = value.trim().replace(/^@/, "").replace(/^\/+/, "");
-  if (kind === "twitter") return `https://x.com/${clean}`;
-  if (clean.startsWith("in/")) return `https://www.linkedin.com/${clean}`;
-  return `https://www.linkedin.com/in/${clean}`;
 }

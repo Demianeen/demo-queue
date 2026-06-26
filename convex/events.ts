@@ -674,6 +674,40 @@ export const setStageTimerVisible = mutation({
   },
 });
 
+export const setStageTimerDuration = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    durationMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    const now = Date.now();
+    const previousDurationMs = stageTimerDuration(event);
+    const previousRemainingMs = currentStageTimerRemaining(event, now);
+    const elapsedMs = previousDurationMs - previousRemainingMs;
+    const durationMs = clampTimerDurationMs(args.durationMs);
+    const patch: Partial<Doc<"events">> = {
+      stageTimerDurationMs: durationMs,
+      updatedAt: now,
+    };
+
+    if ((event.stageTimerStatus ?? "idle") === "running") {
+      const nextRemainingMs = clampSignedTimerMs(durationMs - elapsedMs);
+      patch.stageTimerRemainingMs = nextRemainingMs;
+      patch.stageTimerEndsAt = now + nextRemainingMs;
+    } else {
+      patch.stageTimerRemainingMs = durationMs;
+      patch.stageTimerEndsAt = undefined;
+    }
+
+    await ctx.db.patch(event._id, patch);
+    await logAction(ctx, event._id, "stage_timer_duration_set", "admin", String(durationMs));
+  },
+});
+
 export const startStageTimer = mutation({
   args: {
     slug: v.string(),
@@ -1318,7 +1352,16 @@ export const clearQueue = mutation({
       queuePublished: false,
       showMeetLinkOnStage: false,
       showStageTimerOnStage: false,
+      stageTimerStatus: "idle",
+      stageTimerDurationMs: DEFAULT_STAGE_TIMER_MS,
+      stageTimerRemainingMs: DEFAULT_STAGE_TIMER_MS,
+      stageTimerEndsAt: undefined,
       showDemoTimerOnStage: false,
+      demoTimerStatus: "idle",
+      demoTimerDurationMs: DEFAULT_DEMO_TIMER_MS,
+      demoTimerRemainingMs: DEFAULT_DEMO_TIMER_MS,
+      demoTimerEndsAt: undefined,
+      lineupTarget: undefined,
       lastAdvanceSnapshot: undefined,
       updatedAt: Date.now(),
     });

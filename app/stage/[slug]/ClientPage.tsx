@@ -107,10 +107,18 @@ export default function StagePage() {
     ? ` is-${demoTimer.status}${demoTimer.remainingMs < 0 ? " is-overtime" : ""}`
     : "";
   const waitingCount = stage?.waitingCount ?? stage?.remainingCount ?? 0;
-  const currentStageLabel = stage?.current ? "Now demoing" : isLive ? "Waiting for presenter" : "Now demoing";
-  const currentStageTitle = stage?.current?.name ?? (isLive ? "No one in the lineup" : "Queue opening soon");
+  const liveLineupIsComplete = isLive && !stage?.current && (stage?.remainingCount ?? 0) === 0;
+  const currentStageLabel = stage?.current
+    ? "Now demoing"
+    : liveLineupIsComplete
+      ? "Lineup complete"
+      : isLive
+        ? "Waiting for presenter"
+        : "Now demoing";
+  const currentStageTitle =
+    stage?.current?.name ?? (isLive ? (liveLineupIsComplete ? "End of the lineup" : "No one in the lineup") : "Queue opening soon");
   const currentStageSubtitle =
-    stage?.current?.demoTitle ?? (isLive ? "Add someone to the lineup from admin." : stage?.event.name);
+    stage?.current?.demoTitle ?? (isLive ? (liveLineupIsComplete ? "Thanks for watching." : "Waiting for the next demo.") : stage?.event.name);
 
   useEffect(() => {
     if (!isLive || allUpcoming.length === 0) {
@@ -290,8 +298,8 @@ export default function StagePage() {
                 </ol>
               ) : (
                 <div className="stage-lineup-empty">
-                  <h2>End of the lineup</h2>
-                  <p>This is the last demo.</p>
+                  <h2>{stage.current ? "End of the lineup" : "No more demos queued"}</h2>
+                  <p>{stage.current ? "This is the last demo." : "The live lineup is complete."}</p>
                 </div>
               )}
               {hiddenLineupCount > 0 ? (

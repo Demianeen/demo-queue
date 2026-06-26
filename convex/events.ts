@@ -156,6 +156,32 @@ function publicDemoTimer(event: Doc<"events">, now = Date.now()) {
   };
 }
 
+function resetDemoTimerForPresenterTransition(event: Doc<"events">): Partial<Doc<"events">> {
+  const durationMs = demoTimerDuration(event);
+  return {
+    demoTimerStatus: "idle",
+    demoTimerDurationMs: durationMs,
+    demoTimerRemainingMs: durationMs,
+    demoTimerEndsAt: undefined,
+  };
+}
+
+function advanceSnapshotForCurrentPresenter(
+  event: Doc<"events">,
+  current: Doc<"submissions">,
+  now: number,
+): NonNullable<Doc<"events">["lastAdvanceSnapshot"]> {
+  const demoDurationMs = demoTimerDuration(event);
+  return {
+    createdAt: now,
+    currentSubmissionId: current._id,
+    currentQueueOrder: current.queueOrder,
+    demoTimerStatus: event.demoTimerStatus ?? "idle",
+    demoTimerDurationMs: demoDurationMs,
+    demoTimerRemainingMs: currentDemoTimerRemaining(event, now),
+  };
+}
+
 async function logAction(
   ctx: { db: DatabaseWriter },
   eventId: Id<"events">,
@@ -1191,7 +1217,11 @@ export const markNoShow = mutation({
       queueOrder: undefined,
       updatedAt: now,
     });
-    await clearAdvanceSnapshot(ctx, event, now);
+    await ctx.db.patch(event._id, {
+      lastAdvanceSnapshot: undefined,
+      ...resetDemoTimerForPresenterTransition(event),
+      updatedAt: now,
+    });
     await logAction(ctx, event._id, "submission_no_show", "admin", current._id);
   },
 });
@@ -1220,9 +1250,7 @@ export const pickNext = mutation({
     }
 
     const now = Date.now();
-    const demoDurationMs = demoTimerDuration(event);
-    const demoRemainingMs = currentDemoTimerRemaining(event, now);
-    const demoTimerStatus = event.demoTimerStatus ?? "idle";
+    const lastAdvanceSnapshot = advanceSnapshotForCurrentPresenter(event, current, now);
 
     await ctx.db.patch(current._id, {
       status: "done",
@@ -1231,18 +1259,8 @@ export const pickNext = mutation({
     });
 
     await ctx.db.patch(event._id, {
-      lastAdvanceSnapshot: {
-        createdAt: now,
-        currentSubmissionId: current._id,
-        currentQueueOrder: current.queueOrder,
-        demoTimerStatus,
-        demoTimerDurationMs: demoDurationMs,
-        demoTimerRemainingMs: demoRemainingMs,
-      },
-      demoTimerStatus: "idle",
-      demoTimerDurationMs: demoDurationMs,
-      demoTimerRemainingMs: demoDurationMs,
-      demoTimerEndsAt: undefined,
+      lastAdvanceSnapshot,
+      ...resetDemoTimerForPresenterTransition(event),
       updatedAt: now,
     });
 
@@ -1322,7 +1340,11 @@ export const skipCurrent = mutation({
       queueOrder: lastQueueOrder + 1,
       updatedAt: now,
     });
-    await clearAdvanceSnapshot(ctx, event, now);
+    await ctx.db.patch(event._id, {
+      lastAdvanceSnapshot: undefined,
+      ...resetDemoTimerForPresenterTransition(event),
+      updatedAt: now,
+    });
 
     await logAction(ctx, event._id, "current_skipped", "admin", current._id);
   },

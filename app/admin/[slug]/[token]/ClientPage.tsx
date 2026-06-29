@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { makeSamplePerson } from "@/lib/sampleData";
 import { Skeleton } from "@/app/Skeleton";
@@ -1404,14 +1405,20 @@ export default function AdminPage() {
                     </p>
                   </div>
                   <div className="lineup-table-actions">
-                    <Button
-                      variant="outline"
-                      onClick={() => setIsAdding((adding) => !adding)}
-                      type="button"
-                    >
-                      <UserPlus size={16} aria-hidden />
-                      Add person
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger
+                        aria-label="Add person"
+                        className={cn(
+                          buttonVariants({ variant: "outline", size: "icon" }),
+                          "lineup-add-person-button",
+                        )}
+                        onClick={() => setIsAdding((adding) => !adding)}
+                        type="button"
+                      >
+                        <UserPlus size={16} aria-hidden />
+                      </TooltipTrigger>
+                      <TooltipContent>Add person</TooltipContent>
+                    </Tooltip>
                     <label className="target-field">
                       <span>{lineupCount} /</span>
                       <input

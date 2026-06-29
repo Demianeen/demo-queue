@@ -1052,6 +1052,17 @@ h3 {
   justify-content: flex-end;
 }
 
+.lineup-add-person-button {
+  color: var(--app-ink);
+}
+
+.lineup-add-person-button:hover,
+.lineup-add-person-button:focus-visible {
+  background: var(--app-ink);
+  border-color: var(--app-ink);
+  color: #ffffff;
+}
+
 .admin-inline-form {
   background: rgba(255, 255, 255, 0.54);
   border: 1px solid rgba(255, 255, 255, 0.72);

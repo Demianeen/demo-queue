@@ -3,6 +3,7 @@ import { GeistSans } from "geist/font/sans";
 import "./globals.css";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { PageBackground } from "./PageBackground";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const metadata: Metadata = {
   title: {
@@ -21,7 +22,9 @@ export default function RootLayout({
     <html lang="en" className={GeistSans.variable} suppressHydrationWarning>
       <body suppressHydrationWarning>
         <PageBackground />
-        <ConvexClientProvider>{children}</ConvexClientProvider>
+        <TooltipProvider>
+          <ConvexClientProvider>{children}</ConvexClientProvider>
+        </TooltipProvider>
       </body>
     </html>
   );

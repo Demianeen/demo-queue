@@ -17,6 +17,11 @@ const MAX_STAGE_TIMER_MS = 99 * 60 * 1000;
 const MIN_STAGE_TIMER_MS = 0;
 const MIN_OVERTIME_TIMER_MS = -MAX_STAGE_TIMER_MS;
 type PublicStageTimerStatus = "idle" | "running" | "paused";
+type StageScreenMode = "qr" | "demo";
+
+function stageScreenMode(event: Doc<"events">): StageScreenMode {
+  return event.stageScreenMode ?? (event.queuePublished ? "demo" : "qr");
+}
 
 const publicSubmissionFields = (submission: Doc<"submissions">) => ({
   id: submission._id,
@@ -227,6 +232,8 @@ export const createEvent = mutation({
       meetUrl: args.meetUrl.trim(),
       adminToken: args.adminToken,
       queuePublished: false,
+      stageScreenMode: "qr",
+      showSubmissionCountOnStage: false,
       showMeetLinkOnStage: false,
       showStageTimerOnStage: false,
       showDemoTimerOnStage: false,
@@ -321,6 +328,8 @@ export const getStage = query({
         name: event.name,
         slug: event.slug,
         queuePublished: event.queuePublished,
+        stageScreenMode: stageScreenMode(event),
+        showSubmissionCountOnStage: event.showSubmissionCountOnStage ?? false,
         showMeetLinkOnStage,
         showStageTimerOnStage: event.showStageTimerOnStage ?? false,
         showDemoTimerOnStage: event.showDemoTimerOnStage ?? false,
@@ -355,6 +364,8 @@ export const getAdmin = query({
         slug: event.slug,
         meetUrl: event.meetUrl,
         queuePublished: event.queuePublished,
+        stageScreenMode: stageScreenMode(event),
+        showSubmissionCountOnStage: event.showSubmissionCountOnStage ?? false,
         showMeetLinkOnStage: event.showMeetLinkOnStage ?? false,
         showStageTimerOnStage: event.showStageTimerOnStage ?? false,
         showDemoTimerOnStage: event.showDemoTimerOnStage ?? false,
@@ -619,8 +630,53 @@ export const publishQueue = mutation({
     const event = await eventBySlug(ctx, args.slug);
     requireAdmin(event, args.adminToken);
 
-    await ctx.db.patch(event._id, { queuePublished: true, updatedAt: Date.now() });
+    await ctx.db.patch(event._id, {
+      queuePublished: true,
+      stageScreenMode: event.stageScreenMode ?? "demo",
+      updatedAt: Date.now(),
+    });
     await logAction(ctx, event._id, "queue_published", "admin");
+  },
+});
+
+export const setStageScreenMode = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    mode: v.union(v.literal("qr"), v.literal("demo")),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    await ctx.db.patch(event._id, {
+      stageScreenMode: args.mode,
+      updatedAt: Date.now(),
+    });
+    await logAction(ctx, event._id, `stage_screen_${args.mode}`, "admin");
+  },
+});
+
+export const setSubmissionCountVisible = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    visible: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+
+    await ctx.db.patch(event._id, {
+      showSubmissionCountOnStage: args.visible,
+      updatedAt: Date.now(),
+    });
+    await logAction(
+      ctx,
+      event._id,
+      args.visible ? "stage_submission_count_visible" : "stage_submission_count_hidden",
+      "admin",
+    );
   },
 });
 
@@ -1350,6 +1406,8 @@ export const clearQueue = mutation({
 
     await ctx.db.patch(event._id, {
       queuePublished: false,
+      stageScreenMode: "qr",
+      showSubmissionCountOnStage: false,
       showMeetLinkOnStage: false,
       showStageTimerOnStage: false,
       stageTimerStatus: "idle",

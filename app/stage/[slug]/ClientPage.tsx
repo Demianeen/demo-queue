@@ -98,8 +98,10 @@ export default function StagePage() {
   const queueTimer = useStageTimer(stage?.stageTimer);
   const demoTimer = useStageTimer(stage?.demoTimer);
   const showQueueTimer = stage?.event.showStageTimerOnStage ?? false;
+  const showQrStage = (stage?.event.stageScreenMode ?? (isLive ? "demo" : "qr")) === "qr";
+  const showSubmissionCount = stage?.event.showSubmissionCountOnStage ?? false;
   const showDemoTimer =
-    isLive && Boolean(stage?.current) && (stage?.event.showDemoTimerOnStage ?? false);
+    !showQrStage && isLive && Boolean(stage?.current) && (stage?.event.showDemoTimerOnStage ?? false);
   const queueTimerStateClass = showQueueTimer
     ? ` is-${queueTimer.status}${queueTimer.remainingMs < 0 ? " is-overtime" : ""}`
     : "";
@@ -276,7 +278,7 @@ export default function StagePage() {
         </div>
 
         <aside className="stage-side">
-          {isLive ? (
+          {!showQrStage ? (
             <div className="stage-lineup-stack" key={lineupIds} ref={lineupStackRef}>
               <div className="stage-lineup-header">
                 <p className="stage-label">Coming up</p>
@@ -331,16 +333,23 @@ export default function StagePage() {
                   <h3 style={{ marginTop: 14 }}>Scan to demo</h3>
                 </div>
               </div>
-              {showQueueTimer ? (
-                <div className={`stage-timer-strip${queueTimerStateClass}`} aria-live="polite">
-                  <div className="stage-timer-strip-clock">
-                    <span>{queueTimer.label}</span>
-                    <strong>{queueTimer.display}</strong>
-                  </div>
-                  <div className="stage-timer-strip-count">
-                    <span>In queue</span>
-                    <strong>{waitingCount}</strong>
-                  </div>
+              {showQueueTimer || showSubmissionCount ? (
+                <div
+                  className={`stage-timer-strip${queueTimerStateClass}${!showQueueTimer ? " is-count-only" : ""}`}
+                  aria-live="polite"
+                >
+                  {showQueueTimer ? (
+                    <div className="stage-timer-strip-clock">
+                      <span>{queueTimer.label}</span>
+                      <strong>{queueTimer.display}</strong>
+                    </div>
+                  ) : null}
+                  {showSubmissionCount ? (
+                    <div className="stage-timer-strip-count">
+                      <span>In queue</span>
+                      <strong>{waitingCount}</strong>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>

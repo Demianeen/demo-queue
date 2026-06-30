@@ -1933,7 +1933,7 @@ h3 {
 }
 
 .ai-shuffle-row {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -1941,18 +1941,20 @@ h3 {
   max-width: 720px;
 }
 
-.ai-shuffle-row input {
+.ai-shuffle-row textarea {
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 999px;
+  border-radius: 18px;
   color: var(--app-ink);
   flex: 1 1 240px;
-  min-height: 42px;
+  line-height: 1.35;
+  min-height: 96px;
   min-width: 0;
-  padding: 0 16px;
+  padding: 12px 14px;
+  resize: vertical;
 }
 
-.ai-shuffle-row input:focus {
+.ai-shuffle-row textarea:focus {
   border-color: var(--cx-indigo);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
   outline: none;

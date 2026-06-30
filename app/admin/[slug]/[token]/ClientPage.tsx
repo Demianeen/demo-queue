@@ -111,7 +111,7 @@ const MIN_STAGE_TIMER_DURATION_MS = 60 * 1000;
 const MAX_STAGE_TIMER_MS = 99 * 60 * 1000;
 const MIN_OVERTIME_TIMER_MS = -MAX_STAGE_TIMER_MS;
 const DEFAULT_AI_SHUFFLE_PROMPT =
-  "Balance demo categories and avoid back-to-back similar topics; favor first-time demoers.";
+  "Prioritize the coolest, most compelling demos; balance demo categories and avoid back-to-back similar topics.";
 
 function formatTimerMs(ms: number) {
   const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
@@ -290,7 +290,7 @@ export default function AdminPage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
-  const aiPromptInputRef = useRef<HTMLInputElement | null>(null);
+  const aiPromptInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [testPeopleCount, setTestPeopleCount] = useState("100");
   const [testPeopleOpen, setTestPeopleOpen] = useState(false);
   const [testPeopleBusy, setTestPeopleBusy] = useState(false);
@@ -1053,14 +1053,15 @@ export default function AdminPage() {
 
               {!queueIsLive && aiOpen ? (
                 <div className="ai-shuffle-row">
-                <input
+                <textarea
                   ref={aiPromptInputRef}
                   value={aiPrompt}
                   onChange={(event) => setAiPrompt(event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") runAiShuffle();
+                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) runAiShuffle();
                   }}
-                  placeholder="Prioritize first-time founders, avoid back-to-back same category"
+                  placeholder={DEFAULT_AI_SHUFFLE_PROMPT}
+                  rows={3}
                 />
                 <Button variant="outline" onClick={runAiShuffle} disabled={aiBusy} type="button">
                   {aiBusy ? "Thinking..." : "Run"}

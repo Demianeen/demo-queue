@@ -905,6 +905,7 @@ export default function AdminPage() {
 
   const activeItem = activeId ? itemsById.get(activeId) : null;
   const lineupCount = board.lineup.length;
+  const demoerCountLabel = `${lineupCount} demoer${lineupCount === 1 ? "" : "s"}`;
   const hiddenSubmissions = admin.hidden ?? [];
   const inactiveSubmissions = [
     ...(admin.completed ?? []),
@@ -971,7 +972,7 @@ export default function AdminPage() {
               <span className={queueIsLive ? "pill green" : "pill yellow"}>
                 {queueIsLive ? "Queue is live" : "Not live yet"}
               </span>
-              <span className="pill">{lineupCount} in lineup</span>
+              <span className="pill">{demoerCountLabel}</span>
               <span className="pill">{board.pool.length} in pool</span>
               <span className="pill">{hiddenSubmissions.length} hidden</span>
             </div>
@@ -992,7 +993,7 @@ export default function AdminPage() {
                     <DropdownMenuContent align="start" className="split-action-menu" sideOffset={8}>
                       <DropdownMenuItem className="split-action-item" onClick={skip}>
                         <span>Skip for now</span>
-                        <small>Move current presenter to the bottom of the lineup.</small>
+                            <small>Move current presenter to the bottom of Demoers.</small>
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="split-action-item"
@@ -1016,7 +1017,7 @@ export default function AdminPage() {
               )}
               {!queueIsLive ? (
                 <Button variant="outline" onClick={shuffle} type="button">
-                  Shuffle lineup
+                  Shuffle demoers
                 </Button>
               ) : null}
               {!queueIsLive ? (
@@ -1076,7 +1077,7 @@ export default function AdminPage() {
                   <form className="admin-modal" onSubmit={addTestPeople}>
                     <div className="admin-modal-heading">
                       <h2 id="test-people-title">Add test people</h2>
-                      <p>Add generated people to All people. Move any of them into Lineup to test presenter flow.</p>
+                      <p>Add generated people to All people. Move any of them into Demoers to test presenter flow.</p>
                     </div>
                     <label className="admin-modal-field">
                       <span>People to add</span>
@@ -1094,7 +1095,7 @@ export default function AdminPage() {
                         }}
                       />
                     </label>
-                    <p className="admin-modal-help">Maximum 1000. They start in All people, not Lineup.</p>
+                    <p className="admin-modal-help">Maximum 1000. They start in All people, not Demoers.</p>
                     {testPeopleMessage ? (
                       <p className="admin-modal-error">{testPeopleMessage}</p>
                     ) : null}
@@ -1133,7 +1134,7 @@ export default function AdminPage() {
               </div>
               <input id="meetUrl" readOnly value={admin.event.meetUrl} />
               <span className="muted" style={{ fontSize: 12 }}>
-                Published lineup participants see it on their status pages. Stage visibility is off
+                Published demoers see it on their status pages. Stage visibility is off
                 unless you enable it after publishing.
               </span>
             </div>
@@ -1283,7 +1284,7 @@ export default function AdminPage() {
                     </div>
                 ) : (
                   <div className="stage-timer-empty-state" aria-label="Demo timer unavailable">
-                    Move someone from All people to Lineup to enable presenter timer controls.
+                    Move someone from All people to Demoers to enable presenter timer controls.
                   </div>
                 )}
                 <label className="stage-timer-duration">
@@ -1352,7 +1353,7 @@ export default function AdminPage() {
                 role="tab"
                 type="button"
               >
-                <span>Lineup</span>
+                <span>Demoers</span>
                 <span className="admin-tab-count">{lineupCount}</span>
               </button>
             </div>
@@ -1399,7 +1400,7 @@ export default function AdminPage() {
               <>
                 <div className="lineup-toolbar">
                   <div>
-                    <h2 style={{ margin: 0 }}>Lineup</h2>
+                    <h2 style={{ margin: 0 }}>Demoers</h2>
                     <p className="muted" style={{ margin: "4px 0 0" }}>
                       Drag rows to set the live running order.
                     </p>
@@ -1435,9 +1436,9 @@ export default function AdminPage() {
 
                 {isAdding ? (
                   <div className="admin-inline-form">
-                    <p className="queue-title">Add a person to the lineup</p>
+                    <p className="queue-title">Add a demoer</p>
                     <SubmissionForm
-                      submitLabel="Add to lineup"
+                      submitLabel="Add to demoers"
                       onSave={saveNew}
                       onCancel={() => setIsAdding(false)}
                     />
@@ -1458,7 +1459,7 @@ export default function AdminPage() {
                       </tr>
                     </thead>
                     <SortableContext items={board.lineup} strategy={verticalListSortingStrategy}>
-                      <DroppableTableBody id="lineup" emptyMessage="Use All people to add someone to the lineup.">
+                      <DroppableTableBody id="lineup" emptyMessage="Use All people to add someone to Demoers.">
                         {board.lineup.map((id, index) => {
                           const item = itemsById.get(id);
                           if (!item) return null;
@@ -1693,7 +1694,7 @@ function LineupRow({
         <RowActions
           menuLabel={`More actions for ${item.name}`}
           menuItems={[
-            { label: "Move to all", onSelect: onMoveToPool },
+            { label: "Remove from demoers", onSelect: onMoveToPool },
             { label: "Edit", onSelect: onEdit },
             { label: "Hide", onSelect: onHide },
           ]}
@@ -1770,9 +1771,9 @@ function AllPeopleRow({
                 ]
               : [
                   item.rosterStatus === "pool"
-                    ? { label: "Add to lineup", onSelect: onAddToLineup }
+                    ? { label: "Add to demoers", onSelect: onAddToLineup }
                     : item.rosterStatus === "lineup"
-                      ? { label: "Move to all", onSelect: onMoveToPool }
+                      ? { label: "Remove from demoers", onSelect: onMoveToPool }
                       : { label: "Restore", onSelect: onRestore },
                   { label: "Edit", onSelect: onEdit },
                   { label: "Hide", onSelect: onHide },

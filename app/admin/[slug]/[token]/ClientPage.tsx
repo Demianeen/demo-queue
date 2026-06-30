@@ -1,6 +1,6 @@
 "use client";
 
-import React, { FormEvent, useEffect, useId, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
@@ -110,6 +110,8 @@ const MIN_STAGE_TIMER_MS = 0;
 const MIN_STAGE_TIMER_DURATION_MS = 60 * 1000;
 const MAX_STAGE_TIMER_MS = 99 * 60 * 1000;
 const MIN_OVERTIME_TIMER_MS = -MAX_STAGE_TIMER_MS;
+const DEFAULT_AI_SHUFFLE_PROMPT =
+  "Balance demo categories and avoid back-to-back similar topics; favor first-time demoers.";
 
 function formatTimerMs(ms: number) {
   const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
@@ -284,10 +286,11 @@ export default function AdminPage() {
 
   const [editingId, setEditingId] = useState<Id<"submissions"> | null>(null);
   const [isAdding, setIsAdding] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiPrompt, setAiPrompt] = useState(DEFAULT_AI_SHUFFLE_PROMPT);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
+  const aiPromptInputRef = useRef<HTMLInputElement | null>(null);
   const [testPeopleCount, setTestPeopleCount] = useState("100");
   const [testPeopleOpen, setTestPeopleOpen] = useState(false);
   const [testPeopleBusy, setTestPeopleBusy] = useState(false);
@@ -365,6 +368,14 @@ export default function AdminPage() {
       setDemoTimerOverride(null);
     }
   }, [admin?.event.demoTimer, demoTimerOverride]);
+
+  useEffect(() => {
+    if (!aiOpen) return;
+    const input = aiPromptInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [aiOpen]);
 
   useEffect(() => {
     if (!queueTimerMinutesInput || queueTimerDurationMs === undefined || queueTimerStatus === "running") {
@@ -529,9 +540,7 @@ export default function AdminPage() {
       await aiShuffle({
         slug: params.slug,
         adminToken: params.token,
-        prompt:
-          aiPrompt.trim() ||
-          "Balance demo categories and avoid back-to-back similar topics; favor first-time demoers.",
+        prompt: aiPrompt.trim() || DEFAULT_AI_SHUFFLE_PROMPT,
       });
       setAiOpen(false);
     } catch {
@@ -1045,6 +1054,7 @@ export default function AdminPage() {
               {!queueIsLive && aiOpen ? (
                 <div className="ai-shuffle-row">
                 <input
+                  ref={aiPromptInputRef}
                   value={aiPrompt}
                   onChange={(event) => setAiPrompt(event.target.value)}
                   onKeyDown={(event) => {

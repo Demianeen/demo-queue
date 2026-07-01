@@ -15,8 +15,8 @@ import {
 import { Brand } from "@/app/Brand";
 
 const statusLabels: Record<string, string> = {
-  candidate: "Submitted, waiting to be added to the lineup",
-  queued: "You are in the lineup",
+  candidate: "Submitted, waiting to be added as a demoer",
+  queued: "You are listed as a demoer",
   hidden: "Hidden by event team",
   up_next: "You are up next",
   current: "You are presenting now",
@@ -147,7 +147,7 @@ export default function ParticipantStatusPage() {
           </a>
         ) : (
           <div className="copy-line">
-            The Meet link appears here once you&apos;re in the live lineup.
+            The Meet link appears here once you&apos;re listed as a live demoer.
           </div>
         )}
 

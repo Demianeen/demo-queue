@@ -8,6 +8,8 @@ export default defineSchema({
     meetUrl: v.string(),
     adminToken: v.string(),
     queuePublished: v.boolean(),
+    stageScreenMode: v.optional(v.union(v.literal("qr"), v.literal("demo"))),
+    showSubmissionCountOnStage: v.optional(v.boolean()),
     showMeetLinkOnStage: v.optional(v.boolean()),
     lineupTarget: v.optional(v.number()),
     showStageTimerOnStage: v.optional(v.boolean()),

@@ -112,7 +112,7 @@ export default function SubmissionPage() {
         <h1>Submit your demo.</h1>
         <p className="lead">
           You will get a private status link after submitting. The Meet link appears there once you
-          are in the published lineup.
+          are listed as a demoer.
         </p>
 
         <form className="form" onSubmit={onSubmit} style={{ marginTop: 24 }}>

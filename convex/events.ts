@@ -632,7 +632,7 @@ export const publishQueue = mutation({
 
     await ctx.db.patch(event._id, {
       queuePublished: true,
-      stageScreenMode: event.stageScreenMode ?? "demo",
+      stageScreenMode: "demo",
       updatedAt: Date.now(),
     });
     await logAction(ctx, event._id, "queue_published", "admin");

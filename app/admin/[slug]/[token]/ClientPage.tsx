@@ -446,7 +446,7 @@ export default function AdminPage() {
     );
   }
 
-  const queueIsLive = admin.event.queuePublished;
+  const queueIsPublished = admin.event.queuePublished;
   const lineupTarget = admin.event.lineupTarget;
 
   function columnOf(id: Id<"submissions"> | ColumnId): ColumnId | null {
@@ -927,7 +927,8 @@ export default function AdminPage() {
     itemsById,
   );
   const currentLineupItem = board.lineup[0] ? itemsById.get(board.lineup[0]) : null;
-  const stageMode = admin.event.stageScreenMode ?? (queueIsLive ? "demo" : "qr");
+  const stageMode = admin.event.stageScreenMode ?? (queueIsPublished ? "demo" : "qr");
+  const queueIsLive = queueIsPublished && stageMode === "demo";
   const activeTimerMode = stageMode === "qr" ? "queue" : currentLineupItem ? "demo" : "empty";
   const timerIsDemoLike = activeTimerMode !== "queue";
   const activeTimerView = timerIsDemoLike ? demoTimerView : stageTimerView;
@@ -987,7 +988,7 @@ export default function AdminPage() {
             </div>
 
             <div className="actions" style={{ marginBottom: 14 }}>
-              {queueIsLive && stageMode === "demo" ? (
+              {queueIsLive ? (
                 <div className="split-action">
                   <Button className="split-action-main" onClick={livePrimaryAction} type="button">
                     {livePrimaryLabel}
@@ -1015,10 +1016,6 @@ export default function AdminPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-              ) : queueIsLive ? (
-                <Button onClick={() => setStageScreenMode({ slug: params.slug, adminToken: params.token, mode: "demo" })} type="button">
-                  Show demo stage
-                </Button>
               ) : (
                 <Button onClick={publish} type="button">
                   Make queue live

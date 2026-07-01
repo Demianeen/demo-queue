@@ -104,6 +104,13 @@ type StageTimer = {
   serverNow: number;
 };
 
+type AdminStageModeState = {
+  activeTimerMode: "queue" | "demo" | "empty";
+  queueIsLive: boolean;
+  stageMode: "qr" | "demo";
+  timerIsDemoLike: boolean;
+};
+
 const DEFAULT_STAGE_TIMER_MS = 5 * 60 * 1000;
 const DEFAULT_DEMO_TIMER_MS = 2 * 60 * 1000;
 const MIN_STAGE_TIMER_MS = 0;
@@ -160,6 +167,27 @@ function timersMatchForOptimisticClear(serverTimer: StageTimer, optimisticTimer:
   }
 
   return Math.abs(serverTimer.remainingMs - optimisticTimer.remainingMs) < 5_000;
+}
+
+function adminStageModeState({
+  hasCurrentPresenter,
+  queueIsPublished,
+  stageScreenMode,
+}: {
+  hasCurrentPresenter: boolean;
+  queueIsPublished: boolean;
+  stageScreenMode?: "qr" | "demo";
+}): AdminStageModeState {
+  const stageMode = stageScreenMode ?? (queueIsPublished ? "demo" : "qr");
+  const queueIsLive = queueIsPublished && stageMode === "demo";
+  const activeTimerMode = stageMode === "qr" ? "queue" : hasCurrentPresenter ? "demo" : "empty";
+
+  return {
+    activeTimerMode,
+    queueIsLive,
+    stageMode,
+    timerIsDemoLike: activeTimerMode !== "queue",
+  };
 }
 
 function useTimerView(timer: StageTimer | undefined) {
@@ -446,7 +474,7 @@ export default function AdminPage() {
     );
   }
 
-  const queueIsLive = admin.event.queuePublished;
+  const queueIsPublished = admin.event.queuePublished;
   const lineupTarget = admin.event.lineupTarget;
 
   function columnOf(id: Id<"submissions"> | ColumnId): ColumnId | null {
@@ -927,9 +955,11 @@ export default function AdminPage() {
     itemsById,
   );
   const currentLineupItem = board.lineup[0] ? itemsById.get(board.lineup[0]) : null;
-  const stageMode = admin.event.stageScreenMode ?? (queueIsLive ? "demo" : "qr");
-  const activeTimerMode = stageMode === "qr" ? "queue" : currentLineupItem ? "demo" : "empty";
-  const timerIsDemoLike = activeTimerMode !== "queue";
+  const { activeTimerMode, queueIsLive, stageMode, timerIsDemoLike } = adminStageModeState({
+    hasCurrentPresenter: Boolean(currentLineupItem),
+    queueIsPublished,
+    stageScreenMode: admin.event.stageScreenMode,
+  });
   const activeTimerView = timerIsDemoLike ? demoTimerView : stageTimerView;
   const activeTimerVisible =
     activeTimerMode === "demo"
@@ -987,7 +1017,7 @@ export default function AdminPage() {
             </div>
 
             <div className="actions" style={{ marginBottom: 14 }}>
-              {queueIsLive && stageMode === "demo" ? (
+              {queueIsLive ? (
                 <div className="split-action">
                   <Button className="split-action-main" onClick={livePrimaryAction} type="button">
                     {livePrimaryLabel}
@@ -1015,10 +1045,6 @@ export default function AdminPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-              ) : queueIsLive ? (
-                <Button onClick={() => setStageScreenMode({ slug: params.slug, adminToken: params.token, mode: "demo" })} type="button">
-                  Show demo stage
-                </Button>
               ) : (
                 <Button onClick={publish} type="button">
                   Make queue live

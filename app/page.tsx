@@ -74,8 +74,8 @@ export default function HomePage() {
         <Brand label="Demo Queue" />
         <h1>Run a fair demo queue without exposing private details.</h1>
         <p className="lead">
-          Create an event, share the QR code on the stage screen, and control the live queue from a
-          private admin link.
+          Create an event, share the QR code in the presentation view, and control the live queue
+          from a private admin link.
         </p>
 
         <form className="form" onSubmit={onSubmit} style={{ marginTop: 22 }}>
@@ -123,7 +123,7 @@ export default function HomePage() {
                   </button>
                 </div>
                 <EventLink label="Admin" href={absoluteUrl(adminPath(event.slug, event.adminToken))} />
-                <EventLink label="Stage" href={absoluteUrl(stagePath(event.slug))} />
+                <EventLink label="Presentation view" href={absoluteUrl(stagePath(event.slug))} />
                 <EventLink label="Submission form" href={absoluteUrl(submissionPath(event.slug))} />
               </div>
             ))}

@@ -11,7 +11,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const title = await eventTitle(slug);
 
   return {
-    title: title ? `Stage - ${title}` : "Stage",
+    title: title ? `Presentation - ${title}` : "Presentation",
   };
 }
 

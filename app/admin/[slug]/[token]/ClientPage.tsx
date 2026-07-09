@@ -972,15 +972,15 @@ export default function AdminPage() {
   const timerAvailabilityMessage =
     activeTimerMode === "demo"
       ? activeTimerIsRunning
-        ? "Timer is on stage. Pause or adjust it if needed, then advance when this demo is done."
+        ? "Timer is showing in the presentation view. Pause or adjust it if needed, then advance when this demo is done."
         : activeTimerIsPaused
           ? "Timer is paused. Resume when the presenter continues, or advance when this demo is done."
           : activeTimerVisible
             ? "Start the timer when the presenter begins."
-            : "Turn on Show on stage to use the demo timer for this presenter."
+            : "Turn on Show in presentation view to use the demo timer for this presenter."
       : activeTimerMode === "empty"
         ? "No presenter is on stage yet."
-        : "Queue timer and submission count controls apply to the QR stage.";
+        : "Queue timer and submission count controls apply to submissions mode.";
   const demoTimerControlLabel = activeTimerIsRunning
     ? "Pause timer"
     : activeTimerIsPaused
@@ -1166,13 +1166,13 @@ export default function AdminPage() {
                     disabled={!queueIsLive}
                     onChange={(event) => toggleStageMeetLink(event.currentTarget.checked)}
                   />
-                  <span>Show on stage</span>
+                  <span>Show in presentation view</span>
                 </label>
               </div>
               <input id="meetUrl" readOnly value={admin.event.meetUrl} />
               <span className="muted" style={{ fontSize: 12 }}>
-                Published demoers see it on their status pages. Stage visibility is off
-                unless you enable it after publishing.
+                Published demoers see it on their status pages. It stays hidden in the
+                presentation view unless you enable it after publishing.
               </span>
             </div>
 
@@ -1180,7 +1180,7 @@ export default function AdminPage() {
               <div className="stage-timer-admin-heading">
                 <span className="stage-timer-admin-title">
                   <Clock size={16} aria-hidden />
-                  {timerIsDemoLike ? "Demo stage" : "QR stage"}
+                  {timerIsDemoLike ? "Demo mode" : "Submissions mode"}
                 </span>
                 <label className="stage-meet-toggle">
                   <input
@@ -1189,7 +1189,7 @@ export default function AdminPage() {
                     disabled={activeTimerMode === "empty"}
                     onChange={(event) => toggleActiveTimerVisibility(event.currentTarget.checked)}
                   />
-                  <span>Show on stage</span>
+                  <span>Show in presentation view</span>
                 </label>
               </div>
               <div className="stage-timer-admin-body">
@@ -1561,23 +1561,23 @@ function StagePreviewPanel({
   return (
     <aside className="panel admin-stage-preview-panel">
       <div className="admin-stage-preview-heading">
-        <span className="muted">Stage preview</span>
+        <span className="muted">Presentation preview</span>
         <span className={isLive ? "pill green" : "pill yellow"}>{isLive ? "Live" : "Draft"}</span>
       </div>
-      <div className="admin-stage-controls" aria-label="Stage display mode">
+      <div className="admin-stage-controls" aria-label="Presentation view mode">
         <button
           className={stageMode === "qr" ? "admin-stage-mode is-active" : "admin-stage-mode"}
           onClick={() => onStageModeChange("qr")}
           type="button"
         >
-          QR stage
+          Submissions mode
         </button>
         <button
           className={stageMode === "demo" ? "admin-stage-mode is-active" : "admin-stage-mode"}
           onClick={() => onStageModeChange("demo")}
           type="button"
         >
-          Demo stage
+          Demo mode
         </button>
       </div>
       <div className="admin-stage-preview-viewport">
@@ -1586,7 +1586,7 @@ function StagePreviewPanel({
           scrolling="no"
           src={url}
           tabIndex={-1}
-          title={`${eventName} stage preview`}
+          title={`${eventName} presentation preview`}
         />
       </div>
       <label className="stage-meet-toggle admin-stage-count-toggle">
@@ -1622,7 +1622,7 @@ function StagePreviewPanel({
         rel="noreferrer"
         target="_blank"
       >
-        Open stage
+        Open presentation view
       </a>
     </aside>
   );

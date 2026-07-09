@@ -544,72 +544,86 @@ h3 {
   width: 100%;
 }
 
-.stage-timer-strip {
-  align-items: start;
+.stage-qr-main {
+  /* clears the absolutely positioned .stage-mark in the top-left corner */
+  align-content: space-between;
+  padding-top: 46px;
+}
+
+.stage-qr-main.is-centered {
+  align-content: center;
+  padding-top: 0;
+}
+
+.stage-queue-timer {
   color: rgba(16, 19, 24, 0.84);
-  column-gap: clamp(18px, 5cqw, 36px);
-  container-type: inline-size;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  justify-self: stretch;
-  min-width: 0;
-  width: 100%;
 }
 
-.stage-timer-strip.is-count-only {
-  grid-template-columns: max-content;
-  justify-content: center;
-}
-
-.stage-timer-strip.is-overtime {
-  color: #9f1f17;
-}
-
-.stage-timer-strip-clock {
-  min-width: 0;
-}
-
-.stage-timer-strip-clock span,
-.stage-timer-strip-count span {
+.stage-queue-timer span {
   display: block;
-  font-size: 12px;
+  font-size: clamp(18px, 1.3vw, 28px);
   font-weight: 850;
   letter-spacing: 0;
   line-height: 1;
-  opacity: 0.62;
+  opacity: 0.68;
   text-transform: uppercase;
 }
 
-.stage-timer-strip-clock strong {
+.stage-queue-timer strong {
   display: block;
-  font-size: clamp(42px, 16cqw, 70px);
+  font-size: clamp(76px, 12vw, 168px);
   font-variant-numeric: tabular-nums;
   font-weight: 900;
   letter-spacing: 0;
   line-height: 0.88;
-  margin-top: 6px;
+  margin-top: 10px;
   white-space: nowrap;
 }
 
-.stage-timer-strip-count {
-  color: var(--app-ink);
-  justify-self: end;
-  min-width: 0;
-  text-align: left;
+.stage-queue-timer-track {
+  background: rgba(11, 12, 16, 0.14);
+  border-radius: 999px;
+  height: 10px;
+  margin-top: 26px;
+  max-width: 560px;
+  overflow: hidden;
 }
 
-.stage-timer-strip.is-count-only .stage-timer-strip-count {
-  justify-self: center;
+.stage-queue-timer-fill {
+  background: var(--app-good);
+  height: 100%;
+  transition: width 260ms linear;
+}
+
+.stage-queue-timer.is-warning {
+  color: var(--app-warn);
+}
+
+.stage-queue-timer.is-warning .stage-queue-timer-fill {
+  background: var(--app-warn);
+}
+
+.stage-queue-timer.is-danger {
+  color: #9f1f17;
+}
+
+.stage-queue-timer.is-danger .stage-queue-timer-fill {
+  background: #9f1f17;
+}
+
+.stage-queue-timer.is-idle {
+  color: var(--app-muted);
+}
+
+.stage-queue-timer.is-idle .stage-queue-timer-fill {
+  background: rgba(11, 12, 16, 0.3);
+}
+
+.stage-qr-count {
+  color: var(--app-muted);
+  font-size: 20px;
+  font-weight: 700;
   text-align: center;
-}
-
-.stage-timer-strip-count strong {
-  display: block;
-  font-size: clamp(42px, 13cqw, 56px);
-  font-weight: 900;
-  letter-spacing: 0;
-  line-height: 0.95;
-  margin-top: 6px;
 }
 
 .stage-qr-stack {
@@ -937,6 +951,10 @@ h3 {
   .stage-advancing .stage-next,
   .stage-advancing .stage-lineup-stack {
     animation: none;
+  }
+
+  .stage-queue-timer-fill {
+    transition: none;
   }
 }
 

@@ -545,14 +545,9 @@ h3 {
 }
 
 .stage-qr-main {
-  /* clears the absolutely positioned .stage-mark in the top-left corner */
-  align-content: space-between;
+  /* clears the absolutely positioned .stage-mark when content wraps tall */
+  gap: clamp(36px, 7vh, 72px);
   padding-top: 46px;
-}
-
-.stage-qr-main.is-centered {
-  align-content: center;
-  padding-top: 0;
 }
 
 .stage-queue-timer {

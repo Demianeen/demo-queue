@@ -280,7 +280,7 @@ export default function StagePage() {
       <span className="codex-mark stage-mark" aria-hidden />
       <section className="stage-grid">
         {showQrStage ? (
-          <div className={cn("stage-main stage-qr-main", !showQueueTimer && "is-centered")}>
+          <div className="stage-main stage-qr-main">
             {showQueueTimer ? (
               <div
                 className={`stage-queue-timer is-${queueTimer.status} is-${queueTimerUrgency}`}

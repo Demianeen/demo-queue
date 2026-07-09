@@ -26,6 +26,18 @@ function formatTimer(ms: number) {
   return `${totalSeconds < 0 ? "-" : ""}${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+type TimerUrgency = "normal" | "warning" | "danger";
+
+// 30s floor keeps a red phase on short timers where 10% would be near-instant.
+function timerUrgency(remainingMs: number, durationMs: number): TimerUrgency {
+  if (durationMs <= 0) return "normal";
+  if (remainingMs <= 0) return "danger";
+  const fractionLeft = remainingMs / durationMs;
+  if (remainingMs <= 30_000 || fractionLeft <= 0.1) return "danger";
+  if (fractionLeft <= 0.25) return "warning";
+  return "normal";
+}
+
 function useStageTimer(timer: StageTimer | undefined) {
   const [clientNow, setClientNow] = useState(() => Date.now());
   const [receivedAt, setReceivedAt] = useState(() => Date.now());
@@ -50,6 +62,7 @@ function useStageTimer(timer: StageTimer | undefined) {
       status: "idle" as const,
       label: "Ready",
       remainingMs: 0,
+      durationMs: 0,
       display: "0:00",
     };
   }
@@ -72,6 +85,7 @@ function useStageTimer(timer: StageTimer | undefined) {
     status: timer.status,
     label,
     remainingMs,
+    durationMs: timer.durationMs,
     display: formatTimer(remainingMs),
   };
 }
@@ -102,9 +116,11 @@ export default function StagePage() {
   const showSubmissionCount = stage?.event.showSubmissionCountOnStage ?? false;
   const showDemoTimer =
     !showQrStage && isLive && Boolean(stage?.current) && (stage?.event.showDemoTimerOnStage ?? false);
-  const queueTimerStateClass = showQueueTimer
-    ? ` is-${queueTimer.status}${queueTimer.remainingMs < 0 ? " is-overtime" : ""}`
-    : "";
+  const queueTimerUrgency = timerUrgency(queueTimer.remainingMs, queueTimer.durationMs);
+  const queueTimerFraction =
+    queueTimer.durationMs > 0
+      ? Math.min(Math.max(queueTimer.remainingMs / queueTimer.durationMs, 0), 1)
+      : 0;
   const demoTimerStateClass = showDemoTimer
     ? ` is-${demoTimer.status}${demoTimer.remainingMs < 0 ? " is-overtime" : ""}`
     : "";
@@ -263,19 +279,40 @@ export default function StagePage() {
     >
       <span className="codex-mark stage-mark" aria-hidden />
       <section className="stage-grid">
+        {showQrStage ? (
+          <div className="stage-main stage-qr-main">
+            {showQueueTimer ? (
+              <div
+                className={`stage-queue-timer is-${queueTimer.status} is-${queueTimerUrgency}`}
+                aria-live="polite"
+              >
+                <span>{queueTimer.label}</span>
+                <strong>{queueTimer.display}</strong>
+                <div className="stage-queue-timer-track" aria-hidden>
+                  <div
+                    className="stage-queue-timer-fill"
+                    style={{ width: `${queueTimerFraction * 100}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
+            <div className="stage-title">{stage.event.name}</div>
+          </div>
+        ) : (
           <div className="stage-main">
             <div className="stage-current-content" key={currentId}>
               <p className="stage-label">{currentStageLabel}</p>
               <div className="stage-title">{currentStageTitle}</div>
               <div className="stage-subtitle">{currentStageSubtitle}</div>
-            {showDemoTimer ? (
-              <div className={`stage-demo-timer${demoTimerStateClass}`} aria-live="polite">
-                <span>{demoTimer.label}</span>
-                <strong>{demoTimer.display}</strong>
-              </div>
-            ) : null}
+              {showDemoTimer ? (
+                <div className={`stage-demo-timer${demoTimerStateClass}`} aria-live="polite">
+                  <span>{demoTimer.label}</span>
+                  <strong>{demoTimer.display}</strong>
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
 
         <aside className="stage-side">
           {!showQrStage ? (
@@ -330,27 +367,13 @@ export default function StagePage() {
                 />
                 <div className="qr-box">
                   <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
-                  <h3 style={{ marginTop: 14 }}>Scan to demo</h3>
+                  <h3 style={{ marginTop: 14 }}>Submit your demo</h3>
                 </div>
               </div>
-              {showQueueTimer || showSubmissionCount ? (
-                <div
-                  className={`stage-timer-strip${queueTimerStateClass}${!showQueueTimer ? " is-count-only" : ""}`}
-                  aria-live="polite"
-                >
-                  {showQueueTimer ? (
-                    <div className="stage-timer-strip-clock">
-                      <span>{queueTimer.label}</span>
-                      <strong>{queueTimer.display}</strong>
-                    </div>
-                  ) : null}
-                  {showSubmissionCount ? (
-                    <div className="stage-timer-strip-count">
-                      <span>In queue</span>
-                      <strong>{waitingCount}</strong>
-                    </div>
-                  ) : null}
-                </div>
+              {showSubmissionCount ? (
+                <p className="stage-qr-count" aria-live="polite">
+                  {waitingCount} in queue
+                </p>
               ) : null}
             </div>
           )}

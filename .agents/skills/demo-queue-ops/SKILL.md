@@ -1,6 +1,6 @@
 ---
 name: demo-queue-ops
-description: Fast demo-queue data retrieval for Codex and event operators. Use when the user asks to inspect the demo queue, rank the best demos from live queue data, find the admin/stage state, speed up queue querying during an event, or diagnose slow Codex production queue workflows in this repo.
+description: Fast demo-queue data retrieval for Codex and event operators. Use when the user asks to inspect the demo queue, rank the best demos from live queue data, find the admin/presentation view state, speed up queue querying during an event, or diagnose slow Codex production queue workflows in this repo.
 ---
 
 # Demo Queue Ops

@@ -691,7 +691,7 @@ export const setStageMeetLinkVisible = mutation({
     requireAdmin(event, args.adminToken);
 
     if (args.visible && !event.queuePublished) {
-      throw new ConvexError("Publish the queue before showing the Meet link on stage");
+      throw new ConvexError("Publish the queue before showing the Meet link in the presentation view");
     }
 
     await ctx.db.patch(event._id, {

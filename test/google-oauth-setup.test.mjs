@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   formatConvexEnvCommands,
   parseOAuthClientConfig,
+  parseSetupArgs,
   shellQuote,
 } from "../scripts/google-oauth-setup.mjs";
 
@@ -18,6 +19,17 @@ test("OAuth setup accepts only Desktop app client credentials", () => {
     () => parseOAuthClientConfig({ type: "service_account", private_key: "secret" }),
     /Desktop app/,
   );
+});
+
+test("OAuth setup ignores pnpm's argument separator", () => {
+  assert.deepEqual(parseSetupArgs(["--", "/Users/example/client.json"]), {
+    credentialsPath: "/Users/example/client.json",
+    requestedFolderName: undefined,
+  });
+  assert.deepEqual(parseSetupArgs(["/Users/example/client.json", "Judging"]), {
+    credentialsPath: "/Users/example/client.json",
+    requestedFolderName: "Judging",
+  });
 });
 
 test("OAuth setup prints shell-safe Convex environment commands", () => {

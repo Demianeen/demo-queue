@@ -38,6 +38,11 @@ export function formatConvexEnvCommands({ clientId, clientSecret, refreshToken, 
   ].map(([name, value]) => `pnpm exec convex env set ${name} ${shellQuote(value)}`);
 }
 
+export function parseSetupArgs(argv) {
+  const [credentialsPath, requestedFolderName] = argv.filter((argument) => argument !== "--");
+  return { credentialsPath, requestedFolderName };
+}
+
 async function authorize({ clientId, clientSecret }) {
   return await new Promise((resolve, reject) => {
     const state = randomBytes(24).toString("hex");
@@ -136,7 +141,7 @@ async function findOrCreateFolder(auth, folderName) {
 }
 
 async function main() {
-  const [, , credentialsPath, requestedFolderName] = process.argv;
+  const { credentialsPath, requestedFolderName } = parseSetupArgs(process.argv.slice(2));
   if (!credentialsPath) {
     throw new Error(
       "Usage: pnpm google:oauth-setup -- /absolute/path/to/oauth-client.json [folder-name]",

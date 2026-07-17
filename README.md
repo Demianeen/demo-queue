@@ -8,6 +8,8 @@ Realtime demo-night picker for events.
 - Convex
 - Secret-link access for admins and participants
 - Manual Google Meet link for v1
+- Convex Storage video uploads for hackathon events
+- Native Google Sheet export for hackathon judging
 
 ## Local setup
 
@@ -109,6 +111,29 @@ pnpm exec convex env set OPENAI_MODEL <fast-model-name>
 fail to ship, but AI shuffle throws a clear runtime error if it is missing.
 `OPENAI_MODEL` is optional, but setting it lets event operators pick a faster
 model without changing code.
+
+Hackathon judging export also runs from Convex. Create a Google service account,
+add it as a content manager to the destination Shared Drive, then configure the
+ID of a folder inside that Shared Drive:
+
+```bash
+pnpm exec convex env set GOOGLE_SERVICE_ACCOUNT_EMAIL <service-account-email>
+pnpm exec convex env set GOOGLE_PRIVATE_KEY '<private-key>'
+pnpm exec convex env set GOOGLE_DRIVE_FOLDER_ID <folder-id>
+```
+
+This must be a folder under Drive's **Shared drives** section, not a folder in
+someone's **My Drive** that was shared with the service account. The integration
+uses the full Drive API scope because a headless service account cannot use the
+Google Picker flow required by the narrower `drive.file` scope. Its effective
+access is still limited by the files and Shared Drives granted to the service
+account.
+
+Any event admin can then create the event's native judging Sheet from the admin
+page. The file is created inside that Shared Drive folder and inherits its
+sharing setup. The app stores only the resulting Sheet ID and URL. Hackathon
+videos are limited to 250 MB and deleted six calendar months after upload by a
+daily Convex cron.
 
 ### URL expectations
 

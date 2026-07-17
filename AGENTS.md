@@ -12,6 +12,47 @@ Convex agent skills for common tasks can be installed by running
 
 <!-- convex-ai-end -->
 
+## Convex deployment safety
+
+The only canonical Convex deployments for this project are:
+
+- Production: `giant-egret-456`
+- Development Cloud: `precious-elk-564`
+
+If a command, URL, dashboard link, environment file, or CLI output names any
+other deployment, stop immediately. It is an anonymous or wrong project
+deployment and must not be read, written, configured, or deployed to.
+
+When interpreting Convex CLI output, use the exact deployment name and URL as
+the authoritative identity. Generic verbs such as `Provisioned`, `Configured`,
+or `Developing against` do not by themselves mean that a new deployment was
+created. Compare the reported deployment name and URL with the canonical values
+above before drawing any conclusion or stopping work.
+
+Treat an absent `.env.local` as an intentional unconfigured-worktree state. Do
+not run an unqualified deployment-aware Convex command such as `convex run`,
+`convex dev`, `convex deploy`, or `convex env`: the CLI can configure the
+worktree, recreate `.env.local`, or select an anonymous development deployment.
+Use an explicit deployment reference supplied by the user, or stop and ask
+before configuring anything. Never create or select an anonymous Convex
+deployment on the user's behalf. Before each Convex command, verify and report
+both whether `.env.local` exists and the exact deployment selector the command
+will use.
+
+Convex readiness includes both deployment configuration and CLI authorization.
+Never set up, authenticate, repair, reconfigure, or bootstrap Convex on the
+user's behalf. Do not create, copy, replace, or edit `.env.local` to make Convex
+commands work, and do not start an authentication or project-selection flow. If
+the existing Convex setup is missing, unauthenticated, or names anything other
+than the canonical deployments above, stop and leave the setup to the user.
+
+Never run `convex dev` in this repository, including `convex dev --once` and
+including when `CONVEX_DEPLOYMENT` is supplied explicitly. The command can still
+provision or reconfigure a development deployment and rewrite `.env.local`.
+Development function syncing belongs to the user. If locally changed Convex
+functions are not already synced to the canonical development deployment, stop
+and ask the user to perform that sync.
+
 ## Commit authorship
 
 Never reveal or reference the AI assistant identity in anything committed to

@@ -93,6 +93,9 @@ function useStageTimer(timer: StageTimer | undefined) {
 export default function StagePage() {
   const params = useParams<{ slug: string }>();
   const stage = useQuery(api.events.getStage, { slug: params.slug });
+  const isHackathon = stage?.event.eventType === "hackathon";
+  const lineupNoun = isHackathon ? "finalist" : "demoer";
+  const projectNoun = isHackathon ? "project" : "demo";
   const submissionUrl = absoluteUrl(submissionPath(params.slug));
   const currentId = stage?.current?.id ?? "empty";
   const lineupIds = stage?.lineup.map((item) => item.id).join("-") ?? "empty";
@@ -127,16 +130,31 @@ export default function StagePage() {
   const waitingCount = stage?.waitingCount ?? stage?.remainingCount ?? 0;
   const liveLineupIsComplete = isLive && !stage?.current && (stage?.remainingCount ?? 0) === 0;
   const currentStageLabel = stage?.current
-    ? "Now demoing"
+    ? isHackathon
+      ? "Now presenting"
+      : "Now demoing"
     : liveLineupIsComplete
-      ? "All demos complete"
+      ? `All ${isHackathon ? "presentations" : "demos"} complete`
       : isLive
         ? "Waiting for presenter"
-        : "Now demoing";
+        : isHackathon
+          ? "Now presenting"
+          : "Now demoing";
   const currentStageTitle =
-    stage?.current?.name ?? (isLive ? (liveLineupIsComplete ? "End of the demo list" : "No demoer selected") : "Submit your demo here");
+    stage?.current?.teamName ??
+    stage?.current?.name ??
+    (isLive
+      ? liveLineupIsComplete
+        ? `End of the ${isHackathon ? "finalist" : "demo"} list`
+        : `No ${lineupNoun} selected`
+      : `Submit your ${projectNoun} here`);
   const currentStageSubtitle =
-    stage?.current?.demoTitle ?? (isLive ? (liveLineupIsComplete ? "Thanks for watching." : "Waiting for the next demo.") : stage?.event.name);
+    stage?.current?.demoTitle ??
+    (isLive
+      ? liveLineupIsComplete
+        ? "Thanks for watching."
+        : `Waiting for the next ${projectNoun}.`
+      : stage?.event.name);
 
   useEffect(() => {
     if (!isLive || allUpcoming.length === 0) {
@@ -319,7 +337,9 @@ export default function StagePage() {
             <div className="stage-lineup-stack" key={lineupIds} ref={lineupStackRef}>
               <div className="stage-lineup-header">
                 <p className="stage-label">Coming up</p>
-                <span>{stage.remainingCount} demoer{stage.remainingCount === 1 ? "" : "s"}</span>
+                <span>
+                  {stage.remainingCount} {lineupNoun}{stage.remainingCount === 1 ? "" : "s"}
+                </span>
               </div>
               {upcoming.length > 0 ? (
                 <ol className="stage-lineup-list" ref={lineupListRef}>
@@ -329,7 +349,7 @@ export default function StagePage() {
                         {index === 0 ? "Up next" : `#${index + 2}`}
                       </span>
                       <span className="stage-lineup-copy">
-                        <span className="stage-lineup-person">{item.name}</span>
+                        <span className="stage-lineup-person">{item.teamName ?? item.name}</span>
                         <span className="stage-lineup-demo">{item.demoTitle}</span>
                       </span>
                     </li>
@@ -337,12 +357,23 @@ export default function StagePage() {
                 </ol>
               ) : (
                 <div className="stage-lineup-empty">
-                  <h2>{stage.current ? "End of the demo list" : "No more demos queued"}</h2>
-                  <p>{stage.current ? "This is the last demo." : "The demo list is complete."}</p>
+                  <h2>
+                    {stage.current
+                      ? `End of the ${isHackathon ? "finalist" : "demo"} list`
+                      : `No more ${isHackathon ? "finalists" : "demos"} queued`}
+                  </h2>
+                  <p>
+                    {stage.current
+                      ? `This is the last ${projectNoun}.`
+                      : `The ${isHackathon ? "finalist" : "demo"} list is complete.`}
+                  </p>
                 </div>
               )}
               {hiddenLineupCount > 0 ? (
-                <p className="stage-lineup-more">+{hiddenLineupCount} more published demoer{hiddenLineupCount === 1 ? "" : "s"}</p>
+                <p className="stage-lineup-more">
+                  +{hiddenLineupCount} more published {lineupNoun}
+                  {hiddenLineupCount === 1 ? "" : "s"}
+                </p>
               ) : null}
               {stage.meetUrl ? (
                 <div className="stage-access">

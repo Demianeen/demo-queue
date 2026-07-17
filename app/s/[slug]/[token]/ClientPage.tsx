@@ -25,6 +25,13 @@ const statusLabels: Record<string, string> = {
   withdrawn: "Withdrawn",
 };
 
+const hackathonStatusLabels: Record<string, string> = {
+  ...statusLabels,
+  candidate: "Submitted, waiting for finalist selection",
+  queued: "Your team is listed as a finalist",
+  done: "Presentation complete",
+};
+
 function FieldError({ children }: { children: ReactNode }) {
   return <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{children}</span>;
 }
@@ -124,16 +131,44 @@ export default function ParticipantStatusPage() {
     <main className="narrow-page">
       <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
         <Brand label={participant.event.name} />
-        <h1>{statusLabels[participant.submission.status] ?? participant.submission.status}</h1>
+        <h1>
+          {(participant.event.eventType === "hackathon" ? hackathonStatusLabels : statusLabels)[
+            participant.submission.status
+          ] ?? participant.submission.status}
+        </h1>
 
         <div className="status-strip">
           <span className="pill green">{participant.submission.demoTitle}</span>
+          {participant.submission.teamName ? (
+            <span className="pill">{participant.submission.teamName}</span>
+          ) : null}
           {participant.submission.category ? (
             <span className="pill">{participant.submission.category}</span>
           ) : null}
         </div>
 
         <p className="lead">{participant.submission.description}</p>
+
+        {participant.event.eventType === "hackathon" ? (
+          <div className="hackathon-status-details">
+            <div>
+              <strong>Team</strong>
+              <span>
+                {[participant.submission.name, ...participant.submission.teamMembers].join(", ")}
+              </span>
+            </div>
+            <div>
+              <strong>Project video</strong>
+              {participant.submission.videoUrl ? (
+                <a href={participant.submission.videoUrl} target="_blank" rel="noreferrer">
+                  Open video
+                </a>
+              ) : (
+                <span>Video retention period ended</span>
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {participant.meetUrl ? (
           <a
@@ -147,7 +182,7 @@ export default function ParticipantStatusPage() {
           </a>
         ) : (
           <div className="copy-line">
-            The Meet link appears here once you&apos;re listed as a live demoer.
+            The Meet link appears here once you&apos;re listed as a live presenter.
           </div>
         )}
 

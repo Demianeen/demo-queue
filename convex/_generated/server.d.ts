@@ -25,6 +25,9 @@ import type { DataModel } from "./dataModel.js";
  * Typesafe environment variables declared in `convex.config.ts`.
  */
 type Env = {
+  readonly GOOGLE_DRIVE_FOLDER_ID: string | undefined;
+  readonly GOOGLE_PRIVATE_KEY: string | undefined;
+  readonly GOOGLE_SERVICE_ACCOUNT_EMAIL: string | undefined;
   readonly OPENAI_API_KEY: string | undefined;
   readonly OPENAI_MODEL: string | undefined;
 };

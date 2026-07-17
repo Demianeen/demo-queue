@@ -87,6 +87,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -227,6 +228,7 @@ h3 {
 }
 
 .field input,
+.field select,
 .field textarea {
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid var(--app-line);
@@ -239,10 +241,80 @@ h3 {
 }
 
 .field input:focus,
+.field select:focus,
 .field textarea:focus {
   border-color: var(--cx-indigo);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
   outline: none;
+}
+
+.form-help {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.form-error {
+  color: var(--app-bad);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hackathon-status-details {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--app-line);
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 14px 16px;
+}
+
+.hackathon-status-details > div {
+  display: grid;
+  gap: 3px;
+}
+
+.hackathon-status-details strong {
+  font-size: 12px;
+}
+
+.hackathon-status-details span,
+.hackathon-status-details a {
+  color: var(--app-muted);
+  font-size: 14px;
+}
+
+.admin-event-settings {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(180px, 240px) minmax(280px, 520px);
+  margin-top: 12px;
+}
+
+.admin-person-cell small {
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.admin-video-link {
+  color: var(--cx-indigo);
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .admin-event-settings {
+    grid-template-columns: 1fr;
+  }
+}
+
+.event-item-title .pill {
+  margin-left: 8px;
+  vertical-align: middle;
 }
 
 .field textarea {

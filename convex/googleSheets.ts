@@ -4,6 +4,7 @@ import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
 import { google, type sheets_v4 } from "googleapis";
+import { randomUUID } from "node:crypto";
 import {
   FORMULA_COLUMN_RANGES,
   JUDGING_DATA_START_ROW,
@@ -13,6 +14,7 @@ import {
   MAXIMUM_SCORE,
   ROUND_ONE_SCORE_COLUMN_INDICES,
   ROUND_TWO_SCORE_COLUMN_INDICES,
+  buildJudgingFormulaColumns,
   buildJudgingSheetValues,
   type JudgingSheetSubmission,
 } from "../lib/judging-sheet";
@@ -27,16 +29,12 @@ function requiredEnvironment(name: string) {
 }
 
 function googleAuth() {
-  const email = requiredEnvironment("GOOGLE_SERVICE_ACCOUNT_EMAIL");
-  const key = requiredEnvironment("GOOGLE_PRIVATE_KEY").replace(/\\n/g, "\n");
-  return new google.auth.JWT({
-    email,
-    key,
-    scopes: [
-      "https://www.googleapis.com/auth/drive",
-      "https://www.googleapis.com/auth/spreadsheets",
-    ],
-  });
+  const clientId = requiredEnvironment("GOOGLE_OAUTH_CLIENT_ID");
+  const clientSecret = requiredEnvironment("GOOGLE_OAUTH_CLIENT_SECRET");
+  const refreshToken = requiredEnvironment("GOOGLE_OAUTH_REFRESH_TOKEN");
+  const auth = new google.auth.OAuth2(clientId, clientSecret);
+  auth.setCredentials({ refresh_token: refreshToken });
+  return auth;
 }
 
 function googleApiStatus(error: unknown) {
@@ -44,6 +42,27 @@ function googleApiStatus(error: unknown) {
   const candidate = error as { code?: unknown; response?: { status?: unknown } };
   if (typeof candidate.code === "number") return candidate.code;
   return typeof candidate.response?.status === "number" ? candidate.response.status : undefined;
+}
+
+function googleApiFailure(error: unknown) {
+  const status = googleApiStatus(error);
+  if (status === 400 || status === 401) {
+    return "Google authorization is no longer valid. Run the OAuth setup helper again.";
+  }
+  if (status === 403) {
+    return "The connected Google account does not have permission to update the judging Sheet.";
+  }
+  if (status === 404) {
+    return "Google could not find the configured Drive file.";
+  }
+  if (status === 429) {
+    return "Google temporarily rate-limited the judging Sheet export. Try again shortly.";
+  }
+  return status ? `Google API request failed with status ${status}.` : "Google API request failed.";
+}
+
+function quoteSheetTitle(title: string) {
+  return `'${title.replaceAll("'", "''")}'`;
 }
 
 function scoreValidationRequest(sheetId: number, columnIndex: number, endRowIndex: number) {
@@ -120,7 +139,7 @@ function formattingRequests(sheetId: number, rowCount: number) {
         range: {
           sheetId,
           startRowIndex: 0,
-          endRowIndex: 2,
+          endRowIndex: 3,
           startColumnIndex: 0,
           endColumnIndex: 8,
         },
@@ -264,6 +283,101 @@ function formattingRequests(sheetId: number, rowCount: number) {
   return requests;
 }
 
+async function replaceJudgingTab({
+  sheets,
+  spreadsheetId,
+  values,
+  replaceDefaultSheet,
+}: {
+  sheets: sheets_v4.Sheets;
+  spreadsheetId: string;
+  values: (string | number | boolean)[][];
+  replaceDefaultSheet: boolean;
+}) {
+  const spreadsheet = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets.properties(sheetId,title)",
+  });
+  const existingSheets = spreadsheet.data.sheets ?? [];
+  const managedSheet = existingSheets.find(
+    (sheet) => sheet.properties?.title === JUDGING_SHEET_NAME,
+  );
+  const sheetToReplace =
+    managedSheet ?? (replaceDefaultSheet && existingSheets.length === 1 ? existingSheets[0] : undefined);
+  const sheetToReplaceId = sheetToReplace?.properties?.sheetId;
+  const tempTitle = `Judging setup ${randomUUID()}`;
+  let tempSheetId: number | undefined;
+
+  try {
+    const addResponse = await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            addSheet: {
+              properties: {
+                title: tempTitle,
+                gridProperties: {
+                  rowCount: Math.max(values.length, JUDGING_DATA_START_ROW),
+                  columnCount: JUDGING_HEADERS.length,
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+    tempSheetId = addResponse.data.replies?.[0]?.addSheet?.properties?.sheetId ?? undefined;
+    if (tempSheetId === undefined) {
+      throw new ConvexError("Google did not create the replacement judging tab.");
+    }
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${quoteSheetTitle(tempTitle)}!A1`,
+      valueInputOption: "RAW",
+      requestBody: { values },
+    });
+
+    const formulaColumns = buildJudgingFormulaColumns(
+      Math.max(0, values.length - JUDGING_HEADER_ROW),
+    );
+    if (formulaColumns.length > 0) {
+      const finalDataRow = JUDGING_DATA_START_ROW + formulaColumns[0].values.length - 1;
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          valueInputOption: "USER_ENTERED",
+          data: formulaColumns.map(({ column, values: formulaValues }) => ({
+            range: `${quoteSheetTitle(tempTitle)}!${column}${JUDGING_DATA_START_ROW}:${column}${finalDataRow}`,
+            values: formulaValues,
+          })),
+        },
+      });
+    }
+
+    const swapRequests: sheets_v4.Schema$Request[] = [];
+    if (sheetToReplaceId !== undefined) {
+      swapRequests.push({ deleteSheet: { sheetId: sheetToReplaceId } });
+    }
+    swapRequests.push(...formattingRequests(tempSheetId, values.length));
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: swapRequests },
+    });
+    tempSheetId = undefined;
+  } finally {
+    if (tempSheetId !== undefined) {
+      await sheets.spreadsheets
+        .batchUpdate({
+          spreadsheetId,
+          requestBody: { requests: [{ deleteSheet: { sheetId: tempSheetId } }] },
+        })
+        .catch(() => undefined);
+    }
+  }
+}
+
 export const createJudgingSheet = action({
   args: { slug: v.string(), adminToken: v.string() },
   handler: async (ctx, args): Promise<{ spreadsheetUrl: string; created: boolean }> => {
@@ -281,39 +395,33 @@ export const createJudgingSheet = action({
     const sheets = google.sheets({ version: "v4", auth });
     const title = `${admin.event.name} judging`;
     let spreadsheetId: string | undefined;
+    let createdFileThisRun = false;
 
     try {
       let folder;
       try {
         folder = await drive.files.get({
           fileId: folderId,
-          supportsAllDrives: true,
-          fields: "mimeType,driveId,capabilities(canAddChildren)",
+          fields: "mimeType,trashed,capabilities(canAddChildren)",
         });
       } catch (error) {
         if (googleApiStatus(error) === 404) {
           throw new ConvexError(
-            "The configured Google Drive folder is not accessible to the service account.",
+            "The configured Google Drive folder is not accessible to the connected Google account.",
           );
         }
         throw error;
       }
-      if (folder.data.mimeType !== GOOGLE_DRIVE_FOLDER_MIME_TYPE) {
+      if (folder.data.trashed || folder.data.mimeType !== GOOGLE_DRIVE_FOLDER_MIME_TYPE) {
         throw new ConvexError("GOOGLE_DRIVE_FOLDER_ID must point to a Google Drive folder.");
-      }
-      if (!folder.data.driveId) {
-        throw new ConvexError(
-          "The configured Google Drive folder must be inside a Shared Drive, not My Drive.",
-        );
       }
       if (!folder.data.capabilities?.canAddChildren) {
         throw new ConvexError(
-          "The service account needs permission to add files to the configured Shared Drive folder.",
+          "The connected Google account needs permission to add files to the configured Drive folder.",
         );
       }
 
       const createdFile = await drive.files.create({
-        supportsAllDrives: true,
         requestBody: {
           name: title,
           mimeType: GOOGLE_SHEETS_MIME_TYPE,
@@ -322,16 +430,8 @@ export const createJudgingSheet = action({
         fields: "id",
       });
       spreadsheetId = createdFile.data.id ?? undefined;
+      createdFileThisRun = true;
       if (!spreadsheetId) throw new ConvexError("Google did not return a spreadsheet ID.");
-
-      const spreadsheet = await sheets.spreadsheets.get({
-        spreadsheetId,
-        fields: "sheets.properties(sheetId)",
-      });
-      const sheetId = spreadsheet.data.sheets?.[0]?.properties?.sheetId;
-      if (sheetId === undefined || sheetId === null) {
-        throw new ConvexError("Google did not create the judging tab.");
-      }
 
       const allSubmissions = [
         ...admin.lineup,
@@ -350,15 +450,11 @@ export const createJudgingSheet = action({
         submissions: uniqueSubmissions,
       });
 
-      await sheets.spreadsheets.batchUpdate({
+      await replaceJudgingTab({
+        sheets,
         spreadsheetId,
-        requestBody: { requests: formattingRequests(sheetId, values.length) },
-      });
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${JUDGING_SHEET_NAME}!A1`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values },
+        values,
+        replaceDefaultSheet: createdFileThisRun,
       });
 
       const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
@@ -370,24 +466,21 @@ export const createJudgingSheet = action({
       if (!saved.created && saved.spreadsheetId !== spreadsheetId) {
         await drive.files.update({
           fileId: spreadsheetId,
-          supportsAllDrives: true,
           requestBody: { trashed: true },
         });
       }
       return { spreadsheetUrl: saved.spreadsheetUrl, created: saved.created };
     } catch (error) {
-      if (spreadsheetId) {
+      if (spreadsheetId && createdFileThisRun) {
         await drive.files
           .update({
             fileId: spreadsheetId,
-            supportsAllDrives: true,
             requestBody: { trashed: true },
           })
           .catch(() => undefined);
       }
       if (error instanceof ConvexError) throw error;
-      const message = error instanceof Error ? error.message : "Unknown Google API error";
-      throw new ConvexError(`Could not create the judging Sheet: ${message}`);
+      throw new ConvexError(`Could not update the judging Sheet: ${googleApiFailure(error)}`);
     }
   },
 });

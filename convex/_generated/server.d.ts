@@ -26,8 +26,9 @@ import type { DataModel } from "./dataModel.js";
  */
 type Env = {
   readonly GOOGLE_DRIVE_FOLDER_ID: string | undefined;
-  readonly GOOGLE_PRIVATE_KEY: string | undefined;
-  readonly GOOGLE_SERVICE_ACCOUNT_EMAIL: string | undefined;
+  readonly GOOGLE_OAUTH_CLIENT_ID: string | undefined;
+  readonly GOOGLE_OAUTH_CLIENT_SECRET: string | undefined;
+  readonly GOOGLE_OAUTH_REFRESH_TOKEN: string | undefined;
   readonly OPENAI_API_KEY: string | undefined;
   readonly OPENAI_MODEL: string | undefined;
 };

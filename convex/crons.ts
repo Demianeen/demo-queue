@@ -10,4 +10,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "delete orphaned submission uploads",
+  { hours: 24 },
+  internal.events.deleteOrphanedSubmissionUploads,
+  {},
+);
+
 export default crons;

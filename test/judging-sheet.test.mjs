@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  JUDGING_DATA_START_ROW,
   JUDGING_HEADERS,
+  buildJudgingFormulaColumns,
   buildJudgingSheetValues,
 } from "../lib/judging-sheet.ts";
 import {
@@ -23,7 +23,7 @@ test("judging sheet keeps submission data and both rounds on one tab", () => {
         teamMembers: ["Alex", "Morgan"],
         name: "Sam",
         demoTitle: "Launchpad",
-        description: "A launch workflow",
+        description: '=IMPORTXML("https://example.com/private","//data")',
         category: "AI",
         videoUrl: "https://example.com/video",
         email: "sam@example.com",
@@ -40,10 +40,22 @@ test("judging sheet keeps submission data and both rounds on one tab", () => {
   assert.equal(values[4].length, JUDGING_HEADERS.length);
   assert.equal(values[4][1], "Orbit");
   assert.equal(values[4][2], "Sam, Alex, Morgan");
+  assert.equal(values[4][4], '=IMPORTXML("https://example.com/private","//data")');
   assert.equal(values[4][6], "https://example.com/video");
-  assert.equal(values[4][26], `=COUNT(P${JUDGING_DATA_START_ROW},S${JUDGING_DATA_START_ROW},V${JUDGING_DATA_START_ROW},Y${JUDGING_DATA_START_ROW})`);
-  assert.match(String(values[4][27]), /AVERAGE/);
-  assert.match(String(values[4][40]), /AVERAGE/);
+  assert.equal(values[4][26], "");
+
+  const formulaColumns = buildJudgingFormulaColumns(1);
+  assert.deepEqual(
+    formulaColumns.map(({ column }) => column),
+    ["AA", "AB", "AC", "AD", "AN", "AO", "AP"],
+  );
+  assert.match(formulaColumns[0].values[0][0], /COUNTUNIQUE\(FILTER/);
+  assert.match(formulaColumns[0].values[0][0], /TRIM\(\{O5,R5,U5,X5\}\)<>""/);
+  assert.match(formulaColumns[1].values[0][0], /AVERAGE\(QUERY/);
+  assert.match(formulaColumns[3].values[0][0], /COUNTIF/);
+  assert.match(formulaColumns[5].values[0][0], /AD5<>TRUE/);
+  assert.equal(buildJudgingFormulaColumns(0).length, 0);
+
 });
 
 test("hackathon helpers enforce the video and team input contract", () => {

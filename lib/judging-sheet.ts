@@ -75,6 +75,10 @@ export const FORMULA_COLUMN_RANGES = [
   { startColumnIndex: 26, endColumnIndex: 30 },
   { startColumnIndex: 39, endColumnIndex: 42 },
 ] as const;
+export type JudgingFormulaColumn = {
+  column: string;
+  values: string[][];
+};
 
 export function buildJudgingSheetValues({
   eventName,
@@ -85,10 +89,6 @@ export function buildJudgingSheetValues({
   meetUrl: string;
   submissions: JudgingSheetSubmission[];
 }) {
-  const finalDataRow = Math.max(
-    JUDGING_DATA_START_ROW,
-    JUDGING_DATA_START_ROW + submissions.length - 1,
-  );
   const values: (string | number | boolean)[][] = [
     ["Event", eventName, "", "Meet", meetUrl, "", "Exported", new Date().toISOString()],
     [
@@ -101,12 +101,17 @@ export function buildJudgingSheetValues({
       "Maximum score",
       MAXIMUM_SCORE,
     ],
-    [],
+    [
+      "Round 1",
+      "Enter a judge name and score in the same slot. Finalist-cutoff ties use current row order.",
+      "",
+      "Round 2",
+      "Only finalist rows receive a final score and rank.",
+    ],
     [...JUDGING_HEADERS],
   ];
 
-  submissions.forEach((submission, index) => {
-    const row = JUDGING_DATA_START_ROW + index;
+  submissions.forEach((submission) => {
     const members = [submission.name, ...submission.teamMembers].join(", ");
     values.push([
       submission.id,
@@ -135,10 +140,6 @@ export function buildJudgingSheetValues({
       "",
       "",
       "",
-      `=COUNT(P${row},S${row},V${row},Y${row})`,
-      `=IF(AA${row}<$B$2,"",AVERAGE(P${row},S${row},V${row},Y${row}))`,
-      `=IF(AB${row}="","",RANK(AB${row},$AB$${JUDGING_DATA_START_ROW}:$AB$${finalDataRow},0))`,
-      `=IF(AC${row}="","",AC${row}<=$E$2)`,
       "",
       "",
       "",
@@ -148,11 +149,43 @@ export function buildJudgingSheetValues({
       "",
       "",
       "",
-      `=COUNT(AF${row},AI${row},AL${row})`,
-      `=IF(AN${row}=0,"",AVERAGE(AF${row},AI${row},AL${row}))`,
-      `=IF(AO${row}="","",RANK(AO${row},$AO$${JUDGING_DATA_START_ROW}:$AO$${finalDataRow},0))`,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
     ]);
   });
 
   return values;
+}
+
+export function buildJudgingFormulaColumns(submissionCount: number): JudgingFormulaColumn[] {
+  if (submissionCount === 0) return [];
+
+  const finalDataRow = JUDGING_DATA_START_ROW + submissionCount - 1;
+  const formulas = Array.from({ length: submissionCount }, (_, index) => {
+    const row = JUDGING_DATA_START_ROW + index;
+    return {
+      roundOneJudgeCount: `=IFERROR(COUNTUNIQUE(FILTER(LOWER(TRIM({O${row},R${row},U${row},X${row}})),TRIM({O${row},R${row},U${row},X${row}})<>"",ISNUMBER({P${row},S${row},V${row},Y${row}}))),0)`,
+      roundOneScore: `=IF(AA${row}<$B$2,"",AVERAGE(QUERY(TRANSPOSE({LOWER(TRIM({O${row},R${row},U${row},X${row}}));{P${row},S${row},V${row},Y${row}}}),"select avg(Col2) where Col1 is not null and Col2 is not null group by Col1 label avg(Col2) ''",0)))`,
+      roundOneRank: `=IF(AB${row}="","",RANK(AB${row},$AB$${JUDGING_DATA_START_ROW}:$AB$${finalDataRow},0))`,
+      finalist: `=IF(AB${row}="",FALSE,COUNTIF($AB$${JUDGING_DATA_START_ROW}:$AB$${finalDataRow},">"&AB${row})+COUNTIF($AB$${JUDGING_DATA_START_ROW}:AB${row},AB${row})<=$E$2)`,
+      roundTwoJudgeCount: `=IF(AD${row}<>TRUE,0,IFERROR(COUNTUNIQUE(FILTER(LOWER(TRIM({AE${row},AH${row},AK${row}})),TRIM({AE${row},AH${row},AK${row}})<>"",ISNUMBER({AF${row},AI${row},AL${row}}))),0))`,
+      finalScore: `=IF(OR(AD${row}<>TRUE,AN${row}=0),"",AVERAGE(QUERY(TRANSPOSE({LOWER(TRIM({AE${row},AH${row},AK${row}}));{AF${row},AI${row},AL${row}}}),"select avg(Col2) where Col1 is not null and Col2 is not null group by Col1 label avg(Col2) ''",0)))`,
+      finalRank: `=IF(AO${row}="","",RANK(AO${row},$AO$${JUDGING_DATA_START_ROW}:$AO$${finalDataRow},0))`,
+    };
+  });
+
+  return [
+    { column: "AA", values: formulas.map(({ roundOneJudgeCount }) => [roundOneJudgeCount]) },
+    { column: "AB", values: formulas.map(({ roundOneScore }) => [roundOneScore]) },
+    { column: "AC", values: formulas.map(({ roundOneRank }) => [roundOneRank]) },
+    { column: "AD", values: formulas.map(({ finalist }) => [finalist]) },
+    { column: "AN", values: formulas.map(({ roundTwoJudgeCount }) => [roundTwoJudgeCount]) },
+    { column: "AO", values: formulas.map(({ finalScore }) => [finalScore]) },
+    { column: "AP", values: formulas.map(({ finalRank }) => [finalRank]) },
+  ];
 }

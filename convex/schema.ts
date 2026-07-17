@@ -78,6 +78,7 @@ export default defineSchema({
     .index("by_event", ["eventId"])
     .index("by_event_status", ["eventId", "status"])
     .index("by_participant_token", ["participantToken"])
+    .index("by_screenshot_id", ["screenshotId"])
     .index("by_video_delete_at", ["videoDeleteAt"])
     .index("by_video_storage_id", ["videoStorageId"]),
 

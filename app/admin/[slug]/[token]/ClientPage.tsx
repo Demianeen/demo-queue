@@ -956,7 +956,6 @@ export default function AdminPage() {
       window.open(admin.event.judgingSheetUrl, "_blank", "noopener,noreferrer");
       return;
     }
-
     setSheetBusy(true);
     setSheetMessage("");
     const sheetWindow = window.open("", "_blank");
@@ -969,7 +968,7 @@ export default function AdminPage() {
       setSheetMessage("Judging Sheet created.");
     } catch (error) {
       sheetWindow?.close();
-      setSheetMessage(error instanceof Error ? error.message : "Could not create the judging Sheet.");
+      setSheetMessage(error instanceof Error ? error.message : "Could not update the judging Sheet.");
     } finally {
       setSheetBusy(false);
     }

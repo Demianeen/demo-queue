@@ -32,6 +32,8 @@ const MIN_STAGE_TIMER_DURATION_MS = 60 * 1000;
 const MAX_STAGE_TIMER_MS = 99 * 60 * 1000;
 const MIN_STAGE_TIMER_MS = 0;
 const MIN_OVERTIME_TIMER_MS = -MAX_STAGE_TIMER_MS;
+const ORPHAN_UPLOAD_GRACE_MS = 24 * 60 * 60 * 1000;
+const ORPHAN_UPLOAD_BATCH_SIZE = 50;
 type PublicStageTimerStatus = "idle" | "running" | "paused";
 type StageScreenMode = "qr" | "demo";
 type EventType = "demo" | "hackathon";
@@ -277,6 +279,22 @@ async function validateHackathonVideo(ctx: MutationCtx, storageId: Id<"_storage"
   return metadata;
 }
 
+async function requireUnattachedSubmissionFile(ctx: MutationCtx, storageId: Id<"_storage">) {
+  const [screenshotSubmission, videoSubmission] = await Promise.all([
+    ctx.db
+      .query("submissions")
+      .withIndex("by_screenshot_id", (q) => q.eq("screenshotId", storageId))
+      .first(),
+    ctx.db
+      .query("submissions")
+      .withIndex("by_video_storage_id", (q) => q.eq("videoStorageId", storageId))
+      .first(),
+  ]);
+  if (screenshotSubmission || videoSubmission) {
+    throw new ConvexError("That uploaded file is already attached to a submission.");
+  }
+}
+
 function blankEventState(now: number) {
   return {
     queuePublished: false,
@@ -388,7 +406,7 @@ export const discardHackathonVideo = mutation({
     const attached = await ctx.db
       .query("submissions")
       .withIndex("by_video_storage_id", (q) => q.eq("videoStorageId", storageId))
-      .unique();
+      .first();
     if (attached) return;
 
     await ctx.storage.delete(storageId);
@@ -659,6 +677,7 @@ export const submitDemo = mutation({
     }
     const now = Date.now();
     const fields = normalizeSubmissionTextFields(args);
+    if (args.screenshotId) await requireUnattachedSubmissionFile(ctx, args.screenshotId);
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
@@ -705,6 +724,7 @@ export const submitHackathon = mutation({
     const fields = normalizeSubmissionTextFields(args);
     const teamName = normalizeTeamName(args.teamName);
     const teamMembers = normalizeTeamMembers(args.teamMembers);
+    await requireUnattachedSubmissionFile(ctx, args.videoStorageId);
     await validateHackathonVideo(ctx, args.videoStorageId);
 
     const submissionId = await ctx.db.insert("submissions", {
@@ -1755,5 +1775,53 @@ export const deleteExpiredHackathonVideos = internalMutation({
       await ctx.scheduler.runAfter(0, internal.events.deleteExpiredHackathonVideos, {});
     }
     return { deleted: expired.length };
+  },
+});
+
+export const deleteOrphanedSubmissionUploads = internalMutation({
+  args: {
+    cursor: v.optional(v.string()),
+    cutoff: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<{ deleted: number; scanned: number }> => {
+    const cutoff = args.cutoff ?? Date.now() - ORPHAN_UPLOAD_GRACE_MS;
+    const page = await ctx.db.system
+      .query("_storage")
+      .order("asc")
+      .paginate({ cursor: args.cursor ?? null, numItems: ORPHAN_UPLOAD_BATCH_SIZE });
+    let deleted = 0;
+    let scanned = 0;
+    let reachedGracePeriod = false;
+
+    for (const file of page.page) {
+      if (file._creationTime > cutoff) {
+        reachedGracePeriod = true;
+        break;
+      }
+      scanned += 1;
+      const [screenshotSubmission, videoSubmission] = await Promise.all([
+        ctx.db
+          .query("submissions")
+          .withIndex("by_screenshot_id", (q) => q.eq("screenshotId", file._id))
+          .first(),
+        ctx.db
+          .query("submissions")
+          .withIndex("by_video_storage_id", (q) => q.eq("videoStorageId", file._id))
+          .first(),
+      ]);
+      if (!screenshotSubmission && !videoSubmission) {
+        await ctx.storage.delete(file._id);
+        deleted += 1;
+      }
+    }
+
+    if (!reachedGracePeriod && !page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.events.deleteOrphanedSubmissionUploads, {
+        cursor: page.continueCursor,
+        cutoff,
+      });
+    }
+
+    return { deleted, scanned };
   },
 });

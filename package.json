@@ -10,6 +10,7 @@
     "build": "next build",
     "lint": "eslint",
     "test": "node --test",
+    "google:oauth-setup": "node scripts/google-oauth-setup.mjs",
     "queue": "node scripts/demo-queue-ops.mjs",
     "queue:prod": "node scripts/demo-queue-ops.mjs --prod",
     "convex:dev": "convex dev",

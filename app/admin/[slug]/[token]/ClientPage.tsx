@@ -25,6 +25,7 @@ import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { Skeleton } from "@/app/Skeleton";
 import { Brand } from "@/app/Brand";
 import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError } from "@/lib/validation";
+import { parseRoundOneJudges } from "@/lib/judging-assignment";
 import {
   DndContext,
   DragOverlay,
@@ -77,6 +78,8 @@ type AdminSubmission = {
   videoUrl?: string | null;
   videoDeleteAt?: number;
   videoDeletedAt?: number;
+  githubUrl?: string;
+  roundOneAssignedJudges?: string[];
   status: string;
   queueOrder?: number;
 };
@@ -284,6 +287,7 @@ export default function AdminPage() {
   const restorePreviousPresenter = useMutation(api.events.restorePreviousPresenter);
   const shuffleLineup = useMutation(api.events.shuffleLineup);
   const requestJudgingSheetSync = useMutation(api.events.requestJudgingSheetSync);
+  const saveRoundOneJudges = useMutation(api.events.saveRoundOneJudges);
   const aiShuffle = useAction(api.ai.aiShuffle);
   const createJudgingSheet = useAction(api.googleSheets.createJudgingSheet);
 
@@ -337,6 +341,10 @@ export default function AdminPage() {
   const [testPeopleMessage, setTestPeopleMessage] = useState("");
   const [sheetBusy, setSheetBusy] = useState(false);
   const [sheetMessage, setSheetMessage] = useState("");
+  const [judgesOpen, setJudgesOpen] = useState(false);
+  const [judgesText, setJudgesText] = useState("");
+  const [judgesBusy, setJudgesBusy] = useState(false);
+  const [judgesMessage, setJudgesMessage] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTab>("all");
   const [queueTimerMinutesInput, setQueueTimerMinutesInput] = useState("");
@@ -995,6 +1003,42 @@ export default function AdminPage() {
     }
   }
 
+  function openRoundOneJudges() {
+    if (!admin) return;
+    setJudgesText(admin.event.roundOneJudges.join("\n"));
+    setJudgesMessage("");
+    setJudgesOpen(true);
+  }
+
+  async function saveJudges(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    let judges: string[];
+    try {
+      judges = parseRoundOneJudges(judgesText);
+    } catch (error) {
+      setJudgesMessage(error instanceof Error ? error.message : "Invalid judge list.");
+      return;
+    }
+
+    setJudgesBusy(true);
+    setJudgesMessage("");
+    try {
+      const result = await saveRoundOneJudges({
+        slug: params.slug,
+        adminToken: params.token,
+        judges,
+      });
+      setJudgesOpen(false);
+      setJudgesMessage(
+        `${result.judgeCount} judges saved. ${result.assignedActiveSubmissionCount} of ${result.activeSubmissionCount} active submissions assigned.`,
+      );
+    } catch (error) {
+      setJudgesMessage(error instanceof Error ? error.message : "Could not save judges.");
+    } finally {
+      setJudgesBusy(false);
+    }
+  }
+
   async function saveEdit(id: Id<"submissions">, values: SubmissionFields) {
     await updateSubmission({
       slug: params.slug,
@@ -1162,6 +1206,11 @@ export default function AdminPage() {
               </Button>
               {admin.event.eventType === "hackathon" ? (
                 <>
+                  <Button variant="outline" onClick={openRoundOneJudges} type="button">
+                    {admin.event.roundOneJudges.length > 0
+                      ? `Manage judges (${admin.event.roundOneJudges.length})`
+                      : "Assign judges"}
+                  </Button>
                   {admin.event.judgingSheetUrl ? (
                     <a
                       className={cn(buttonVariants({ variant: "link" }), "underline")}
@@ -1229,6 +1278,9 @@ export default function AdminPage() {
                 <p className="admin-action-note">{testPeopleMessage}</p>
               ) : null}
               {sheetMessage ? <p className="admin-action-note">{sheetMessage}</p> : null}
+              {judgesMessage && !judgesOpen ? (
+                <p className="admin-action-note">{judgesMessage}</p>
+              ) : null}
               {judgingSheetSyncStatus ? (
                 <p className="admin-action-note">{judgingSheetSyncStatus}</p>
               ) : null}
@@ -1295,6 +1347,57 @@ export default function AdminPage() {
                           : isHackathonEvent
                             ? "Add submissions"
                             : "Add people"}
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+              ) : null}
+
+              {judgesOpen ? (
+                <div
+                  aria-labelledby="round-one-judges-title"
+                  aria-modal="true"
+                  className="admin-modal-backdrop"
+                  role="dialog"
+                >
+                  <form className="admin-modal" onSubmit={saveJudges}>
+                    <div className="admin-modal-heading">
+                      <h2 id="round-one-judges-title">Assign judges</h2>
+                      <p>
+                        Paste one judge name per line. Every active submission receives two different judges, distributed as evenly as possible.
+                      </p>
+                    </div>
+                    <label className="admin-modal-field">
+                      <span>Judge names</span>
+                      <textarea
+                        autoFocus
+                        value={judgesText}
+                        onChange={(event) => {
+                          setJudgesText(event.currentTarget.value);
+                          setJudgesMessage("");
+                        }}
+                        placeholder={"Alex Morgan\nSam Lee\nJordan Taylor"}
+                        rows={8}
+                      />
+                    </label>
+                    <p className="admin-modal-help">
+                      At least 2 unique names. Blank lines and duplicate names are ignored. Existing assignments stay fixed.
+                    </p>
+                    {judgesMessage ? <p className="admin-modal-error">{judgesMessage}</p> : null}
+                    <div className="admin-modal-actions">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setJudgesOpen(false);
+                          setJudgesMessage("");
+                        }}
+                        disabled={judgesBusy}
+                        type="button"
+                      >
+                        Cancel
+                      </Button>
+                      <Button disabled={judgesBusy} type="submit">
+                        {judgesBusy ? "Assigning..." : "Save judges and assign"}
                       </Button>
                     </div>
                   </form>
@@ -2019,11 +2122,16 @@ function DemoCell({ item }: { item: AdminSubmission }) {
       <span className="admin-demo-title">{item.demoTitle}</span>
       {item.description ? <span className="muted">{item.description}</span> : null}
       {item.videoUrl ? (
-        <a className="admin-video-link" href={item.videoUrl} target="_blank" rel="noreferrer">
+        <a className="admin-project-link" href={item.videoUrl} target="_blank" rel="noreferrer">
           Watch video
         </a>
       ) : item.videoDeletedAt ? (
         <span className="muted">Video expired</span>
+      ) : null}
+      {item.githubUrl ? (
+        <a className="admin-project-link" href={item.githubUrl} target="_blank" rel="noreferrer">
+          Open GitHub repository
+        </a>
       ) : null}
     </>
   );

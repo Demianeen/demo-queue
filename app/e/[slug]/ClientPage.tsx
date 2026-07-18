@@ -20,9 +20,11 @@ import {
   MAX_ADDITIONAL_TEAM_MEMBERS,
   MAX_HACKATHON_VIDEO_BYTES,
   MAX_HACKATHON_VIDEO_LABEL,
+  MAX_GITHUB_REPOSITORY_URL_LENGTH,
   MAX_TEAM_MEMBER_NAME_LENGTH,
   MAX_TEAM_NAME_LENGTH,
   isSupportedVideo,
+  normalizeGithubRepositoryUrl,
   parseAdditionalTeamMembers,
   videoContentType,
 } from "@/lib/hackathon";
@@ -46,6 +48,8 @@ export default function SubmissionPage() {
   const [phoneError, setPhoneError] = useState("");
   const [teamError, setTeamError] = useState("");
   const [videoError, setVideoError] = useState("");
+  const [githubError, setGithubError] = useState("");
+  const [rulesError, setRulesError] = useState("");
   const isHackathon = stage?.event.eventType === "hackathon";
 
   if (!stage) {
@@ -72,6 +76,8 @@ export default function SubmissionPage() {
     const linkedin = read("linkedin");
     const teamName = read("teamName");
     const teamMembers = parseAdditionalTeamMembers(read("teamMembers"));
+    const githubUrl = read("githubUrl");
+    const rulesAccepted = form.get("rulesAccepted") === "on";
     const video = form.get("video");
     const lengthError = firstFieldLimitError({
       name: read("name"),
@@ -90,6 +96,8 @@ export default function SubmissionPage() {
     setPhoneError("");
     setTeamError("");
     setVideoError("");
+    setGithubError("");
+    setRulesError("");
 
     let valid = true;
     if (lengthError) {
@@ -143,6 +151,14 @@ export default function SubmissionPage() {
         setVideoError("Upload an MP4, WebM, or MOV video.");
         valid = false;
       }
+      if (!normalizeGithubRepositoryUrl(githubUrl)) {
+        setGithubError("Enter a valid public GitHub repository URL.");
+        valid = false;
+      }
+      if (!rulesAccepted) {
+        setRulesError("Confirm that your submission meets the event rules.");
+        valid = false;
+      }
     }
     if (!valid) return;
 
@@ -180,6 +196,8 @@ export default function SubmissionPage() {
           ...sharedFields,
           teamName,
           teamMembers,
+          githubUrl,
+          rulesAccepted,
           videoStorageId: uploadResult.storageId as Id<"_storage">,
         });
       } else {
@@ -275,6 +293,25 @@ export default function SubmissionPage() {
               />
             </div>
 
+            {isHackathon ? (
+              <div className="field">
+                <label htmlFor="githubUrl">Public GitHub repository<Req /></label>
+                <input
+                  id="githubUrl"
+                  name="githubUrl"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://github.com/your-org/your-project"
+                  maxLength={MAX_GITHUB_REPOSITORY_URL_LENGTH}
+                  required
+                />
+                <span className="muted form-help">
+                  The repository must be public. Include everything judges need to understand and run the project in the README.
+                </span>
+                {githubError ? <span className="form-error">{githubError}</span> : null}
+              </div>
+            ) : null}
+
             <div className="field">
               <label htmlFor="phone">Phone number<Req /></label>
               <input
@@ -315,7 +352,7 @@ export default function SubmissionPage() {
 
             {isHackathon ? (
               <div className="field">
-                <label htmlFor="video">Project video<Req /></label>
+                <label htmlFor="video">Demo video<Req /></label>
                 <input
                   id="video"
                   name="video"
@@ -324,7 +361,7 @@ export default function SubmissionPage() {
                   required
                 />
                 <span className="muted form-help">
-                  MP4, WebM, or MOV. Maximum {MAX_HACKATHON_VIDEO_LABEL}; stored for six months.
+                  Maximum 90 seconds. Show the working product, not slides. MP4, WebM, or MOV, up to {MAX_HACKATHON_VIDEO_LABEL}. Stored for six months.
                 </span>
                 {videoError ? <span className="form-error">{videoError}</span> : null}
               </div>
@@ -367,6 +404,16 @@ export default function SubmissionPage() {
               <p style={{ color: "var(--app-bad)", fontWeight: 600, marginTop: 2 }}>{socialError}</p>
             ) : null}
           </div>
+
+          {isHackathon ? (
+            <div className="submission-confirmation">
+              <input id="rulesAccepted" name="rulesAccepted" type="checkbox" />
+              <label htmlFor="rulesAccepted">
+                I confirm that our team and project meet the event rules, that this submission is accurate, and that the organisers may judge and present it as a hackathon entry.
+              </label>
+              {rulesError ? <span className="form-error">{rulesError}</span> : null}
+            </div>
+          ) : null}
 
           <div className="actions">
             <button className="button" disabled={isSubmitting} type="submit">

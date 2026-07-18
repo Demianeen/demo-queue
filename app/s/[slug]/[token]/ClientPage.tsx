@@ -159,13 +159,23 @@ export default function ParticipantStatusPage() {
               </span>
             </div>
             <div>
-              <strong>Project video</strong>
+              <strong>Demo video</strong>
               {participant.submission.videoUrl ? (
                 <a href={participant.submission.videoUrl} target="_blank" rel="noreferrer">
                   Open video
                 </a>
               ) : (
                 <span>Video retention period ended</span>
+              )}
+            </div>
+            <div>
+              <strong>GitHub repository</strong>
+              {participant.submission.githubUrl ? (
+                <a href={participant.submission.githubUrl} target="_blank" rel="noreferrer">
+                  Open repository
+                </a>
+              ) : (
+                <span>Not provided</span>
               )}
             </div>
           </div>

@@ -11,6 +11,7 @@ import {
 import {
   MAX_HACKATHON_VIDEO_BYTES,
   isSupportedVideo,
+  normalizeGithubRepositoryUrl,
   parseAdditionalTeamMembers,
 } from "../lib/hackathon.ts";
 import { makeSampleHackathonTeam } from "../lib/sampleData.ts";
@@ -22,7 +23,7 @@ import {
   stageSubmissionPrompt,
 } from "../lib/event-state.ts";
 
-test("judging sheet keeps submission data and both rounds on one tab", () => {
+test("judging sheet keeps submission data and category scoring on one tab", () => {
   const values = buildJudgingSheetValues({
     eventName: "Launch Hack",
     meetUrl: "https://meet.google.com/example",
@@ -36,6 +37,8 @@ test("judging sheet keeps submission data and both rounds on one tab", () => {
         description: '=IMPORTXML("https://example.com/private","//data")',
         category: "AI",
         videoUrl: "https://example.com/video",
+        githubUrl: "https://github.com/orbit/launchpad",
+        roundOneAssignedJudges: ["Alex Morgan", "Sam Lee"],
         email: "sam@example.com",
         phone: "+44 20 7946 0958",
         status: "candidate",
@@ -44,7 +47,7 @@ test("judging sheet keeps submission data and both rounds on one tab", () => {
     ],
   });
 
-  assert.equal(JUDGING_HEADERS.length, 42);
+  assert.equal(JUDGING_HEADERS.length, 27);
   assert.equal(values.length, 5);
   assert.deepEqual(values[3], [...JUDGING_HEADERS]);
   assert.equal(values[4].length, JUDGING_HEADERS.length);
@@ -52,38 +55,27 @@ test("judging sheet keeps submission data and both rounds on one tab", () => {
   assert.equal(values[4][2], "Sam, Alex, Morgan");
   assert.equal(values[4][4], '=IMPORTXML("https://example.com/private","//data")');
   assert.equal(values[4][6], "https://example.com/video");
-  assert.equal(values[4][26], "");
+  assert.equal(values[4][14], "Alex Morgan");
+  assert.equal(values[4][18], "Sam Lee");
+  assert.equal(values[4][26], "https://github.com/orbit/launchpad");
+  assert.equal(values[4][22], "");
 
   const formulaColumns = buildJudgingFormulaColumns(1);
   assert.deepEqual(
     formulaColumns.map(({ column }) => column),
-    ["AA", "AB", "AC", "AD", "AN", "AO", "AP"],
+    ["W", "X", "Y", "Z"],
   );
-  assert.match(formulaColumns[0].values[0][0], /COUNTUNIQUE\(FILTER/);
-  assert.match(formulaColumns[0].values[0][0], /SUMPRODUCT/);
-  assert.match(formulaColumns[0].values[0][0], /TRIM\(\{O5,R5,U5,X5\}\)<>""/);
-  assert.match(formulaColumns[1].values[0][0], /AVERAGE\(QUERY/);
+  assert.match(formulaColumns[0].values[0][0], /COUNT\(P5:R5\)=3/);
+  assert.match(formulaColumns[0].values[0][0], /COUNT\(T5:V5\)=3/);
+  assert.match(formulaColumns[1].values[0][0], /AVERAGE\(P5:R5,T5:V5\)/);
   assert.match(formulaColumns[1].values[0][0], /\$N5="withdrawn"/);
   assert.match(formulaColumns[1].values[0][0], /\$N5="hidden"/);
   assert.match(formulaColumns[1].values[0][0], /\$N5="no_show"/);
   assert.match(formulaColumns[1].values[0][0], /\$N5="removed"/);
-  assert.match(
-    formulaColumns[1].values[0][0],
-    /TRANSPOSE\(ARRAYFORMULA\(LOWER\(TRIM\(\{O5,R5,U5,X5\}\)\)\)\)/,
-  );
-  assert.match(formulaColumns[1].values[0][0], /TRANSPOSE\(\{P5,S5,V5,Y5\}\)/);
-  assert.match(formulaColumns[3].values[0][0], /COUNTIF/);
-  assert.match(formulaColumns[5].values[0][0], /AD5<>TRUE/);
-  assert.match(
-    formulaColumns[5].values[0][0],
-    /TRANSPOSE\(ARRAYFORMULA\(LOWER\(TRIM\(\{AE5,AH5,AK5\}\)\)\)\)/,
-  );
-  assert.match(formulaColumns[5].values[0][0], /TRANSPOSE\(\{AF5,AI5,AL5\}\)/);
-  assert.match(formulaColumns[2].values[0][0], /\$AB\$5:\$AB/);
-  assert.match(formulaColumns[2].values[0][0], /^=IF\(AB5="",""/);
-  assert.doesNotMatch(formulaColumns[2].values[0][0], /\$AB\$5:\$AB\$5/);
-  assert.match(formulaColumns[3].values[0][0], /^=IF\(AB5="",FALSE/);
-  assert.match(formulaColumns[6].values[0][0], /\$AO\$5:\$AO/);
+  assert.match(formulaColumns[2].values[0][0], /\$X\$5:\$X/);
+  assert.match(formulaColumns[2].values[0][0], /^=IF\(X5="",""/);
+  assert.match(formulaColumns[3].values[0][0], /^=IF\(X5="",FALSE/);
+  assert.match(formulaColumns[3].values[0][0], /\$H\$2/);
   for (const { values: formulaValues } of formulaColumns) {
     const formula = formulaValues[0][0];
     assert.equal(
@@ -128,7 +120,7 @@ test("judging sheet sync preserves judge filter and sort configuration", () => {
     startRowIndex: 3,
     endRowIndex: 30,
     startColumnIndex: 0,
-    endColumnIndex: 42,
+    endColumnIndex: 27,
   });
 
   assert.deepEqual(syncedFilter?.criteria, existingFilter.criteria);
@@ -146,6 +138,12 @@ test("hackathon helpers enforce the video and team input contract", () => {
   assert.equal(isSupportedVideo({ name: "demo.mp4", type: "" }), true);
   assert.equal(isSupportedVideo({ name: "notes.txt", type: "text/plain" }), false);
   assert.deepEqual(parseAdditionalTeamMembers(" Alex \n\nMorgan\r\n"), ["Alex", "Morgan"]);
+  assert.equal(
+    normalizeGithubRepositoryUrl("github.com/orbit/launchpad.git"),
+    "https://github.com/orbit/launchpad",
+  );
+  assert.equal(normalizeGithubRepositoryUrl("https://example.com/orbit/launchpad"), null);
+  assert.equal(normalizeGithubRepositoryUrl("https://github.com/orbit/launchpad/issues"), null);
 });
 
 test("hackathon sample data includes a team and valid project fields", () => {

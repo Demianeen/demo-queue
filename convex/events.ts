@@ -19,11 +19,20 @@ import {
 } from "../lib/validation";
 import {
   MAX_ADDITIONAL_TEAM_MEMBERS,
+  normalizeGithubRepositoryUrl,
   MAX_HACKATHON_VIDEO_BYTES,
   MAX_HACKATHON_VIDEO_LABEL,
   MAX_TEAM_MEMBER_NAME_LENGTH,
   MAX_TEAM_NAME_LENGTH,
 } from "../lib/hackathon";
+import {
+  assignRoundOneJudgePair,
+  buildJudgeAssignmentCounts,
+  isValidRoundOneAssignment,
+  parseRoundOneJudges,
+  rosterIncludesJudge,
+  sameJudge,
+} from "../lib/judging-assignment";
 import { participantLineupStatus } from "../lib/event-state";
 import { ZodError } from "zod";
 
@@ -56,6 +65,7 @@ const publicSubmissionFields = (submission: Doc<"submissions">) => ({
   description: submission.description,
   category: submission.category,
   teamName: submission.teamName,
+  githubUrl: submission.githubUrl,
   status: submission.status,
   queueOrder: submission.queueOrder,
 });
@@ -77,6 +87,8 @@ const adminSubmissionFields = (
   videoUrl,
   videoDeleteAt: submission.videoDeleteAt,
   videoDeletedAt: submission.videoDeletedAt,
+  rulesAcceptedAt: submission.rulesAcceptedAt,
+  roundOneAssignedJudges: submission.roundOneAssignedJudges,
   createdAt: submission.createdAt,
   updatedAt: submission.updatedAt,
 });
@@ -108,6 +120,22 @@ function sortQueue(a: Doc<"submissions">, b: Doc<"submissions">) {
 // queueOrder. Position 0 is "now demoing" (current), position 1 is "up next".
 function lineupSorted(submissions: Doc<"submissions">[]) {
   return submissions.filter((submission) => submission.status === "queued").sort(sortQueue);
+}
+
+function isActiveRoundOneSubmission(submission: Doc<"submissions">) {
+  return submission.status === "candidate" || submission.status === "queued";
+}
+
+function assignedPairForNewSubmission(
+  event: Doc<"events">,
+  submissions: Doc<"submissions">[],
+) {
+  const roster = event.roundOneJudges ?? [];
+  if (roster.length < 2) return undefined;
+  const counts = buildJudgeAssignmentCounts(
+    submissions.map((submission) => submission.roundOneAssignedJudges),
+  );
+  return assignRoundOneJudgePair(roster, counts);
 }
 
 function clampTimerMs(value: number, fallbackMs = DEFAULT_STAGE_TIMER_MS) {
@@ -578,6 +606,7 @@ export const getAdmin = query({
         judgingSheetSyncedRevision: event.judgingSheetSyncedRevision ?? 0,
         judgingSheetSyncedAt: event.judgingSheetSyncedAt,
         judgingSheetSyncError: event.judgingSheetSyncError,
+        roundOneJudges: event.roundOneJudges ?? [],
         submissionCount: submissions.length,
         queuePublished: event.queuePublished,
         stageScreenMode: stageScreenMode(event),
@@ -664,6 +693,8 @@ export const getParticipant = query({
         email: submission.email,
         twitter: submission.twitter,
         linkedin: submission.linkedin,
+        githubUrl: submission.githubUrl,
+        rulesAcceptedAt: submission.rulesAcceptedAt,
         teamMembers: teamMembers.map((member) => member.name),
         videoUrl: submission.videoStorageId
           ? await ctx.storage.getUrl(submission.videoStorageId)
@@ -734,6 +765,8 @@ export const submitHackathon = mutation({
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
     category: v.optional(v.string()),
+    githubUrl: v.string(),
+    rulesAccepted: v.boolean(),
     videoStorageId: v.id("_storage"),
   },
   handler: async (ctx, args) => {
@@ -746,14 +779,29 @@ export const submitHackathon = mutation({
     const fields = normalizeSubmissionTextFields(args);
     const teamName = normalizeTeamName(args.teamName);
     const teamMembers = normalizeTeamMembers(args.teamMembers);
+    const githubUrl = normalizeGithubRepositoryUrl(args.githubUrl);
+    if (!githubUrl) {
+      throw new ConvexError("Enter a valid public GitHub repository URL.");
+    }
+    if (!args.rulesAccepted) {
+      throw new ConvexError("Confirm that your submission meets the event rules.");
+    }
     await requireUnattachedSubmissionFile(ctx, args.videoStorageId);
     await validateHackathonVideo(ctx, args.videoStorageId);
+
+    const existingSubmissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,
       ...fields,
       teamName,
+      githubUrl,
+      rulesAcceptedAt: now,
+      roundOneAssignedJudges: assignedPairForNewSubmission(event, existingSubmissions),
       videoStorageId: args.videoStorageId,
       videoUploadedAt: now,
       videoDeleteAt: addMonths(now, 6).getTime(),
@@ -832,6 +880,7 @@ const adminTestSubmissionValidator = v.object({
   category: v.optional(v.string()),
   teamName: v.optional(v.string()),
   teamMembers: v.optional(v.array(v.string())),
+  githubUrl: v.optional(v.string()),
 });
 
 export const adminAddTestSubmissions = mutation({
@@ -850,16 +899,35 @@ export const adminAddTestSubmissions = mutation({
     const isHackathon = eventType(event) === "hackathon";
     const now = Date.now();
     const submissionIds: Id<"submissions">[] = [];
+    const existingSubmissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    const assignmentCounts = buildJudgeAssignmentCounts(
+      existingSubmissions.map((submission) => submission.roundOneAssignedJudges),
+    );
 
     for (const submission of args.submissions) {
       const fields = normalizeSubmissionTextFields(submission);
       const teamName = isHackathon ? normalizeTeamName(submission.teamName ?? "") : undefined;
       const teamMembers = isHackathon ? normalizeTeamMembers(submission.teamMembers ?? []) : [];
+      const githubUrl = isHackathon
+        ? normalizeGithubRepositoryUrl(
+            submission.githubUrl ?? `https://github.com/demo-queue/test-project-${submissionIds.length + 1}`,
+          ) ?? undefined
+        : undefined;
+      const roundOneAssignedJudges =
+        isHackathon && (event.roundOneJudges?.length ?? 0) >= 2
+          ? assignRoundOneJudgePair(event.roundOneJudges!, assignmentCounts)
+          : undefined;
       const submissionId = await ctx.db.insert("submissions", {
         eventId: event._id,
         participantToken: submission.participantToken,
         ...fields,
         teamName,
+        githubUrl,
+        rulesAcceptedAt: isHackathon ? now : undefined,
+        roundOneAssignedJudges,
         status: "candidate",
         queueOrder: undefined,
         createdAt: now,
@@ -952,6 +1020,89 @@ export const updateEvent = mutation({
   },
 });
 
+export const saveRoundOneJudges = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    judges: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    if (eventType(event) !== "hackathon") {
+      throw new ConvexError("Judge assignments are only available for hackathons.");
+    }
+
+    let roster: string[];
+    try {
+      roster = parseRoundOneJudges(args.judges);
+    } catch (error) {
+      throw new ConvexError(error instanceof Error ? error.message : "Invalid judge list.");
+    }
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    const assignedJudges = submissions
+      .flatMap((submission) => submission.roundOneAssignedJudges ?? [])
+      .filter((judge) => !rosterIncludesJudge(roster, judge));
+    if (assignedJudges.length > 0) {
+      const removed = [...new Set(assignedJudges)].join(", ");
+      throw new ConvexError(
+        `Keep assigned judges in the list before saving. Still assigned: ${removed}.`,
+      );
+    }
+
+    const displayName = (judge: string) =>
+      roster.find((candidate) => sameJudge(candidate, judge)) ?? judge;
+    const normalizedAssignments = submissions.map((submission) => {
+      const assignment = submission.roundOneAssignedJudges;
+      return isValidRoundOneAssignment(assignment)
+        ? assignment!.map(displayName)
+        : undefined;
+    });
+    const counts = buildJudgeAssignmentCounts(normalizedAssignments);
+    let newlyAssignedSubmissionCount = 0;
+    let assignedActiveSubmissionCount = 0;
+
+    const sortedSubmissions = [...submissions].sort(
+      (a, b) => a._creationTime - b._creationTime || String(a._id).localeCompare(String(b._id)),
+    );
+    for (const submission of sortedSubmissions) {
+      const active = isActiveRoundOneSubmission(submission);
+      const currentAssignment = isValidRoundOneAssignment(submission.roundOneAssignedJudges)
+        ? submission.roundOneAssignedJudges!.map(displayName)
+        : undefined;
+      const assignment = currentAssignment ?? (active ? assignRoundOneJudgePair(roster, counts) : undefined);
+      if (!assignment) continue;
+      if (!currentAssignment) newlyAssignedSubmissionCount += 1;
+      if (active) assignedActiveSubmissionCount += 1;
+      if (
+        !submission.roundOneAssignedJudges ||
+        assignment.some((judge, index) => judge !== submission.roundOneAssignedJudges![index])
+      ) {
+        await ctx.db.patch(submission._id, {
+          roundOneAssignedJudges: assignment,
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(event._id, { roundOneJudges: roster, updatedAt: now });
+    await logAction(ctx, event._id, "round_one_judges_saved", "admin", String(roster.length));
+    await queueJudgingSheetSync(ctx, event, 0);
+    const activeSubmissionCount = submissions.filter(isActiveRoundOneSubmission).length;
+    return {
+      judgeCount: roster.length,
+      newlyAssignedSubmissionCount,
+      assignedActiveSubmissionCount,
+      activeSubmissionCount,
+    };
+  },
+});
+
 export const changeEventType = mutation({
   args: {
     slug: v.string(),
@@ -986,6 +1137,7 @@ export const changeEventType = mutation({
       judgingSheetSyncedRevision: undefined,
       judgingSheetSyncedAt: undefined,
       judgingSheetSyncError: undefined,
+      roundOneJudges: undefined,
     });
     await logAction(ctx, event._id, "event_type_changed", "admin", args.eventType);
     return { deletedSubmissions: submissions.length };
@@ -1093,6 +1245,8 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
           demoTitle: submission.demoTitle,
           description: submission.description,
           category: submission.category,
+          githubUrl: submission.githubUrl,
+          roundOneAssignedJudges: submission.roundOneAssignedJudges,
           videoUrl: submission.videoStorageId
             ? await ctx.storage.getUrl(submission.videoStorageId)
             : null,
@@ -1592,11 +1746,19 @@ export const restoreSubmission = mutation({
     }
 
     const now = Date.now();
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    const roundOneAssignedJudges = isValidRoundOneAssignment(submission.roundOneAssignedJudges)
+      ? submission.roundOneAssignedJudges
+      : assignedPairForNewSubmission(event, submissions);
     // Restoring a hidden person returns them to the pool, not straight into the
     // lineup; the admin drags them into the running order if they want them.
     await ctx.db.patch(args.submissionId, {
       status: "candidate",
       queueOrder: undefined,
+      roundOneAssignedJudges,
       updatedAt: now,
     });
     await clearAdvanceSnapshot(ctx, event, now);
@@ -1618,6 +1780,13 @@ export const reorderLineup = mutation({
     const event = await eventBySlug(ctx, args.slug);
     requireAdmin(event, args.adminToken);
     const now = Date.now();
+    const eventSubmissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    const assignmentCounts = buildJudgeAssignmentCounts(
+      eventSubmissions.map((submission) => submission.roundOneAssignedJudges),
+    );
 
     for (const [index, submissionId] of args.orderedIds.entries()) {
       const submission = await ctx.db.get(submissionId);
@@ -1631,6 +1800,12 @@ export const reorderLineup = mutation({
       await ctx.db.patch(submissionId, {
         status: "queued",
         queueOrder: index + 1,
+        roundOneAssignedJudges:
+          isValidRoundOneAssignment(submission.roundOneAssignedJudges)
+            ? submission.roundOneAssignedJudges
+            : (event.roundOneJudges?.length ?? 0) >= 2
+              ? assignRoundOneJudgePair(event.roundOneJudges!, assignmentCounts)
+              : undefined,
         updatedAt: now,
       });
     }

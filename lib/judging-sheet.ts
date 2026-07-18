@@ -1,9 +1,11 @@
+import type { sheets_v4 } from "googleapis";
+
 export const JUDGING_SHEET_NAME = "Judging";
 export const JUDGING_HEADER_ROW = 4;
 export const JUDGING_DATA_START_ROW = JUDGING_HEADER_ROW + 1;
-export const ROUND_ONE_JUDGE_SLOTS = 4;
-export const ROUND_TWO_JUDGE_SLOTS = 3;
+export const ROUND_ONE_JUDGE_SLOTS = 2;
 export const ROUND_ONE_MINIMUM_JUDGES = 2;
+export const JUDGING_CATEGORY_COUNT = 3;
 export const FINALIST_COUNT = 6;
 export const MAXIMUM_SCORE = 10;
 
@@ -16,6 +18,8 @@ export type JudgingSheetSubmission = {
   description: string;
   category?: string;
   videoUrl?: string | null;
+  githubUrl?: string;
+  roundOneAssignedJudges?: string[];
   email?: string;
   phone: string;
   twitter?: string;
@@ -39,42 +43,23 @@ export const JUDGING_HEADERS = [
   "LinkedIn",
   "Submitted",
   "Status",
-  "R1 judge 1",
-  "R1 score 1",
-  "R1 notes 1",
-  "R1 judge 2",
-  "R1 score 2",
-  "R1 notes 2",
-  "R1 judge 3",
-  "R1 score 3",
-  "R1 notes 3",
-  "R1 judge 4",
-  "R1 score 4",
-  "R1 notes 4",
-  "R1 judge count",
-  "R1 final score",
-  "R1 rank",
-  "Finalist",
-  "R2 judge 1",
-  "R2 score 1",
-  "R2 notes 1",
-  "R2 judge 2",
-  "R2 score 2",
-  "R2 notes 2",
-  "R2 judge 3",
-  "R2 score 3",
-  "R2 notes 3",
-  "R2 judge count",
+  "Judge 1",
+  "Innovation (0-10)",
+  "Execution (0-10)",
+  "Demo clarity (0-10)",
+  "Judge 2",
+  "Innovation (0-10)",
+  "Execution (0-10)",
+  "Demo clarity (0-10)",
+  "Completed judges",
   "Final score",
-  "Final rank",
+  "Rank",
+  "Stage finalist",
+  "GitHub",
 ] as const;
 
-export const ROUND_ONE_SCORE_COLUMN_INDICES = [15, 18, 21, 24] as const;
-export const ROUND_TWO_SCORE_COLUMN_INDICES = [31, 34, 37] as const;
-export const FORMULA_COLUMN_RANGES = [
-  { startColumnIndex: 26, endColumnIndex: 30 },
-  { startColumnIndex: 39, endColumnIndex: 42 },
-] as const;
+export const ROUND_ONE_SCORE_COLUMN_INDICES = [15, 16, 17, 19, 20, 21] as const;
+export const FORMULA_COLUMN_RANGES = [{ startColumnIndex: 22, endColumnIndex: 26 }] as const;
 export type JudgingFormulaColumn = {
   column: string;
   values: string[][];
@@ -127,29 +112,33 @@ export function buildJudgingSheetValues({
   const values: (string | number | boolean)[][] = [
     ["Event", eventName, "", "Meet", meetUrl, "", "Exported", new Date().toISOString()],
     [
-      "Minimum Round 1 judges",
+      "Judges per submission",
       ROUND_ONE_MINIMUM_JUDGES,
       "",
-      "Finalists",
+      "Categories per judge",
+      JUDGING_CATEGORY_COUNT,
+      "",
+      "Stage finalists",
       FINALIST_COUNT,
       "",
-      "Maximum score",
-      MAXIMUM_SCORE,
+      "Score range",
+      `0-${MAXIMUM_SCORE}`,
     ],
     [
-      "Round 1",
-      "Enter a judge name and score in the same slot. Finalist-cutoff ties use current row order.",
-      "",
-      "Round 2",
-      "Only finalist rows receive a final score and rank.",
+      "Scoring",
+      "Each assigned judge scores Innovation, Execution, and Demo clarity from 0 to 10. Final score appears after both judges complete all three scores.",
     ],
     [...JUDGING_HEADERS],
   ];
 
   submissions.forEach((submission) => {
+    const managedCells = Array.from({ length: JUDGING_HEADERS.length - 14 }, () => "");
+    managedCells[0] = submission.roundOneAssignedJudges?.[0] ?? "";
+    managedCells[4] = submission.roundOneAssignedJudges?.[1] ?? "";
+    managedCells[managedCells.length - 1] = submission.githubUrl ?? "";
     values.push([
       ...buildJudgingSubmissionRow(submission),
-      ...Array.from({ length: JUDGING_HEADERS.length - 14 }, () => ""),
+      ...managedCells,
     ]);
   });
 
@@ -162,24 +151,17 @@ export function buildJudgingFormulaColumns(submissionCount: number): JudgingForm
   const formulas = Array.from({ length: submissionCount }, (_, index) => {
     const row = JUDGING_DATA_START_ROW + index;
     return {
-      roundOneJudgeCount: `=IF(SUMPRODUCT(--(LEN(TRIM({O${row},R${row},U${row},X${row}}))>0),--ISNUMBER({P${row},S${row},V${row},Y${row}}))=0,0,COUNTUNIQUE(FILTER(LOWER(TRIM({O${row},R${row},U${row},X${row}})),TRIM({O${row},R${row},U${row},X${row}})<>"",ISNUMBER({P${row},S${row},V${row},Y${row}}))))`,
-      roundOneScore: `=IF(OR($N${row}="withdrawn",$N${row}="hidden",$N${row}="no_show",$N${row}="removed",AA${row}<$B$2),"",AVERAGE(QUERY({TRANSPOSE(ARRAYFORMULA(LOWER(TRIM({O${row},R${row},U${row},X${row}})))),TRANSPOSE({P${row},S${row},V${row},Y${row}})},"select avg(Col2) where Col1 is not null and Col2 is not null group by Col1 label avg(Col2) ''",0)))`,
-      roundOneRank: `=IF(AB${row}="","",RANK(AB${row},$AB$${JUDGING_DATA_START_ROW}:$AB,0))`,
-      finalist: `=IF(AB${row}="",FALSE,COUNTIF($AB$${JUDGING_DATA_START_ROW}:$AB,">"&AB${row})+COUNTIF($AB$${JUDGING_DATA_START_ROW}:AB${row},AB${row})<=$E$2)`,
-      roundTwoJudgeCount: `=IF(AD${row}<>TRUE,0,IF(SUMPRODUCT(--(LEN(TRIM({AE${row},AH${row},AK${row}}))>0),--ISNUMBER({AF${row},AI${row},AL${row}}))=0,0,COUNTUNIQUE(FILTER(LOWER(TRIM({AE${row},AH${row},AK${row}})),TRIM({AE${row},AH${row},AK${row}})<>"",ISNUMBER({AF${row},AI${row},AL${row}})))))`,
-      finalScore: `=IF(OR(AD${row}<>TRUE,AN${row}=0),"",AVERAGE(QUERY({TRANSPOSE(ARRAYFORMULA(LOWER(TRIM({AE${row},AH${row},AK${row}})))),TRANSPOSE({AF${row},AI${row},AL${row}})},"select avg(Col2) where Col1 is not null and Col2 is not null group by Col1 label avg(Col2) ''",0)))`,
-      finalRank: `=IF(AO${row}="","",RANK(AO${row},$AO$${JUDGING_DATA_START_ROW}:$AO,0))`,
+      completedJudges: `=IF(AND(LEN(TRIM(O${row}))>0,COUNT(P${row}:R${row})=3),1,0)+IF(AND(LEN(TRIM(S${row}))>0,COUNT(T${row}:V${row})=3),1,0)`,
+      finalScore: `=IF(OR($N${row}="withdrawn",$N${row}="hidden",$N${row}="no_show",$N${row}="removed",W${row}<$B$2),"",AVERAGE(P${row}:R${row},T${row}:V${row}))`,
+      rank: `=IF(X${row}="","",RANK(X${row},$X$${JUDGING_DATA_START_ROW}:$X,0))`,
+      finalist: `=IF(X${row}="",FALSE,COUNTIF($X$${JUDGING_DATA_START_ROW}:$X,">"&X${row})+COUNTIF($X$${JUDGING_DATA_START_ROW}:X${row},X${row})<=$H$2)`,
     };
   });
 
   return [
-    { column: "AA", values: formulas.map(({ roundOneJudgeCount }) => [roundOneJudgeCount]) },
-    { column: "AB", values: formulas.map(({ roundOneScore }) => [roundOneScore]) },
-    { column: "AC", values: formulas.map(({ roundOneRank }) => [roundOneRank]) },
-    { column: "AD", values: formulas.map(({ finalist }) => [finalist]) },
-    { column: "AN", values: formulas.map(({ roundTwoJudgeCount }) => [roundTwoJudgeCount]) },
-    { column: "AO", values: formulas.map(({ finalScore }) => [finalScore]) },
-    { column: "AP", values: formulas.map(({ finalRank }) => [finalRank]) },
+    { column: "W", values: formulas.map(({ completedJudges }) => [completedJudges]) },
+    { column: "X", values: formulas.map(({ finalScore }) => [finalScore]) },
+    { column: "Y", values: formulas.map(({ rank }) => [rank]) },
+    { column: "Z", values: formulas.map(({ finalist }) => [finalist]) },
   ];
 }
-import type { sheets_v4 } from "googleapis";

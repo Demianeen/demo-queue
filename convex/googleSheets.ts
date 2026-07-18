@@ -7,13 +7,15 @@ import { google, type sheets_v4 } from "googleapis";
 import { randomUUID } from "node:crypto";
 import {
   FORMULA_COLUMN_RANGES,
+  FINALIST_COUNT,
+  JUDGING_CATEGORY_COUNT,
   JUDGING_DATA_START_ROW,
   JUDGING_HEADER_ROW,
   JUDGING_HEADERS,
   JUDGING_SHEET_NAME,
   MAXIMUM_SCORE,
   ROUND_ONE_SCORE_COLUMN_INDICES,
-  ROUND_TWO_SCORE_COLUMN_INDICES,
+  ROUND_ONE_MINIMUM_JUDGES,
   buildJudgingFormulaColumns,
   buildSyncedBasicFilter,
   buildJudgingSheetValues,
@@ -216,12 +218,9 @@ function formattingRequests(sheetId: number, rowCount: number) {
     columnWidthRequest(sheetId, 14, JUDGING_HEADERS.length, 120),
   ];
 
-  for (const columnIndex of [
-    ...ROUND_ONE_SCORE_COLUMN_INDICES,
-    ...ROUND_TWO_SCORE_COLUMN_INDICES,
-  ]) {
+  for (const columnIndex of ROUND_ONE_SCORE_COLUMN_INDICES) {
     requests.push(scoreValidationRequest(sheetId, columnIndex, endRowIndex));
-    requests.push(columnWidthRequest(sheetId, columnIndex, columnIndex + 1, 78));
+    requests.push(columnWidthRequest(sheetId, columnIndex, columnIndex + 1, 120));
   }
 
   for (const range of FORMULA_COLUMN_RANGES) {
@@ -257,30 +256,6 @@ function formattingRequests(sheetId: number, rowCount: number) {
       },
     });
   }
-
-  requests.push({
-    addConditionalFormatRule: {
-      index: 0,
-      rule: {
-        ranges: [
-          {
-            sheetId,
-            startRowIndex: JUDGING_DATA_START_ROW - 1,
-            endRowIndex,
-            startColumnIndex: 0,
-            endColumnIndex: JUDGING_HEADERS.length,
-          },
-        ],
-        booleanRule: {
-          condition: {
-            type: "CUSTOM_FORMULA",
-            values: [{ userEnteredValue: `=$AD${JUDGING_DATA_START_ROW}=TRUE` }],
-          },
-          format: { backgroundColor: { red: 0.9, green: 0.98, blue: 0.91 } },
-        },
-      },
-    },
-  });
 
   return requests;
 }
@@ -380,41 +355,18 @@ async function replaceJudgingTab({
   }
 }
 
-function finalistConditionalFormatRule(sheetId: number, endRowIndex: number) {
-  return {
-    ranges: [
-      {
-        sheetId,
-        startRowIndex: JUDGING_DATA_START_ROW - 1,
-        endRowIndex,
-        startColumnIndex: 0,
-        endColumnIndex: JUDGING_HEADERS.length,
-      },
-    ],
-    booleanRule: {
-      condition: {
-        type: "CUSTOM_FORMULA",
-        values: [{ userEnteredValue: `=$AD${JUDGING_DATA_START_ROW}=TRUE` }],
-      },
-      format: { backgroundColor: { red: 0.9, green: 0.98, blue: 0.91 } },
-    },
-  } satisfies sheets_v4.Schema$ConditionalFormatRule;
-}
-
 function syncFormattingRequests({
   sheetId,
   currentRowCount,
   endRowIndex,
   basicFilter,
   protectedRanges,
-  hasConditionalFormats,
 }: {
   sheetId: number;
   currentRowCount: number;
   endRowIndex: number;
   basicFilter: sheets_v4.Schema$BasicFilter | undefined;
   protectedRanges: sheets_v4.Schema$ProtectedRange[];
-  hasConditionalFormats: boolean;
 }) {
   const requests: sheets_v4.Schema$Request[] = [];
   if (currentRowCount < endRowIndex) {
@@ -455,11 +407,9 @@ function syncFormattingRequests({
     },
   });
 
-  for (const columnIndex of [
-    ...ROUND_ONE_SCORE_COLUMN_INDICES,
-    ...ROUND_TWO_SCORE_COLUMN_INDICES,
-  ]) {
+  for (const columnIndex of ROUND_ONE_SCORE_COLUMN_INDICES) {
     requests.push(scoreValidationRequest(sheetId, columnIndex, endRowIndex));
+    requests.push(columnWidthRequest(sheetId, columnIndex, columnIndex + 1, 120));
   }
 
   for (const range of FORMULA_COLUMN_RANGES) {
@@ -522,12 +472,6 @@ function syncFormattingRequests({
     }
   }
 
-  const conditionalRule = finalistConditionalFormatRule(sheetId, endRowIndex);
-  requests.push(
-    hasConditionalFormats
-      ? { updateConditionalFormatRule: { index: 0, rule: conditionalRule, sheetId } }
-      : { addConditionalFormatRule: { index: 0, rule: conditionalRule } },
-  );
   return requests;
 }
 
@@ -547,7 +491,7 @@ async function syncExistingJudgingSheet({
   const spreadsheet = await sheets.spreadsheets.get({
     spreadsheetId,
     fields:
-      "sheets(properties(sheetId,title,gridProperties(rowCount)),basicFilter,protectedRanges(protectedRangeId,description,range),conditionalFormats)",
+      "sheets(properties(sheetId,title,gridProperties(rowCount)),basicFilter,protectedRanges(protectedRangeId,description,range))",
   });
   const managedSheet = spreadsheet.data.sheets?.find(
     (sheet) => sheet.properties?.title === JUDGING_SHEET_NAME,
@@ -555,6 +499,23 @@ async function syncExistingJudgingSheet({
   const sheetId = managedSheet?.properties?.sheetId;
   if (!managedSheet || typeof sheetId !== "number") {
     throw new ConvexError("The judging sheet no longer has its Judging tab.");
+  }
+
+  const headerResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A${JUDGING_HEADER_ROW}:AQ${JUDGING_HEADER_ROW}`,
+  });
+  const existingHeaders = headerResponse.data.values?.[0] ?? [];
+  const legacyLayout = existingHeaders.includes("R1 judge 1") || existingHeaders.includes("R2 judge 1");
+  const currentLayout = existingHeaders[0] === "Submission ID" && existingHeaders[14] === "Judge 1";
+  if (legacyLayout || !currentLayout) {
+    await replaceJudgingTab({
+      sheets,
+      spreadsheetId,
+      values: buildJudgingSheetValues({ eventName, meetUrl, submissions }),
+      replaceDefaultSheet: false,
+    });
+    return;
   }
 
   const existingIdsResponse = await sheets.spreadsheets.values.get({
@@ -584,6 +545,18 @@ async function syncExistingJudgingSheet({
       range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!G1:H1`,
       values: [["Synced", new Date().toISOString()]],
     },
+    {
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A2:K2`,
+      values: [["Judges per submission", ROUND_ONE_MINIMUM_JUDGES, "", "Categories per judge", JUDGING_CATEGORY_COUNT, "", "Stage finalists", FINALIST_COUNT, "", "Score range", `0-${MAXIMUM_SCORE}`]],
+    },
+    {
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A3:B3`,
+      values: [["Scoring", "Each assigned judge scores Innovation, Execution, and Demo clarity from 0 to 10. Final score appears after both judges complete all three scores."]],
+    },
+    {
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A4:AA4`,
+      values: [[...JUDGING_HEADERS]],
+    },
   ];
   const currentSubmissionIds = new Set(submissions.map((submission) => submission.id));
 
@@ -594,6 +567,22 @@ async function syncExistingJudgingSheet({
       range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A${row}:N${row}`,
       values: [buildJudgingSubmissionRow(submission)],
     });
+    sourceUpdates.push({
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!AA${row}`,
+      values: [[submission.githubUrl ?? ""]],
+    });
+    if (submission.roundOneAssignedJudges?.length === 2) {
+      sourceUpdates.push(
+        {
+          range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!O${row}`,
+          values: [[submission.roundOneAssignedJudges[0]]],
+        },
+        {
+          range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!S${row}`,
+          values: [[submission.roundOneAssignedJudges[1]]],
+        },
+      );
+    }
   }
   for (const [submissionId, row] of rowBySubmissionId) {
     if (!currentSubmissionIds.has(submissionId)) {
@@ -615,7 +604,6 @@ async function syncExistingJudgingSheet({
     endRowIndex,
     basicFilter: managedSheet.basicFilter,
     protectedRanges: managedSheet.protectedRanges ?? [],
-    hasConditionalFormats: (managedSheet.conditionalFormats?.length ?? 0) > 0,
   });
   if (formatting.length > 0) {
     await sheets.spreadsheets.batchUpdate({

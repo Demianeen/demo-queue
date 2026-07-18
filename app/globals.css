@@ -259,6 +259,41 @@ h3 {
   font-weight: 600;
 }
 
+.submission-confirmation {
+  align-items: start;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--app-line);
+  border-radius: 14px;
+  display: grid;
+  gap: 7px 10px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  padding: 14px 16px;
+}
+
+.submission-confirmation input {
+  accent-color: var(--cx-indigo);
+  height: 18px;
+  margin: 2px 0 0;
+  width: 18px;
+}
+
+.submission-confirmation input:focus-visible {
+  outline: 3px solid rgba(79, 70, 229, 0.24);
+  outline-offset: 2px;
+}
+
+.submission-confirmation label {
+  color: #304238;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.submission-confirmation .form-error {
+  grid-column: 2;
+}
+
 .hackathon-status-details {
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid var(--app-line);
@@ -298,7 +333,7 @@ h3 {
   margin-top: 2px;
 }
 
-.admin-video-link {
+.admin-project-link {
   color: var(--cx-indigo);
   display: block;
   font-size: 12px;
@@ -2071,6 +2106,24 @@ h3 {
   min-height: 48px;
   padding: 0 14px;
   width: 100%;
+}
+
+.admin-modal-field textarea {
+  border: 1px solid var(--app-line);
+  border-radius: 10px;
+  color: var(--app-ink);
+  font: inherit;
+  line-height: 1.45;
+  min-height: 160px;
+  padding: 12px 14px;
+  resize: vertical;
+  width: 100%;
+}
+
+.admin-modal-field textarea:focus {
+  border-color: var(--cx-indigo);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+  outline: none;
 }
 
 .admin-modal-field input:focus {

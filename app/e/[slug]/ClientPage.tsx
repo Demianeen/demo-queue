@@ -2,7 +2,9 @@
 
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { InfoIcon } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { participantPath } from "@/lib/routes";
@@ -296,6 +298,13 @@ export default function SubmissionPage() {
             {isHackathon ? (
               <div className="field">
                 <label htmlFor="githubUrl">Public GitHub repository<Req /></label>
+                <Alert>
+                  <InfoIcon />
+                  <AlertTitle className="font-semibold">Public repository required</AlertTitle>
+                  <AlertDescription className="text-foreground">
+                    Everything judges need to understand and run your project must be in the README.
+                  </AlertDescription>
+                </Alert>
                 <input
                   id="githubUrl"
                   name="githubUrl"
@@ -305,9 +314,6 @@ export default function SubmissionPage() {
                   maxLength={MAX_GITHUB_REPOSITORY_URL_LENGTH}
                   required
                 />
-                <span className="muted form-help">
-                  The repository must be public. Include everything judges need to understand and run the project in the README.
-                </span>
                 {githubError ? <span className="form-error">{githubError}</span> : null}
               </div>
             ) : null}
@@ -353,6 +359,13 @@ export default function SubmissionPage() {
             {isHackathon ? (
               <div className="field">
                 <label htmlFor="video">Demo video<Req /></label>
+                <Alert>
+                  <InfoIcon />
+                  <AlertTitle className="font-semibold">Maximum 90 seconds. No slides.</AlertTitle>
+                  <AlertDescription className="text-foreground">
+                    Show the working product. MP4, WebM, or MOV, up to {MAX_HACKATHON_VIDEO_LABEL}. Stored for six months.
+                  </AlertDescription>
+                </Alert>
                 <input
                   id="video"
                   name="video"
@@ -360,9 +373,6 @@ export default function SubmissionPage() {
                   accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm"
                   required
                 />
-                <span className="muted form-help">
-                  Maximum 90 seconds. Show the working product, not slides. MP4, WebM, or MOV, up to {MAX_HACKATHON_VIDEO_LABEL}. Stored for six months.
-                </span>
                 {videoError ? <span className="form-error">{videoError}</span> : null}
               </div>
             ) : null}

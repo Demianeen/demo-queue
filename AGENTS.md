@@ -12,6 +12,15 @@ Convex agent skills for common tasks can be installed by running
 
 <!-- convex-ai-end -->
 
+## UI component primitives
+
+Before creating custom alerts, notices, dialogs, fields, inputs, or other common
+UI primitives, inspect both `components/ui` and the official shadcn registry.
+Use or install the established shadcn component when one exists, then adapt it
+through its supported composition and variants. Hand-roll a primitive only when
+the registry has no suitable component or a concrete product constraint requires
+different behavior.
+
 ## Convex deployment safety
 
 The only canonical Convex deployments for this project are:

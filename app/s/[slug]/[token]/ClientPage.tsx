@@ -13,6 +13,7 @@ import {
   isValidTwitter,
 } from "@/lib/validation";
 import { Brand } from "@/app/Brand";
+import { shouldShowMeetAvailabilityCopy } from "@/lib/event-state";
 
 const statusLabels: Record<string, string> = {
   candidate: "Submitted, waiting to be added as a demoer",
@@ -180,11 +181,11 @@ export default function ParticipantStatusPage() {
           >
             Join now
           </a>
-        ) : (
+        ) : shouldShowMeetAvailabilityCopy(participant.submission.status) ? (
           <div className="copy-line">
             The Meet link appears here once you&apos;re listed as a live presenter.
           </div>
-        )}
+        ) : null}
 
         <h2 style={{ marginTop: 24 }}>Contact info</h2>
         <form className="form" onSubmit={saveContact}>

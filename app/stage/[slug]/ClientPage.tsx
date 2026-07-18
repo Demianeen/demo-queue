@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import { absoluteUrl, submissionPath } from "@/lib/routes";
+import { stageSubmissionPrompt } from "@/lib/event-state";
 import { Skeleton } from "@/app/Skeleton";
 import { cn } from "@/lib/utils";
 
@@ -398,7 +399,9 @@ export default function StagePage() {
                 />
                 <div className="qr-box">
                   <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
-                  <h3 style={{ marginTop: 14 }}>Submit your demo</h3>
+                  <h3 style={{ marginTop: 14 }}>
+                    {stageSubmissionPrompt(stage.event.eventType)}
+                  </h3>
                 </div>
               </div>
               {showSubmissionCount ? (

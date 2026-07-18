@@ -5,12 +5,22 @@ import {
   JUDGING_HEADERS,
   buildJudgingFormulaColumns,
   buildJudgingSheetValues,
+  buildJudgingSubmissionRow,
+  buildSyncedBasicFilter,
 } from "../lib/judging-sheet.ts";
 import {
   MAX_HACKATHON_VIDEO_BYTES,
   isSupportedVideo,
   parseAdditionalTeamMembers,
 } from "../lib/hackathon.ts";
+import { makeSampleHackathonTeam } from "../lib/sampleData.ts";
+import {
+  completedQueueLabel,
+  lineupPositionLabel,
+  participantLineupStatus,
+  shouldShowMeetAvailabilityCopy,
+  stageSubmissionPrompt,
+} from "../lib/event-state.ts";
 
 test("judging sheet keeps submission data and both rounds on one tab", () => {
   const values = buildJudgingSheetValues({
@@ -50,12 +60,85 @@ test("judging sheet keeps submission data and both rounds on one tab", () => {
     ["AA", "AB", "AC", "AD", "AN", "AO", "AP"],
   );
   assert.match(formulaColumns[0].values[0][0], /COUNTUNIQUE\(FILTER/);
+  assert.match(formulaColumns[0].values[0][0], /SUMPRODUCT/);
   assert.match(formulaColumns[0].values[0][0], /TRIM\(\{O5,R5,U5,X5\}\)<>""/);
   assert.match(formulaColumns[1].values[0][0], /AVERAGE\(QUERY/);
+  assert.match(formulaColumns[1].values[0][0], /\$N5="withdrawn"/);
+  assert.match(formulaColumns[1].values[0][0], /\$N5="hidden"/);
+  assert.match(formulaColumns[1].values[0][0], /\$N5="no_show"/);
+  assert.match(formulaColumns[1].values[0][0], /\$N5="removed"/);
+  assert.match(
+    formulaColumns[1].values[0][0],
+    /TRANSPOSE\(ARRAYFORMULA\(LOWER\(TRIM\(\{O5,R5,U5,X5\}\)\)\)\)/,
+  );
+  assert.match(formulaColumns[1].values[0][0], /TRANSPOSE\(\{P5,S5,V5,Y5\}\)/);
   assert.match(formulaColumns[3].values[0][0], /COUNTIF/);
   assert.match(formulaColumns[5].values[0][0], /AD5<>TRUE/);
+  assert.match(
+    formulaColumns[5].values[0][0],
+    /TRANSPOSE\(ARRAYFORMULA\(LOWER\(TRIM\(\{AE5,AH5,AK5\}\)\)\)\)/,
+  );
+  assert.match(formulaColumns[5].values[0][0], /TRANSPOSE\(\{AF5,AI5,AL5\}\)/);
+  assert.match(formulaColumns[2].values[0][0], /\$AB\$5:\$AB/);
+  assert.match(formulaColumns[2].values[0][0], /^=IF\(AB5="",""/);
+  assert.doesNotMatch(formulaColumns[2].values[0][0], /\$AB\$5:\$AB\$5/);
+  assert.match(formulaColumns[3].values[0][0], /^=IF\(AB5="",FALSE/);
+  assert.match(formulaColumns[6].values[0][0], /\$AO\$5:\$AO/);
+  for (const { values: formulaValues } of formulaColumns) {
+    const formula = formulaValues[0][0];
+    assert.equal(
+      [...formula].filter((character) => character === "(").length,
+      [...formula].filter((character) => character === ")").length,
+    );
+  }
   assert.equal(buildJudgingFormulaColumns(0).length, 0);
+});
 
+test("judging sheet source updates stop before judge-entered columns", () => {
+  const row = buildJudgingSubmissionRow({
+    id: "submission-2",
+    teamName: "Comet",
+    teamMembers: ["Riley"],
+    name: "Taylor",
+    demoTitle: "Signal",
+    description: "Fast project summary",
+    category: "Tools",
+    videoUrl: "https://example.com/video-2",
+    email: "taylor@example.com",
+    phone: "+44 20 7000 0000",
+    status: "queued",
+    createdAt: Date.UTC(2026, 6, 17),
+  });
+
+  assert.equal(row.length, 14);
+  assert.equal(row[0], "submission-2");
+  assert.equal(row[13], "queued");
+});
+
+test("judging sheet sync preserves judge filter and sort configuration", () => {
+  const existingFilter = {
+    criteria: { "27": { hiddenValues: [""] } },
+    filterSpecs: [{ columnIndex: 27, filterCriteria: { hiddenValues: [""] } }],
+    sortSpecs: [{ dimensionIndex: 27, sortOrder: "DESCENDING" }],
+    range: { sheetId: 7, startRowIndex: 3, endRowIndex: 12 },
+  };
+
+  const syncedFilter = buildSyncedBasicFilter(existingFilter, {
+    sheetId: 7,
+    startRowIndex: 3,
+    endRowIndex: 30,
+    startColumnIndex: 0,
+    endColumnIndex: 42,
+  });
+
+  assert.deepEqual(syncedFilter?.criteria, existingFilter.criteria);
+  assert.deepEqual(syncedFilter?.filterSpecs, existingFilter.filterSpecs);
+  assert.deepEqual(syncedFilter?.sortSpecs, existingFilter.sortSpecs);
+  assert.equal(syncedFilter?.range?.endRowIndex, 30);
+  assert.equal(
+    buildSyncedBasicFilter({ tableId: "judging-table" }, { sheetId: 7 }),
+    null,
+  );
 });
 
 test("hackathon helpers enforce the video and team input contract", () => {
@@ -63,4 +146,35 @@ test("hackathon helpers enforce the video and team input contract", () => {
   assert.equal(isSupportedVideo({ name: "demo.mp4", type: "" }), true);
   assert.equal(isSupportedVideo({ name: "notes.txt", type: "text/plain" }), false);
   assert.deepEqual(parseAdditionalTeamMembers(" Alex \n\nMorgan\r\n"), ["Alex", "Morgan"]);
+});
+
+test("hackathon sample data includes a team and valid project fields", () => {
+  const sample = makeSampleHackathonTeam();
+
+  assert.ok(sample.teamName.length > 0 && sample.teamName.length <= 80);
+  assert.ok(sample.teamMembers.length >= 1 && sample.teamMembers.length <= 3);
+  assert.equal(new Set(sample.teamMembers).size, sample.teamMembers.length);
+  assert.equal(sample.teamMembers.includes(sample.name), false);
+  assert.ok(sample.demoTitle.length <= 64);
+  assert.ok(sample.description.length <= 240);
+  assert.match(sample.email, /@example\.com$/);
+});
+
+test("event UI state stays non-live until publishing and finishes cleanly", () => {
+  assert.equal(lineupPositionLabel(0, "hackathon", false), "#1");
+  assert.equal(lineupPositionLabel(1, "hackathon", false), "#2");
+  assert.equal(lineupPositionLabel(0, "hackathon", true), "Now presenting");
+  assert.equal(lineupPositionLabel(1, "demo", true), "Up next");
+
+  assert.equal(participantLineupStatus("queued", 0, false), "queued");
+  assert.equal(participantLineupStatus("queued", 0, true), "current");
+  assert.equal(participantLineupStatus("queued", 1, true), "up_next");
+  assert.equal(participantLineupStatus("candidate", -1, true), "candidate");
+
+  assert.equal(completedQueueLabel("hackathon"), "Presentations complete");
+  assert.equal(completedQueueLabel("demo"), "Queue complete");
+  assert.equal(stageSubmissionPrompt("hackathon"), "Submit your project");
+  assert.equal(stageSubmissionPrompt("demo"), "Submit your demo");
+  assert.equal(shouldShowMeetAvailabilityCopy("queued"), true);
+  assert.equal(shouldShowMeetAvailabilityCopy("done"), false);
 });

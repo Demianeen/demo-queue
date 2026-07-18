@@ -3,6 +3,7 @@ import {
   DatabaseReader,
   DatabaseWriter,
   internalMutation,
+  internalQuery,
   mutation,
   query,
   type MutationCtx,
@@ -23,6 +24,7 @@ import {
   MAX_TEAM_MEMBER_NAME_LENGTH,
   MAX_TEAM_NAME_LENGTH,
 } from "../lib/hackathon";
+import { participantLineupStatus } from "../lib/event-state";
 import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -34,6 +36,7 @@ const MIN_STAGE_TIMER_MS = 0;
 const MIN_OVERTIME_TIMER_MS = -MAX_STAGE_TIMER_MS;
 const ORPHAN_UPLOAD_GRACE_MS = 24 * 60 * 60 * 1000;
 const ORPHAN_UPLOAD_BATCH_SIZE = 50;
+const JUDGING_SHEET_SYNC_DEBOUNCE_MS = 2_000;
 type PublicStageTimerStatus = "idle" | "running" | "paused";
 type StageScreenMode = "qr" | "demo";
 type EventType = "demo" | "hackathon";
@@ -207,6 +210,24 @@ async function logAction(
     actor,
     details,
     createdAt: Date.now(),
+  });
+}
+
+async function queueJudgingSheetSync(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  delayMs = JUDGING_SHEET_SYNC_DEBOUNCE_MS,
+) {
+  if (eventType(event) !== "hackathon" || !event.judgingSheetId) return;
+
+  const revision = (event.judgingSheetSyncRevision ?? 0) + 1;
+  await ctx.db.patch(event._id, {
+    judgingSheetSyncRevision: revision,
+    judgingSheetSyncError: undefined,
+  });
+  await ctx.scheduler.runAfter(delayMs, internal.googleSheets.syncJudgingSheet, {
+    eventId: event._id,
+    revision,
   });
 }
 
@@ -553,6 +574,10 @@ export const getAdmin = query({
         judgingSheetId: event.judgingSheetId,
         judgingSheetUrl: event.judgingSheetUrl,
         judgingSheetCreatedAt: event.judgingSheetCreatedAt,
+        judgingSheetSyncRevision: event.judgingSheetSyncRevision ?? 0,
+        judgingSheetSyncedRevision: event.judgingSheetSyncedRevision ?? 0,
+        judgingSheetSyncedAt: event.judgingSheetSyncedAt,
+        judgingSheetSyncError: event.judgingSheetSyncError,
         submissionCount: submissions.length,
         queuePublished: event.queuePublished,
         stageScreenMode: stageScreenMode(event),
@@ -611,14 +636,11 @@ export const getParticipant = query({
     const lineup = lineupSorted(allSubmissions);
     const lineupIndex = lineup.findIndex((entry) => entry._id === submission._id);
 
-    let liveStatus = submission.status as string;
-    if (lineupIndex === 0) {
-      liveStatus = "current";
-    } else if (lineupIndex === 1) {
-      liveStatus = "up_next";
-    } else if (lineupIndex > 1) {
-      liveStatus = "queued";
-    }
+    const liveStatus = participantLineupStatus(
+      submission.status,
+      lineupIndex,
+      event.queuePublished,
+    );
 
     // Anyone in the published lineup can see the Meet link (lineupIndex >= 0),
     // not just the current/up-next speakers. Pool/candidate entries (index -1)
@@ -752,6 +774,7 @@ export const submitHackathon = mutation({
 
     await ctx.db.patch(event._id, { updatedAt: now });
     await logAction(ctx, event._id, "hackathon_submission_created", "participant", submissionId);
+    await queueJudgingSheetSync(ctx, event);
     return { submissionId };
   },
 });
@@ -797,6 +820,71 @@ export const adminAddSubmission = mutation({
   },
 });
 
+const adminTestSubmissionValidator = v.object({
+  participantToken: v.string(),
+  name: v.string(),
+  demoTitle: v.string(),
+  description: v.string(),
+  phone: v.string(),
+  email: v.optional(v.string()),
+  twitter: v.optional(v.string()),
+  linkedin: v.optional(v.string()),
+  category: v.optional(v.string()),
+  teamName: v.optional(v.string()),
+  teamMembers: v.optional(v.array(v.string())),
+});
+
+export const adminAddTestSubmissions = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    submissions: v.array(adminTestSubmissionValidator),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    if (args.submissions.length < 1 || args.submissions.length > 25) {
+      throw new ConvexError("Add between 1 and 25 test submissions at a time.");
+    }
+
+    const isHackathon = eventType(event) === "hackathon";
+    const now = Date.now();
+    const submissionIds: Id<"submissions">[] = [];
+
+    for (const submission of args.submissions) {
+      const fields = normalizeSubmissionTextFields(submission);
+      const teamName = isHackathon ? normalizeTeamName(submission.teamName ?? "") : undefined;
+      const teamMembers = isHackathon ? normalizeTeamMembers(submission.teamMembers ?? []) : [];
+      const submissionId = await ctx.db.insert("submissions", {
+        eventId: event._id,
+        participantToken: submission.participantToken,
+        ...fields,
+        teamName,
+        status: "candidate",
+        queueOrder: undefined,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      for (const memberName of teamMembers) {
+        await ctx.db.insert("teamMembers", {
+          eventId: event._id,
+          submissionId,
+          name: memberName,
+          createdAt: now,
+        });
+      }
+
+      await logAction(ctx, event._id, "test_submission_admin_added", "admin", submissionId);
+      submissionIds.push(submissionId);
+    }
+
+    await ctx.db.patch(event._id, { updatedAt: now });
+    await queueJudgingSheetSync(ctx, event);
+    return { submissionIds };
+  },
+});
+
 export const editParticipantContact = mutation({
   args: {
     slug: v.string(),
@@ -821,6 +909,7 @@ export const editParticipantContact = mutation({
       ...normalizeContactTextFields(args),
       updatedAt: Date.now(),
     });
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -839,6 +928,7 @@ export const withdrawSubmission = mutation({
 
     await ctx.db.patch(submission._id, { status: "withdrawn", updatedAt: Date.now() });
     await logAction(ctx, event._id, "submission_withdrawn", "participant", submission._id);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -858,6 +948,7 @@ export const updateEvent = mutation({
       meetUrl: args.meetUrl.trim(),
       updatedAt: Date.now(),
     });
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -891,6 +982,10 @@ export const changeEventType = mutation({
       judgingSheetId: undefined,
       judgingSheetUrl: undefined,
       judgingSheetCreatedAt: undefined,
+      judgingSheetSyncRevision: undefined,
+      judgingSheetSyncedRevision: undefined,
+      judgingSheetSyncedAt: undefined,
+      judgingSheetSyncError: undefined,
     });
     await logAction(ctx, event._id, "event_type_changed", "admin", args.eventType);
     return { deletedSubmissions: submissions.length };
@@ -908,7 +1003,7 @@ export const saveJudgingSheet = mutation({
     const event = await eventBySlug(ctx, args.slug);
     requireAdmin(event, args.adminToken);
     if (eventType(event) !== "hackathon") {
-      throw new ConvexError("Judging Sheets are only available for hackathon events.");
+      throw new ConvexError("Judging sheets are only available for hackathon events.");
     }
 
     if (event.judgingSheetId && event.judgingSheetUrl) {
@@ -920,11 +1015,20 @@ export const saveJudgingSheet = mutation({
     }
 
     const now = Date.now();
+    const revision = (event.judgingSheetSyncRevision ?? 0) + 1;
     await ctx.db.patch(event._id, {
       judgingSheetId: args.spreadsheetId,
       judgingSheetUrl: args.spreadsheetUrl,
       judgingSheetCreatedAt: now,
+      judgingSheetSyncRevision: revision,
+      judgingSheetSyncedRevision: 0,
+      judgingSheetSyncedAt: undefined,
+      judgingSheetSyncError: undefined,
       updatedAt: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.googleSheets.syncJudgingSheet, {
+      eventId: event._id,
+      revision,
     });
     await logAction(ctx, event._id, "judging_sheet_created", "admin", args.spreadsheetId);
     return {
@@ -932,6 +1036,106 @@ export const saveJudgingSheet = mutation({
       spreadsheetUrl: args.spreadsheetUrl,
       created: true,
     };
+  },
+});
+
+export const requestJudgingSheetSync = mutation({
+  args: { slug: v.string(), adminToken: v.string() },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    if (eventType(event) !== "hackathon" || !event.judgingSheetId) {
+      throw new ConvexError("Create the judging sheet before syncing it.");
+    }
+
+    await queueJudgingSheetSync(ctx, event, 0);
+  },
+});
+
+export const getJudgingSheetSyncSnapshot = internalQuery({
+  args: { eventId: v.id("events"), revision: v.number() },
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (
+      !event ||
+      eventType(event) !== "hackathon" ||
+      !event.judgingSheetId ||
+      event.judgingSheetSyncRevision !== args.revision
+    ) {
+      return null;
+    }
+
+    const [submissions, teamMembers] = await Promise.all([
+      ctx.db
+        .query("submissions")
+        .withIndex("by_event", (q) => q.eq("eventId", event._id))
+        .collect(),
+      ctx.db
+        .query("teamMembers")
+        .withIndex("by_event", (q) => q.eq("eventId", event._id))
+        .collect(),
+    ]);
+    const membersBySubmission = new Map<string, string[]>();
+    for (const member of teamMembers) {
+      const members = membersBySubmission.get(member.submissionId) ?? [];
+      members.push(member.name);
+      membersBySubmission.set(member.submissionId, members);
+    }
+
+    const sheetSubmissions = await Promise.all(
+      submissions
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map(async (submission) => ({
+          id: submission._id,
+          teamName: submission.teamName,
+          teamMembers: membersBySubmission.get(submission._id) ?? [],
+          name: submission.name,
+          demoTitle: submission.demoTitle,
+          description: submission.description,
+          category: submission.category,
+          videoUrl: submission.videoStorageId
+            ? await ctx.storage.getUrl(submission.videoStorageId)
+            : null,
+          email: submission.email,
+          phone: submission.phone,
+          twitter: submission.twitter,
+          linkedin: submission.linkedin,
+          status: submission.status,
+          createdAt: submission.createdAt,
+        })),
+    );
+
+    return {
+      eventId: event._id,
+      eventName: event.name,
+      meetUrl: event.meetUrl,
+      spreadsheetId: event.judgingSheetId,
+      revision: args.revision,
+      submissions: sheetSubmissions,
+    };
+  },
+});
+
+export const completeJudgingSheetSync = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    revision: v.number(),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (!event || event.judgingSheetSyncRevision !== args.revision) return;
+
+    if (args.error) {
+      await ctx.db.patch(event._id, { judgingSheetSyncError: args.error });
+      return;
+    }
+
+    await ctx.db.patch(event._id, {
+      judgingSheetSyncedRevision: args.revision,
+      judgingSheetSyncedAt: Date.now(),
+      judgingSheetSyncError: undefined,
+    });
   },
 });
 
@@ -962,6 +1166,7 @@ export const updateSubmission = mutation({
       ...normalizeSubmissionTextFields(args),
       updatedAt: Date.now(),
     });
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1367,6 +1572,7 @@ export const hideSubmission = mutation({
     });
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_hidden", "admin", args.submissionId);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1395,6 +1601,7 @@ export const restoreSubmission = mutation({
     });
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_restored", "admin", args.submissionId);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1430,6 +1637,7 @@ export const reorderLineup = mutation({
 
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_reordered", "admin");
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1473,6 +1681,7 @@ export const shuffleLineup = mutation({
 
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_shuffled", "admin");
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1515,6 +1724,7 @@ export const setLineupOrder = mutation({
 
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_ai_ordered", "admin");
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1542,6 +1752,7 @@ export const moveToPool = mutation({
     });
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_to_pool", "admin", args.submissionId);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1590,6 +1801,7 @@ export const markNoShow = mutation({
     });
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_no_show", "admin", current._id);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1644,6 +1856,7 @@ export const pickNext = mutation({
     });
 
     await logAction(ctx, event._id, "pick_next", "admin");
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1686,6 +1899,7 @@ export const restorePreviousPresenter = mutation({
     });
 
     await logAction(ctx, event._id, "previous_presenter_restored", "admin", snapshot.currentSubmissionId);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1722,6 +1936,7 @@ export const skipCurrent = mutation({
     await clearAdvanceSnapshot(ctx, event, now);
 
     await logAction(ctx, event._id, "current_skipped", "admin", current._id);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1745,6 +1960,10 @@ export const clearQueue = mutation({
       judgingSheetId: undefined,
       judgingSheetUrl: undefined,
       judgingSheetCreatedAt: undefined,
+      judgingSheetSyncRevision: undefined,
+      judgingSheetSyncedRevision: undefined,
+      judgingSheetSyncedAt: undefined,
+      judgingSheetSyncError: undefined,
     });
     await logAction(ctx, event._id, "queue_cleared", "admin");
   },

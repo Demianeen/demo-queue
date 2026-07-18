@@ -46,12 +46,14 @@ commands work, and do not start an authentication or project-selection flow. If
 the existing Convex setup is missing, unauthenticated, or names anything other
 than the canonical deployments above, stop and leave the setup to the user.
 
-Never run `convex dev` in this repository, including `convex dev --once` and
-including when `CONVEX_DEPLOYMENT` is supplied explicitly. The command can still
-provision or reconfigure a development deployment and rewrite `.env.local`.
-Development function syncing belongs to the user. If locally changed Convex
-functions are not already synced to the canonical development deployment, stop
-and ask the user to perform that sync.
+Agents may run, restart, and stop `convex dev` whenever needed for development
+work, provided the existing `.env.local` and CLI output both identify the
+canonical development deployment `precious-elk-564`. This permission includes
+syncing local schema and function changes and running development-only checks.
+It does not permit agents to create or select a deployment, repair Convex setup,
+or authenticate the CLI. Production deployment `giant-egret-456` remains
+protected: do not deploy, reconfigure, or mutate production unless the user has
+explicitly authorized that production action.
 
 ## Commit authorship
 

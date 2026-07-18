@@ -151,11 +151,13 @@ pnpm exec convex env set GOOGLE_OAUTH_REFRESH_TOKEN '<oauth-refresh-token>'
 pnpm exec convex env set GOOGLE_DRIVE_FOLDER_ID <folder-id>
 ```
 
-Any event admin can create the event's native judging Sheet from the admin page.
-Create it after submissions are finalized because the workbook is a snapshot;
-later clicks open the same file without rebuilding it or touching judge input.
-The file is private to the connected Google account until that account shares
-it with judges. The app stores only the resulting Sheet ID and URL.
+Any event admin can create the event's native judging sheet from the admin page.
+The app keeps that same workbook synchronized as submissions and event details
+change. Automatic syncs update only app-owned submission columns, formulas, and
+formatting, so judge names and scores remain intact. Admins can also request an
+immediate sync from the event page. The file is private to the connected Google
+account until that account shares it with judges. The app stores only the
+resulting sheet ID and URL.
 
 Hackathon videos are limited to 250 MB and deleted six calendar months after
 upload by a daily Convex cron. Uploaded files that never become part of a

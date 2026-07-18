@@ -80,6 +80,41 @@ export type JudgingFormulaColumn = {
   values: string[][];
 };
 
+export function buildJudgingSubmissionRow(submission: JudgingSheetSubmission) {
+  const members = [submission.name, ...submission.teamMembers].join(", ");
+  return [
+    submission.id,
+    submission.teamName ?? "",
+    members,
+    submission.demoTitle,
+    submission.description,
+    submission.category ?? "",
+    submission.videoUrl ?? "",
+    submission.name,
+    submission.email ?? "",
+    submission.phone,
+    submission.twitter ?? "",
+    submission.linkedin ?? "",
+    new Date(submission.createdAt).toISOString(),
+    submission.status,
+  ];
+}
+
+export function buildSyncedBasicFilter(
+  existingFilter: sheets_v4.Schema$BasicFilter | undefined,
+  range: sheets_v4.Schema$GridRange,
+): sheets_v4.Schema$BasicFilter | null {
+  if (existingFilter?.tableId) return null;
+
+  return {
+    ...existingFilter,
+    range: {
+      ...existingFilter?.range,
+      ...range,
+    },
+  };
+}
+
 export function buildJudgingSheetValues({
   eventName,
   meetUrl,
@@ -112,50 +147,9 @@ export function buildJudgingSheetValues({
   ];
 
   submissions.forEach((submission) => {
-    const members = [submission.name, ...submission.teamMembers].join(", ");
     values.push([
-      submission.id,
-      submission.teamName ?? "",
-      members,
-      submission.demoTitle,
-      submission.description,
-      submission.category ?? "",
-      submission.videoUrl ?? "",
-      submission.name,
-      submission.email ?? "",
-      submission.phone,
-      submission.twitter ?? "",
-      submission.linkedin ?? "",
-      new Date(submission.createdAt).toISOString(),
-      submission.status,
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
+      ...buildJudgingSubmissionRow(submission),
+      ...Array.from({ length: JUDGING_HEADERS.length - 14 }, () => ""),
     ]);
   });
 
@@ -165,17 +159,16 @@ export function buildJudgingSheetValues({
 export function buildJudgingFormulaColumns(submissionCount: number): JudgingFormulaColumn[] {
   if (submissionCount === 0) return [];
 
-  const finalDataRow = JUDGING_DATA_START_ROW + submissionCount - 1;
   const formulas = Array.from({ length: submissionCount }, (_, index) => {
     const row = JUDGING_DATA_START_ROW + index;
     return {
-      roundOneJudgeCount: `=IFERROR(COUNTUNIQUE(FILTER(LOWER(TRIM({O${row},R${row},U${row},X${row}})),TRIM({O${row},R${row},U${row},X${row}})<>"",ISNUMBER({P${row},S${row},V${row},Y${row}}))),0)`,
-      roundOneScore: `=IF(AA${row}<$B$2,"",AVERAGE(QUERY(TRANSPOSE({LOWER(TRIM({O${row},R${row},U${row},X${row}}));{P${row},S${row},V${row},Y${row}}}),"select avg(Col2) where Col1 is not null and Col2 is not null group by Col1 label avg(Col2) ''",0)))`,
-      roundOneRank: `=IF(AB${row}="","",RANK(AB${row},$AB$${JUDGING_DATA_START_ROW}:$AB$${finalDataRow},0))`,
-      finalist: `=IF(AB${row}="",FALSE,COUNTIF($AB$${JUDGING_DATA_START_ROW}:$AB$${finalDataRow},">"&AB${row})+COUNTIF($AB$${JUDGING_DATA_START_ROW}:AB${row},AB${row})<=$E$2)`,
-      roundTwoJudgeCount: `=IF(AD${row}<>TRUE,0,IFERROR(COUNTUNIQUE(FILTER(LOWER(TRIM({AE${row},AH${row},AK${row}})),TRIM({AE${row},AH${row},AK${row}})<>"",ISNUMBER({AF${row},AI${row},AL${row}}))),0))`,
-      finalScore: `=IF(OR(AD${row}<>TRUE,AN${row}=0),"",AVERAGE(QUERY(TRANSPOSE({LOWER(TRIM({AE${row},AH${row},AK${row}}));{AF${row},AI${row},AL${row}}}),"select avg(Col2) where Col1 is not null and Col2 is not null group by Col1 label avg(Col2) ''",0)))`,
-      finalRank: `=IF(AO${row}="","",RANK(AO${row},$AO$${JUDGING_DATA_START_ROW}:$AO$${finalDataRow},0))`,
+      roundOneJudgeCount: `=IF(SUMPRODUCT(--(LEN(TRIM({O${row},R${row},U${row},X${row}}))>0),--ISNUMBER({P${row},S${row},V${row},Y${row}}))=0,0,COUNTUNIQUE(FILTER(LOWER(TRIM({O${row},R${row},U${row},X${row}})),TRIM({O${row},R${row},U${row},X${row}})<>"",ISNUMBER({P${row},S${row},V${row},Y${row}}))))`,
+      roundOneScore: `=IF(OR($N${row}="withdrawn",$N${row}="hidden",$N${row}="no_show",$N${row}="removed",AA${row}<$B$2),"",AVERAGE(QUERY({TRANSPOSE(ARRAYFORMULA(LOWER(TRIM({O${row},R${row},U${row},X${row}})))),TRANSPOSE({P${row},S${row},V${row},Y${row}})},"select avg(Col2) where Col1 is not null and Col2 is not null group by Col1 label avg(Col2) ''",0)))`,
+      roundOneRank: `=IF(AB${row}="","",RANK(AB${row},$AB$${JUDGING_DATA_START_ROW}:$AB,0))`,
+      finalist: `=IF(AB${row}="",FALSE,COUNTIF($AB$${JUDGING_DATA_START_ROW}:$AB,">"&AB${row})+COUNTIF($AB$${JUDGING_DATA_START_ROW}:AB${row},AB${row})<=$E$2)`,
+      roundTwoJudgeCount: `=IF(AD${row}<>TRUE,0,IF(SUMPRODUCT(--(LEN(TRIM({AE${row},AH${row},AK${row}}))>0),--ISNUMBER({AF${row},AI${row},AL${row}}))=0,0,COUNTUNIQUE(FILTER(LOWER(TRIM({AE${row},AH${row},AK${row}})),TRIM({AE${row},AH${row},AK${row}})<>"",ISNUMBER({AF${row},AI${row},AL${row}})))))`,
+      finalScore: `=IF(OR(AD${row}<>TRUE,AN${row}=0),"",AVERAGE(QUERY({TRANSPOSE(ARRAYFORMULA(LOWER(TRIM({AE${row},AH${row},AK${row}})))),TRANSPOSE({AF${row},AI${row},AL${row}})},"select avg(Col2) where Col1 is not null and Col2 is not null group by Col1 label avg(Col2) ''",0)))`,
+      finalRank: `=IF(AO${row}="","",RANK(AO${row},$AO$${JUDGING_DATA_START_ROW}:$AO,0))`,
     };
   });
 
@@ -189,3 +182,4 @@ export function buildJudgingFormulaColumns(submissionCount: number): JudgingForm
     { column: "AP", values: formulas.map(({ finalRank }) => [finalRank]) },
   ];
 }
+import type { sheets_v4 } from "googleapis";

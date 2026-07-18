@@ -1,8 +1,8 @@
 "use node";
 
 import { ConvexError, v } from "convex/values";
-import { action } from "./_generated/server";
-import { api } from "./_generated/api";
+import { action, internalAction } from "./_generated/server";
+import { api, internal } from "./_generated/api";
 import { google, type sheets_v4 } from "googleapis";
 import { randomUUID } from "node:crypto";
 import {
@@ -15,7 +15,9 @@ import {
   ROUND_ONE_SCORE_COLUMN_INDICES,
   ROUND_TWO_SCORE_COLUMN_INDICES,
   buildJudgingFormulaColumns,
+  buildSyncedBasicFilter,
   buildJudgingSheetValues,
+  buildJudgingSubmissionRow,
   type JudgingSheetSubmission,
 } from "../lib/judging-sheet";
 
@@ -50,13 +52,13 @@ function googleApiFailure(error: unknown) {
     return "Google authorization is no longer valid. Run the OAuth setup helper again.";
   }
   if (status === 403) {
-    return "The connected Google account does not have permission to update the judging Sheet.";
+    return "The connected Google account does not have permission to update the judging sheet.";
   }
   if (status === 404) {
     return "Google could not find the configured Drive file.";
   }
   if (status === 429) {
-    return "Google temporarily rate-limited the judging Sheet export. Try again shortly.";
+    return "Google temporarily rate-limited the judging sheet export. Try again shortly.";
   }
   return status ? `Google API request failed with status ${status}.` : "Google API request failed.";
 }
@@ -378,12 +380,300 @@ async function replaceJudgingTab({
   }
 }
 
+function finalistConditionalFormatRule(sheetId: number, endRowIndex: number) {
+  return {
+    ranges: [
+      {
+        sheetId,
+        startRowIndex: JUDGING_DATA_START_ROW - 1,
+        endRowIndex,
+        startColumnIndex: 0,
+        endColumnIndex: JUDGING_HEADERS.length,
+      },
+    ],
+    booleanRule: {
+      condition: {
+        type: "CUSTOM_FORMULA",
+        values: [{ userEnteredValue: `=$AD${JUDGING_DATA_START_ROW}=TRUE` }],
+      },
+      format: { backgroundColor: { red: 0.9, green: 0.98, blue: 0.91 } },
+    },
+  } satisfies sheets_v4.Schema$ConditionalFormatRule;
+}
+
+function syncFormattingRequests({
+  sheetId,
+  currentRowCount,
+  endRowIndex,
+  basicFilter,
+  protectedRanges,
+  hasConditionalFormats,
+}: {
+  sheetId: number;
+  currentRowCount: number;
+  endRowIndex: number;
+  basicFilter: sheets_v4.Schema$BasicFilter | undefined;
+  protectedRanges: sheets_v4.Schema$ProtectedRange[];
+  hasConditionalFormats: boolean;
+}) {
+  const requests: sheets_v4.Schema$Request[] = [];
+  if (currentRowCount < endRowIndex) {
+    requests.push({
+      updateSheetProperties: {
+        properties: { sheetId, gridProperties: { rowCount: endRowIndex } },
+        fields: "gridProperties.rowCount",
+      },
+    });
+  }
+
+  const syncedBasicFilter = buildSyncedBasicFilter(basicFilter, {
+    sheetId,
+    startRowIndex: JUDGING_HEADER_ROW - 1,
+    endRowIndex,
+    startColumnIndex: 0,
+    endColumnIndex: JUDGING_HEADERS.length,
+  });
+  if (syncedBasicFilter) {
+    requests.push({ setBasicFilter: { filter: syncedBasicFilter } });
+  }
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: JUDGING_DATA_START_ROW - 1,
+        endRowIndex,
+        startColumnIndex: 0,
+        endColumnIndex: JUDGING_HEADERS.length,
+      },
+      cell: {
+        userEnteredFormat: {
+          verticalAlignment: "TOP",
+          wrapStrategy: "WRAP",
+        },
+      },
+      fields: "userEnteredFormat(verticalAlignment,wrapStrategy)",
+    },
+  });
+
+  for (const columnIndex of [
+    ...ROUND_ONE_SCORE_COLUMN_INDICES,
+    ...ROUND_TWO_SCORE_COLUMN_INDICES,
+  ]) {
+    requests.push(scoreValidationRequest(sheetId, columnIndex, endRowIndex));
+  }
+
+  for (const range of FORMULA_COLUMN_RANGES) {
+    requests.push({
+      repeatCell: {
+        range: {
+          sheetId,
+          startRowIndex: JUDGING_DATA_START_ROW - 1,
+          endRowIndex,
+          ...range,
+        },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.92, green: 0.96, blue: 1 },
+            textFormat: { bold: true },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat)",
+      },
+    });
+
+    const existingProtection = protectedRanges.find(
+      (protectedRange) =>
+        protectedRange.description === "Formula cells" &&
+        protectedRange.range?.startColumnIndex === range.startColumnIndex &&
+        protectedRange.range?.endColumnIndex === range.endColumnIndex,
+    );
+    if (existingProtection?.protectedRangeId !== undefined) {
+      requests.push({
+        updateProtectedRange: {
+          protectedRange: {
+            protectedRangeId: existingProtection.protectedRangeId,
+            description: "Formula cells",
+            warningOnly: true,
+            range: {
+              sheetId,
+              startRowIndex: JUDGING_DATA_START_ROW - 1,
+              endRowIndex,
+              ...range,
+            },
+          },
+          fields: "range,description,warningOnly",
+        },
+      });
+    } else {
+      requests.push({
+        addProtectedRange: {
+          protectedRange: {
+            range: {
+              sheetId,
+              startRowIndex: JUDGING_DATA_START_ROW - 1,
+              endRowIndex,
+              ...range,
+            },
+            description: "Formula cells",
+            warningOnly: true,
+          },
+        },
+      });
+    }
+  }
+
+  const conditionalRule = finalistConditionalFormatRule(sheetId, endRowIndex);
+  requests.push(
+    hasConditionalFormats
+      ? { updateConditionalFormatRule: { index: 0, rule: conditionalRule, sheetId } }
+      : { addConditionalFormatRule: { index: 0, rule: conditionalRule } },
+  );
+  return requests;
+}
+
+async function syncExistingJudgingSheet({
+  sheets,
+  spreadsheetId,
+  eventName,
+  meetUrl,
+  submissions,
+}: {
+  sheets: sheets_v4.Sheets;
+  spreadsheetId: string;
+  eventName: string;
+  meetUrl: string;
+  submissions: JudgingSheetSubmission[];
+}) {
+  const spreadsheet = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields:
+      "sheets(properties(sheetId,title,gridProperties(rowCount)),basicFilter,protectedRanges(protectedRangeId,description,range),conditionalFormats)",
+  });
+  const managedSheet = spreadsheet.data.sheets?.find(
+    (sheet) => sheet.properties?.title === JUDGING_SHEET_NAME,
+  );
+  const sheetId = managedSheet?.properties?.sheetId;
+  if (!managedSheet || typeof sheetId !== "number") {
+    throw new ConvexError("The judging sheet no longer has its Judging tab.");
+  }
+
+  const existingIdsResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A${JUDGING_DATA_START_ROW}:A`,
+  });
+  const existingIdRows = existingIdsResponse.data.values ?? [];
+  const rowBySubmissionId = new Map<string, number>();
+  existingIdRows.forEach((values, index) => {
+    const submissionId = String(values[0] ?? "").trim();
+    if (submissionId && !rowBySubmissionId.has(submissionId)) {
+      rowBySubmissionId.set(submissionId, JUDGING_DATA_START_ROW + index);
+    }
+  });
+
+  let nextRow = JUDGING_DATA_START_ROW + existingIdRows.length;
+  const sourceUpdates: sheets_v4.Schema$ValueRange[] = [
+    {
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!B1`,
+      values: [[eventName]],
+    },
+    {
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!E1`,
+      values: [[meetUrl]],
+    },
+    {
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!G1:H1`,
+      values: [["Synced", new Date().toISOString()]],
+    },
+  ];
+  const currentSubmissionIds = new Set(submissions.map((submission) => submission.id));
+
+  for (const submission of submissions) {
+    const row = rowBySubmissionId.get(submission.id) ?? nextRow++;
+    rowBySubmissionId.set(submission.id, row);
+    sourceUpdates.push({
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A${row}:N${row}`,
+      values: [buildJudgingSubmissionRow(submission)],
+    });
+  }
+  for (const [submissionId, row] of rowBySubmissionId) {
+    if (!currentSubmissionIds.has(submissionId)) {
+      sourceUpdates.push({
+        range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!N${row}`,
+        values: [["removed"]],
+      });
+    }
+  }
+
+  const finalDataRow = Math.max(
+    JUDGING_DATA_START_ROW,
+    ...rowBySubmissionId.values(),
+  );
+  const endRowIndex = finalDataRow;
+  const formatting = syncFormattingRequests({
+    sheetId,
+    currentRowCount: managedSheet.properties?.gridProperties?.rowCount ?? 0,
+    endRowIndex,
+    basicFilter: managedSheet.basicFilter,
+    protectedRanges: managedSheet.protectedRanges ?? [],
+    hasConditionalFormats: (managedSheet.conditionalFormats?.length ?? 0) > 0,
+  });
+  if (formatting.length > 0) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: formatting },
+    });
+  }
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: "RAW", data: sourceUpdates },
+  });
+
+  const formulaColumns = buildJudgingFormulaColumns(
+    finalDataRow - JUDGING_DATA_START_ROW + 1,
+  );
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: formulaColumns.map(({ column, values }) => ({
+        range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!${column}${JUDGING_DATA_START_ROW}:${column}${finalDataRow}`,
+        values,
+      })),
+    },
+  });
+}
+
+export const syncJudgingSheet = internalAction({
+  args: { eventId: v.id("events"), revision: v.number() },
+  handler: async (ctx, args): Promise<void> => {
+    const snapshot = await ctx.runQuery(internal.events.getJudgingSheetSyncSnapshot, args);
+    if (!snapshot) return;
+
+    try {
+      const auth = googleAuth();
+      const sheets = google.sheets({ version: "v4", auth });
+      await syncExistingJudgingSheet({ sheets, ...snapshot });
+      await ctx.runMutation(internal.events.completeJudgingSheetSync, args);
+    } catch (error) {
+      const message =
+        error instanceof ConvexError
+          ? String(error.data)
+          : googleApiFailure(error);
+      await ctx.runMutation(internal.events.completeJudgingSheetSync, {
+        ...args,
+        error: message,
+      });
+    }
+  },
+});
+
 export const createJudgingSheet = action({
   args: { slug: v.string(), adminToken: v.string() },
   handler: async (ctx, args): Promise<{ spreadsheetUrl: string; created: boolean }> => {
     const admin = await ctx.runQuery(api.events.getAdmin, args);
     if (admin.event.eventType !== "hackathon") {
-      throw new ConvexError("Judging Sheets are only available for hackathon events.");
+      throw new ConvexError("Judging sheets are only available for hackathon events.");
     }
     if (admin.event.judgingSheetUrl) {
       return { spreadsheetUrl: admin.event.judgingSheetUrl, created: false };
@@ -480,7 +770,7 @@ export const createJudgingSheet = action({
           .catch(() => undefined);
       }
       if (error instanceof ConvexError) throw error;
-      throw new ConvexError(`Could not update the judging Sheet: ${googleApiFailure(error)}`);
+      throw new ConvexError(`Could not update the judging sheet: ${googleApiFailure(error)}`);
     }
   },
 });

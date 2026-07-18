@@ -6,6 +6,7 @@ import { api } from "../convex/_generated/api";
 import { absoluteUrl, adminPath, stagePath, submissionPath } from "@/lib/routes";
 import { randomToken, slugify } from "@/lib/tokens";
 import { Brand } from "./Brand";
+import { EventTypeSelect } from "@/components/EventTypeSelect";
 
 type SavedEvent = {
   name: string;
@@ -88,14 +89,11 @@ export default function HomePage() {
 
           <div className="field">
             <label htmlFor="eventType">Event type</label>
-            <select
+            <EventTypeSelect
               id="eventType"
               value={eventType}
-              onChange={(event) => setEventType(event.currentTarget.value as "demo" | "hackathon")}
-            >
-              <option value="demo">Demo queue</option>
-              <option value="hackathon">Hackathon</option>
-            </select>
+              onValueChange={setEventType}
+            />
             <span className="muted form-help">
               {eventType === "hackathon"
                 ? "Teams submit a project and video for judging before the finalists present."

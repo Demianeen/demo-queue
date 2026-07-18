@@ -1,7 +1,6 @@
-// Lightweight, dependency-free generator for realistic-looking demo submissions.
-// Used only by the admin "Add test people" button. Kept out of the data layer so
-// it never ships into real event data, and avoids bundling a heavy faker dependency
-// into the client.
+// Lightweight, dependency-free generator for realistic-looking demo and hackathon
+// submissions. Used only by the admin test-data button, and avoids bundling a
+// heavy faker dependency into the client.
 
 const FIRST_NAMES = [
   "Ada", "Mateo", "Priya", "Liam", "Sofia", "Kenji", "Noor", "Diego",
@@ -27,6 +26,13 @@ const PRODUCT_NOUNS = [
 ];
 
 const CATEGORIES = ["AI", "Devtools", "Consumer", "Hardware", "Fintech", "Health", "Climate", "Robotics"];
+
+const TEAM_PREFIXES = [
+  "Orbit", "Signal", "Copper", "Northstar", "Mosaic", "Lantern", "Pixel", "Atlas",
+  "Relay", "Comet", "Sprout", "Tandem",
+];
+
+const TEAM_SUFFIXES = ["Labs", "Collective", "Works", "Studio", "Crew", "Systems"];
 
 const DESCRIPTION_TEMPLATES = [
   (p: string) => `A ${p} that ships in an afternoon. Demoing the live onboarding flow.`,
@@ -58,23 +64,51 @@ export type SamplePerson = {
   category: string;
 };
 
-export function makeSamplePerson(): SamplePerson {
+export type SampleHackathonTeam = SamplePerson & {
+  teamName: string;
+  teamMembers: string[];
+};
+
+function makeSampleIdentity() {
   const first = pick(FIRST_NAMES);
   const last = pick(LAST_NAMES);
-  const name = `${first} ${last}`;
+  return {
+    name: `${first} ${last}`,
+    handle: `${first}${last}`.toLowerCase().normalize("NFD").replace(/[^a-z]/g, ""),
+  };
+}
+
+export function makeSamplePerson(): SamplePerson {
+  const identity = makeSampleIdentity();
   const product = `${pick(PRODUCT_ADJECTIVES)} ${pick(PRODUCT_NOUNS)}`;
-  const handle = `${first}${last}`.toLowerCase().normalize("NFD").replace(/[^a-z]/g, "");
   // Small numeric suffix keeps emails/handles from colliding within a seeded batch.
   const suffix = Math.floor(Math.random() * 90) + 10;
 
   return {
-    name,
+    name: identity.name,
     demoTitle: product.replace(/^./, (c) => c.toUpperCase()),
     description: pick(DESCRIPTION_TEMPLATES)(product),
     phone: randomPhone(),
-    email: `${handle}${suffix}@example.com`,
-    twitter: `@${handle}`,
-    linkedin: `in/${handle}-${suffix}`,
+    email: `${identity.handle}${suffix}@example.com`,
+    twitter: `@${identity.handle}`,
+    linkedin: `in/${identity.handle}-${suffix}`,
     category: pick(CATEGORIES),
+  };
+}
+
+export function makeSampleHackathonTeam(): SampleHackathonTeam {
+  const lead = makeSamplePerson();
+  const memberCount = 1 + Math.floor(Math.random() * 3);
+  const members = new Set<string>();
+
+  while (members.size < memberCount) {
+    const member = makeSampleIdentity().name;
+    if (member !== lead.name) members.add(member);
+  }
+
+  return {
+    ...lead,
+    teamName: `${pick(TEAM_PREFIXES)} ${pick(TEAM_SUFFIXES)}`,
+    teamMembers: [...members],
   };
 }

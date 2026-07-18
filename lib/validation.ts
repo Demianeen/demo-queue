@@ -16,6 +16,11 @@ export const SUBMISSION_FIELD_LIMITS = {
 
 export type SubmissionFieldName = keyof typeof SUBMISSION_FIELD_LIMITS;
 
+export type FieldLimitIssue = {
+  field: SubmissionFieldName;
+  message: string;
+};
+
 export const SUBMISSION_FIELD_LABELS: Record<SubmissionFieldName, string> = {
   name: "Name",
   demoTitle: "Demo title",
@@ -78,13 +83,30 @@ export function fieldLimitError(field: SubmissionFieldName, value: string) {
   return parsed.error.issues[0]?.message ?? fieldLimitMessage(field);
 }
 
-export function firstFieldLimitError(fields: Partial<Record<SubmissionFieldName, string>>) {
+export function firstFieldLimitIssue(
+  fields: Partial<Record<SubmissionFieldName, string>>,
+): FieldLimitIssue | null {
   for (const field of Object.keys(fields) as SubmissionFieldName[]) {
-    const error = fieldLimitError(field, fields[field] ?? "");
-    if (error) return error;
+    const message = fieldLimitError(field, fields[field] ?? "");
+    if (message) return { field, message };
   }
 
-  return "";
+  return null;
+}
+
+export function firstInvalidFieldName(
+  fieldNames: Iterable<string>,
+  invalidFieldNames: ReadonlySet<string>,
+) {
+  for (const fieldName of fieldNames) {
+    if (invalidFieldNames.has(fieldName)) return fieldName;
+  }
+
+  return null;
+}
+
+export function firstFieldLimitError(fields: Partial<Record<SubmissionFieldName, string>>) {
+  return firstFieldLimitIssue(fields)?.message ?? "";
 }
 
 export function isValidPhone(value: string) {

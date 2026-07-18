@@ -11,7 +11,9 @@ import { participantPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken } from "@/lib/tokens";
 import {
   SUBMISSION_FIELD_LIMITS,
-  firstFieldLimitError,
+  FieldLimitIssue,
+  firstFieldLimitIssue,
+  firstInvalidFieldName,
   isValidLinkedin,
   isValidPhone,
   isValidTwitter,
@@ -35,6 +37,33 @@ function Req() {
   return <span style={{ color: "var(--app-bad)" }}> *</span>;
 }
 
+function describedBy(...ids: Array<string | false | undefined>) {
+  return ids.filter(Boolean).join(" ") || undefined;
+}
+
+function FieldLimitError({ field, issue }: { field: keyof typeof SUBMISSION_FIELD_LIMITS; issue: FieldLimitIssue | null }) {
+  if (issue?.field !== field) return null;
+
+  return <span id={`${field}-limit-error`} className="form-error">{issue.message}</span>;
+}
+
+function focusFirstInvalidField(form: HTMLFormElement, invalidFieldNames: Set<string>) {
+  const fields = Array.from(form.elements).filter(
+    (element): element is HTMLElement & { name: string } =>
+      element instanceof HTMLElement &&
+      "name" in element &&
+      typeof element.name === "string",
+  );
+  const firstFieldName = firstInvalidFieldName(
+    fields.map((element) => String(element.name)),
+    invalidFieldNames,
+  );
+  const field = fields.find((element) => String(element.name) === firstFieldName);
+
+  if (!(field instanceof HTMLElement)) return;
+  requestAnimationFrame(() => field.focus());
+}
+
 export default function SubmissionPage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
@@ -48,10 +77,13 @@ export default function SubmissionPage() {
   const [twitterError, setTwitterError] = useState("");
   const [linkedinError, setLinkedinError] = useState("");
   const [phoneError, setPhoneError] = useState("");
-  const [teamError, setTeamError] = useState("");
+  const [teamNameError, setTeamNameError] = useState("");
+  const [teamMembersError, setTeamMembersError] = useState("");
   const [videoError, setVideoError] = useState("");
   const [githubError, setGithubError] = useState("");
   const [rulesError, setRulesError] = useState("");
+  const [fieldLimitIssue, setFieldLimitIssue] = useState<FieldLimitIssue | null>(null);
+  const [submissionError, setSubmissionError] = useState("");
   const isHackathon = stage?.event.eventType === "hackathon";
 
   if (!stage) {
@@ -70,7 +102,8 @@ export default function SubmissionPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const read = (key: string) => String(form.get(key) ?? "").trim();
 
     const phone = read("phone");
@@ -81,7 +114,7 @@ export default function SubmissionPage() {
     const githubUrl = read("githubUrl");
     const rulesAccepted = form.get("rulesAccepted") === "on";
     const video = form.get("video");
-    const lengthError = firstFieldLimitError({
+    const lengthIssue = firstFieldLimitIssue({
       name: read("name"),
       demoTitle: read("demoTitle"),
       description: read("description"),
@@ -96,73 +129,88 @@ export default function SubmissionPage() {
     setTwitterError("");
     setLinkedinError("");
     setPhoneError("");
-    setTeamError("");
+    setTeamNameError("");
+    setTeamMembersError("");
     setVideoError("");
     setGithubError("");
     setRulesError("");
+    setFieldLimitIssue(lengthIssue);
+    setSubmissionError("");
 
     let valid = true;
-    if (lengthError) {
-      setSocialError(lengthError);
+    const invalidFieldNames = new Set<string>();
+    if (lengthIssue) {
+      invalidFieldNames.add(lengthIssue.field);
       valid = false;
     }
     if (!isValidPhone(phone)) {
       setPhoneError("Enter a valid phone number (7-15 digits).");
+      invalidFieldNames.add("phone");
       valid = false;
     }
     // Cross-field rule: at least one social is required (native `required`
     // only validates a single field, not "one of this group").
     if (!twitter && !linkedin) {
       setSocialError("Add at least one of Twitter/X or LinkedIn so the team can connect with you after.");
+      invalidFieldNames.add("twitter");
       valid = false;
     }
     // Format checks so a stray paste (e.g. the helper text) can't slip through.
     if (twitter && !isValidTwitter(twitter)) {
       setTwitterError("Enter an @handle or an x.com / twitter.com link.");
+      invalidFieldNames.add("twitter");
       valid = false;
     }
     if (linkedin && !isValidLinkedin(linkedin)) {
       setLinkedinError("Enter a linkedin.com/in/... link.");
+      invalidFieldNames.add("linkedin");
       valid = false;
-    }
-    if (!valid) {
-      return;
     }
 
     if (isHackathon) {
       if (!teamName || teamName.length > MAX_TEAM_NAME_LENGTH) {
-        setTeamError(`Enter a team name up to ${MAX_TEAM_NAME_LENGTH} characters.`);
+        setTeamNameError(`Enter a team name up to ${MAX_TEAM_NAME_LENGTH} characters.`);
+        invalidFieldNames.add("teamName");
         valid = false;
       }
       if (
         teamMembers.length > MAX_ADDITIONAL_TEAM_MEMBERS ||
         teamMembers.some((member) => member.length > MAX_TEAM_MEMBER_NAME_LENGTH)
       ) {
-        setTeamError(
+        setTeamMembersError(
           `Add up to ${MAX_ADDITIONAL_TEAM_MEMBERS} additional members, one per line, with names up to ${MAX_TEAM_MEMBER_NAME_LENGTH} characters.`,
         );
+        invalidFieldNames.add("teamMembers");
         valid = false;
       }
       if (!(video instanceof File) || video.size === 0) {
         setVideoError("Choose a video to upload.");
+        invalidFieldNames.add("video");
         valid = false;
       } else if (video.size > MAX_HACKATHON_VIDEO_BYTES) {
         setVideoError(`Video must be ${MAX_HACKATHON_VIDEO_LABEL} or smaller.`);
+        invalidFieldNames.add("video");
         valid = false;
       } else if (!isSupportedVideo(video)) {
         setVideoError("Upload an MP4, WebM, or MOV video.");
+        invalidFieldNames.add("video");
         valid = false;
       }
       if (!normalizeGithubRepositoryUrl(githubUrl)) {
         setGithubError("Enter a valid public GitHub repository URL.");
+        invalidFieldNames.add("githubUrl");
         valid = false;
       }
       if (!rulesAccepted) {
         setRulesError("Confirm that your submission meets the event rules.");
+        invalidFieldNames.add("rulesAccepted");
         valid = false;
       }
     }
-    if (!valid) return;
+    if (!valid) {
+      focusFirstInvalidField(formElement, invalidFieldNames);
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -215,7 +263,7 @@ export default function SubmissionPage() {
       }
       setIsSubmitting(false);
       const message = error instanceof Error ? error.message : "Something went wrong submitting.";
-      setSocialError(message.includes("ConvexError") ? message.split("ConvexError: ").pop() ?? message : message);
+      setSubmissionError(message.includes("ConvexError") ? message.split("ConvexError: ").pop() ?? message : message);
     }
   }
 
@@ -245,7 +293,10 @@ export default function SubmissionPage() {
                     placeholder="Your team name"
                     maxLength={MAX_TEAM_NAME_LENGTH}
                     required
+                    aria-invalid={Boolean(teamNameError) || undefined}
+                    aria-describedby={teamNameError ? "team-name-error" : undefined}
                   />
+                  {teamNameError ? <span id="team-name-error" className="form-error">{teamNameError}</span> : null}
                 </div>
                 <div className="field">
                   <label htmlFor="teamMembers">Other team members, one per line</label>
@@ -254,12 +305,16 @@ export default function SubmissionPage() {
                     name="teamMembers"
                     placeholder={"Sam Lee\nAlex Morgan"}
                     rows={3}
+                    aria-invalid={Boolean(teamMembersError) || undefined}
+                    aria-describedby={teamMembersError ? "team-members-error" : undefined}
                   />
                   <span className="muted form-help">
                     The presenter below is included automatically. Add up to {MAX_ADDITIONAL_TEAM_MEMBERS} others.
                   </span>
+                  {teamMembersError ? (
+                    <span id="team-members-error" className="form-error">{teamMembersError}</span>
+                  ) : null}
                 </div>
-                {teamError ? <span className="form-error">{teamError}</span> : null}
               </>
             ) : null}
             <div className="field">
@@ -270,7 +325,10 @@ export default function SubmissionPage() {
                 placeholder="Your full name"
                 maxLength={SUBMISSION_FIELD_LIMITS.name}
                 required
+                aria-invalid={fieldLimitIssue?.field === "name" || undefined}
+                aria-describedby={fieldLimitIssue?.field === "name" ? "name-limit-error" : undefined}
               />
+              <FieldLimitError field="name" issue={fieldLimitIssue} />
             </div>
 
             <div className="field">
@@ -281,7 +339,10 @@ export default function SubmissionPage() {
                 placeholder={isHackathon ? "What did your team build?" : "What are you demoing?"}
                 maxLength={SUBMISSION_FIELD_LIMITS.demoTitle}
                 required
+                aria-invalid={fieldLimitIssue?.field === "demoTitle" || undefined}
+                aria-describedby={fieldLimitIssue?.field === "demoTitle" ? "demoTitle-limit-error" : undefined}
               />
+              <FieldLimitError field="demoTitle" issue={fieldLimitIssue} />
             </div>
 
             <div className="field">
@@ -292,7 +353,10 @@ export default function SubmissionPage() {
                 placeholder="One or two lines about your demo"
                 maxLength={SUBMISSION_FIELD_LIMITS.description}
                 required
+                aria-invalid={fieldLimitIssue?.field === "description" || undefined}
+                aria-describedby={fieldLimitIssue?.field === "description" ? "description-limit-error" : undefined}
               />
+              <FieldLimitError field="description" issue={fieldLimitIssue} />
             </div>
 
             {isHackathon ? (
@@ -313,8 +377,10 @@ export default function SubmissionPage() {
                   placeholder="https://github.com/your-org/your-project"
                   maxLength={MAX_GITHUB_REPOSITORY_URL_LENGTH}
                   required
+                  aria-invalid={Boolean(githubError) || undefined}
+                  aria-describedby={githubError ? "github-error" : undefined}
                 />
-                {githubError ? <span className="form-error">{githubError}</span> : null}
+                {githubError ? <span id="github-error" className="form-error">{githubError}</span> : null}
               </div>
             ) : null}
 
@@ -328,9 +394,15 @@ export default function SubmissionPage() {
                 placeholder="+1 555 123 4567"
                 maxLength={SUBMISSION_FIELD_LIMITS.phone}
                 required
+                aria-invalid={Boolean(phoneError || fieldLimitIssue?.field === "phone") || undefined}
+                aria-describedby={describedBy(
+                  fieldLimitIssue?.field === "phone" && "phone-limit-error",
+                  phoneError && "phone-error",
+                )}
               />
+              <FieldLimitError field="phone" issue={fieldLimitIssue} />
               {phoneError ? (
-                <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{phoneError}</span>
+                <span id="phone-error" style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{phoneError}</span>
               ) : null}
             </div>
 
@@ -343,7 +415,10 @@ export default function SubmissionPage() {
                 placeholder="you@example.com"
                 maxLength={SUBMISSION_FIELD_LIMITS.email}
                 required
+                aria-invalid={fieldLimitIssue?.field === "email" || undefined}
+                aria-describedby={fieldLimitIssue?.field === "email" ? "email-limit-error" : undefined}
               />
+              <FieldLimitError field="email" issue={fieldLimitIssue} />
             </div>
 
             <div className="field">
@@ -353,7 +428,10 @@ export default function SubmissionPage() {
                 name="category"
                 placeholder="AI, devtools, consumer, hardware..."
                 maxLength={SUBMISSION_FIELD_LIMITS.category}
+                aria-invalid={fieldLimitIssue?.field === "category" || undefined}
+                aria-describedby={fieldLimitIssue?.field === "category" ? "category-limit-error" : undefined}
               />
+              <FieldLimitError field="category" issue={fieldLimitIssue} />
             </div>
 
             {isHackathon ? (
@@ -372,8 +450,10 @@ export default function SubmissionPage() {
                   type="file"
                   accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm"
                   required
+                  aria-invalid={Boolean(videoError) || undefined}
+                  aria-describedby={videoError ? "video-error" : undefined}
                 />
-                {videoError ? <span className="form-error">{videoError}</span> : null}
+                {videoError ? <span id="video-error" className="form-error">{videoError}</span> : null}
               </div>
             ) : null}
           </div>
@@ -391,9 +471,16 @@ export default function SubmissionPage() {
                 name="twitter"
                 placeholder="@handle or x.com/handle"
                 maxLength={SUBMISSION_FIELD_LIMITS.twitter}
+                aria-invalid={Boolean(twitterError || socialError || fieldLimitIssue?.field === "twitter") || undefined}
+                aria-describedby={describedBy(
+                  fieldLimitIssue?.field === "twitter" && "twitter-limit-error",
+                  twitterError && "twitter-error",
+                  socialError && "social-error",
+                )}
               />
+              <FieldLimitError field="twitter" issue={fieldLimitIssue} />
               {twitterError ? (
-                <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{twitterError}</span>
+                <span id="twitter-error" style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{twitterError}</span>
               ) : null}
             </div>
 
@@ -404,26 +491,40 @@ export default function SubmissionPage() {
                 name="linkedin"
                 placeholder="linkedin.com/in/you"
                 maxLength={SUBMISSION_FIELD_LIMITS.linkedin}
+                aria-invalid={Boolean(linkedinError || fieldLimitIssue?.field === "linkedin") || undefined}
+                aria-describedby={describedBy(
+                  fieldLimitIssue?.field === "linkedin" && "linkedin-limit-error",
+                  linkedinError && "linkedin-error",
+                )}
               />
+              <FieldLimitError field="linkedin" issue={fieldLimitIssue} />
               {linkedinError ? (
-                <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{linkedinError}</span>
+                <span id="linkedin-error" style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{linkedinError}</span>
               ) : null}
             </div>
 
             {socialError ? (
-              <p style={{ color: "var(--app-bad)", fontWeight: 600, marginTop: 2 }}>{socialError}</p>
+              <p id="social-error" style={{ color: "var(--app-bad)", fontWeight: 600, marginTop: 2 }}>{socialError}</p>
             ) : null}
           </div>
 
           {isHackathon ? (
             <div className="submission-confirmation">
-              <input id="rulesAccepted" name="rulesAccepted" type="checkbox" />
+              <input
+                id="rulesAccepted"
+                name="rulesAccepted"
+                type="checkbox"
+                aria-invalid={Boolean(rulesError) || undefined}
+                aria-describedby={rulesError ? "rules-error" : undefined}
+              />
               <label htmlFor="rulesAccepted">
                 I confirm that our team and project meet the event rules, that this submission is accurate, and that the organisers may judge and present it as a hackathon entry.
               </label>
-              {rulesError ? <span className="form-error">{rulesError}</span> : null}
+              {rulesError ? <span id="rules-error" className="form-error">{rulesError}</span> : null}
             </div>
           ) : null}
+
+          {submissionError ? <p role="alert" className="form-error">{submissionError}</p> : null}
 
           <div className="actions">
             <button className="button" disabled={isSubmitting} type="submit">

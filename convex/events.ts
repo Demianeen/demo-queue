@@ -1,12 +1,30 @@
 import { ConvexError, v } from "convex/values";
-import { DatabaseReader, DatabaseWriter, mutation, query } from "./_generated/server";
+import {
+  DatabaseReader,
+  DatabaseWriter,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import { addMonths } from "date-fns";
 import {
   parseContactTextFields,
   parseSubmissionTextFields,
   type ContactTextInput,
   type SubmissionTextInput,
 } from "../lib/validation";
+import {
+  MAX_ADDITIONAL_TEAM_MEMBERS,
+  MAX_HACKATHON_VIDEO_BYTES,
+  MAX_HACKATHON_VIDEO_LABEL,
+  MAX_TEAM_MEMBER_NAME_LENGTH,
+  MAX_TEAM_NAME_LENGTH,
+} from "../lib/hackathon";
+import { participantLineupStatus } from "../lib/event-state";
 import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -16,8 +34,16 @@ const MIN_STAGE_TIMER_DURATION_MS = 60 * 1000;
 const MAX_STAGE_TIMER_MS = 99 * 60 * 1000;
 const MIN_STAGE_TIMER_MS = 0;
 const MIN_OVERTIME_TIMER_MS = -MAX_STAGE_TIMER_MS;
+const ORPHAN_UPLOAD_GRACE_MS = 24 * 60 * 60 * 1000;
+const ORPHAN_UPLOAD_BATCH_SIZE = 50;
+const JUDGING_SHEET_SYNC_DEBOUNCE_MS = 2_000;
 type PublicStageTimerStatus = "idle" | "running" | "paused";
 type StageScreenMode = "qr" | "demo";
+type EventType = "demo" | "hackathon";
+
+function eventType(event: Doc<"events">): EventType {
+  return event.eventType ?? "demo";
+}
 
 function stageScreenMode(event: Doc<"events">): StageScreenMode {
   return event.stageScreenMode ?? (event.queuePublished ? "demo" : "qr");
@@ -29,11 +55,16 @@ const publicSubmissionFields = (submission: Doc<"submissions">) => ({
   demoTitle: submission.demoTitle,
   description: submission.description,
   category: submission.category,
+  teamName: submission.teamName,
   status: submission.status,
   queueOrder: submission.queueOrder,
 });
 
-const adminSubmissionFields = (submission: Doc<"submissions">) => ({
+const adminSubmissionFields = (
+  submission: Doc<"submissions">,
+  teamMembers: string[] = [],
+  videoUrl: string | null = null,
+) => ({
   ...publicSubmissionFields(submission),
   phone: submission.phone,
   email: submission.email,
@@ -41,6 +72,11 @@ const adminSubmissionFields = (submission: Doc<"submissions">) => ({
   linkedin: submission.linkedin,
   participantToken: submission.participantToken,
   screenshotId: submission.screenshotId,
+  teamMembers,
+  videoStorageId: submission.videoStorageId,
+  videoUrl,
+  videoDeleteAt: submission.videoDeleteAt,
+  videoDeletedAt: submission.videoDeletedAt,
   createdAt: submission.createdAt,
   updatedAt: submission.updatedAt,
 });
@@ -177,6 +213,24 @@ async function logAction(
   });
 }
 
+async function queueJudgingSheetSync(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  delayMs = JUDGING_SHEET_SYNC_DEBOUNCE_MS,
+) {
+  if (eventType(event) !== "hackathon" || !event.judgingSheetId) return;
+
+  const revision = (event.judgingSheetSyncRevision ?? 0) + 1;
+  await ctx.db.patch(event._id, {
+    judgingSheetSyncRevision: revision,
+    judgingSheetSyncError: undefined,
+  });
+  await ctx.scheduler.runAfter(delayMs, internal.googleSheets.syncJudgingSheet, {
+    eventId: event._id,
+    revision,
+  });
+}
+
 function zodToConvexError(error: unknown): never {
   if (error instanceof ZodError) {
     throw new ConvexError(error.issues[0]?.message ?? "Invalid submission.");
@@ -208,10 +262,108 @@ function normalizeContactTextFields(args: ContactTextInput): ReturnType<typeof p
   }
 }
 
+function normalizeTeamName(value: string) {
+  const teamName = value.trim();
+  if (!teamName) throw new ConvexError("Team name is required.");
+  if (teamName.length > MAX_TEAM_NAME_LENGTH) {
+    throw new ConvexError(`Team name must be ${MAX_TEAM_NAME_LENGTH} characters or fewer.`);
+  }
+  return teamName;
+}
+
+function normalizeTeamMembers(values: string[]) {
+  const unique = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  if (unique.length > MAX_ADDITIONAL_TEAM_MEMBERS) {
+    throw new ConvexError(`Add no more than ${MAX_ADDITIONAL_TEAM_MEMBERS} additional team members.`);
+  }
+  for (const name of unique) {
+    if (name.length > MAX_TEAM_MEMBER_NAME_LENGTH) {
+      throw new ConvexError(
+        `Team member names must be ${MAX_TEAM_MEMBER_NAME_LENGTH} characters or fewer.`,
+      );
+    }
+  }
+  return unique;
+}
+
+async function validateHackathonVideo(ctx: MutationCtx, storageId: Id<"_storage">) {
+  const metadata = await ctx.db.system.get("_storage", storageId);
+  if (!metadata) throw new ConvexError("Uploaded video was not found. Please upload it again.");
+  if (!metadata.contentType?.startsWith("video/")) {
+    await ctx.storage.delete(storageId);
+    throw new ConvexError("Upload an MP4, WebM, or MOV video file.");
+  }
+  if (metadata.size > MAX_HACKATHON_VIDEO_BYTES) {
+    await ctx.storage.delete(storageId);
+    throw new ConvexError(`Video must be ${MAX_HACKATHON_VIDEO_LABEL} or smaller.`);
+  }
+  return metadata;
+}
+
+async function requireUnattachedSubmissionFile(ctx: MutationCtx, storageId: Id<"_storage">) {
+  const [screenshotSubmission, videoSubmission] = await Promise.all([
+    ctx.db
+      .query("submissions")
+      .withIndex("by_screenshot_id", (q) => q.eq("screenshotId", storageId))
+      .first(),
+    ctx.db
+      .query("submissions")
+      .withIndex("by_video_storage_id", (q) => q.eq("videoStorageId", storageId))
+      .first(),
+  ]);
+  if (screenshotSubmission || videoSubmission) {
+    throw new ConvexError("That uploaded file is already attached to a submission.");
+  }
+}
+
+function blankEventState(now: number) {
+  return {
+    queuePublished: false,
+    stageScreenMode: "qr" as const,
+    showSubmissionCountOnStage: false,
+    showMeetLinkOnStage: false,
+    showStageTimerOnStage: false,
+    stageTimerStatus: "idle" as const,
+    stageTimerDurationMs: DEFAULT_STAGE_TIMER_MS,
+    stageTimerRemainingMs: DEFAULT_STAGE_TIMER_MS,
+    stageTimerEndsAt: undefined,
+    showDemoTimerOnStage: false,
+    demoTimerStatus: "idle" as const,
+    demoTimerDurationMs: DEFAULT_DEMO_TIMER_MS,
+    demoTimerRemainingMs: DEFAULT_DEMO_TIMER_MS,
+    demoTimerEndsAt: undefined,
+    lineupTarget: undefined,
+    lastAdvanceSnapshot: undefined,
+    updatedAt: now,
+  };
+}
+
+async function deleteSubmissionData(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  submissions: Doc<"submissions">[],
+) {
+  const teamMembers = await ctx.db
+    .query("teamMembers")
+    .withIndex("by_event", (q) => q.eq("eventId", event._id))
+    .collect();
+
+  for (const member of teamMembers) {
+    await ctx.db.delete(member._id);
+  }
+
+  for (const submission of submissions) {
+    if (submission.screenshotId) await ctx.storage.delete(submission.screenshotId);
+    if (submission.videoStorageId) await ctx.storage.delete(submission.videoStorageId);
+    await ctx.db.delete(submission._id);
+  }
+}
+
 export const createEvent = mutation({
   args: {
     name: v.string(),
     slug: v.string(),
+    eventType: v.union(v.literal("demo"), v.literal("hackathon")),
     meetUrl: v.string(),
     adminToken: v.string(),
   },
@@ -229,6 +381,7 @@ export const createEvent = mutation({
     const eventId = await ctx.db.insert("events", {
       name: args.name.trim(),
       slug: args.slug,
+      eventType: args.eventType,
       meetUrl: args.meetUrl.trim(),
       adminToken: args.adminToken,
       queuePublished: false,
@@ -254,6 +407,33 @@ export const generateUploadUrl = mutation({
   },
 });
 
+export const generateHackathonVideoUploadUrl = mutation({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const event = await eventBySlug(ctx, slug);
+    if (eventType(event) !== "hackathon") {
+      throw new ConvexError("Video uploads are only available for hackathon events.");
+    }
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const discardHackathonVideo = mutation({
+  args: { slug: v.string(), storageId: v.id("_storage") },
+  handler: async (ctx, { slug, storageId }) => {
+    const event = await eventBySlug(ctx, slug);
+    if (eventType(event) !== "hackathon") return;
+
+    const attached = await ctx.db
+      .query("submissions")
+      .withIndex("by_video_storage_id", (q) => q.eq("videoStorageId", storageId))
+      .first();
+    if (attached) return;
+
+    await ctx.storage.delete(storageId);
+  },
+});
+
 export const getEventMeta = query({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {
@@ -262,6 +442,7 @@ export const getEventMeta = query({
     return {
       name: event.name,
       slug: event.slug,
+      eventType: eventType(event),
     };
   },
 });
@@ -275,6 +456,7 @@ export const getAdminEventMeta = query({
     return {
       name: event.name,
       slug: event.slug,
+      eventType: eventType(event),
     };
   },
 });
@@ -296,6 +478,7 @@ export const getParticipantMeta = query({
       event: {
         name: event.name,
         slug: event.slug,
+        eventType: eventType(event),
       },
       submission: {
         demoTitle: submission.demoTitle,
@@ -327,6 +510,7 @@ export const getStage = query({
       event: {
         name: event.name,
         slug: event.slug,
+        eventType: eventType(event),
         queuePublished: event.queuePublished,
         stageScreenMode: stageScreenMode(event),
         showSubmissionCountOnStage: event.showSubmissionCountOnStage ?? false,
@@ -357,12 +541,44 @@ export const getAdmin = query({
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
 
+    const teamMembers = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    const membersBySubmission = new Map<string, string[]>();
+    for (const member of teamMembers) {
+      const members = membersBySubmission.get(member.submissionId) ?? [];
+      members.push(member.name);
+      membersBySubmission.set(member.submissionId, members);
+    }
+    const adminSubmissions = await Promise.all(
+      submissions.map(async (submission) =>
+        adminSubmissionFields(
+          submission,
+          membersBySubmission.get(submission._id) ?? [],
+          submission.videoStorageId ? await ctx.storage.getUrl(submission.videoStorageId) : null,
+        ),
+      ),
+    );
+    const submissionById = new Map(adminSubmissions.map((submission) => [submission.id, submission]));
+    const mapAdminSubmission = (submission: Doc<"submissions">) =>
+      submissionById.get(submission._id)!;
+
     return {
       event: {
         id: event._id,
         name: event.name,
         slug: event.slug,
+        eventType: eventType(event),
         meetUrl: event.meetUrl,
+        judgingSheetId: event.judgingSheetId,
+        judgingSheetUrl: event.judgingSheetUrl,
+        judgingSheetCreatedAt: event.judgingSheetCreatedAt,
+        judgingSheetSyncRevision: event.judgingSheetSyncRevision ?? 0,
+        judgingSheetSyncedRevision: event.judgingSheetSyncedRevision ?? 0,
+        judgingSheetSyncedAt: event.judgingSheetSyncedAt,
+        judgingSheetSyncError: event.judgingSheetSyncError,
+        submissionCount: submissions.length,
         queuePublished: event.queuePublished,
         stageScreenMode: stageScreenMode(event),
         showSubmissionCountOnStage: event.showSubmissionCountOnStage ?? false,
@@ -374,27 +590,27 @@ export const getAdmin = query({
         demoTimer: publicDemoTimer(event),
         canRestorePrevious: event.lastAdvanceSnapshot !== undefined,
       },
-      lineup: lineupSorted(submissions).map(adminSubmissionFields),
+      lineup: lineupSorted(submissions).map(mapAdminSubmission),
       pool: submissions
         .filter((submission) => submission.status === "candidate")
         .sort((a, b) => a.createdAt - b.createdAt)
-        .map(adminSubmissionFields),
+        .map(mapAdminSubmission),
       hidden: submissions
         .filter((submission) => submission.status === "hidden")
         .sort((a, b) => b.createdAt - a.createdAt)
-        .map(adminSubmissionFields),
+        .map(mapAdminSubmission),
       completed: submissions
         .filter((submission) => submission.status === "done")
         .sort((a, b) => b.updatedAt - a.updatedAt)
-        .map(adminSubmissionFields),
+        .map(mapAdminSubmission),
       noShows: submissions
         .filter((submission) => submission.status === "no_show")
         .sort((a, b) => b.updatedAt - a.updatedAt)
-        .map(adminSubmissionFields),
+        .map(mapAdminSubmission),
       withdrawn: submissions
         .filter((submission) => submission.status === "withdrawn")
         .sort((a, b) => b.updatedAt - a.updatedAt)
-        .map(adminSubmissionFields),
+        .map(mapAdminSubmission),
     };
   },
 });
@@ -420,24 +636,26 @@ export const getParticipant = query({
     const lineup = lineupSorted(allSubmissions);
     const lineupIndex = lineup.findIndex((entry) => entry._id === submission._id);
 
-    let liveStatus = submission.status as string;
-    if (lineupIndex === 0) {
-      liveStatus = "current";
-    } else if (lineupIndex === 1) {
-      liveStatus = "up_next";
-    } else if (lineupIndex > 1) {
-      liveStatus = "queued";
-    }
+    const liveStatus = participantLineupStatus(
+      submission.status,
+      lineupIndex,
+      event.queuePublished,
+    );
 
     // Anyone in the published lineup can see the Meet link (lineupIndex >= 0),
     // not just the current/up-next speakers. Pool/candidate entries (index -1)
     // still don't get it until they're added to the lineup.
     const mayJoin = event.queuePublished && lineupIndex >= 0;
+    const teamMembers = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
+      .collect();
 
     return {
       event: {
         name: event.name,
         slug: event.slug,
+        eventType: eventType(event),
       },
       submission: {
         ...publicSubmissionFields(submission),
@@ -446,6 +664,12 @@ export const getParticipant = query({
         email: submission.email,
         twitter: submission.twitter,
         linkedin: submission.linkedin,
+        teamMembers: teamMembers.map((member) => member.name),
+        videoUrl: submission.videoStorageId
+          ? await ctx.storage.getUrl(submission.videoStorageId)
+          : null,
+        videoDeleteAt: submission.videoDeleteAt,
+        videoDeletedAt: submission.videoDeletedAt,
         createdAt: submission.createdAt,
       },
       meetUrl: mayJoin ? event.meetUrl : null,
@@ -470,8 +694,12 @@ export const submitDemo = mutation({
   },
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
+    if (eventType(event) !== "demo") {
+      throw new ConvexError("Use the hackathon submission form for this event.");
+    }
     const now = Date.now();
     const fields = normalizeSubmissionTextFields(args);
+    if (args.screenshotId) await requireUnattachedSubmissionFile(ctx, args.screenshotId);
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
@@ -488,6 +716,65 @@ export const submitDemo = mutation({
 
     await ctx.db.patch(event._id, { updatedAt: now });
     await logAction(ctx, event._id, "submission_created", "participant", submissionId);
+    return { submissionId };
+  },
+});
+
+export const submitHackathon = mutation({
+  args: {
+    slug: v.string(),
+    participantToken: v.string(),
+    name: v.string(),
+    teamName: v.string(),
+    teamMembers: v.array(v.string()),
+    demoTitle: v.string(),
+    description: v.string(),
+    phone: v.string(),
+    email: v.optional(v.string()),
+    twitter: v.optional(v.string()),
+    linkedin: v.optional(v.string()),
+    category: v.optional(v.string()),
+    videoStorageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    if (eventType(event) !== "hackathon") {
+      throw new ConvexError("This event accepts personal demo submissions.");
+    }
+
+    const now = Date.now();
+    const fields = normalizeSubmissionTextFields(args);
+    const teamName = normalizeTeamName(args.teamName);
+    const teamMembers = normalizeTeamMembers(args.teamMembers);
+    await requireUnattachedSubmissionFile(ctx, args.videoStorageId);
+    await validateHackathonVideo(ctx, args.videoStorageId);
+
+    const submissionId = await ctx.db.insert("submissions", {
+      eventId: event._id,
+      participantToken: args.participantToken,
+      ...fields,
+      teamName,
+      videoStorageId: args.videoStorageId,
+      videoUploadedAt: now,
+      videoDeleteAt: addMonths(now, 6).getTime(),
+      status: "candidate",
+      queueOrder: undefined,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    for (const memberName of teamMembers) {
+      await ctx.db.insert("teamMembers", {
+        eventId: event._id,
+        submissionId,
+        name: memberName,
+        createdAt: now,
+      });
+    }
+
+    await ctx.db.patch(event._id, { updatedAt: now });
+    await logAction(ctx, event._id, "hackathon_submission_created", "participant", submissionId);
+    await queueJudgingSheetSync(ctx, event);
     return { submissionId };
   },
 });
@@ -511,6 +798,9 @@ export const adminAddSubmission = mutation({
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
     requireAdmin(event, args.adminToken);
+    if (eventType(event) !== "demo") {
+      throw new ConvexError("Add hackathon teams through the public submission form.");
+    }
     const now = Date.now();
     const toPool = args.list === "pool";
     const fields = normalizeSubmissionTextFields(args);
@@ -527,6 +817,71 @@ export const adminAddSubmission = mutation({
 
     await logAction(ctx, event._id, "submission_admin_added", "admin", submissionId);
     return { submissionId };
+  },
+});
+
+const adminTestSubmissionValidator = v.object({
+  participantToken: v.string(),
+  name: v.string(),
+  demoTitle: v.string(),
+  description: v.string(),
+  phone: v.string(),
+  email: v.optional(v.string()),
+  twitter: v.optional(v.string()),
+  linkedin: v.optional(v.string()),
+  category: v.optional(v.string()),
+  teamName: v.optional(v.string()),
+  teamMembers: v.optional(v.array(v.string())),
+});
+
+export const adminAddTestSubmissions = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    submissions: v.array(adminTestSubmissionValidator),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    if (args.submissions.length < 1 || args.submissions.length > 25) {
+      throw new ConvexError("Add between 1 and 25 test submissions at a time.");
+    }
+
+    const isHackathon = eventType(event) === "hackathon";
+    const now = Date.now();
+    const submissionIds: Id<"submissions">[] = [];
+
+    for (const submission of args.submissions) {
+      const fields = normalizeSubmissionTextFields(submission);
+      const teamName = isHackathon ? normalizeTeamName(submission.teamName ?? "") : undefined;
+      const teamMembers = isHackathon ? normalizeTeamMembers(submission.teamMembers ?? []) : [];
+      const submissionId = await ctx.db.insert("submissions", {
+        eventId: event._id,
+        participantToken: submission.participantToken,
+        ...fields,
+        teamName,
+        status: "candidate",
+        queueOrder: undefined,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      for (const memberName of teamMembers) {
+        await ctx.db.insert("teamMembers", {
+          eventId: event._id,
+          submissionId,
+          name: memberName,
+          createdAt: now,
+        });
+      }
+
+      await logAction(ctx, event._id, "test_submission_admin_added", "admin", submissionId);
+      submissionIds.push(submissionId);
+    }
+
+    await ctx.db.patch(event._id, { updatedAt: now });
+    await queueJudgingSheetSync(ctx, event);
+    return { submissionIds };
   },
 });
 
@@ -554,6 +909,7 @@ export const editParticipantContact = mutation({
       ...normalizeContactTextFields(args),
       updatedAt: Date.now(),
     });
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -572,6 +928,7 @@ export const withdrawSubmission = mutation({
 
     await ctx.db.patch(submission._id, { status: "withdrawn", updatedAt: Date.now() });
     await logAction(ctx, event._id, "submission_withdrawn", "participant", submission._id);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -590,6 +947,194 @@ export const updateEvent = mutation({
       name: args.name.trim(),
       meetUrl: args.meetUrl.trim(),
       updatedAt: Date.now(),
+    });
+    await queueJudgingSheetSync(ctx, event);
+  },
+});
+
+export const changeEventType = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    eventType: v.union(v.literal("demo"), v.literal("hackathon")),
+    confirmReset: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    if (eventType(event) === args.eventType) return { deletedSubmissions: 0 };
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    if (submissions.length > 0 && !args.confirmReset) {
+      throw new ConvexError(
+        `Changing event type will permanently delete ${submissions.length} submission${submissions.length === 1 ? "" : "s"} and uploaded files.`,
+      );
+    }
+
+    await deleteSubmissionData(ctx, event, submissions);
+    const now = Date.now();
+    await ctx.db.patch(event._id, {
+      ...blankEventState(now),
+      eventType: args.eventType,
+      judgingSheetId: undefined,
+      judgingSheetUrl: undefined,
+      judgingSheetCreatedAt: undefined,
+      judgingSheetSyncRevision: undefined,
+      judgingSheetSyncedRevision: undefined,
+      judgingSheetSyncedAt: undefined,
+      judgingSheetSyncError: undefined,
+    });
+    await logAction(ctx, event._id, "event_type_changed", "admin", args.eventType);
+    return { deletedSubmissions: submissions.length };
+  },
+});
+
+export const saveJudgingSheet = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    spreadsheetId: v.string(),
+    spreadsheetUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    if (eventType(event) !== "hackathon") {
+      throw new ConvexError("Judging sheets are only available for hackathon events.");
+    }
+
+    if (event.judgingSheetId && event.judgingSheetUrl) {
+      return {
+        spreadsheetId: event.judgingSheetId,
+        spreadsheetUrl: event.judgingSheetUrl,
+        created: false,
+      };
+    }
+
+    const now = Date.now();
+    const revision = (event.judgingSheetSyncRevision ?? 0) + 1;
+    await ctx.db.patch(event._id, {
+      judgingSheetId: args.spreadsheetId,
+      judgingSheetUrl: args.spreadsheetUrl,
+      judgingSheetCreatedAt: now,
+      judgingSheetSyncRevision: revision,
+      judgingSheetSyncedRevision: 0,
+      judgingSheetSyncedAt: undefined,
+      judgingSheetSyncError: undefined,
+      updatedAt: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.googleSheets.syncJudgingSheet, {
+      eventId: event._id,
+      revision,
+    });
+    await logAction(ctx, event._id, "judging_sheet_created", "admin", args.spreadsheetId);
+    return {
+      spreadsheetId: args.spreadsheetId,
+      spreadsheetUrl: args.spreadsheetUrl,
+      created: true,
+    };
+  },
+});
+
+export const requestJudgingSheetSync = mutation({
+  args: { slug: v.string(), adminToken: v.string() },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    if (eventType(event) !== "hackathon" || !event.judgingSheetId) {
+      throw new ConvexError("Create the judging sheet before syncing it.");
+    }
+
+    await queueJudgingSheetSync(ctx, event, 0);
+  },
+});
+
+export const getJudgingSheetSyncSnapshot = internalQuery({
+  args: { eventId: v.id("events"), revision: v.number() },
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (
+      !event ||
+      eventType(event) !== "hackathon" ||
+      !event.judgingSheetId ||
+      event.judgingSheetSyncRevision !== args.revision
+    ) {
+      return null;
+    }
+
+    const [submissions, teamMembers] = await Promise.all([
+      ctx.db
+        .query("submissions")
+        .withIndex("by_event", (q) => q.eq("eventId", event._id))
+        .collect(),
+      ctx.db
+        .query("teamMembers")
+        .withIndex("by_event", (q) => q.eq("eventId", event._id))
+        .collect(),
+    ]);
+    const membersBySubmission = new Map<string, string[]>();
+    for (const member of teamMembers) {
+      const members = membersBySubmission.get(member.submissionId) ?? [];
+      members.push(member.name);
+      membersBySubmission.set(member.submissionId, members);
+    }
+
+    const sheetSubmissions = await Promise.all(
+      submissions
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map(async (submission) => ({
+          id: submission._id,
+          teamName: submission.teamName,
+          teamMembers: membersBySubmission.get(submission._id) ?? [],
+          name: submission.name,
+          demoTitle: submission.demoTitle,
+          description: submission.description,
+          category: submission.category,
+          videoUrl: submission.videoStorageId
+            ? await ctx.storage.getUrl(submission.videoStorageId)
+            : null,
+          email: submission.email,
+          phone: submission.phone,
+          twitter: submission.twitter,
+          linkedin: submission.linkedin,
+          status: submission.status,
+          createdAt: submission.createdAt,
+        })),
+    );
+
+    return {
+      eventId: event._id,
+      eventName: event.name,
+      meetUrl: event.meetUrl,
+      spreadsheetId: event.judgingSheetId,
+      revision: args.revision,
+      submissions: sheetSubmissions,
+    };
+  },
+});
+
+export const completeJudgingSheetSync = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    revision: v.number(),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (!event || event.judgingSheetSyncRevision !== args.revision) return;
+
+    if (args.error) {
+      await ctx.db.patch(event._id, { judgingSheetSyncError: args.error });
+      return;
+    }
+
+    await ctx.db.patch(event._id, {
+      judgingSheetSyncedRevision: args.revision,
+      judgingSheetSyncedAt: Date.now(),
+      judgingSheetSyncError: undefined,
     });
   },
 });
@@ -621,6 +1166,7 @@ export const updateSubmission = mutation({
       ...normalizeSubmissionTextFields(args),
       updatedAt: Date.now(),
     });
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1026,6 +1572,7 @@ export const hideSubmission = mutation({
     });
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_hidden", "admin", args.submissionId);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1054,6 +1601,7 @@ export const restoreSubmission = mutation({
     });
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_restored", "admin", args.submissionId);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1089,6 +1637,7 @@ export const reorderLineup = mutation({
 
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_reordered", "admin");
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1132,6 +1681,7 @@ export const shuffleLineup = mutation({
 
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_shuffled", "admin");
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1174,6 +1724,7 @@ export const setLineupOrder = mutation({
 
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_ai_ordered", "admin");
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1201,6 +1752,7 @@ export const moveToPool = mutation({
     });
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_to_pool", "admin", args.submissionId);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1249,6 +1801,7 @@ export const markNoShow = mutation({
     });
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_no_show", "admin", current._id);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1303,6 +1856,7 @@ export const pickNext = mutation({
     });
 
     await logAction(ctx, event._id, "pick_next", "admin");
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1345,6 +1899,7 @@ export const restorePreviousPresenter = mutation({
     });
 
     await logAction(ctx, event._id, "previous_presenter_restored", "admin", snapshot.currentSubmissionId);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1381,6 +1936,7 @@ export const skipCurrent = mutation({
     await clearAdvanceSnapshot(ctx, event, now);
 
     await logAction(ctx, event._id, "current_skipped", "admin", current._id);
+    await queueJudgingSheetSync(ctx, event);
   },
 });
 
@@ -1395,34 +1951,96 @@ export const clearQueue = mutation({
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
 
-    // Permanently remove every submission and any uploaded screenshot blob,
+    // Permanently remove every submission, team member, and uploaded file,
     // returning the event to its blank, pre-publish state.
-    for (const submission of submissions) {
-      if (submission.screenshotId) {
-        await ctx.storage.delete(submission.screenshotId);
-      }
-      await ctx.db.delete(submission._id);
-    }
+    await deleteSubmissionData(ctx, event, submissions);
 
     await ctx.db.patch(event._id, {
-      queuePublished: false,
-      stageScreenMode: "qr",
-      showSubmissionCountOnStage: false,
-      showMeetLinkOnStage: false,
-      showStageTimerOnStage: false,
-      stageTimerStatus: "idle",
-      stageTimerDurationMs: DEFAULT_STAGE_TIMER_MS,
-      stageTimerRemainingMs: DEFAULT_STAGE_TIMER_MS,
-      stageTimerEndsAt: undefined,
-      showDemoTimerOnStage: false,
-      demoTimerStatus: "idle",
-      demoTimerDurationMs: DEFAULT_DEMO_TIMER_MS,
-      demoTimerRemainingMs: DEFAULT_DEMO_TIMER_MS,
-      demoTimerEndsAt: undefined,
-      lineupTarget: undefined,
-      lastAdvanceSnapshot: undefined,
-      updatedAt: Date.now(),
+      ...blankEventState(Date.now()),
+      judgingSheetId: undefined,
+      judgingSheetUrl: undefined,
+      judgingSheetCreatedAt: undefined,
+      judgingSheetSyncRevision: undefined,
+      judgingSheetSyncedRevision: undefined,
+      judgingSheetSyncedAt: undefined,
+      judgingSheetSyncError: undefined,
     });
     await logAction(ctx, event._id, "queue_cleared", "admin");
+  },
+});
+
+export const deleteExpiredHackathonVideos = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ deleted: number }> => {
+    const now = Date.now();
+    const expired = await ctx.db
+      .query("submissions")
+      .withIndex("by_video_delete_at", (q) =>
+        q.gt("videoDeleteAt", 0).lte("videoDeleteAt", now),
+      )
+      .take(50);
+
+    for (const submission of expired) {
+      if (submission.videoStorageId) await ctx.storage.delete(submission.videoStorageId);
+      await ctx.db.patch(submission._id, {
+        videoStorageId: undefined,
+        videoDeleteAt: undefined,
+        videoDeletedAt: now,
+        updatedAt: now,
+      });
+    }
+
+    if (expired.length === 50) {
+      await ctx.scheduler.runAfter(0, internal.events.deleteExpiredHackathonVideos, {});
+    }
+    return { deleted: expired.length };
+  },
+});
+
+export const deleteOrphanedSubmissionUploads = internalMutation({
+  args: {
+    cursor: v.optional(v.string()),
+    cutoff: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<{ deleted: number; scanned: number }> => {
+    const cutoff = args.cutoff ?? Date.now() - ORPHAN_UPLOAD_GRACE_MS;
+    const page = await ctx.db.system
+      .query("_storage")
+      .order("asc")
+      .paginate({ cursor: args.cursor ?? null, numItems: ORPHAN_UPLOAD_BATCH_SIZE });
+    let deleted = 0;
+    let scanned = 0;
+    let reachedGracePeriod = false;
+
+    for (const file of page.page) {
+      if (file._creationTime > cutoff) {
+        reachedGracePeriod = true;
+        break;
+      }
+      scanned += 1;
+      const [screenshotSubmission, videoSubmission] = await Promise.all([
+        ctx.db
+          .query("submissions")
+          .withIndex("by_screenshot_id", (q) => q.eq("screenshotId", file._id))
+          .first(),
+        ctx.db
+          .query("submissions")
+          .withIndex("by_video_storage_id", (q) => q.eq("videoStorageId", file._id))
+          .first(),
+      ]);
+      if (!screenshotSubmission && !videoSubmission) {
+        await ctx.storage.delete(file._id);
+        deleted += 1;
+      }
+    }
+
+    if (!reachedGracePeriod && !page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.events.deleteOrphanedSubmissionUploads, {
+        cursor: page.continueCursor,
+        cutoff,
+      });
+    }
+
+    return { deleted, scanned };
   },
 });

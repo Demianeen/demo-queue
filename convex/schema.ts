@@ -5,8 +5,16 @@ export default defineSchema({
   events: defineTable({
     name: v.string(),
     slug: v.string(),
+    eventType: v.optional(v.union(v.literal("demo"), v.literal("hackathon"))),
     meetUrl: v.string(),
     adminToken: v.string(),
+    judgingSheetId: v.optional(v.string()),
+    judgingSheetUrl: v.optional(v.string()),
+    judgingSheetCreatedAt: v.optional(v.number()),
+    judgingSheetSyncRevision: v.optional(v.number()),
+    judgingSheetSyncedRevision: v.optional(v.number()),
+    judgingSheetSyncedAt: v.optional(v.number()),
+    judgingSheetSyncError: v.optional(v.string()),
     queuePublished: v.boolean(),
     stageScreenMode: v.optional(v.union(v.literal("qr"), v.literal("demo"))),
     showSubmissionCountOnStage: v.optional(v.boolean()),
@@ -51,7 +59,12 @@ export default defineSchema({
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
     category: v.optional(v.string()),
+    teamName: v.optional(v.string()),
     screenshotId: v.optional(v.id("_storage")),
+    videoStorageId: v.optional(v.id("_storage")),
+    videoUploadedAt: v.optional(v.number()),
+    videoDeleteAt: v.optional(v.number()),
+    videoDeletedAt: v.optional(v.number()),
     status: v.union(
       v.literal("candidate"),
       v.literal("queued"),
@@ -68,7 +81,19 @@ export default defineSchema({
   })
     .index("by_event", ["eventId"])
     .index("by_event_status", ["eventId", "status"])
-    .index("by_participant_token", ["participantToken"]),
+    .index("by_participant_token", ["participantToken"])
+    .index("by_screenshot_id", ["screenshotId"])
+    .index("by_video_delete_at", ["videoDeleteAt"])
+    .index("by_video_storage_id", ["videoStorageId"]),
+
+  teamMembers: defineTable({
+    eventId: v.id("events"),
+    submissionId: v.id("submissions"),
+    name: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_submission", ["submissionId"]),
 
   auditLog: defineTable({
     eventId: v.id("events"),

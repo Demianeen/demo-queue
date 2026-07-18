@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
+import { Id } from "../../../convex/_generated/dataModel";
 import { participantPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken } from "@/lib/tokens";
 import {
@@ -14,6 +15,17 @@ import {
   isValidTwitter,
 } from "@/lib/validation";
 import { Brand } from "@/app/Brand";
+import { Skeleton } from "@/app/Skeleton";
+import {
+  MAX_ADDITIONAL_TEAM_MEMBERS,
+  MAX_HACKATHON_VIDEO_BYTES,
+  MAX_HACKATHON_VIDEO_LABEL,
+  MAX_TEAM_MEMBER_NAME_LENGTH,
+  MAX_TEAM_NAME_LENGTH,
+  isSupportedVideo,
+  parseAdditionalTeamMembers,
+  videoContentType,
+} from "@/lib/hackathon";
 
 function Req() {
   return <span style={{ color: "var(--app-bad)" }}> *</span>;
@@ -24,11 +36,31 @@ export default function SubmissionPage() {
   const router = useRouter();
   const stage = useQuery(api.events.getStage, { slug: params.slug });
   const submitDemo = useMutation(api.events.submitDemo);
+  const submitHackathon = useMutation(api.events.submitHackathon);
+  const generateVideoUploadUrl = useMutation(api.events.generateHackathonVideoUploadUrl);
+  const discardHackathonVideo = useMutation(api.events.discardHackathonVideo);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [socialError, setSocialError] = useState("");
   const [twitterError, setTwitterError] = useState("");
   const [linkedinError, setLinkedinError] = useState("");
   const [phoneError, setPhoneError] = useState("");
+  const [teamError, setTeamError] = useState("");
+  const [videoError, setVideoError] = useState("");
+  const isHackathon = stage?.event.eventType === "hackathon";
+
+  if (!stage) {
+    return (
+      <main className="narrow-page">
+        <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
+          <Skeleton w={120} h={12} radius={6} style={{ marginBottom: 18 }} />
+          <Skeleton w="70%" h={38} radius={10} style={{ marginBottom: 18 }} />
+          <Skeleton w="90%" h={18} radius={8} style={{ marginBottom: 26 }} />
+          <Skeleton h={46} radius={12} style={{ marginBottom: 14 }} />
+          <Skeleton h={112} radius={12} />
+        </section>
+      </main>
+    );
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,6 +70,9 @@ export default function SubmissionPage() {
     const phone = read("phone");
     const twitter = read("twitter");
     const linkedin = read("linkedin");
+    const teamName = read("teamName");
+    const teamMembers = parseAdditionalTeamMembers(read("teamMembers"));
+    const video = form.get("video");
     const lengthError = firstFieldLimitError({
       name: read("name"),
       demoTitle: read("demoTitle"),
@@ -53,6 +88,8 @@ export default function SubmissionPage() {
     setTwitterError("");
     setLinkedinError("");
     setPhoneError("");
+    setTeamError("");
+    setVideoError("");
 
     let valid = true;
     if (lengthError) {
@@ -81,11 +118,40 @@ export default function SubmissionPage() {
     if (!valid) {
       return;
     }
+
+    if (isHackathon) {
+      if (!teamName || teamName.length > MAX_TEAM_NAME_LENGTH) {
+        setTeamError(`Enter a team name up to ${MAX_TEAM_NAME_LENGTH} characters.`);
+        valid = false;
+      }
+      if (
+        teamMembers.length > MAX_ADDITIONAL_TEAM_MEMBERS ||
+        teamMembers.some((member) => member.length > MAX_TEAM_MEMBER_NAME_LENGTH)
+      ) {
+        setTeamError(
+          `Add up to ${MAX_ADDITIONAL_TEAM_MEMBERS} additional members, one per line, with names up to ${MAX_TEAM_MEMBER_NAME_LENGTH} characters.`,
+        );
+        valid = false;
+      }
+      if (!(video instanceof File) || video.size === 0) {
+        setVideoError("Choose a video to upload.");
+        valid = false;
+      } else if (video.size > MAX_HACKATHON_VIDEO_BYTES) {
+        setVideoError(`Video must be ${MAX_HACKATHON_VIDEO_LABEL} or smaller.`);
+        valid = false;
+      } else if (!isSupportedVideo(video)) {
+        setVideoError("Upload an MP4, WebM, or MOV video.");
+        valid = false;
+      }
+    }
+    if (!valid) return;
+
     setIsSubmitting(true);
 
     const participantToken = randomToken(32);
+    let uploadedStorageId: string | null = null;
     try {
-      await submitDemo({
+      const sharedFields = {
         slug: params.slug,
         participantToken,
         name: read("name"),
@@ -96,30 +162,88 @@ export default function SubmissionPage() {
         category: read("category") || undefined,
         twitter: twitter || undefined,
         linkedin: linkedin || undefined,
-        queueOrder: randomQueueOrder(),
-      });
+      };
+
+      if (isHackathon && video instanceof File) {
+        const uploadUrl = await generateVideoUploadUrl({ slug: params.slug });
+        const uploadResponse = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": videoContentType(video) },
+          body: video,
+        });
+        if (!uploadResponse.ok) throw new Error("Video upload failed. Please try again.");
+        const uploadResult = (await uploadResponse.json()) as { storageId?: string };
+        if (!uploadResult.storageId) throw new Error("Video upload did not return a file ID.");
+        uploadedStorageId = uploadResult.storageId;
+
+        await submitHackathon({
+          ...sharedFields,
+          teamName,
+          teamMembers,
+          videoStorageId: uploadResult.storageId as Id<"_storage">,
+        });
+      } else {
+        await submitDemo({ ...sharedFields, queueOrder: randomQueueOrder() });
+      }
       router.push(participantPath(params.slug, participantToken));
-    } catch {
+    } catch (error) {
+      if (uploadedStorageId) {
+        await discardHackathonVideo({
+          slug: params.slug,
+          storageId: uploadedStorageId as Id<"_storage">,
+        }).catch(() => undefined);
+      }
       setIsSubmitting(false);
-      setSocialError("Something went wrong submitting. Please try again.");
+      const message = error instanceof Error ? error.message : "Something went wrong submitting.";
+      setSocialError(message.includes("ConvexError") ? message.split("ConvexError: ").pop() ?? message : message);
     }
   }
 
   return (
     <main className="narrow-page">
       <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
-        <Brand label={stage?.event.name ?? "Demo Queue"} />
-        <h1>Submit your demo.</h1>
+        <Brand label={stage.event.name} />
+        <h1>{isHackathon ? "Submit your hackathon project." : "Submit your demo."}</h1>
         <p className="lead">
-          You will get a private status link after submitting. The Meet link appears there once you
-          are listed as a demoer.
+          {isHackathon
+            ? "Submit once for your team. You will get a private status link, and finalists will use the Meet link to present."
+            : "You will get a private status link after submitting. The Meet link appears there once you are listed as a demoer."}
         </p>
 
         <form className="form" onSubmit={onSubmit} style={{ marginTop: 24 }}>
           <div style={{ display: "grid", gap: 14 }}>
-            <h2 style={{ fontSize: 18, marginBottom: 0 }}>Demo info</h2>
+            <h2 style={{ fontSize: 18, marginBottom: 0 }}>
+              {isHackathon ? "Team and project" : "Demo info"}
+            </h2>
+            {isHackathon ? (
+              <>
+                <div className="field">
+                  <label htmlFor="teamName">Team name<Req /></label>
+                  <input
+                    id="teamName"
+                    name="teamName"
+                    placeholder="Your team name"
+                    maxLength={MAX_TEAM_NAME_LENGTH}
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="teamMembers">Other team members, one per line</label>
+                  <textarea
+                    id="teamMembers"
+                    name="teamMembers"
+                    placeholder={"Sam Lee\nAlex Morgan"}
+                    rows={3}
+                  />
+                  <span className="muted form-help">
+                    The presenter below is included automatically. Add up to {MAX_ADDITIONAL_TEAM_MEMBERS} others.
+                  </span>
+                </div>
+                {teamError ? <span className="form-error">{teamError}</span> : null}
+              </>
+            ) : null}
             <div className="field">
-              <label htmlFor="name">Your name<Req /></label>
+              <label htmlFor="name">{isHackathon ? "Presenter and primary contact" : "Your name"}<Req /></label>
               <input
                 id="name"
                 name="name"
@@ -130,18 +254,18 @@ export default function SubmissionPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="demoTitle">Demo title<Req /></label>
+              <label htmlFor="demoTitle">{isHackathon ? "Project name" : "Demo title"}<Req /></label>
               <input
                 id="demoTitle"
                 name="demoTitle"
-                placeholder="What are you demoing?"
+                placeholder={isHackathon ? "What did your team build?" : "What are you demoing?"}
                 maxLength={SUBMISSION_FIELD_LIMITS.demoTitle}
                 required
               />
             </div>
 
             <div className="field">
-              <label htmlFor="description">Short description<Req /></label>
+              <label htmlFor="description">{isHackathon ? "Project description" : "Short description"}<Req /></label>
               <textarea
                 id="description"
                 name="description"
@@ -188,6 +312,23 @@ export default function SubmissionPage() {
                 maxLength={SUBMISSION_FIELD_LIMITS.category}
               />
             </div>
+
+            {isHackathon ? (
+              <div className="field">
+                <label htmlFor="video">Project video<Req /></label>
+                <input
+                  id="video"
+                  name="video"
+                  type="file"
+                  accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm"
+                  required
+                />
+                <span className="muted form-help">
+                  MP4, WebM, or MOV. Maximum {MAX_HACKATHON_VIDEO_LABEL}; stored for six months.
+                </span>
+                {videoError ? <span className="form-error">{videoError}</span> : null}
+              </div>
+            ) : null}
           </div>
 
           <div style={{ display: "grid", gap: 14, marginTop: 10 }}>
@@ -229,7 +370,13 @@ export default function SubmissionPage() {
 
           <div className="actions">
             <button className="button" disabled={isSubmitting} type="submit">
-              {isSubmitting ? "Submitting..." : "Join the queue"}
+              {isSubmitting
+                ? isHackathon
+                  ? "Uploading and submitting..."
+                  : "Submitting..."
+                : isHackathon
+                  ? "Submit project"
+                  : "Join the queue"}
             </button>
           </div>
         </form>

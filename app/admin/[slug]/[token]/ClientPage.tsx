@@ -7,6 +7,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
+import { completedQueueLabel, lineupPositionLabel } from "@/lib/event-state";
 import { socialUrl } from "@/lib/social";
 import { randomToken } from "@/lib/tokens";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -19,7 +20,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { makeSamplePerson } from "@/lib/sampleData";
+import { makeSampleHackathonTeam, makeSamplePerson } from "@/lib/sampleData";
+import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { Skeleton } from "@/app/Skeleton";
 import { Brand } from "@/app/Brand";
 import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError } from "@/lib/validation";
@@ -56,6 +58,7 @@ import {
   RotateCcw,
   Undo2,
   MoreHorizontal,
+  FileSpreadsheet,
   UserPlus,
 } from "lucide-react";
 
@@ -69,6 +72,11 @@ type AdminSubmission = {
   twitter?: string;
   linkedin?: string;
   category?: string;
+  teamName?: string;
+  teamMembers: string[];
+  videoUrl?: string | null;
+  videoDeleteAt?: number;
+  videoDeletedAt?: number;
   status: string;
   queueOrder?: number;
 };
@@ -254,7 +262,9 @@ export default function AdminPage() {
   const skipCurrent = useMutation(api.events.skipCurrent);
   const markNoShow = useMutation(api.events.markNoShow);
   const clearQueue = useMutation(api.events.clearQueue);
+  const changeEventType = useMutation(api.events.changeEventType);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
+  const adminAddTestSubmissions = useMutation(api.events.adminAddTestSubmissions);
   const updateSubmission = useMutation(api.events.updateSubmission);
   const setLineupTarget = useMutation(api.events.setLineupTarget);
   const setStageScreenMode = useMutation(api.events.setStageScreenMode);
@@ -273,7 +283,9 @@ export default function AdminPage() {
   const adjustDemoTimer = useMutation(api.events.adjustDemoTimer);
   const restorePreviousPresenter = useMutation(api.events.restorePreviousPresenter);
   const shuffleLineup = useMutation(api.events.shuffleLineup);
+  const requestJudgingSheetSync = useMutation(api.events.requestJudgingSheetSync);
   const aiShuffle = useAction(api.ai.aiShuffle);
+  const createJudgingSheet = useAction(api.googleSheets.createJudgingSheet);
 
   const reorderLineup = useMutation(api.events.reorderLineup).withOptimisticUpdate(
     (store, args) => {
@@ -323,6 +335,8 @@ export default function AdminPage() {
   const [testPeopleOpen, setTestPeopleOpen] = useState(false);
   const [testPeopleBusy, setTestPeopleBusy] = useState(false);
   const [testPeopleMessage, setTestPeopleMessage] = useState("");
+  const [sheetBusy, setSheetBusy] = useState(false);
+  const [sheetMessage, setSheetMessage] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTab>("all");
   const [queueTimerMinutesInput, setQueueTimerMinutesInput] = useState("");
@@ -380,6 +394,19 @@ export default function AdminPage() {
   const stageTimerView = useTimerView(effectiveStageTimer);
   const effectiveDemoTimer = demoTimerOverride ?? admin?.event.demoTimer;
   const demoTimerView = useTimerView(effectiveDemoTimer);
+  const judgingSheetSyncPending = Boolean(
+    admin?.event.judgingSheetUrl &&
+      admin.event.judgingSheetSyncRevision > admin.event.judgingSheetSyncedRevision,
+  );
+  const judgingSheetSyncStatus = admin?.event.judgingSheetSyncError
+    ? `Sync failed: ${admin.event.judgingSheetSyncError}`
+    : judgingSheetSyncPending
+      ? "Syncing latest submissions..."
+      : admin?.event.judgingSheetSyncedAt
+        ? "Judging sheet is up to date."
+        : admin?.event.judgingSheetUrl
+          ? "Waiting for the first sync..."
+          : "";
 
   useEffect(() => {
     const serverTimer = admin?.event.stageTimer;
@@ -476,6 +503,8 @@ export default function AdminPage() {
 
   const queueIsPublished = admin.event.queuePublished;
   const lineupTarget = admin.event.lineupTarget;
+  const isHackathonEvent = admin.event.eventType === "hackathon";
+  const allSubmissionsLabel = isHackathonEvent ? "All submissions" : "All people";
 
   function columnOf(id: Id<"submissions"> | ColumnId): ColumnId | null {
     if (id === "lineup" || id === "pool") return id as ColumnId;
@@ -869,37 +898,30 @@ export default function AdminPage() {
 
     const safeCount = Math.min(count, 1000);
     const batchSize = 25;
+    const subject = isHackathonEvent ? "submissions" : "people";
     setTestPeopleBusy(true);
-    setTestPeopleMessage(`Adding ${safeCount} test people...`);
+    setTestPeopleMessage(`Adding ${safeCount} test ${subject}...`);
 
     try {
       for (let start = 0; start < safeCount; start += batchSize) {
         const batchCount = Math.min(batchSize, safeCount - start);
-        await Promise.all(
-          Array.from({ length: batchCount }, async () => {
-            const person = makeSamplePerson();
-            await adminAddSubmission({
-              slug: params.slug,
-              adminToken: params.token,
-              participantToken: randomToken(32),
-              name: person.name,
-              demoTitle: person.demoTitle,
-              description: person.description,
-              phone: person.phone,
-              email: person.email,
-              twitter: person.twitter,
-              linkedin: person.linkedin,
-              category: person.category,
-              queueOrder: Date.now(),
-              list: "pool",
-            });
-          }),
-        );
+        const submissions = Array.from({ length: batchCount }, () => {
+          const sample = isHackathonEvent ? makeSampleHackathonTeam() : makeSamplePerson();
+          return {
+            participantToken: randomToken(32),
+            ...sample,
+          };
+        });
+        await adminAddTestSubmissions({
+          slug: params.slug,
+          adminToken: params.token,
+          submissions,
+        });
       }
-      setTestPeopleMessage(`Added ${safeCount} test people to All people.`);
+      setTestPeopleMessage(`Added ${safeCount} test ${subject} to ${allSubmissionsLabel}.`);
       setTestPeopleOpen(false);
     } catch (error) {
-      setTestPeopleMessage(error instanceof Error ? error.message : "Could not add test people.");
+      setTestPeopleMessage(error instanceof Error ? error.message : `Could not add test ${subject}.`);
     } finally {
       setTestPeopleBusy(false);
     }
@@ -907,7 +929,7 @@ export default function AdminPage() {
 
   async function clearAll() {
     const confirmed = window.confirm(
-      "Delete ALL submissions for this event? This permanently removes everyone and resets the event to its blank, pre-publish state. This cannot be undone.",
+      "Delete ALL submissions for this event? This permanently removes everyone, team members, and uploaded files, then resets the event. An exported Google Sheet is not deleted. This cannot be undone.",
     );
     if (!confirmed) return;
     setEditingId(null);
@@ -915,6 +937,62 @@ export default function AdminPage() {
     setQueueTimerOverride(null);
     setDemoTimerOverride(null);
     await clearQueue({ slug: params.slug, adminToken: params.token });
+  }
+
+  async function selectEventType(nextType: "demo" | "hackathon") {
+    if (!admin) return;
+    if (nextType === admin.event.eventType) return;
+    const submissionCount = admin.event.submissionCount;
+    const needsConfirmation = submissionCount > 0 || Boolean(admin.event.judgingSheetUrl);
+    const confirmed =
+      !needsConfirmation ||
+      window.confirm(
+        `Change this event to ${nextType === "hackathon" ? "Hackathon" : "Demo queue"}? This permanently deletes ${submissionCount} submission${submissionCount === 1 ? "" : "s"}, team members, and uploaded files. Any exported Google Sheet remains in Drive but is disconnected from this event.`,
+      );
+    if (!confirmed) return;
+
+    await changeEventType({
+      slug: params.slug,
+      adminToken: params.token,
+      eventType: nextType,
+      confirmReset: submissionCount > 0,
+    });
+    setEditingId(null);
+    setIsAdding(false);
+    setSheetMessage("");
+  }
+
+  async function createJudgingSheetFile() {
+    if (!admin) return;
+    setSheetBusy(true);
+    setSheetMessage("");
+    const sheetWindow = window.open("", "_blank");
+    try {
+      const result = await createJudgingSheet({ slug: params.slug, adminToken: params.token });
+      if (sheetWindow) {
+        sheetWindow.opener = null;
+        sheetWindow.location.replace(result.spreadsheetUrl);
+      }
+      setSheetMessage("Judging sheet created.");
+    } catch (error) {
+      sheetWindow?.close();
+      setSheetMessage(error instanceof Error ? error.message : "Could not update the judging sheet.");
+    } finally {
+      setSheetBusy(false);
+    }
+  }
+
+  async function syncJudgingSheetNow() {
+    setSheetBusy(true);
+    setSheetMessage("");
+    try {
+      await requestJudgingSheetSync({ slug: params.slug, adminToken: params.token });
+      setSheetMessage("Judging sheet sync started.");
+    } catch (error) {
+      setSheetMessage(error instanceof Error ? error.message : "Could not sync the judging sheet.");
+    } finally {
+      setSheetBusy(false);
+    }
   }
 
   async function saveEdit(id: Id<"submissions">, values: SubmissionFields) {
@@ -942,7 +1020,8 @@ export default function AdminPage() {
 
   const activeItem = activeId ? itemsById.get(activeId) : null;
   const lineupCount = board.lineup.length;
-  const demoerCountLabel = `${lineupCount} demoer${lineupCount === 1 ? "" : "s"}`;
+  const lineupNoun = admin.event.eventType === "hackathon" ? "finalist" : "demoer";
+  const demoerCountLabel = `${lineupCount} ${lineupNoun}${lineupCount === 1 ? "" : "s"}`;
   const hiddenSubmissions = admin.hidden ?? [];
   const inactiveSubmissions = [
     ...(admin.completed ?? []),
@@ -953,6 +1032,8 @@ export default function AdminPage() {
     { hidden: hiddenSubmissions, inactive: inactiveSubmissions },
     board,
     itemsById,
+    admin.event.eventType,
+    queueIsPublished,
   );
   const currentLineupItem = board.lineup[0] ? itemsById.get(board.lineup[0]) : null;
   const { activeTimerMode, queueIsLive, stageMode, timerIsDemoLike } = adminStageModeState({
@@ -1014,10 +1095,13 @@ export default function AdminPage() {
               <span className="pill">{demoerCountLabel}</span>
               <span className="pill">{board.pool.length} in pool</span>
               <span className="pill">{hiddenSubmissions.length} hidden</span>
+              <span className="pill">
+                {admin.event.eventType === "hackathon" ? "Hackathon" : "Demo queue"}
+              </span>
             </div>
 
             <div className="actions" style={{ marginBottom: 14 }}>
-              {queueIsLive ? (
+              {queueIsLive && currentLineupItem ? (
                 <div className="split-action">
                   <Button className="split-action-main" onClick={livePrimaryAction} type="button">
                     {livePrimaryLabel}
@@ -1032,7 +1116,9 @@ export default function AdminPage() {
                     <DropdownMenuContent align="start" className="split-action-menu" sideOffset={8}>
                       <DropdownMenuItem className="split-action-item" onClick={skip}>
                         <span>Skip for now</span>
-                            <small>Move current presenter to the bottom of Demoers.</small>
+                            <small>
+                              Move current presenter to the bottom of {admin.event.eventType === "hackathon" ? "Finalists" : "Demoers"}.
+                            </small>
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="split-action-item"
@@ -1045,17 +1131,21 @@ export default function AdminPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
+              ) : queueIsLive ? (
+                <Button disabled type="button">
+                  {completedQueueLabel(admin.event.eventType)}
+                </Button>
               ) : (
                 <Button onClick={publish} type="button">
-                  Make queue live
+                  {admin.event.eventType === "hackathon" ? "Publish finalists" : "Make queue live"}
                 </Button>
               )}
               {!queueIsLive ? (
                 <Button variant="outline" onClick={shuffle} type="button">
-                  Shuffle demoers
+                  Shuffle {admin.event.eventType === "hackathon" ? "finalists" : "demoers"}
                 </Button>
               ) : null}
-              {!queueIsLive ? (
+              {!queueIsLive && admin.event.eventType === "demo" ? (
                 <Button variant="outline" onClick={() => setAiOpen((open) => !open)} type="button">
                   AI shuffle
                 </Button>
@@ -1068,8 +1158,43 @@ export default function AdminPage() {
                 }}
                 type="button"
               >
-                Add test people
+                {isHackathonEvent ? "Add test submissions" : "Add test people"}
               </Button>
+              {admin.event.eventType === "hackathon" ? (
+                <>
+                  {admin.event.judgingSheetUrl ? (
+                    <a
+                      className={cn(buttonVariants({ variant: "link" }), "underline")}
+                      href={admin.event.judgingSheetUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Open judging sheet
+                    </a>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      onClick={createJudgingSheetFile}
+                      disabled={sheetBusy}
+                      type="button"
+                    >
+                      <FileSpreadsheet size={16} aria-hidden />
+                      {sheetBusy ? "Creating sheet..." : "Create judging sheet"}
+                    </Button>
+                  )}
+                  {admin.event.judgingSheetUrl ? (
+                    <Button
+                      variant="ghost"
+                      onClick={syncJudgingSheetNow}
+                      disabled={sheetBusy || judgingSheetSyncPending}
+                      type="button"
+                    >
+                      <RotateCcw size={16} aria-hidden />
+                      {judgingSheetSyncPending ? "Syncing..." : "Sync now"}
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}
               {allPeopleRows.length > 0 ? (
                 <Button variant="destructive" onClick={clearAll} type="button">
                   Clear all
@@ -1077,7 +1202,7 @@ export default function AdminPage() {
               ) : null}
             </div>
 
-              {!queueIsLive && aiOpen ? (
+              {!queueIsLive && admin.event.eventType === "demo" && aiOpen ? (
                 <div className="ai-shuffle-row">
                 <textarea
                   ref={aiPromptInputRef}
@@ -1103,6 +1228,10 @@ export default function AdminPage() {
               {testPeopleMessage ? (
                 <p className="admin-action-note">{testPeopleMessage}</p>
               ) : null}
+              {sheetMessage ? <p className="admin-action-note">{sheetMessage}</p> : null}
+              {judgingSheetSyncStatus ? (
+                <p className="admin-action-note">{judgingSheetSyncStatus}</p>
+              ) : null}
 
               {testPeopleOpen ? (
                 <div
@@ -1113,14 +1242,24 @@ export default function AdminPage() {
                 >
                   <form className="admin-modal" onSubmit={addTestPeople}>
                     <div className="admin-modal-heading">
-                      <h2 id="test-people-title">Add test people</h2>
-                      <p>Add generated people to All people. Move any of them into Demoers to test presenter flow.</p>
+                      <h2 id="test-people-title">
+                        {isHackathonEvent ? "Add test submissions" : "Add test people"}
+                      </h2>
+                      <p>
+                        {isHackathonEvent
+                          ? "Add generated submissions with team and project details to All submissions. Test submissions do not include uploaded videos."
+                          : "Add generated people to All people. Move any of them into Demoers to test presenter flow."}
+                      </p>
                     </div>
                     <label className="admin-modal-field">
-                      <span>People to add</span>
+                      <span>{isHackathonEvent ? "Submissions to add" : "People to add"}</span>
                       <input
                         autoFocus
-                        aria-label="Number of test people"
+                        aria-label={
+                          isHackathonEvent
+                            ? "Number of test submissions"
+                            : "Number of test people"
+                        }
                         inputMode="numeric"
                         maxLength={4}
                         pattern="[0-9]*"
@@ -1132,7 +1271,9 @@ export default function AdminPage() {
                         }}
                       />
                     </label>
-                    <p className="admin-modal-help">Maximum 1000. They start in All people, not Demoers.</p>
+                    <p className="admin-modal-help">
+                      Maximum 1000. They start in {allSubmissionsLabel}, not {isHackathonEvent ? "Finalists" : "Demoers"}.
+                    </p>
                     {testPeopleMessage ? (
                       <p className="admin-modal-error">{testPeopleMessage}</p>
                     ) : null}
@@ -1149,14 +1290,29 @@ export default function AdminPage() {
                         Cancel
                       </Button>
                       <Button disabled={testPeopleBusy} type="submit">
-                        {testPeopleBusy ? "Adding..." : "Add people"}
+                        {testPeopleBusy
+                          ? "Adding..."
+                          : isHackathonEvent
+                            ? "Add submissions"
+                            : "Add people"}
                       </Button>
                     </div>
                   </form>
                 </div>
               ) : null}
 
-            <div className="field" style={{ maxWidth: 520 }}>
+            <div className="admin-event-settings">
+              <div className="field">
+                <label htmlFor="adminEventType">Event type</label>
+                <EventTypeSelect
+                  id="adminEventType"
+                  value={admin.event.eventType}
+                  onValueChange={(eventType) => void selectEventType(eventType)}
+                />
+                <span className="muted form-help">Changing type resets submissions and uploaded files.</span>
+              </div>
+
+            <div className="field">
               <div className="field-heading">
                 <label htmlFor="meetUrl">Meet link</label>
                 <label className="stage-meet-toggle">
@@ -1171,9 +1327,10 @@ export default function AdminPage() {
               </div>
               <input id="meetUrl" readOnly value={admin.event.meetUrl} />
               <span className="muted" style={{ fontSize: 12 }}>
-                Published demoers see it on their status pages. It stays hidden in the
+                Published {admin.event.eventType === "hackathon" ? "finalists" : "demoers"} see it on their status pages. It stays hidden in the
                 presentation view unless you enable it after publishing.
               </span>
+            </div>
             </div>
 
             <div className={`stage-timer-admin${activeTimerView.remainingMs < 0 ? " is-overtime" : ""}`}>
@@ -1321,7 +1478,9 @@ export default function AdminPage() {
                     </div>
                 ) : (
                   <div className="stage-timer-empty-state" aria-label="Demo timer unavailable">
-                    Move someone from All people to Demoers to enable presenter timer controls.
+                    {isHackathonEvent
+                      ? "Move a submission from All submissions to Finalists to enable presenter timer controls."
+                      : "Move someone from All people to Demoers to enable presenter timer controls."}
                   </div>
                 )}
                 <label className="stage-timer-duration">
@@ -1380,7 +1539,7 @@ export default function AdminPage() {
                 role="tab"
                 type="button"
               >
-                <span>All people</span>
+                <span>{allSubmissionsLabel}</span>
                 <span className="admin-tab-count">{allPeopleRows.length}</span>
               </button>
               <button
@@ -1390,7 +1549,7 @@ export default function AdminPage() {
                 role="tab"
                 type="button"
               >
-                <span>Demoers</span>
+                <span>{admin.event.eventType === "hackathon" ? "Finalists" : "Demoers"}</span>
                 <span className="admin-tab-count">{lineupCount}</span>
               </button>
             </div>
@@ -1401,8 +1560,8 @@ export default function AdminPage() {
                   <thead>
                     <tr>
                       <th>Status</th>
-                      <th>Person</th>
-                      <th>Demo</th>
+                      <th>{admin.event.eventType === "hackathon" ? "Team / presenter" : "Person"}</th>
+                      <th>{admin.event.eventType === "hackathon" ? "Project" : "Demo"}</th>
                       <th>Category</th>
                       <th>Contact</th>
                       <th>Action</th>
@@ -1420,6 +1579,7 @@ export default function AdminPage() {
                       <AllPeopleRow
                         key={item.id}
                         item={item}
+                        lineupNoun={lineupNoun}
                         isEditing={editingId === item.id}
                         onAddToLineup={() => addToLineup(item.id)}
                         onCancelEdit={() => setEditingId(null)}
@@ -1437,13 +1597,15 @@ export default function AdminPage() {
               <>
                 <div className="lineup-toolbar">
                   <div>
-                    <h2 style={{ margin: 0 }}>Demoers</h2>
+                    <h2 style={{ margin: 0 }}>
+                      {admin.event.eventType === "hackathon" ? "Finalists" : "Demoers"}
+                    </h2>
                     <p className="muted" style={{ margin: "4px 0 0" }}>
                       Drag rows to set the live running order.
                     </p>
                   </div>
                   <div className="lineup-table-actions">
-                    <Tooltip>
+                    {admin.event.eventType === "demo" ? <Tooltip>
                       <TooltipTrigger
                         aria-label="Add person"
                         className={cn(
@@ -1456,7 +1618,7 @@ export default function AdminPage() {
                         <UserPlus size={16} aria-hidden />
                       </TooltipTrigger>
                       <TooltipContent>Add person</TooltipContent>
-                    </Tooltip>
+                    </Tooltip> : null}
                     <label className="target-field">
                       <span>{lineupCount} /</span>
                       <input
@@ -1471,7 +1633,7 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                {isAdding ? (
+                {admin.event.eventType === "demo" && isAdding ? (
                   <div className="admin-inline-form">
                     <p className="queue-title">Add a demoer</p>
                     <SubmissionForm
@@ -1488,15 +1650,22 @@ export default function AdminPage() {
                       <tr>
                         <th aria-label="Drag handle" />
                         <th>Position</th>
-                        <th>Person</th>
-                        <th>Demo</th>
+                        <th>{admin.event.eventType === "hackathon" ? "Team / presenter" : "Person"}</th>
+                        <th>{admin.event.eventType === "hackathon" ? "Project" : "Demo"}</th>
                         <th>Category</th>
                         <th>Contact</th>
                         <th>Action</th>
                       </tr>
                     </thead>
                     <SortableContext items={board.lineup} strategy={verticalListSortingStrategy}>
-                      <DroppableTableBody id="lineup" emptyMessage="Use All people to add someone to Demoers.">
+                      <DroppableTableBody
+                        id="lineup"
+                        emptyMessage={
+                          isHackathonEvent
+                            ? "Use All submissions to add a submission to Finalists."
+                            : "Use All people to add someone to Demoers."
+                        }
+                      >
                         {board.lineup.map((id, index) => {
                           const item = itemsById.get(id);
                           if (!item) return null;
@@ -1504,8 +1673,13 @@ export default function AdminPage() {
                             <LineupRow
                               key={id}
                               item={item}
-                              positionLabel={lineupPositionLabel(index)}
-                              statusTone={index <= 1 ? "green" : "blue"}
+                              lineupNoun={lineupNoun}
+                              positionLabel={lineupPositionLabel(
+                                index,
+                                admin.event.eventType,
+                                queueIsPublished,
+                              )}
+                              statusTone={queueIsPublished && index <= 1 ? "green" : "blue"}
                               isEditing={editingId === id}
                               onCancelEdit={() => setEditingId(null)}
                               onEdit={() => setEditingId(id)}
@@ -1654,6 +1828,7 @@ function DroppableTableBody({
 
 function LineupRow({
   item,
+  lineupNoun,
   positionLabel,
   statusTone,
   isEditing,
@@ -1664,6 +1839,7 @@ function LineupRow({
   onMoveToPool,
 }: {
   item: AdminSubmission;
+  lineupNoun: string;
   positionLabel: string;
   statusTone: StatusTone;
   isEditing: boolean;
@@ -1731,7 +1907,7 @@ function LineupRow({
         <RowActions
           menuLabel={`More actions for ${item.name}`}
           menuItems={[
-            { label: "Remove from demoers", onSelect: onMoveToPool },
+            { label: `Remove from ${lineupNoun}s`, onSelect: onMoveToPool },
             { label: "Edit", onSelect: onEdit },
             { label: "Hide", onSelect: onHide },
           ]}
@@ -1743,6 +1919,7 @@ function LineupRow({
 
 function AllPeopleRow({
   item,
+  lineupNoun,
   isEditing,
   onAddToLineup,
   onEdit,
@@ -1753,6 +1930,7 @@ function AllPeopleRow({
   onRestore,
 }: {
   item: RosterRow;
+  lineupNoun: string;
   isEditing: boolean;
   onAddToLineup: () => void;
   onEdit: () => void;
@@ -1808,9 +1986,9 @@ function AllPeopleRow({
                 ]
               : [
                   item.rosterStatus === "pool"
-                    ? { label: "Add to demoers", onSelect: onAddToLineup }
+                    ? { label: `Add to ${lineupNoun}s`, onSelect: onAddToLineup }
                     : item.rosterStatus === "lineup"
-                      ? { label: "Remove from demoers", onSelect: onMoveToPool }
+                      ? { label: `Remove from ${lineupNoun}s`, onSelect: onMoveToPool }
                       : { label: "Restore", onSelect: onRestore },
                   { label: "Edit", onSelect: onEdit },
                   { label: "Hide", onSelect: onHide },
@@ -1825,7 +2003,12 @@ function AllPeopleRow({
 function PersonCell({ item }: { item: AdminSubmission }) {
   return (
     <div className="admin-person-cell">
-      <span>{item.name}</span>
+      <span>{item.teamName ?? item.name}</span>
+      {item.teamName ? (
+        <small className="muted">
+          {[item.name, ...item.teamMembers].join(", ")}
+        </small>
+      ) : null}
     </div>
   );
 }
@@ -1835,6 +2018,13 @@ function DemoCell({ item }: { item: AdminSubmission }) {
     <>
       <span className="admin-demo-title">{item.demoTitle}</span>
       {item.description ? <span className="muted">{item.description}</span> : null}
+      {item.videoUrl ? (
+        <a className="admin-video-link" href={item.videoUrl} target="_blank" rel="noreferrer">
+          Watch video
+        </a>
+      ) : item.videoDeletedAt ? (
+        <span className="muted">Video expired</span>
+      ) : null}
     </>
   );
 }
@@ -1884,18 +2074,20 @@ function buildRosterRows(
   admin: { hidden: AdminSubmission[]; inactive: AdminSubmission[] },
   board: { lineup: Id<"submissions">[]; pool: Id<"submissions">[] },
   itemsById: Map<Id<"submissions">, AdminSubmission>,
+  eventType: "demo" | "hackathon",
+  queuePublished: boolean,
 ): RosterRow[] {
   const lineupRows = board.lineup.flatMap((id, index): RosterRow[] => {
     const item = itemsById.get(id);
     if (!item) return [];
-    const positionLabel = lineupPositionLabel(index);
+    const positionLabel = lineupPositionLabel(index, eventType, queuePublished);
     return [
       {
         ...item,
         positionLabel,
         rosterStatus: "lineup",
         statusLabel: positionLabel,
-        statusTone: index <= 1 ? "green" : "blue",
+        statusTone: queuePublished && index <= 1 ? "green" : "blue",
       },
     ];
   });
@@ -1939,12 +2131,6 @@ function uniqueSubmissionIds(ids: Id<"submissions">[]) {
     seen.add(id);
     return true;
   });
-}
-
-function lineupPositionLabel(index: number) {
-  if (index === 0) return "Now demoing";
-  if (index === 1) return "Up next";
-  return `#${index + 1}`;
 }
 
 function inactiveStatusLabel(status: string) {

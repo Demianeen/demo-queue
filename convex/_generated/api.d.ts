@@ -9,7 +9,9 @@
  */
 
 import type * as ai from "../ai.js";
+import type * as crons from "../crons.js";
 import type * as events from "../events.js";
+import type * as googleSheets from "../googleSheets.js";
 
 import type {
   ApiFromModules,
@@ -19,7 +21,9 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   ai: typeof ai;
+  crons: typeof crons;
   events: typeof events;
+  googleSheets: typeof googleSheets;
 }>;
 
 /**

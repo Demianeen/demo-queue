@@ -6,11 +6,13 @@ import { api } from "../convex/_generated/api";
 import { absoluteUrl, adminPath, stagePath, submissionPath } from "@/lib/routes";
 import { randomToken, slugify } from "@/lib/tokens";
 import { Brand } from "./Brand";
+import { EventTypeSelect } from "@/components/EventTypeSelect";
 
 type SavedEvent = {
   name: string;
   slug: string;
   adminToken: string;
+  eventType?: "demo" | "hackathon";
   createdAt: number;
 };
 
@@ -30,6 +32,7 @@ function loadSavedEvents(): SavedEvent[] {
 export default function HomePage() {
   const createEvent = useMutation(api.events.createEvent);
   const [name, setName] = useState("");
+  const [eventType, setEventType] = useState<"demo" | "hackathon">("demo");
   const [meetUrl, setMeetUrl] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [savedEvents, setSavedEvents] = useState<SavedEvent[]>([]);
@@ -46,10 +49,10 @@ export default function HomePage() {
     const adminToken = randomToken(32);
 
     try {
-      await createEvent({ name, slug, meetUrl, adminToken });
+      await createEvent({ name, slug, eventType, meetUrl, adminToken });
       // Only persist after the mutation succeeds, so a failed create (e.g.
       // duplicate slug) never leaves a phantom event in localStorage.
-      const entry: SavedEvent = { name, slug, adminToken, createdAt: Date.now() };
+      const entry: SavedEvent = { name, slug, adminToken, eventType, createdAt: Date.now() };
       setSavedEvents((prev) => {
         const next = [entry, ...prev.filter((e) => e.slug !== slug)].slice(0, 10);
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -85,6 +88,20 @@ export default function HomePage() {
           </div>
 
           <div className="field">
+            <label htmlFor="eventType">Event type</label>
+            <EventTypeSelect
+              id="eventType"
+              value={eventType}
+              onValueChange={setEventType}
+            />
+            <span className="muted form-help">
+              {eventType === "hackathon"
+                ? "Teams submit a project and video for judging before the finalists present."
+                : "People make quick personal submissions for the live demo queue."}
+            </span>
+          </div>
+
+          <div className="field">
             <label htmlFor="meetUrl">Google Meet link</label>
             <input
               id="meetUrl"
@@ -112,7 +129,10 @@ export default function HomePage() {
             {savedEvents.map((event) => (
               <div key={event.slug} className="event-item">
                 <div className="event-item-head">
-                  <span className="event-item-title">{event.name}</span>
+                  <span className="event-item-title">
+                    {event.name}
+                    <span className="pill">{event.eventType === "hackathon" ? "Hackathon" : "Demo"}</span>
+                  </span>
                   <button
                     className="button ghost event-remove"
                     type="button"

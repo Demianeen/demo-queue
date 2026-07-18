@@ -8,6 +8,8 @@ Realtime demo-night picker for events.
 - Convex
 - Secret-link access for admins and participants
 - Manual Google Meet link for v1
+- Convex Storage video uploads for hackathon events
+- Native Google Sheet export for hackathon judging
 
 ## Local setup
 
@@ -109,6 +111,62 @@ pnpm exec convex env set OPENAI_MODEL <fast-model-name>
 fail to ship, but AI shuffle throws a clear runtime error if it is missing.
 `OPENAI_MODEL` is optional, but setting it lets event operators pick a faster
 model without changing code.
+
+Hackathon judging export also runs from Convex. It uses one personal Google
+account with the narrow `drive.file` OAuth scope. Sheets are owned by that
+account and stored in a normal My Drive folder. A Shared Drive and service
+account are not required.
+
+One-time Google setup:
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), select the
+   project used for Demo Queue.
+2. Enable both the Google Drive API and Google Sheets API.
+3. Configure the OAuth consent screen as External. Add yourself as a test user
+   while setting it up, then publish the app to Production before generating
+   the final refresh token. Google expires refresh tokens after seven days when
+   an External app remains in Testing and requests Drive access.
+4. Create an OAuth client ID with application type **Desktop app**, then
+   download its JSON file.
+5. Run the local helper yourself. Do not run it through an assistant or paste
+   its output into chat because it prints the refresh token:
+
+   ```bash
+   pnpm google:oauth-setup -- /absolute/path/to/oauth-client.json
+   ```
+
+6. Open the printed Google authorization URL, approve access, and return to the
+   terminal. The helper creates or reuses `Demo Queue judging sheets` in My
+   Drive and prints four `convex env set` commands.
+7. Run those commands yourself against both canonical deployments, development
+   `precious-elk-564` and production `giant-egret-456`. Convex deployment
+   selection and CLI authorization remain user-owned setup.
+
+The required Convex environment variables are:
+
+```bash
+pnpm exec convex env set GOOGLE_OAUTH_CLIENT_ID '<oauth-client-id>'
+pnpm exec convex env set GOOGLE_OAUTH_CLIENT_SECRET '<oauth-client-secret>'
+pnpm exec convex env set GOOGLE_OAUTH_REFRESH_TOKEN '<oauth-refresh-token>'
+pnpm exec convex env set GOOGLE_DRIVE_FOLDER_ID <folder-id>
+```
+
+Any event admin can create the event's native judging sheet from the admin page.
+The app keeps that same workbook synchronized as submissions and event details
+change. Automatic syncs update only app-owned submission columns, formulas, and
+formatting, so judge names and scores remain intact. Admins can also request an
+immediate sync from the event page. The file is private to the connected Google
+account until that account shares it with judges. The app stores only the
+resulting sheet ID and URL.
+
+Hackathon videos are limited to 250 MB and deleted six calendar months after
+upload by a daily Convex cron. Uploaded files that never become part of a
+submission are deleted after a 24-hour grace period by a separate daily cleanup.
+
+After the OAuth export works in both deployments, remove the obsolete
+`GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_PRIVATE_KEY` Convex environment
+variables, revoke the old service-account key in Google Cloud, and delete the
+downloaded service-account JSON.
 
 ### URL expectations
 

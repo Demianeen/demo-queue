@@ -65,6 +65,8 @@ export default defineSchema({
     rulesAcceptedAt: v.optional(v.number()),
     roundOneAssignedJudges: v.optional(v.array(v.string())),
     screenshotId: v.optional(v.id("_storage")),
+    videoUrl: v.optional(v.string()),
+    // Legacy fields keep existing uploads viewable until their scheduled expiry.
     videoStorageId: v.optional(v.id("_storage")),
     videoUploadedAt: v.optional(v.number()),
     videoDeleteAt: v.optional(v.number()),

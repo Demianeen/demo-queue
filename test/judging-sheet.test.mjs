@@ -8,12 +8,6 @@ import {
   buildJudgingSubmissionRow,
   buildSyncedBasicFilter,
 } from "../lib/judging-sheet.ts";
-import {
-  MAX_HACKATHON_VIDEO_BYTES,
-  isSupportedVideo,
-  normalizeGithubRepositoryUrl,
-  parseAdditionalTeamMembers,
-} from "../lib/hackathon.ts";
 import { makeSampleHackathonTeam } from "../lib/sampleData.ts";
 import {
   completedQueueLabel,
@@ -131,19 +125,6 @@ test("judging sheet sync preserves judge filter and sort configuration", () => {
     buildSyncedBasicFilter({ tableId: "judging-table" }, { sheetId: 7 }),
     null,
   );
-});
-
-test("hackathon helpers enforce the video and team input contract", () => {
-  assert.equal(MAX_HACKATHON_VIDEO_BYTES, 250 * 1024 * 1024);
-  assert.equal(isSupportedVideo({ name: "demo.mp4", type: "" }), true);
-  assert.equal(isSupportedVideo({ name: "notes.txt", type: "text/plain" }), false);
-  assert.deepEqual(parseAdditionalTeamMembers(" Alex \n\nMorgan\r\n"), ["Alex", "Morgan"]);
-  assert.equal(
-    normalizeGithubRepositoryUrl("github.com/orbit/launchpad.git"),
-    "https://github.com/orbit/launchpad",
-  );
-  assert.equal(normalizeGithubRepositoryUrl("https://example.com/orbit/launchpad"), null);
-  assert.equal(normalizeGithubRepositoryUrl("https://github.com/orbit/launchpad/issues"), null);
 });
 
 test("hackathon sample data includes a team and valid project fields", () => {

@@ -6,7 +6,6 @@ import { InfoIcon } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { api } from "../../../convex/_generated/api";
-import { Id } from "../../../convex/_generated/dataModel";
 import { participantPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken } from "@/lib/tokens";
 import {
@@ -22,15 +21,13 @@ import { Brand } from "@/app/Brand";
 import { Skeleton } from "@/app/Skeleton";
 import {
   MAX_ADDITIONAL_TEAM_MEMBERS,
-  MAX_HACKATHON_VIDEO_BYTES,
-  MAX_HACKATHON_VIDEO_LABEL,
   MAX_GITHUB_REPOSITORY_URL_LENGTH,
+  MAX_HACKATHON_VIDEO_URL_LENGTH,
   MAX_TEAM_MEMBER_NAME_LENGTH,
   MAX_TEAM_NAME_LENGTH,
-  isSupportedVideo,
+  normalizeHackathonVideoUrl,
   normalizeGithubRepositoryUrl,
   parseAdditionalTeamMembers,
-  videoContentType,
 } from "@/lib/hackathon";
 
 function Req() {
@@ -70,8 +67,6 @@ export default function SubmissionPage() {
   const stage = useQuery(api.events.getStage, { slug: params.slug });
   const submitDemo = useMutation(api.events.submitDemo);
   const submitHackathon = useMutation(api.events.submitHackathon);
-  const generateVideoUploadUrl = useMutation(api.events.generateHackathonVideoUploadUrl);
-  const discardHackathonVideo = useMutation(api.events.discardHackathonVideo);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [socialError, setSocialError] = useState("");
   const [twitterError, setTwitterError] = useState("");
@@ -113,7 +108,7 @@ export default function SubmissionPage() {
     const teamMembers = parseAdditionalTeamMembers(read("teamMembers"));
     const githubUrl = read("githubUrl");
     const rulesAccepted = form.get("rulesAccepted") === "on";
-    const video = form.get("video");
+    const videoUrl = read("videoUrl");
     const lengthIssue = firstFieldLimitIssue({
       name: read("name"),
       demoTitle: read("demoTitle"),
@@ -183,17 +178,9 @@ export default function SubmissionPage() {
         invalidFieldNames.add("teamMembers");
         valid = false;
       }
-      if (!(video instanceof File) || video.size === 0) {
-        setVideoError("Choose a video to upload.");
-        invalidFieldNames.add("video");
-        valid = false;
-      } else if (video.size > MAX_HACKATHON_VIDEO_BYTES) {
-        setVideoError(`Video must be ${MAX_HACKATHON_VIDEO_LABEL} or smaller.`);
-        invalidFieldNames.add("video");
-        valid = false;
-      } else if (!isSupportedVideo(video)) {
-        setVideoError("Upload an MP4, WebM, or MOV video.");
-        invalidFieldNames.add("video");
+      if (!normalizeHackathonVideoUrl(videoUrl)) {
+        setVideoError("Enter a valid HTTPS video link.");
+        invalidFieldNames.add("videoUrl");
         valid = false;
       }
       if (!normalizeGithubRepositoryUrl(githubUrl)) {
@@ -215,7 +202,6 @@ export default function SubmissionPage() {
     setIsSubmitting(true);
 
     const participantToken = randomToken(32);
-    let uploadedStorageId: string | null = null;
     try {
       const sharedFields = {
         slug: params.slug,
@@ -230,37 +216,20 @@ export default function SubmissionPage() {
         linkedin: linkedin || undefined,
       };
 
-      if (isHackathon && video instanceof File) {
-        const uploadUrl = await generateVideoUploadUrl({ slug: params.slug });
-        const uploadResponse = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": videoContentType(video) },
-          body: video,
-        });
-        if (!uploadResponse.ok) throw new Error("Video upload failed. Please try again.");
-        const uploadResult = (await uploadResponse.json()) as { storageId?: string };
-        if (!uploadResult.storageId) throw new Error("Video upload did not return a file ID.");
-        uploadedStorageId = uploadResult.storageId;
-
+      if (isHackathon) {
         await submitHackathon({
           ...sharedFields,
           teamName,
           teamMembers,
           githubUrl,
           rulesAccepted,
-          videoStorageId: uploadResult.storageId as Id<"_storage">,
+          videoUrl,
         });
       } else {
         await submitDemo({ ...sharedFields, queueOrder: randomQueueOrder() });
       }
       router.push(participantPath(params.slug, participantToken));
     } catch (error) {
-      if (uploadedStorageId) {
-        await discardHackathonVideo({
-          slug: params.slug,
-          storageId: uploadedStorageId as Id<"_storage">,
-        }).catch(() => undefined);
-      }
       setIsSubmitting(false);
       const message = error instanceof Error ? error.message : "Something went wrong submitting.";
       setSubmissionError(message.includes("ConvexError") ? message.split("ConvexError: ").pop() ?? message : message);
@@ -436,23 +405,28 @@ export default function SubmissionPage() {
 
             {isHackathon ? (
               <div className="field">
-                <label htmlFor="video">Demo video<Req /></label>
+                <label htmlFor="videoUrl">Demo video link<Req /></label>
                 <Alert>
                   <InfoIcon />
                   <AlertTitle className="font-semibold">Maximum 90 seconds. No slides.</AlertTitle>
                   <AlertDescription className="text-foreground">
-                    Show the working product. MP4, WebM, or MOV, up to {MAX_HACKATHON_VIDEO_LABEL}. Stored for six months.
+                    Show the working product. Paste a public or link-accessible URL from YouTube, Loom, Google Drive, or another video host.
                   </AlertDescription>
                 </Alert>
                 <input
-                  id="video"
-                  name="video"
-                  type="file"
-                  accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm"
+                  id="videoUrl"
+                  name="videoUrl"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://youtube.com/watch?v=..."
+                  maxLength={MAX_HACKATHON_VIDEO_URL_LENGTH}
                   required
                   aria-invalid={Boolean(videoError) || undefined}
-                  aria-describedby={videoError ? "video-error" : undefined}
+                  aria-describedby={describedBy("video-help", videoError && "video-error")}
                 />
+                <span id="video-help" className="muted form-help">
+                  Make sure judges can open the link without requesting access.
+                </span>
                 {videoError ? <span id="video-error" className="form-error">{videoError}</span> : null}
               </div>
             ) : null}

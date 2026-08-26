@@ -1,25 +1,8 @@
-export const MAX_HACKATHON_VIDEO_BYTES = 250 * 1024 * 1024;
-export const MAX_HACKATHON_VIDEO_LABEL = "250 MB";
 export const MAX_ADDITIONAL_TEAM_MEMBERS = 9;
 export const MAX_TEAM_NAME_LENGTH = 80;
 export const MAX_TEAM_MEMBER_NAME_LENGTH = 80;
 export const MAX_GITHUB_REPOSITORY_URL_LENGTH = 300;
-
-const VIDEO_CONTENT_TYPES_BY_EXTENSION: Record<string, string> = {
-  mp4: "video/mp4",
-  mov: "video/quicktime",
-  webm: "video/webm",
-};
-
-export function videoContentType(file: Pick<File, "name" | "type">) {
-  if (file.type.startsWith("video/")) return file.type;
-  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-  return VIDEO_CONTENT_TYPES_BY_EXTENSION[extension] ?? "";
-}
-
-export function isSupportedVideo(file: Pick<File, "name" | "type">) {
-  return Boolean(videoContentType(file));
-}
+export const MAX_HACKATHON_VIDEO_URL_LENGTH = 2_000;
 
 export function parseAdditionalTeamMembers(value: string) {
   return value
@@ -44,6 +27,21 @@ export function normalizeGithubRepositoryUrl(value: string) {
     if (!repository) return null;
 
     return `https://github.com/${pathParts[0]}/${repository}`;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeHackathonVideoUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > MAX_HACKATHON_VIDEO_URL_LENGTH) return null;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:" || !url.hostname || url.username || url.password) {
+      return null;
+    }
+    return url.href;
   } catch {
     return null;
   }

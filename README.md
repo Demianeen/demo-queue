@@ -8,7 +8,7 @@ Realtime demo-night picker for events.
 - Convex
 - Secret-link access for admins and participants
 - Manual Google Meet link for v1
-- Convex Storage video uploads for hackathon events
+- Hosted video links for hackathon submissions
 - Native Google Sheet export for hackathon judging
 
 ## Local setup
@@ -159,9 +159,11 @@ immediate sync from the event page. The file is private to the connected Google
 account until that account shares it with judges. The app stores only the
 resulting sheet ID and URL.
 
-Hackathon videos are limited to 250 MB and deleted six calendar months after
-upload by a daily Convex cron. Uploaded files that never become part of a
-submission are deleted after a 24-hour grace period by a separate daily cleanup.
+Hackathon submissions store an HTTPS video link from YouTube, Loom, Google
+Drive, or another host instead of uploading video bytes to Convex Storage.
+Legacy Convex-hosted videos remain readable and retain their six-month cleanup
+schedule. Uploaded files that never become part of a submission are deleted
+after a 24-hour grace period by a separate daily cleanup.
 
 After the OAuth export works in both deployments, remove the obsolete
 `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_PRIVATE_KEY` Convex environment

@@ -7,10 +7,10 @@ import {
   mutation,
   query,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { addMonths } from "date-fns";
 import {
   parseContactTextFields,
   parseSubmissionTextFields,
@@ -19,9 +19,9 @@ import {
 } from "../lib/validation";
 import {
   MAX_ADDITIONAL_TEAM_MEMBERS,
+  MAX_HACKATHON_VIDEO_URL_LENGTH,
+  normalizeHackathonVideoUrl,
   normalizeGithubRepositoryUrl,
-  MAX_HACKATHON_VIDEO_BYTES,
-  MAX_HACKATHON_VIDEO_LABEL,
   MAX_TEAM_MEMBER_NAME_LENGTH,
   MAX_TEAM_NAME_LENGTH,
 } from "../lib/hackathon";
@@ -83,8 +83,7 @@ const adminSubmissionFields = (
   participantToken: submission.participantToken,
   screenshotId: submission.screenshotId,
   teamMembers,
-  videoStorageId: submission.videoStorageId,
-  videoUrl,
+  videoUrl: submission.videoUrl ?? videoUrl,
   videoDeleteAt: submission.videoDeleteAt,
   videoDeletedAt: submission.videoDeletedAt,
   rulesAcceptedAt: submission.rulesAcceptedAt,
@@ -246,7 +245,7 @@ async function queueJudgingSheetSync(
   event: Doc<"events">,
   delayMs = JUDGING_SHEET_SYNC_DEBOUNCE_MS,
 ) {
-  if (eventType(event) !== "hackathon" || !event.judgingSheetId) return;
+  if (eventType(event) !== "hackathon" || !event.judgingSheetId) return null;
 
   const revision = (event.judgingSheetSyncRevision ?? 0) + 1;
   await ctx.db.patch(event._id, {
@@ -257,6 +256,7 @@ async function queueJudgingSheetSync(
     eventId: event._id,
     revision,
   });
+  return revision;
 }
 
 function zodToConvexError(error: unknown): never {
@@ -314,18 +314,25 @@ function normalizeTeamMembers(values: string[]) {
   return unique;
 }
 
-async function validateHackathonVideo(ctx: MutationCtx, storageId: Id<"_storage">) {
-  const metadata = await ctx.db.system.get("_storage", storageId);
-  if (!metadata) throw new ConvexError("Uploaded video was not found. Please upload it again.");
-  if (!metadata.contentType?.startsWith("video/")) {
-    await ctx.storage.delete(storageId);
-    throw new ConvexError("Upload an MP4, WebM, or MOV video file.");
+function normalizeArchivedGoogleDriveVideo(value: string) {
+  const normalized = normalizeHackathonVideoUrl(value);
+  if (!normalized) return null;
+
+  const url = new URL(normalized);
+  const fileMatch = url.pathname.match(/^\/file\/d\/([^/]+)\/view$/);
+  if (url.hostname !== "drive.google.com" || !fileMatch) {
+    return null;
   }
-  if (metadata.size > MAX_HACKATHON_VIDEO_BYTES) {
-    await ctx.storage.delete(storageId);
-    throw new ConvexError(`Video must be ${MAX_HACKATHON_VIDEO_LABEL} or smaller.`);
-  }
-  return metadata;
+  return { videoUrl: normalized, fileId: fileMatch[1] };
+}
+
+async function resolveSubmissionVideoUrl(
+  ctx: Pick<QueryCtx, "storage">,
+  submission: Pick<Doc<"submissions">, "videoUrl" | "videoStorageId">,
+) {
+  if (submission.videoUrl) return submission.videoUrl;
+  if (!submission.videoStorageId) return null;
+  return await ctx.storage.getUrl(submission.videoStorageId);
 }
 
 async function requireUnattachedSubmissionFile(ctx: MutationCtx, storageId: Id<"_storage">) {
@@ -432,33 +439,6 @@ export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
     return await ctx.storage.generateUploadUrl();
-  },
-});
-
-export const generateHackathonVideoUploadUrl = mutation({
-  args: { slug: v.string() },
-  handler: async (ctx, { slug }) => {
-    const event = await eventBySlug(ctx, slug);
-    if (eventType(event) !== "hackathon") {
-      throw new ConvexError("Video uploads are only available for hackathon events.");
-    }
-    return await ctx.storage.generateUploadUrl();
-  },
-});
-
-export const discardHackathonVideo = mutation({
-  args: { slug: v.string(), storageId: v.id("_storage") },
-  handler: async (ctx, { slug, storageId }) => {
-    const event = await eventBySlug(ctx, slug);
-    if (eventType(event) !== "hackathon") return;
-
-    const attached = await ctx.db
-      .query("submissions")
-      .withIndex("by_video_storage_id", (q) => q.eq("videoStorageId", storageId))
-      .first();
-    if (attached) return;
-
-    await ctx.storage.delete(storageId);
   },
 });
 
@@ -584,7 +564,7 @@ export const getAdmin = query({
         adminSubmissionFields(
           submission,
           membersBySubmission.get(submission._id) ?? [],
-          submission.videoStorageId ? await ctx.storage.getUrl(submission.videoStorageId) : null,
+          await resolveSubmissionVideoUrl(ctx, submission),
         ),
       ),
     );
@@ -696,9 +676,7 @@ export const getParticipant = query({
         githubUrl: submission.githubUrl,
         rulesAcceptedAt: submission.rulesAcceptedAt,
         teamMembers: teamMembers.map((member) => member.name),
-        videoUrl: submission.videoStorageId
-          ? await ctx.storage.getUrl(submission.videoStorageId)
-          : null,
+        videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
         videoDeleteAt: submission.videoDeleteAt,
         videoDeletedAt: submission.videoDeletedAt,
         createdAt: submission.createdAt,
@@ -767,7 +745,7 @@ export const submitHackathon = mutation({
     category: v.optional(v.string()),
     githubUrl: v.string(),
     rulesAccepted: v.boolean(),
-    videoStorageId: v.id("_storage"),
+    videoUrl: v.string(),
   },
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
@@ -780,15 +758,18 @@ export const submitHackathon = mutation({
     const teamName = normalizeTeamName(args.teamName);
     const teamMembers = normalizeTeamMembers(args.teamMembers);
     const githubUrl = normalizeGithubRepositoryUrl(args.githubUrl);
+    const videoUrl = normalizeHackathonVideoUrl(args.videoUrl);
     if (!githubUrl) {
       throw new ConvexError("Enter a valid public GitHub repository URL.");
+    }
+    if (!videoUrl) {
+      throw new ConvexError(
+        `Enter a valid HTTPS video link up to ${MAX_HACKATHON_VIDEO_URL_LENGTH} characters.`,
+      );
     }
     if (!args.rulesAccepted) {
       throw new ConvexError("Confirm that your submission meets the event rules.");
     }
-    await requireUnattachedSubmissionFile(ctx, args.videoStorageId);
-    await validateHackathonVideo(ctx, args.videoStorageId);
-
     const existingSubmissions = await ctx.db
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
@@ -800,11 +781,9 @@ export const submitHackathon = mutation({
       ...fields,
       teamName,
       githubUrl,
+      videoUrl,
       rulesAcceptedAt: now,
       roundOneAssignedJudges: assignedPairForNewSubmission(event, existingSubmissions),
-      videoStorageId: args.videoStorageId,
-      videoUploadedAt: now,
-      videoDeleteAt: addMonths(now, 6).getTime(),
       status: "candidate",
       queueOrder: undefined,
       createdAt: now,
@@ -1204,6 +1183,191 @@ export const requestJudgingSheetSync = mutation({
   },
 });
 
+export const backfillHackathonVideoLinks = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    dryRun: v.boolean(),
+    links: v.array(
+      v.object({
+        submissionId: v.id("submissions"),
+        videoUrl: v.string(),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    if (eventType(event) !== "hackathon") {
+      throw new ConvexError("Video-link backfills are only available for hackathon events.");
+    }
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    const legacySubmissions = submissions.filter((submission) => submission.videoStorageId);
+    if (args.links.length !== legacySubmissions.length) {
+      throw new ConvexError(
+        `Provide exactly one Drive link for each of the event's ${legacySubmissions.length} stored videos.`,
+      );
+    }
+
+    const linksBySubmission = new Map<Id<"submissions">, string>();
+    const driveFileIds = new Set<string>();
+    for (const link of args.links) {
+      if (linksBySubmission.has(link.submissionId)) {
+        throw new ConvexError("Each submission may appear only once in the archive mapping.");
+      }
+      const archive = normalizeArchivedGoogleDriveVideo(link.videoUrl);
+      if (!archive) {
+        throw new ConvexError("Every archive URL must be a valid Google Drive file link.");
+      }
+      if (driveFileIds.has(archive.fileId)) {
+        throw new ConvexError("Each submission must map to a different Google Drive file.");
+      }
+      driveFileIds.add(archive.fileId);
+      linksBySubmission.set(link.submissionId, archive.videoUrl);
+    }
+
+    let alreadyBackfilled = 0;
+    for (const submission of legacySubmissions) {
+      const videoUrl = linksBySubmission.get(submission._id);
+      if (!videoUrl) {
+        throw new ConvexError(`Missing archive link for submission ${submission._id}.`);
+      }
+      if (submission.videoUrl && submission.videoUrl !== videoUrl) {
+        throw new ConvexError(`Submission ${submission._id} already has a different video link.`);
+      }
+      if (submission.videoUrl === videoUrl) alreadyBackfilled += 1;
+    }
+
+    if (args.dryRun) {
+      return {
+        storedVideoCount: legacySubmissions.length,
+        alreadyBackfilled,
+        backfilled: 0,
+        judgingSheetRevision: null,
+      };
+    }
+
+    const now = Date.now();
+    for (const submission of legacySubmissions) {
+      await ctx.db.patch(submission._id, {
+        videoUrl: linksBySubmission.get(submission._id)!,
+        updatedAt: now,
+      });
+    }
+
+    const judgingSheetRevision = await queueJudgingSheetSync(ctx, event, 0);
+    if (legacySubmissions.length > 0) {
+      await logAction(
+        ctx,
+        event._id,
+        "hackathon_video_links_backfilled",
+        "admin",
+        `${legacySubmissions.length} Drive links backfilled`,
+      );
+    }
+
+    return {
+      storedVideoCount: legacySubmissions.length,
+      alreadyBackfilled,
+      backfilled: legacySubmissions.length - alreadyBackfilled,
+      judgingSheetRevision,
+    };
+  },
+});
+
+export const deleteBackfilledHackathonVideoUploads = mutation({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    dryRun: v.boolean(),
+    submissionIds: v.array(v.id("submissions")),
+    judgingSheetRevision: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    requireAdmin(event, args.adminToken);
+    if (eventType(event) !== "hackathon") {
+      throw new ConvexError("Video archival is only available for hackathon events.");
+    }
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    const submissionsById = new Map(submissions.map((submission) => [submission._id, submission]));
+    const requestedIds = new Set(args.submissionIds);
+    if (requestedIds.size !== args.submissionIds.length) {
+      throw new ConvexError("Each submission may appear only once in the deletion request.");
+    }
+
+    const driveFileIds = new Set<string>();
+    for (const submissionId of requestedIds) {
+      const submission = submissionsById.get(submissionId);
+      if (!submission) {
+        throw new ConvexError(`Submission ${submissionId} does not belong to this event.`);
+      }
+      const archive = submission.videoUrl
+        ? normalizeArchivedGoogleDriveVideo(submission.videoUrl)
+        : null;
+      if (!archive) {
+        throw new ConvexError(`Submission ${submissionId} does not have a Drive archive link.`);
+      }
+      if (driveFileIds.has(archive.fileId)) {
+        throw new ConvexError("Each submission must map to a different Google Drive file.");
+      }
+      driveFileIds.add(archive.fileId);
+    }
+
+    const storedSubmissions = submissions.filter((submission) => submission.videoStorageId);
+    for (const submission of storedSubmissions) {
+      if (!requestedIds.has(submission._id)) {
+        throw new ConvexError(`Stored video ${submission._id} is missing from the deletion request.`);
+      }
+    }
+
+    const latestRevision = event.judgingSheetSyncRevision ?? 0;
+    const syncedRevision = event.judgingSheetSyncedRevision ?? 0;
+    if (
+      !event.judgingSheetId ||
+      event.judgingSheetSyncError ||
+      latestRevision < args.judgingSheetRevision ||
+      syncedRevision !== latestRevision
+    ) {
+      throw new ConvexError("Wait for the latest judging sheet sync before deleting stored videos.");
+    }
+
+    if (args.dryRun) {
+      return { storedVideoCount: storedSubmissions.length, deleted: 0 };
+    }
+
+    const now = Date.now();
+    for (const submission of storedSubmissions) {
+      await ctx.storage.delete(submission.videoStorageId!);
+      await ctx.db.patch(submission._id, {
+        videoStorageId: undefined,
+        videoDeleteAt: undefined,
+        videoDeletedAt: now,
+        updatedAt: now,
+      });
+    }
+    if (storedSubmissions.length > 0) {
+      await logAction(
+        ctx,
+        event._id,
+        "hackathon_video_uploads_deleted",
+        "admin",
+        `${storedSubmissions.length} backfilled stored copies deleted`,
+      );
+    }
+
+    return { storedVideoCount: 0, deleted: storedSubmissions.length };
+  },
+});
+
 export const getJudgingSheetSyncSnapshot = internalQuery({
   args: { eventId: v.id("events"), revision: v.number() },
   handler: async (ctx, args) => {
@@ -1247,9 +1411,7 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
           category: submission.category,
           githubUrl: submission.githubUrl,
           roundOneAssignedJudges: submission.roundOneAssignedJudges,
-          videoUrl: submission.videoStorageId
-            ? await ctx.storage.getUrl(submission.videoStorageId)
-            : null,
+          videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
           email: submission.email,
           phone: submission.phone,
           twitter: submission.twitter,
@@ -1278,7 +1440,16 @@ export const completeJudgingSheetSync = internalMutation({
   },
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
-    if (!event || event.judgingSheetSyncRevision !== args.revision) return;
+    if (!event) return;
+    if (event.judgingSheetSyncRevision !== args.revision) {
+      if (event.judgingSheetSyncRevision !== undefined) {
+        await ctx.scheduler.runAfter(0, internal.googleSheets.syncJudgingSheet, {
+          eventId: event._id,
+          revision: event.judgingSheetSyncRevision,
+        });
+      }
+      return;
+    }
 
     if (args.error) {
       await ctx.db.patch(event._id, { judgingSheetSyncError: args.error });

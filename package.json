@@ -27,7 +27,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.28.0",
-    "date-fns": "^4.4.0",
     "geist": "^1.7.2",
     "googleapis": "^173.0.0",
     "lucide-react": "^1.17.0",

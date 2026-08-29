@@ -23,7 +23,6 @@ import { cn } from "@/lib/utils";
 import { makeSampleHackathonTeam, makeSamplePerson } from "@/lib/sampleData";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { Skeleton } from "@/app/Skeleton";
-import { Brand } from "@/app/Brand";
 import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError } from "@/lib/validation";
 import { parseRoundOneJudges } from "@/lib/judging-assignment";
 import {
@@ -1116,23 +1115,19 @@ export default function AdminPage() {
   const livePrimaryLabel = shouldStartDemoFromPrimary ? "Start timer" : "Advance";
 
   return (
-    <main className="page">
-      <div className="shell">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 24,
-            flexWrap: "wrap",
-            marginBottom: 18,
-          }}
-        >
-          <div style={{ flex: "1 1 380px", minWidth: 0 }}>
-            <Brand label="Admin" />
-            <h1 style={{ marginBottom: 12 }}>{admin.event.name}</h1>
+    <main className="page admin-page">
+      <div className="shell admin-shell">
+        <section className="admin-control-grid">
+          <section className="panel panel-pad admin-control-panel">
+            <header className="admin-page-header">
+              <div className="admin-console-kicker">
+                <span>Event control</span>
+                <span>Private operator view</span>
+              </div>
+              <h1 className="admin-event-title">{admin.event.name}</h1>
+            </header>
 
-            <div className="status-strip">
+            <div className="status-strip admin-status-strip">
               <span className={queueIsLive ? "pill green" : "pill yellow"}>
                 {queueIsLive ? "Queue is live" : "Not live yet"}
               </span>
@@ -1144,7 +1139,7 @@ export default function AdminPage() {
               </span>
             </div>
 
-            <div className="actions" style={{ marginBottom: 14 }}>
+            <div className="actions admin-primary-actions">
               {queueIsLive && currentLineupItem ? (
                 <div className="split-action">
                   <Button className="split-action-main" onClick={livePrimaryAction} type="button">
@@ -1404,6 +1399,7 @@ export default function AdminPage() {
                 </div>
               ) : null}
 
+            <div className="admin-section-label">Event settings</div>
             <div className="admin-event-settings">
               <div className="field">
                 <label htmlFor="adminEventType">Event type</label>
@@ -1436,11 +1432,12 @@ export default function AdminPage() {
             </div>
             </div>
 
+            <div className="admin-section-label">Presentation timer</div>
             <div className={`stage-timer-admin${activeTimerView.remainingMs < 0 ? " is-overtime" : ""}`}>
               <div className="stage-timer-admin-heading">
                 <span className="stage-timer-admin-title">
                   <Clock size={16} aria-hidden />
-                  {timerIsDemoLike ? "Demo mode" : "Submissions mode"}
+                  {timerIsDemoLike ? "Demo timer" : "Submissions timer"}
                 </span>
                 <label className="stage-meet-toggle">
                   <input
@@ -1609,22 +1606,18 @@ export default function AdminPage() {
                 </label>
               </div>
             </div>
-          </div>
+          </section>
 
           <StagePreviewPanel
             eventName={admin.event.name}
             isLive={queueIsLive}
-            showSubmissionCount={admin.event.showSubmissionCountOnStage ?? false}
             slug={params.slug}
             stageMode={stageMode}
-            onShowSubmissionCountChange={(visible) =>
-              setSubmissionCountVisible({ slug: params.slug, adminToken: params.token, visible })
-            }
             onStageModeChange={(mode) =>
               setStageScreenMode({ slug: params.slug, adminToken: params.token, mode })
             }
           />
-        </div>
+        </section>
 
         <DndContext
           sensors={sensors}
@@ -1636,8 +1629,10 @@ export default function AdminPage() {
           <section className="panel admin-workspace">
             <div className="admin-tabs" role="tablist" aria-label="Admin views">
               <button
+                aria-controls="admin-panel-all"
                 aria-selected={activeTab === "all"}
                 className={activeTab === "all" ? "admin-tab is-active" : "admin-tab"}
+                id="admin-tab-all"
                 onClick={() => setActiveTab("all")}
                 role="tab"
                 type="button"
@@ -1646,8 +1641,10 @@ export default function AdminPage() {
                 <span className="admin-tab-count">{allPeopleRows.length}</span>
               </button>
               <button
+                aria-controls="admin-panel-lineup"
                 aria-selected={activeTab === "lineup"}
                 className={activeTab === "lineup" ? "admin-tab is-active" : "admin-tab"}
+                id="admin-tab-lineup"
                 onClick={() => setActiveTab("lineup")}
                 role="tab"
                 type="button"
@@ -1658,7 +1655,12 @@ export default function AdminPage() {
             </div>
 
             {activeTab === "all" ? (
-              <div className="admin-table-wrap">
+              <div
+                aria-labelledby="admin-tab-all"
+                className="admin-table-wrap"
+                id="admin-panel-all"
+                role="tabpanel"
+              >
                 <table className="admin-table">
                   <thead>
                     <tr>
@@ -1697,7 +1699,7 @@ export default function AdminPage() {
                 </table>
               </div>
             ) : (
-              <>
+              <div aria-labelledby="admin-tab-lineup" id="admin-panel-lineup" role="tabpanel">
                 <div className="lineup-toolbar">
                   <div>
                     <h2 style={{ margin: 0 }}>
@@ -1796,7 +1798,7 @@ export default function AdminPage() {
                     </SortableContext>
                   </table>
                 </div>
-              </>
+              </div>
             )}
           </section>
 
@@ -1818,18 +1820,14 @@ export default function AdminPage() {
 function StagePreviewPanel({
   eventName,
   isLive,
-  showSubmissionCount,
   slug,
   stageMode,
-  onShowSubmissionCountChange,
   onStageModeChange,
 }: {
   eventName: string;
   isLive: boolean;
-  showSubmissionCount: boolean;
   slug: string;
   stageMode: "qr" | "demo";
-  onShowSubmissionCountChange: (visible: boolean) => Promise<unknown> | void;
   onStageModeChange: (mode: "qr" | "demo") => Promise<unknown> | void;
 }) {
   const url = stagePath(slug);
@@ -1866,14 +1864,6 @@ function StagePreviewPanel({
           title={`${eventName} presentation preview`}
         />
       </div>
-      <label className="stage-meet-toggle admin-stage-count-toggle">
-        <input
-          type="checkbox"
-          checked={showSubmissionCount}
-          onChange={(event) => onShowSubmissionCountChange(event.currentTarget.checked)}
-        />
-        <span>Show submissions count</span>
-      </label>
       <div className="admin-stage-links">
         <Popover>
           <PopoverTrigger

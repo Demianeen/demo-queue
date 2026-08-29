@@ -508,8 +508,7 @@ h3 {
   box-shadow: 0 0 0 2px rgba(17, 18, 18, 0.14);
 }
 
-.creator-page[data-visual-style="outpost"] .visual-style-preview,
-.creator-page[data-visual-style="outpost"] .event-style-live-preview {
+.creator-page[data-visual-style="outpost"] .visual-style-preview {
   border-radius: 3px;
 }
 
@@ -685,113 +684,45 @@ h3 {
   z-index: 2;
 }
 
-.event-style-live-preview {
-  --preview-ink: #ffffff;
-  background: var(--cx-gradient);
-  border-radius: 10px;
-  color: var(--preview-ink);
-  min-height: 260px;
+.shared-stage-preview {
+  aspect-ratio: 36 / 25;
+  background: #08090b;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
   overflow: hidden;
-  padding: 20px;
+  position: relative;
+  width: 100%;
 }
 
-.event-style-live-preview.visual-outpost {
-  --preview-ink: #f5f1e8;
-  background-color: #050606;
-  background-image: linear-gradient(rgba(3, 4, 4, 0.62), rgba(3, 4, 4, 0.62)), url(/outpost/wide-black.webp);
+.shared-stage-preview-canvas {
+  height: 1000px;
+  left: 0;
+  position: absolute;
+  top: 0;
+  transform-origin: 0 0;
+  width: 1440px;
+}
+
+.shared-stage-preview-canvas > .stage {
+  --stage-vh: 10px;
+  --stage-vw: 14.4px;
+  height: 1000px;
+  min-height: 1000px;
+  width: 1440px;
+}
+
+.shared-stage-preview-canvas > .stage:not(.stage-outpost) {
+  background-color: #eef1ff;
+  background-image:
+    linear-gradient(rgba(247, 248, 255, 0.36), rgba(247, 248, 255, 0.3)),
+    url(/codex-bg-poster.jpg);
   background-position: center;
   background-size: cover;
-  font-family: var(--font-outpost-body), Inter, ui-sans-serif, sans-serif;
 }
 
-.event-style-live-preview.visual-outpost .event-style-live-preview-head strong,
-.event-style-live-preview.visual-outpost .event-style-live-preview-body > div > span {
-  font-family: var(--font-outpost-display), Impact, sans-serif;
-  font-weight: 400;
-}
-
-.event-style-live-preview-head,
-.event-style-live-preview-foot {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-}
-
-.event-style-live-preview-head strong {
-  font-size: 18px;
-  font-weight: 950;
-  letter-spacing: 0.08em;
-}
-
-.event-style-live-preview-head span,
-.event-style-live-preview-foot {
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.event-style-live-preview-body {
-  align-items: center;
-  display: grid;
-  gap: 24px;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.7fr);
-  min-height: 174px;
-  padding: 24px 8px 18px;
-}
-
-.event-style-live-preview-body > div > span {
-  font-size: 9px;
-  font-weight: 850;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.event-style-live-preview-body h3 {
-  font-size: clamp(26px, 5vw, 42px);
-  line-height: 0.96;
-  margin: 5px 0 8px;
-}
-
-.event-style-live-preview-body p {
-  font-size: 12px;
-  line-height: 1.35;
-  margin: 0;
-  max-width: 32ch;
-  opacity: 0.72;
-}
-
-.event-style-live-preview-body ol {
-  border-left: 1px solid color-mix(in srgb, currentColor 22%, transparent);
-  display: grid;
-  gap: 10px;
-  list-style: none;
-  margin: 0;
-  padding: 4px 0 4px 18px;
-}
-
-.event-style-live-preview-body li {
-  align-items: center;
-  display: grid;
-  font-size: 11px;
-  font-weight: 780;
-  gap: 8px;
-  grid-template-columns: 24px minmax(0, 1fr);
-}
-
-.event-style-live-preview-body li b {
-  align-items: center;
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  display: flex;
-  font-size: 9px;
-  height: 24px;
-  justify-content: center;
-  width: 24px;
-}
-
-.event-style-live-preview-foot {
-  border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  margin: 0 -20px -20px;
-  padding: 11px 20px;
+.shared-stage-preview-canvas > .stage > .stage-grid {
+  height: 944px;
+  min-height: 944px;
 }
 
 /* Outpost submission/status shell. Public forms keep field guidance beside
@@ -1239,6 +1170,8 @@ h3 {
 
 .stage {
   --stage-subtitle-color: rgba(11, 12, 16, 0.66);
+  --stage-vh: 1vh;
+  --stage-vw: 1vw;
   position: relative;
   color: var(--app-ink);
   overflow: hidden;
@@ -1264,7 +1197,7 @@ h3 {
 .stage-grid {
   display: grid;
   gap: 28px;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 30vw);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, calc(var(--stage-vw) * 30));
   min-height: calc(100vh - 56px);
 }
 
@@ -1285,7 +1218,7 @@ h3 {
 
 .stage-label {
   color: var(--app-muted);
-  font-size: clamp(18px, 1.3vw, 28px);
+  font-size: clamp(18px, calc(var(--stage-vw) * 1.3), 28px);
   font-weight: 850;
   letter-spacing: 0.04em;
   margin-bottom: 14px;
@@ -1293,14 +1226,14 @@ h3 {
 }
 
 .stage-title {
-  font-size: clamp(46px, 8vw, 118px);
+  font-size: clamp(46px, calc(var(--stage-vw) * 8), 118px);
   letter-spacing: 0;
   line-height: 0.92;
 }
 
 .stage-subtitle {
   color: var(--stage-subtitle-color);
-  font-size: clamp(22px, 2.6vw, 42px);
+  font-size: clamp(22px, calc(var(--stage-vw) * 2.6), 42px);
   font-weight: 650;
   line-height: 1.12;
   margin-top: 16px;
@@ -1318,7 +1251,7 @@ h3 {
 
 .stage-demo-timer span {
   display: block;
-  font-size: clamp(18px, 1.3vw, 28px);
+  font-size: clamp(18px, calc(var(--stage-vw) * 1.3), 28px);
   font-weight: 850;
   letter-spacing: 0;
   line-height: 1;
@@ -1328,7 +1261,7 @@ h3 {
 
 .stage-demo-timer strong {
   display: block;
-  font-size: clamp(68px, 10vw, 138px);
+  font-size: clamp(68px, calc(var(--stage-vw) * 10), 138px);
   font-variant-numeric: tabular-nums;
   font-weight: 900;
   letter-spacing: 0;
@@ -1355,7 +1288,7 @@ h3 {
 
 .stage-qr-main {
   /* clears the absolutely positioned .stage-mark when content wraps tall */
-  gap: clamp(36px, 7vh, 72px);
+  gap: clamp(36px, calc(var(--stage-vh) * 7), 72px);
   padding-top: 46px;
 }
 
@@ -1365,7 +1298,7 @@ h3 {
 
 .stage-queue-timer span {
   display: block;
-  font-size: clamp(18px, 1.3vw, 28px);
+  font-size: clamp(18px, calc(var(--stage-vw) * 1.3), 28px);
   font-weight: 850;
   letter-spacing: 0;
   line-height: 1;
@@ -1375,7 +1308,7 @@ h3 {
 
 .stage-queue-timer strong {
   display: block;
-  font-size: clamp(76px, 12vw, 168px);
+  font-size: clamp(76px, calc(var(--stage-vw) * 12), 168px);
   font-variant-numeric: tabular-nums;
   font-weight: 900;
   letter-spacing: 0;
@@ -1588,25 +1521,25 @@ h3 {
 
 .stage-lineup-person {
   color: var(--app-ink);
-  font-size: clamp(20px, 1.55vw, 29px);
+  font-size: clamp(20px, calc(var(--stage-vw) * 1.55), 29px);
   font-weight: 760;
   line-height: 1.02;
 }
 
 .stage-lineup-list li.is-later .stage-lineup-person {
-  font-size: clamp(16px, 1.02vw, 20px);
+  font-size: clamp(16px, calc(var(--stage-vw) * 1.02), 20px);
   line-height: 1.05;
 }
 
 .stage-lineup-list li.is-next .stage-lineup-person {
-  font-size: clamp(25px, 2vw, 36px);
+  font-size: clamp(25px, calc(var(--stage-vw) * 2), 36px);
   line-height: 0.98;
 }
 
 .stage-lineup-demo {
   color: rgba(11, 12, 16, 0.58);
   display: -webkit-box;
-  font-size: clamp(14px, 1vw, 18px);
+  font-size: clamp(14px, var(--stage-vw), 18px);
   font-weight: 650;
   line-height: 1.15;
   overflow: hidden;
@@ -1616,12 +1549,12 @@ h3 {
 
 .stage-lineup-list li.is-later .stage-lineup-demo {
   color: rgba(11, 12, 16, 0.5);
-  font-size: clamp(13px, 0.9vw, 16px);
+  font-size: clamp(13px, calc(var(--stage-vw) * 0.9), 16px);
   -webkit-line-clamp: 1;
 }
 
 .stage-lineup-list li.is-next .stage-lineup-demo {
-  font-size: clamp(15px, 1.1vw, 19px);
+  font-size: clamp(15px, calc(var(--stage-vw) * 1.1), 19px);
 }
 
 .stage-lineup-empty {
@@ -1630,7 +1563,7 @@ h3 {
 
 .stage-lineup-empty h2 {
   color: var(--stage-subtitle-color);
-  font-size: clamp(34px, 2.8vw, 58px);
+  font-size: clamp(34px, calc(var(--stage-vw) * 2.8), 58px);
   font-weight: 460;
   line-height: 0.98;
   margin-bottom: 10px;
@@ -1662,7 +1595,7 @@ h3 {
 
 .stage-meet-url {
   color: rgba(11, 12, 16, 0.68);
-  font-size: clamp(13px, 0.9vw, 16px);
+  font-size: clamp(13px, calc(var(--stage-vw) * 0.9), 16px);
   font-weight: 800;
   line-height: 1.16;
   overflow-wrap: anywhere;
@@ -1687,7 +1620,7 @@ h3 {
 .outpost-stage-mark {
   height: auto;
   left: 30px;
-  max-width: min(220px, 28vw);
+  max-width: min(220px, calc(var(--stage-vw) * 28));
   position: absolute;
   top: 28px;
   width: 220px;
@@ -1706,13 +1639,13 @@ h3 {
 }
 
 .stage-outpost .stage-title {
-  font-size: clamp(50px, 5.4vw, 78px);
+  font-size: clamp(50px, calc(var(--stage-vw) * 5.4), 78px);
   font-weight: 500;
   line-height: 0.96;
 }
 
 .stage-outpost .stage-subtitle {
-  font-size: clamp(18px, 1.7vw, 26px);
+  font-size: clamp(18px, calc(var(--stage-vw) * 1.7), 26px);
   font-weight: 540;
   line-height: 1.3;
   max-width: 34ch;
@@ -1773,7 +1706,7 @@ h3 {
 .stage-outpost .stage-demo-timer span,
 .stage-outpost .stage-queue-timer span {
   font-family: var(--font-outpost-display), Impact, sans-serif;
-  font-size: clamp(14px, 1.1vw, 20px);
+  font-size: clamp(14px, calc(var(--stage-vw) * 1.1), 20px);
   font-weight: 400;
   letter-spacing: 0.08em;
   opacity: 0.68;
@@ -1781,7 +1714,7 @@ h3 {
 
 .stage-outpost .stage-demo-timer strong,
 .stage-outpost .stage-queue-timer strong {
-  font-size: clamp(52px, 6.2vw, 92px);
+  font-size: clamp(52px, calc(var(--stage-vw) * 6.2), 92px);
   font-weight: 650;
   letter-spacing: -0.04em;
   line-height: 0.9;
@@ -1955,9 +1888,14 @@ h3 {
 }
 
 .admin-tab.is-active {
-  background: #ffffff;
+  background: rgba(20, 20, 20, 0.06);
   box-shadow: none;
   color: #111111;
+}
+
+.admin-tab:focus-visible {
+  box-shadow: 0 0 0 3px rgba(17, 18, 18, 0.16);
+  outline: none;
 }
 
 .admin-tab-count {
@@ -2267,11 +2205,11 @@ h3 {
 
 .admin-stage-preview-panel {
   display: flex;
-  flex: 0 1 430px;
   flex-direction: column;
   gap: 12px;
-  min-width: 320px;
+  min-width: 0;
   padding: 14px;
+  width: 100%;
 }
 
 .admin-stage-preview-heading {
@@ -2288,7 +2226,7 @@ h3 {
 }
 
 .admin-stage-preview-viewport {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 36 / 25;
   background: #070811;
   border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: 8px;
@@ -2313,7 +2251,7 @@ h3 {
   color: var(--app-muted);
   font-size: 13px;
   font-weight: 850;
-  min-height: 34px;
+  min-height: 40px;
 }
 
 .admin-stage-mode:hover,
@@ -2327,10 +2265,6 @@ h3 {
   background: #ffffff;
   color: var(--app-ink);
   box-shadow: 0 8px 22px -18px rgba(16, 18, 60, 0.46);
-}
-
-.admin-stage-count-toggle {
-  justify-content: flex-start;
 }
 
 .admin-stage-links {
@@ -2460,7 +2394,6 @@ h3 {
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 14px;
   margin-top: 14px;
-  max-width: 560px;
   padding: 14px;
 }
 
@@ -2508,6 +2441,10 @@ h3 {
 
 .stage-timer-admin.is-overtime .stage-timer-readout {
   color: #9f1f17;
+}
+
+.stage-timer-admin.is-overtime {
+  border-color: rgba(159, 31, 23, 0.46);
 }
 
 .stage-timer-note {
@@ -2564,6 +2501,238 @@ h3 {
 .stage-timer-duration input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+/* The admin is an operator workspace shared by every public visual style.
+   Neutral paper, compact geometry, and a strong information hierarchy keep
+   the controls consistent while the embedded stage remains the branding source. */
+.admin-page {
+  background: #e9e8e3;
+  color: #171714;
+  min-height: 100vh;
+  padding: 28px;
+}
+
+.admin-shell {
+  max-width: 1440px;
+}
+
+.admin-control-grid {
+  align-items: start;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) minmax(390px, 0.82fr);
+}
+
+.admin-control-panel,
+.admin-page .admin-stage-preview-panel,
+.admin-page .admin-workspace {
+  background: #f8f6ef;
+  border: 1px solid #d5d2c9;
+  border-radius: 8px;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.admin-page-header {
+  border-bottom: 1px solid #d5d2c9;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+}
+
+.admin-console-kicker {
+  align-items: center;
+  color: #62615c;
+  display: flex;
+  font-size: 11px;
+  font-weight: 800;
+  gap: 10px;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+
+.admin-console-kicker span + span {
+  border-left: 1px solid #aaa69d;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  padding-left: 10px;
+}
+
+.admin-event-title {
+  font-size: clamp(32px, 3.4vw, 44px);
+  letter-spacing: -0.035em;
+  margin-bottom: 0;
+  text-wrap: balance;
+}
+
+.admin-status-strip {
+  margin-bottom: 18px;
+}
+
+.admin-status-strip .pill {
+  background: transparent;
+  border: 1px solid #bdb9b0;
+  border-radius: 3px;
+  color: #41413d;
+}
+
+.admin-status-strip .pill.green {
+  background: #e1eadf;
+  border-color: #97ad92;
+  color: #234322;
+}
+
+.admin-status-strip .pill.yellow {
+  background: #f3ead1;
+  border-color: #cbb882;
+  color: #684e13;
+}
+
+.admin-primary-actions {
+  border-bottom: 1px solid #d5d2c9;
+  border-top: 1px solid #d5d2c9;
+  margin: 0 0 20px;
+  padding: 14px 0;
+}
+
+.admin-page :is(.button, button, input, textarea, [data-slot="select-trigger"]) {
+  border-radius: 4px;
+}
+
+.admin-page .field :is(input, select, textarea) {
+  background: #fffef9;
+  border-color: #c8c5bc;
+  box-shadow: none;
+}
+
+.admin-page .field :is(input, select, textarea):focus {
+  border-color: #171714;
+  box-shadow: 0 0 0 2px rgba(23, 23, 20, 0.12);
+}
+
+.admin-section-label {
+  color: #62615c;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  margin: 20px 0 10px;
+  text-transform: uppercase;
+}
+
+.admin-page .admin-event-settings {
+  margin-top: 0;
+}
+
+.admin-page .stage-timer-admin {
+  background: #fffef9;
+  border-color: #d5d2c9;
+  border-radius: 6px;
+  margin-top: 0;
+}
+
+.admin-page .stage-timer-readout {
+  background: #171714;
+  border: 0;
+  border-radius: 4px;
+  color: #f8f6ef;
+}
+
+.admin-page .stage-timer-admin.is-overtime .stage-timer-readout {
+  background: #641b17;
+  color: #fff5f1;
+}
+
+.admin-page .admin-stage-preview-panel {
+  position: sticky;
+  top: 24px;
+}
+
+.admin-page .admin-stage-preview-heading .muted,
+.admin-page .stage-timer-admin-title {
+  color: #4c4b47;
+  letter-spacing: 0.08em;
+}
+
+.admin-page .admin-stage-controls {
+  background: #e8e6df;
+  border-color: #d5d2c9;
+  border-radius: 6px;
+}
+
+.admin-page .admin-stage-mode {
+  border-radius: 3px;
+}
+
+.admin-page .admin-stage-mode.is-active {
+  background: #171714;
+  color: #f8f6ef;
+}
+
+.admin-page .admin-stage-preview-viewport {
+  border-color: #171714;
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+.admin-page .admin-workspace {
+  margin-top: 20px;
+}
+
+.admin-page .admin-tabs {
+  background: transparent;
+  border-bottom-color: #d5d2c9;
+  gap: 2px;
+  padding: 8px 10px 0;
+}
+
+.admin-page .admin-tab {
+  border-bottom: 3px solid transparent;
+  border-radius: 3px 3px 0 0;
+  color: #62615c;
+  min-height: 44px;
+}
+
+.admin-page .admin-tab.is-active {
+  background: transparent;
+  border-bottom-color: #171714;
+  color: #171714;
+}
+
+.admin-page .admin-tab-count {
+  background: #dedbd3;
+  border-radius: 3px;
+}
+
+.admin-page .admin-table th {
+  background: #efede6;
+  border-bottom-color: #d5d2c9;
+  color: #62615c;
+}
+
+.admin-page .admin-table td {
+  background: #fffef9;
+  border-bottom-color: #e4e1d9;
+  color: #171714;
+}
+
+.admin-page .admin-table tbody tr:hover td {
+  background: #f4f1e9;
+}
+
+.admin-page .admin-table-wrap {
+  overscroll-behavior-inline: contain;
+}
+
+.admin-page .table-row-menu-trigger {
+  border-radius: 4px;
+  height: 36px;
+  width: 36px;
+}
+
+.admin-page .table-row-menu-trigger:focus-visible {
+  box-shadow: 0 0 0 3px rgba(23, 23, 20, 0.14);
 }
 
 .split-action {
@@ -3180,6 +3349,98 @@ h3 {
 
   .stage-outpost .stage-grid {
     padding-top: 40px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .admin-control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-page .admin-stage-preview-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-page {
+    padding: 14px;
+  }
+
+  .admin-control-panel {
+    padding: 20px 16px;
+  }
+
+  .admin-console-kicker,
+  .admin-primary-actions,
+  .admin-event-settings,
+  .lineup-toolbar,
+  .field-heading,
+  .stage-timer-readout-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-event-settings,
+  .stage-timer-readout-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-console-kicker span + span {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .field-heading {
+    display: flex;
+  }
+
+  .lineup-toolbar {
+    align-items: flex-start;
+  }
+
+  .lineup-table-actions {
+    justify-content: flex-start;
+  }
+
+  .stage-timer-readout-row .pill {
+    justify-self: start;
+  }
+}
+
+/* The creator always previews the canonical 1440 × 1000 presentation canvas.
+   These rules prevent the host page's mobile media queries from changing the
+   shared stage while it is being scaled down inside the preview frame. */
+@media (max-width: 860px) {
+  .shared-stage-preview-canvas > .stage {
+    padding: 28px;
+  }
+
+  .shared-stage-preview-canvas > .stage > .stage-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, calc(var(--stage-vw) * 30));
+    height: 944px;
+    min-height: 944px;
+  }
+
+  .shared-stage-preview-canvas .stage-mark {
+    height: 34px;
+    left: 28px;
+    top: 26px;
+    width: 34px;
+  }
+
+  .shared-stage-preview-canvas .stage-current-content {
+    padding-top: 0;
+  }
+
+  .shared-stage-preview-canvas .outpost-stage-mark {
+    left: 30px;
+    max-width: 220px;
+    top: 28px;
+  }
+
+  .shared-stage-preview-canvas .stage-outpost .stage-grid {
+    padding-top: 46px;
   }
 }
 

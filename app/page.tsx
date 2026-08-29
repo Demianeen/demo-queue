@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
@@ -8,6 +8,8 @@ import { absoluteUrl, adminPath, stagePath, submissionPath } from "@/lib/routes"
 import { randomToken, slugify } from "@/lib/tokens";
 import { Brand } from "./Brand";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
+import { StagePresentationPreview } from "@/components/StagePresentationPreview";
+import { buildStagePreviewFixture } from "@/lib/stage-preview-fixture";
 import {
   VISUAL_STYLES,
   VISUAL_STYLE_LABELS,
@@ -45,6 +47,10 @@ export default function HomePage() {
   const [meetUrl, setMeetUrl] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [savedEvents, setSavedEvents] = useState<SavedEvent[]>([]);
+  const previewStage = useMemo(
+    () => buildStagePreviewFixture({ eventName: name, eventType, visualStyle, meetUrl }),
+    [eventType, meetUrl, name, visualStyle],
+  );
 
   // Read localStorage only after mount so server and client HTML match.
   useEffect(() => {
@@ -188,28 +194,10 @@ export default function HomePage() {
               <strong>Live preview</strong>
               <span>This is what your audience will see.</span>
             </div>
-            <section
-              className={`event-style-live-preview visual-${visualStyle}`}
-              aria-label={`${VISUAL_STYLE_LABELS[visualStyle]} presentation preview`}
-            >
-              <div className="event-style-live-preview-head">
-                <strong>{VISUAL_STYLE_LABELS[visualStyle].toUpperCase()}</strong>
-                <span>{name.trim() || "Frontier Hack"}</span>
-              </div>
-              <div className="event-style-live-preview-body">
-                <div>
-                  <span>Now presenting</span>
-                  <h3>Signal Relay</h3>
-                  <p>Low-latency telemetry for off-grid teams and devices.</p>
-                </div>
-                <ol>
-                  <li><b>2</b><span>Trailhead</span></li>
-                  <li><b>3</b><span>Basecamp</span></li>
-                  <li><b>4</b><span>Northline</span></li>
-                </ol>
-              </div>
-              <div className="event-style-live-preview-foot">12 in the queue</div>
-            </section>
+            <StagePresentationPreview
+              stage={previewStage}
+              submissionUrl={absoluteUrl(submissionPath("preview"))}
+            />
           </aside>
         </form>
 

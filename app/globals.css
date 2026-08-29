@@ -364,6 +364,477 @@ h3 {
   margin-top: 8px;
 }
 
+/* Visual style selector. The Outpost previews use the supplied topo artwork;
+   Codex remains the existing product treatment for backwards compatibility. */
+.visual-style-fieldset {
+  border: 0;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.visual-style-fieldset legend {
+  color: #304238;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 5px;
+  padding: 0;
+}
+
+.visual-style-fieldset > p {
+  margin-bottom: 10px;
+}
+
+.visual-style-options {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.visual-style-option {
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  color: var(--app-ink);
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  position: relative;
+  text-align: left;
+}
+
+.visual-style-option:hover {
+  border-color: rgba(79, 70, 229, 0.48);
+}
+
+.visual-style-option:focus-within {
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+}
+
+.visual-style-option.is-selected {
+  border-color: var(--cx-indigo);
+  box-shadow: inset 0 0 0 1px var(--cx-indigo);
+}
+
+.visual-style-option > input {
+  height: 1px;
+  margin: -1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  width: 1px;
+}
+
+.visual-style-preview {
+  align-content: space-between;
+  background: var(--cx-gradient);
+  border-radius: 7px;
+  color: white;
+  display: grid;
+  min-height: 78px;
+  overflow: hidden;
+  padding: 10px;
+  position: relative;
+}
+
+.visual-style-option-outpost .visual-style-preview {
+  background-image: linear-gradient(rgba(4, 5, 5, 0.35), rgba(4, 5, 5, 0.35)), url(/outpost/wide-black.webp);
+  background-position: center;
+  background-size: cover;
+  color: #f5f1e8;
+  font-family: var(--font-outpost-body), Inter, ui-sans-serif, sans-serif;
+}
+
+.visual-style-option-outpost .visual-style-preview-brand {
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+
+.visual-style-preview-brand {
+  font-size: 13px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  position: relative;
+  z-index: 1;
+}
+
+.visual-style-preview-lines {
+  background: currentColor;
+  height: 2px;
+  opacity: 0.7;
+  width: 42%;
+}
+
+.visual-style-option-label {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.visual-style-check {
+  align-items: center;
+  background: #fff;
+  border: 1px solid rgba(11, 12, 16, 0.22);
+  border-radius: 999px;
+  display: flex;
+  font-size: 10px;
+  font-weight: 900;
+  height: 20px;
+  justify-content: center;
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  width: 20px;
+  z-index: 2;
+}
+
+.event-style-live-preview {
+  --preview-ink: #ffffff;
+  background: var(--cx-gradient);
+  border-radius: 10px;
+  color: var(--preview-ink);
+  min-height: 260px;
+  overflow: hidden;
+  padding: 20px;
+}
+
+.event-style-live-preview.visual-outpost {
+  --preview-ink: #f5f1e8;
+  background-color: #050606;
+  background-image: linear-gradient(rgba(3, 4, 4, 0.62), rgba(3, 4, 4, 0.62)), url(/outpost/wide-black.webp);
+  background-position: center;
+  background-size: cover;
+  font-family: var(--font-outpost-body), Inter, ui-sans-serif, sans-serif;
+}
+
+.event-style-live-preview.visual-outpost .event-style-live-preview-head strong,
+.event-style-live-preview.visual-outpost .event-style-live-preview-body > div > span {
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-weight: 400;
+}
+
+.event-style-live-preview-head,
+.event-style-live-preview-foot {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.event-style-live-preview-head strong {
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+}
+
+.event-style-live-preview-head span,
+.event-style-live-preview-foot {
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.event-style-live-preview-body {
+  align-items: center;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.7fr);
+  min-height: 174px;
+  padding: 24px 8px 18px;
+}
+
+.event-style-live-preview-body > div > span {
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.event-style-live-preview-body h3 {
+  font-size: clamp(26px, 5vw, 42px);
+  line-height: 0.96;
+  margin: 5px 0 8px;
+}
+
+.event-style-live-preview-body p {
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 0;
+  max-width: 32ch;
+  opacity: 0.72;
+}
+
+.event-style-live-preview-body ol {
+  border-left: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0 4px 18px;
+}
+
+.event-style-live-preview-body li {
+  align-items: center;
+  display: grid;
+  font-size: 11px;
+  font-weight: 780;
+  gap: 8px;
+  grid-template-columns: 24px minmax(0, 1fr);
+}
+
+.event-style-live-preview-body li b {
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  display: flex;
+  font-size: 9px;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.event-style-live-preview-foot {
+  border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  margin: 0 -20px -20px;
+  padding: 11px 20px;
+}
+
+/* Outpost submission/status shell. Public forms keep field guidance beside
+   controls on desktop and stack it above controls on narrow screens. */
+.outpost-public-page {
+  background: #080a0b;
+  display: grid;
+  font-family: var(--font-outpost-body), Inter, ui-sans-serif, sans-serif;
+  grid-template-columns: minmax(270px, 25vw) minmax(0, 1fr);
+  min-height: 100vh;
+  padding: 14px;
+}
+
+.outpost-hero {
+  background-color: #090a0a;
+  background-image: linear-gradient(rgba(3, 4, 4, 0.56), rgba(3, 4, 4, 0.56)), url(/outpost/wide-black.webp);
+  background-position: center;
+  background-size: cover;
+  border-radius: 12px 0 0 12px;
+  color: #f5f1e8;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: calc(100vh - 28px);
+  overflow: hidden;
+  padding: clamp(28px, 4vw, 58px);
+  position: sticky;
+  top: 14px;
+}
+
+.outpost-hero-brand {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 290px);
+}
+
+.outpost-hero-brand img {
+  height: auto;
+  max-width: 100%;
+}
+
+.outpost-hero-brand strong {
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-size: clamp(12px, 1.1vw, 17px);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.outpost-hero-copy {
+  display: grid;
+  gap: 10px;
+  max-width: 26ch;
+}
+
+.outpost-hero-rule {
+  background: currentColor;
+  height: 2px;
+  margin-bottom: 10px;
+  opacity: 0.86;
+  width: 38px;
+}
+
+.outpost-hero-copy p {
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.outpost-hero-copy h2 {
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-size: clamp(24px, 2.3vw, 38px);
+  font-weight: 400;
+  letter-spacing: 0.015em;
+  line-height: 0.98;
+  margin: 0;
+}
+
+.outpost-hero-copy > span:last-child {
+  font-size: 15px;
+  font-weight: 620;
+  line-height: 1.45;
+  opacity: 0.78;
+}
+
+.outpost-content {
+  --app-ink: #101112;
+  --app-muted: #65635f;
+  --app-line: #c8c3ba;
+  --app-panel: #f4f1e9;
+  background: #f4f1e9;
+  border: 0;
+  border-radius: 0 12px 12px 0;
+  box-shadow: none;
+  color: var(--app-ink);
+  min-width: 0;
+  padding: clamp(30px, 4vw, 64px);
+}
+
+.outpost-content h1 {
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-size: clamp(48px, 5.4vw, 78px);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 0.95;
+  margin-bottom: 12px;
+}
+
+.outpost-event-kicker {
+  color: var(--app-muted);
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  margin-bottom: 18px;
+  text-transform: uppercase;
+}
+
+.outpost-content > .lead {
+  font-size: 15px;
+  margin-bottom: 28px;
+  max-width: 720px;
+}
+
+.form-section {
+  display: grid;
+  gap: 14px;
+}
+
+.form-section + .form-section {
+  margin-top: 10px;
+}
+
+.outpost-content .form-section + .form-section {
+  border-top: 1px solid rgba(16, 17, 18, 0.14);
+  margin-top: 18px;
+  padding-top: 22px;
+}
+
+.form-section > h2 {
+  font-size: 18px;
+  margin-bottom: 2px;
+}
+
+.form-section-intro {
+  margin: -6px 0 2px;
+}
+
+.outpost-content .form {
+  gap: 16px;
+}
+
+.outpost-content .form-section > .field {
+  align-items: start;
+  column-gap: clamp(24px, 4vw, 64px);
+  grid-template-columns: minmax(170px, 28%) minmax(0, 1fr);
+  row-gap: 6px;
+}
+
+.outpost-content .form-section > .field > label {
+  color: #141515;
+  grid-column: 1;
+  grid-row: 1;
+  line-height: 1.35;
+  padding-top: 10px;
+}
+
+.outpost-field-hint {
+  color: #65635f;
+  font-size: 12px;
+  grid-column: 1;
+  grid-row: 2;
+  line-height: 1.4;
+  padding-right: 8px;
+}
+
+.outpost-content .form-section > .field > input,
+.outpost-content .form-section > .field > select,
+.outpost-content .form-section > .field > textarea,
+.outpost-content .form-section > .field > [data-slot="alert"] {
+  grid-column: 2;
+}
+
+.outpost-content .form-section > .field > input,
+.outpost-content .form-section > .field > select,
+.outpost-content .form-section > .field > textarea {
+  background: rgba(248, 246, 240, 0.68);
+  border-color: #aaa69f;
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+.outpost-content .form-section > .field > input:focus,
+.outpost-content .form-section > .field > select:focus,
+.outpost-content .form-section > .field > textarea:focus {
+  border-color: #111212;
+  box-shadow: 0 0 0 2px rgba(17, 18, 18, 0.12);
+}
+
+.outpost-content .form-section > .field > .form-help,
+.outpost-content .form-section > .field > .form-error {
+  grid-column: 2;
+}
+
+.outpost-content .submission-confirmation {
+  background: transparent;
+  border-color: rgba(16, 17, 18, 0.18);
+  border-radius: 4px;
+}
+
+.outpost-content .submission-confirmation label {
+  color: #242524;
+}
+
+.outpost-content .actions {
+  justify-content: flex-end;
+}
+
+.outpost-content .actions .button {
+  border-radius: 4px;
+  min-height: 52px;
+  min-width: min(100%, 300px);
+}
+
+.outpost-content .hackathon-status-details {
+  background: rgba(248, 246, 240, 0.7);
+  border-color: #c8c3ba;
+  border-radius: 4px;
+}
+
+.outpost-content .pill {
+  border-radius: 3px;
+}
+
 .button {
   align-items: center;
   background: #0c0d12;
@@ -967,6 +1438,122 @@ h3 {
   text-decoration: underline;
   text-decoration-thickness: 1.5px;
   text-underline-offset: 3px;
+}
+
+/* Outpost presentation theme uses the supplied black topographic artwork. */
+.stage-outpost {
+  --app-ink: #f5f1e8;
+  --app-muted: rgba(245, 241, 232, 0.62);
+  --stage-subtitle-color: rgba(245, 241, 232, 0.74);
+  background-color: #050606;
+  background-image: linear-gradient(rgba(3, 4, 4, 0.72), rgba(3, 4, 4, 0.72)), url(/outpost/wide-black.webp);
+  background-position: center;
+  background-size: cover;
+  color: var(--app-ink);
+  font-family: var(--font-outpost-body), Inter, ui-sans-serif, sans-serif;
+}
+
+.outpost-stage-mark {
+  height: auto;
+  left: 30px;
+  max-width: min(220px, 28vw);
+  position: absolute;
+  top: 28px;
+  width: 220px;
+  z-index: 2;
+}
+
+.stage-outpost .stage-grid {
+  padding-top: 46px;
+  position: relative;
+  z-index: 1;
+}
+
+.stage-outpost .stage-title,
+.stage-outpost .stage-lineup-person {
+  color: #f5f1e8;
+}
+
+.stage-outpost .stage-title {
+  font-size: clamp(50px, 5.4vw, 78px);
+  font-weight: 500;
+  line-height: 0.96;
+}
+
+.stage-outpost .stage-subtitle {
+  font-size: clamp(18px, 1.7vw, 26px);
+  font-weight: 540;
+  line-height: 1.3;
+  max-width: 34ch;
+}
+
+.stage-outpost .stage-label,
+.stage-outpost .stage-lineup-header .stage-label,
+.stage-outpost .stage-lineup-header span,
+.stage-outpost .stage-lineup-demo,
+.stage-outpost .stage-lineup-list li.is-later .stage-lineup-demo,
+.stage-outpost .stage-lineup-list li.is-later .stage-lineup-position,
+.stage-outpost .stage-lineup-empty,
+.stage-outpost .stage-lineup-empty p,
+.stage-outpost .stage-lineup-more,
+.stage-outpost .stage-access-label,
+.stage-outpost .stage-meet-url,
+.stage-outpost .stage-qr-count {
+  color: rgba(245, 241, 232, 0.62);
+}
+
+.stage-outpost .stage-label,
+.stage-outpost .stage-lineup-header .stage-label,
+.stage-outpost .stage-access-label {
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+}
+
+.stage-outpost .stage-lineup-position {
+  color: #f5f1e8;
+}
+
+.stage-outpost .stage-lineup-stack {
+  border-left-color: rgba(245, 241, 232, 0.22);
+}
+
+.stage-outpost .stage-access {
+  border-top-color: rgba(245, 241, 232, 0.16);
+}
+
+.stage-outpost .stage-demo-timer,
+.stage-outpost .stage-queue-timer {
+  color: rgba(245, 241, 232, 0.86);
+}
+
+.stage-outpost .stage-demo-timer.is-overtime,
+.stage-outpost .stage-queue-timer.is-danger {
+  color: #ff8b7f;
+}
+
+.stage-outpost .stage-queue-timer.is-warning {
+  color: #f4c56a;
+}
+
+.stage-outpost .stage-queue-timer.is-idle {
+  color: rgba(245, 241, 232, 0.56);
+}
+
+.stage-outpost .stage-queue-timer-track {
+  background: rgba(245, 241, 232, 0.18);
+}
+
+.stage-outpost .stage-mascot {
+  display: none;
+}
+
+.stage-outpost .stage-qr-stack {
+  padding-top: 0;
+}
+
+.stage-outpost .qr-box {
+  color: #101112;
 }
 
 @keyframes stage-current-promote {
@@ -2176,6 +2763,23 @@ h3 {
   .stage-current-content {
     padding-top: 44px;
   }
+
+  .outpost-public-page {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .outpost-hero {
+    padding: 26px;
+  }
+
+  .outpost-content {
+    padding: 34px 28px;
+  }
+
+  .outpost-content .form-section > .field {
+    column-gap: 24px;
+    grid-template-columns: minmax(145px, 30%) minmax(0, 1fr);
+  }
 }
 
 /* Phone-first: the form/status cards go full-bleed instead of floating in a
@@ -2195,6 +2799,84 @@ h3 {
     border-radius: 0;
     box-shadow: none;
     padding: 28px 20px calc(28px + env(safe-area-inset-bottom));
+  }
+
+  .visual-style-options {
+    grid-template-columns: 1fr;
+  }
+
+  .outpost-public-page {
+    display: block;
+    padding: 0;
+  }
+
+  .outpost-hero {
+    border-radius: 0;
+    min-height: 160px;
+    padding: 18px 20px;
+    position: relative;
+    top: 0;
+  }
+
+  .outpost-hero-brand {
+    max-width: 170px;
+  }
+
+  .outpost-hero-brand strong {
+    font-size: 10px;
+  }
+
+  .outpost-hero-copy {
+    display: none;
+  }
+
+  .outpost-content {
+    border-radius: 0;
+    min-height: calc(100vh - 160px);
+    padding: 30px 20px calc(30px + env(safe-area-inset-bottom));
+  }
+
+  .outpost-content h1 {
+    font-size: 46px;
+  }
+
+  .outpost-content .form-section > .field {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .outpost-content .form-section > .field > label,
+  .outpost-content .form-section > .field > input,
+  .outpost-content .form-section > .field > select,
+  .outpost-content .form-section > .field > textarea,
+  .outpost-content .form-section > .field > [data-slot="alert"],
+  .outpost-content .form-section > .field > .outpost-field-hint,
+  .outpost-content .form-section > .field > .form-help,
+  .outpost-content .form-section > .field > .form-error {
+    grid-column: 1;
+  }
+
+  .outpost-content .form-section > .field > label {
+    padding-top: 0;
+  }
+
+  .outpost-field-hint {
+    grid-row: auto;
+    padding: 0 0 2px;
+  }
+
+  .outpost-content .actions .button {
+    width: 100%;
+  }
+
+  .outpost-stage-mark {
+    left: 18px;
+    max-width: 150px;
+    top: 18px;
+  }
+
+  .stage-outpost .stage-grid {
+    padding-top: 40px;
   }
 }
 

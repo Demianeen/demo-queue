@@ -10,6 +10,7 @@ import { absoluteUrl, submissionPath } from "@/lib/routes";
 import { stageSubmissionPrompt } from "@/lib/event-state";
 import { Skeleton } from "@/app/Skeleton";
 import { cn } from "@/lib/utils";
+import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
 
 type StageTimer = {
   status: "idle" | "running" | "paused";
@@ -94,6 +95,8 @@ function useStageTimer(timer: StageTimer | undefined) {
 export default function StagePage() {
   const params = useParams<{ slug: string }>();
   const stage = useQuery(api.events.getStage, { slug: params.slug });
+  const visualStyle = normalizeVisualStyle(stage?.event.visualStyle);
+  const isOutpost = isOutpostStyle(visualStyle);
   const isHackathon = stage?.event.eventType === "hackathon";
   const lineupNoun = isHackathon ? "finalist" : "demoer";
   const projectNoun = isHackathon ? "project" : "demo";
@@ -142,15 +145,14 @@ export default function StagePage() {
           ? "Now presenting"
           : "Now demoing";
   const currentStageTitle =
-    stage?.current?.teamName ??
-    stage?.current?.name ??
+    (isOutpost ? stage?.current?.demoTitle : stage?.current?.teamName ?? stage?.current?.name) ??
     (isLive
       ? liveLineupIsComplete
         ? `End of the ${isHackathon ? "finalist" : "demo"} list`
         : `No ${lineupNoun} selected`
       : `Submit your ${projectNoun} here`);
   const currentStageSubtitle =
-    stage?.current?.demoTitle ??
+    (isOutpost ? stage?.current?.description : stage?.current?.demoTitle) ??
     (isLive
       ? liveLineupIsComplete
         ? "Thanks for watching."
@@ -293,10 +295,25 @@ export default function StagePage() {
 
   return (
     <main
-      className={cn("stage", isAdvancing && "stage-advancing")}
+      className={cn(
+        "stage",
+        isOutpost && "stage-outpost",
+        isAdvancing && "stage-advancing",
+      )}
       ref={stageRootRef}
     >
-      <span className="codex-mark stage-mark" aria-hidden />
+      {isOutpost ? (
+        <Image
+          className="outpost-stage-mark"
+          src="/outpost/logo-white.png"
+          alt="Outpost"
+          width={260}
+          height={85}
+          priority
+        />
+      ) : (
+        <span className="codex-mark stage-mark" aria-hidden />
+      )}
       <section className="stage-grid">
         {showQrStage ? (
           <div className="stage-main stage-qr-main">
@@ -350,8 +367,12 @@ export default function StagePage() {
                         {index === 0 ? "Up next" : `#${index + 2}`}
                       </span>
                       <span className="stage-lineup-copy">
-                        <span className="stage-lineup-person">{item.teamName ?? item.name}</span>
-                        <span className="stage-lineup-demo">{item.demoTitle}</span>
+                        <span className="stage-lineup-person">
+                          {isOutpost ? item.demoTitle : item.teamName ?? item.name}
+                        </span>
+                        <span className="stage-lineup-demo">
+                          {isOutpost ? item.description : item.demoTitle}
+                        </span>
                       </span>
                     </li>
                   ))}

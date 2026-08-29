@@ -12,6 +12,7 @@ import type * as ai from "../ai.js";
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
 import type * as googleSheets from "../googleSheets.js";
+import type * as visualStyle from "../visualStyle.js";
 
 import type {
   ApiFromModules,
@@ -24,6 +25,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   events: typeof events;
   googleSheets: typeof googleSheets;
+  visualStyle: typeof visualStyle;
 }>;
 
 /**

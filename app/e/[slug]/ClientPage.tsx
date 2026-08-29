@@ -19,6 +19,9 @@ import {
 } from "@/lib/validation";
 import { Brand } from "@/app/Brand";
 import { Skeleton } from "@/app/Skeleton";
+import { OutpostHero } from "@/components/OutpostHero";
+import { cn } from "@/lib/utils";
+import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
 import {
   MAX_ADDITIONAL_TEAM_MEMBERS,
   MAX_GITHUB_REPOSITORY_URL_LENGTH,
@@ -32,6 +35,10 @@ import {
 
 function Req() {
   return <span style={{ color: "var(--app-bad)" }}> *</span>;
+}
+
+function OutpostFieldHint({ id, show, children }: { id: string; show: boolean; children: React.ReactNode }) {
+  return show ? <span id={id} className="outpost-field-hint">{children}</span> : null;
 }
 
 function describedBy(...ids: Array<string | false | undefined>) {
@@ -80,6 +87,8 @@ export default function SubmissionPage() {
   const [fieldLimitIssue, setFieldLimitIssue] = useState<FieldLimitIssue | null>(null);
   const [submissionError, setSubmissionError] = useState("");
   const isHackathon = stage?.event.eventType === "hackathon";
+  const visualStyle = normalizeVisualStyle(stage?.event.visualStyle);
+  const isOutpost = isOutpostStyle(visualStyle);
 
   if (!stage) {
     return (
@@ -237,10 +246,33 @@ export default function SubmissionPage() {
   }
 
   return (
-    <main className="narrow-page">
-      <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
-        <Brand label={stage.event.name} />
-        <h1>{isHackathon ? "Submit your hackathon project." : "Submit your demo."}</h1>
+    <main className={isOutpost ? "outpost-public-page" : "narrow-page"}>
+      {isOutpost ? (
+        <OutpostHero
+          eventName={stage.event.name}
+          eventType={stage.event.eventType}
+          mode="submission"
+        />
+      ) : null}
+      <section
+        className={cn("panel panel-pad", isOutpost && "outpost-content")}
+        style={isOutpost ? undefined : { width: "min(760px, 100%)" }}
+      >
+        {isOutpost ? null : <Brand label={stage.event.name} />}
+        <div>
+          {isOutpost ? (
+            <p className="outpost-event-kicker">
+              {isHackathon ? "Hackathon submission" : "Demo queue submission"} · {stage.event.name}
+            </p>
+          ) : null}
+          <h1>
+            {isOutpost && isHackathon
+              ? "Tell us what you built"
+              : isHackathon
+                ? "Submit your hackathon project."
+                : "Submit your demo."}
+          </h1>
+        </div>
         <p className="lead">
           {isHackathon
             ? "Submit once for your team. You will get a private status link, and finalists will use the Meet link to present."
@@ -248,14 +280,15 @@ export default function SubmissionPage() {
         </p>
 
         <form className="form" onSubmit={onSubmit} style={{ marginTop: 24 }}>
-          <div style={{ display: "grid", gap: 14 }}>
-            <h2 style={{ fontSize: 18, marginBottom: 0 }}>
+          <div className="form-section">
+            <h2>
               {isHackathon ? "Team and project" : "Demo info"}
             </h2>
             {isHackathon ? (
               <>
                 <div className="field">
                   <label htmlFor="teamName">Team name<Req /></label>
+                  <OutpostFieldHint id="team-name-hint" show={isOutpost}>How should we refer to your team?</OutpostFieldHint>
                   <input
                     id="teamName"
                     name="teamName"
@@ -263,19 +296,20 @@ export default function SubmissionPage() {
                     maxLength={MAX_TEAM_NAME_LENGTH}
                     required
                     aria-invalid={Boolean(teamNameError) || undefined}
-                    aria-describedby={teamNameError ? "team-name-error" : undefined}
+                    aria-describedby={describedBy(isOutpost && "team-name-hint", teamNameError && "team-name-error")}
                   />
                   {teamNameError ? <span id="team-name-error" className="form-error">{teamNameError}</span> : null}
                 </div>
                 <div className="field">
                   <label htmlFor="teamMembers">Other team members, one per line</label>
+                  <OutpostFieldHint id="team-members-hint" show={isOutpost}>Add everyone besides the presenter below.</OutpostFieldHint>
                   <textarea
                     id="teamMembers"
                     name="teamMembers"
                     placeholder={"Sam Lee\nAlex Morgan"}
                     rows={3}
                     aria-invalid={Boolean(teamMembersError) || undefined}
-                    aria-describedby={teamMembersError ? "team-members-error" : undefined}
+                    aria-describedby={describedBy(isOutpost && "team-members-hint", teamMembersError && "team-members-error")}
                   />
                   <span className="muted form-help">
                     The presenter below is included automatically. Add up to {MAX_ADDITIONAL_TEAM_MEMBERS} others.
@@ -288,6 +322,7 @@ export default function SubmissionPage() {
             ) : null}
             <div className="field">
               <label htmlFor="name">{isHackathon ? "Presenter and primary contact" : "Your name"}<Req /></label>
+              <OutpostFieldHint id="presenter-hint" show={isOutpost}>Who should the event team contact?</OutpostFieldHint>
               <input
                 id="name"
                 name="name"
@@ -295,13 +330,16 @@ export default function SubmissionPage() {
                 maxLength={SUBMISSION_FIELD_LIMITS.name}
                 required
                 aria-invalid={fieldLimitIssue?.field === "name" || undefined}
-                aria-describedby={fieldLimitIssue?.field === "name" ? "name-limit-error" : undefined}
+                aria-describedby={describedBy(isOutpost && "presenter-hint", fieldLimitIssue?.field === "name" && "name-limit-error")}
               />
               <FieldLimitError field="name" issue={fieldLimitIssue} />
             </div>
 
             <div className="field">
               <label htmlFor="demoTitle">{isHackathon ? "Project name" : "Demo title"}<Req /></label>
+              <OutpostFieldHint id="project-name-hint" show={isOutpost}>
+                {isHackathon ? "What is the name of your project?" : "What are you demoing?"}
+              </OutpostFieldHint>
               <input
                 id="demoTitle"
                 name="demoTitle"
@@ -309,13 +347,18 @@ export default function SubmissionPage() {
                 maxLength={SUBMISSION_FIELD_LIMITS.demoTitle}
                 required
                 aria-invalid={fieldLimitIssue?.field === "demoTitle" || undefined}
-                aria-describedby={fieldLimitIssue?.field === "demoTitle" ? "demoTitle-limit-error" : undefined}
+                aria-describedby={describedBy(isOutpost && "project-name-hint", fieldLimitIssue?.field === "demoTitle" && "demoTitle-limit-error")}
               />
               <FieldLimitError field="demoTitle" issue={fieldLimitIssue} />
             </div>
 
             <div className="field">
               <label htmlFor="description">{isHackathon ? "Project description" : "Short description"}<Req /></label>
+              <OutpostFieldHint id="project-description-hint" show={isOutpost}>
+                {isHackathon
+                  ? "Describe what it does, the problem it solves, and what makes it unique."
+                  : "Summarise what you will show in one or two lines."}
+              </OutpostFieldHint>
               <textarea
                 id="description"
                 name="description"
@@ -323,7 +366,7 @@ export default function SubmissionPage() {
                 maxLength={SUBMISSION_FIELD_LIMITS.description}
                 required
                 aria-invalid={fieldLimitIssue?.field === "description" || undefined}
-                aria-describedby={fieldLimitIssue?.field === "description" ? "description-limit-error" : undefined}
+                aria-describedby={describedBy(isOutpost && "project-description-hint", fieldLimitIssue?.field === "description" && "description-limit-error")}
               />
               <FieldLimitError field="description" issue={fieldLimitIssue} />
             </div>
@@ -331,6 +374,7 @@ export default function SubmissionPage() {
             {isHackathon ? (
               <div className="field">
                 <label htmlFor="githubUrl">Public GitHub repository<Req /></label>
+                <OutpostFieldHint id="github-hint" show={isOutpost}>Link to the public repository judges should review.</OutpostFieldHint>
                 <Alert>
                   <InfoIcon />
                   <AlertTitle className="font-semibold">Public repository required</AlertTitle>
@@ -347,7 +391,7 @@ export default function SubmissionPage() {
                   maxLength={MAX_GITHUB_REPOSITORY_URL_LENGTH}
                   required
                   aria-invalid={Boolean(githubError) || undefined}
-                  aria-describedby={githubError ? "github-error" : undefined}
+                  aria-describedby={describedBy(isOutpost && "github-hint", githubError && "github-error")}
                 />
                 {githubError ? <span id="github-error" className="form-error">{githubError}</span> : null}
               </div>
@@ -355,6 +399,7 @@ export default function SubmissionPage() {
 
             <div className="field">
               <label htmlFor="phone">Phone number<Req /></label>
+              <OutpostFieldHint id="phone-hint" show={isOutpost}>Used only by the event team.</OutpostFieldHint>
               <input
                 id="phone"
                 name="phone"
@@ -365,18 +410,20 @@ export default function SubmissionPage() {
                 required
                 aria-invalid={Boolean(phoneError || fieldLimitIssue?.field === "phone") || undefined}
                 aria-describedby={describedBy(
+                  isOutpost && "phone-hint",
                   fieldLimitIssue?.field === "phone" && "phone-limit-error",
                   phoneError && "phone-error",
                 )}
               />
               <FieldLimitError field="phone" issue={fieldLimitIssue} />
               {phoneError ? (
-                <span id="phone-error" style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{phoneError}</span>
+                <span id="phone-error" className="form-error">{phoneError}</span>
               ) : null}
             </div>
 
             <div className="field">
               <label htmlFor="email">Email<Req /></label>
+              <OutpostFieldHint id="email-hint" show={isOutpost}>Where should submission updates go?</OutpostFieldHint>
               <input
                 id="email"
                 name="email"
@@ -385,20 +432,23 @@ export default function SubmissionPage() {
                 maxLength={SUBMISSION_FIELD_LIMITS.email}
                 required
                 aria-invalid={fieldLimitIssue?.field === "email" || undefined}
-                aria-describedby={fieldLimitIssue?.field === "email" ? "email-limit-error" : undefined}
+                aria-describedby={describedBy(isOutpost && "email-hint", fieldLimitIssue?.field === "email" && "email-limit-error")}
               />
               <FieldLimitError field="email" issue={fieldLimitIssue} />
             </div>
 
             <div className="field">
               <label htmlFor="category">Category, optional</label>
+              <OutpostFieldHint id="category-hint" show={isOutpost}>
+                Choose the category that best fits your {isHackathon ? "project" : "demo"}.
+              </OutpostFieldHint>
               <input
                 id="category"
                 name="category"
                 placeholder="AI, devtools, consumer, hardware..."
                 maxLength={SUBMISSION_FIELD_LIMITS.category}
                 aria-invalid={fieldLimitIssue?.field === "category" || undefined}
-                aria-describedby={fieldLimitIssue?.field === "category" ? "category-limit-error" : undefined}
+                aria-describedby={describedBy(isOutpost && "category-hint", fieldLimitIssue?.field === "category" && "category-limit-error")}
               />
               <FieldLimitError field="category" issue={fieldLimitIssue} />
             </div>
@@ -406,6 +456,7 @@ export default function SubmissionPage() {
             {isHackathon ? (
               <div className="field">
                 <label htmlFor="videoUrl">Demo video link<Req /></label>
+                <OutpostFieldHint id="video-hint" show={isOutpost}>Link to a short public or link-accessible demo video.</OutpostFieldHint>
                 <Alert>
                   <InfoIcon />
                   <AlertTitle className="font-semibold">Maximum 90 seconds. No slides.</AlertTitle>
@@ -422,7 +473,7 @@ export default function SubmissionPage() {
                   maxLength={MAX_HACKATHON_VIDEO_URL_LENGTH}
                   required
                   aria-invalid={Boolean(videoError) || undefined}
-                  aria-describedby={describedBy("video-help", videoError && "video-error")}
+                  aria-describedby={describedBy(isOutpost && "video-hint", "video-help", videoError && "video-error")}
                 />
                 <span id="video-help" className="muted form-help">
                   Make sure judges can open the link without requesting access.
@@ -432,14 +483,15 @@ export default function SubmissionPage() {
             ) : null}
           </div>
 
-          <div style={{ display: "grid", gap: 14, marginTop: 10 }}>
-            <h2 style={{ fontSize: 18, marginBottom: 0 }}>Socials</h2>
-            <p className="muted" style={{ marginTop: -4 }}>
+          <div className="form-section">
+            <h2>Socials</h2>
+            <p className="muted form-section-intro">
               Add at least one so the event team can connect with you after.
             </p>
 
             <div className="field">
               <label htmlFor="twitter">Twitter/X</label>
+              <OutpostFieldHint id="twitter-hint" show={isOutpost}>Add at least one social profile.</OutpostFieldHint>
               <input
                 id="twitter"
                 name="twitter"
@@ -447,6 +499,7 @@ export default function SubmissionPage() {
                 maxLength={SUBMISSION_FIELD_LIMITS.twitter}
                 aria-invalid={Boolean(twitterError || socialError || fieldLimitIssue?.field === "twitter") || undefined}
                 aria-describedby={describedBy(
+                  isOutpost && "twitter-hint",
                   fieldLimitIssue?.field === "twitter" && "twitter-limit-error",
                   twitterError && "twitter-error",
                   socialError && "social-error",
@@ -454,12 +507,13 @@ export default function SubmissionPage() {
               />
               <FieldLimitError field="twitter" issue={fieldLimitIssue} />
               {twitterError ? (
-                <span id="twitter-error" style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{twitterError}</span>
+                <span id="twitter-error" className="form-error">{twitterError}</span>
               ) : null}
             </div>
 
             <div className="field">
               <label htmlFor="linkedin">LinkedIn</label>
+              <OutpostFieldHint id="linkedin-hint" show={isOutpost}>A personal profile works best.</OutpostFieldHint>
               <input
                 id="linkedin"
                 name="linkedin"
@@ -467,18 +521,19 @@ export default function SubmissionPage() {
                 maxLength={SUBMISSION_FIELD_LIMITS.linkedin}
                 aria-invalid={Boolean(linkedinError || fieldLimitIssue?.field === "linkedin") || undefined}
                 aria-describedby={describedBy(
+                  isOutpost && "linkedin-hint",
                   fieldLimitIssue?.field === "linkedin" && "linkedin-limit-error",
                   linkedinError && "linkedin-error",
                 )}
               />
               <FieldLimitError field="linkedin" issue={fieldLimitIssue} />
               {linkedinError ? (
-                <span id="linkedin-error" style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{linkedinError}</span>
+                <span id="linkedin-error" className="form-error">{linkedinError}</span>
               ) : null}
             </div>
 
             {socialError ? (
-              <p id="social-error" style={{ color: "var(--app-bad)", fontWeight: 600, marginTop: 2 }}>{socialError}</p>
+              <p id="social-error" className="form-error" style={{ marginTop: 2 }}>{socialError}</p>
             ) : null}
           </div>
 

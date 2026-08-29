@@ -287,8 +287,10 @@ export default function SubmissionPage() {
             {isHackathon ? (
               <>
                 <div className="field">
-                  <label htmlFor="teamName">Team name<Req /></label>
-                  <OutpostFieldHint id="team-name-hint" show={isOutpost}>How should we refer to your team?</OutpostFieldHint>
+                  <div className="field-label-group">
+                    <label htmlFor="teamName">Team name<Req /></label>
+                    <OutpostFieldHint id="team-name-hint" show={isOutpost}>How should we refer to your team?</OutpostFieldHint>
+                  </div>
                   <input
                     id="teamName"
                     name="teamName"
@@ -301,8 +303,10 @@ export default function SubmissionPage() {
                   {teamNameError ? <span id="team-name-error" className="form-error">{teamNameError}</span> : null}
                 </div>
                 <div className="field">
-                  <label htmlFor="teamMembers">Other team members, one per line</label>
-                  <OutpostFieldHint id="team-members-hint" show={isOutpost}>Add everyone besides the presenter below.</OutpostFieldHint>
+                  <div className="field-label-group">
+                    <label htmlFor="teamMembers">Other team members, one per line</label>
+                    <OutpostFieldHint id="team-members-hint" show={isOutpost}>Add everyone besides the presenter below.</OutpostFieldHint>
+                  </div>
                   <textarea
                     id="teamMembers"
                     name="teamMembers"
@@ -321,8 +325,10 @@ export default function SubmissionPage() {
               </>
             ) : null}
             <div className="field">
-              <label htmlFor="name">{isHackathon ? "Presenter and primary contact" : "Your name"}<Req /></label>
-              <OutpostFieldHint id="presenter-hint" show={isOutpost}>Who should the event team contact?</OutpostFieldHint>
+              <div className="field-label-group">
+                <label htmlFor="name">{isHackathon ? "Presenter and primary contact" : "Your name"}<Req /></label>
+                <OutpostFieldHint id="presenter-hint" show={isOutpost}>Who should the event team contact?</OutpostFieldHint>
+              </div>
               <input
                 id="name"
                 name="name"
@@ -336,10 +342,12 @@ export default function SubmissionPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="demoTitle">{isHackathon ? "Project name" : "Demo title"}<Req /></label>
-              <OutpostFieldHint id="project-name-hint" show={isOutpost}>
-                {isHackathon ? "What is the name of your project?" : "What are you demoing?"}
-              </OutpostFieldHint>
+              <div className="field-label-group">
+                <label htmlFor="demoTitle">{isHackathon ? "Project name" : "Demo title"}<Req /></label>
+                <OutpostFieldHint id="project-name-hint" show={isOutpost}>
+                  {isHackathon ? "What is the name of your project?" : "What are you demoing?"}
+                </OutpostFieldHint>
+              </div>
               <input
                 id="demoTitle"
                 name="demoTitle"
@@ -353,12 +361,14 @@ export default function SubmissionPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="description">{isHackathon ? "Project description" : "Short description"}<Req /></label>
-              <OutpostFieldHint id="project-description-hint" show={isOutpost}>
-                {isHackathon
-                  ? "Describe what it does, the problem it solves, and what makes it unique."
-                  : "Summarise what you will show in one or two lines."}
-              </OutpostFieldHint>
+              <div className="field-label-group">
+                <label htmlFor="description">{isHackathon ? "Project description" : "Short description"}<Req /></label>
+                <OutpostFieldHint id="project-description-hint" show={isOutpost}>
+                  {isHackathon
+                    ? "Describe what it does, the problem it solves, and what makes it unique."
+                    : "Summarise what you will show in one or two lines."}
+                </OutpostFieldHint>
+              </div>
               <textarea
                 id="description"
                 name="description"
@@ -373,12 +383,14 @@ export default function SubmissionPage() {
 
             {isHackathon ? (
               <div className="field">
-                <label htmlFor="githubUrl">Public GitHub repository<Req /></label>
-                <OutpostFieldHint id="github-hint" show={isOutpost}>Link to the public repository judges should review.</OutpostFieldHint>
-                <Alert>
+                <div className="field-label-group">
+                  <label htmlFor="githubUrl">Public GitHub repository<Req /></label>
+                  <OutpostFieldHint id="github-hint" show={isOutpost}>Link to the public repository judges should review.</OutpostFieldHint>
+                </div>
+                <Alert role="note">
                   <InfoIcon />
-                  <AlertTitle className="font-semibold">Public repository required</AlertTitle>
-                  <AlertDescription className="text-foreground">
+                  <AlertTitle>Public repository required</AlertTitle>
+                  <AlertDescription id="github-note">
                     Everything judges need to understand and run your project must be in the README.
                   </AlertDescription>
                 </Alert>
@@ -391,15 +403,17 @@ export default function SubmissionPage() {
                   maxLength={MAX_GITHUB_REPOSITORY_URL_LENGTH}
                   required
                   aria-invalid={Boolean(githubError) || undefined}
-                  aria-describedby={describedBy(isOutpost && "github-hint", githubError && "github-error")}
+                  aria-describedby={describedBy(isOutpost && "github-hint", "github-note", githubError && "github-error")}
                 />
                 {githubError ? <span id="github-error" className="form-error">{githubError}</span> : null}
               </div>
             ) : null}
 
             <div className="field">
-              <label htmlFor="phone">Phone number<Req /></label>
-              <OutpostFieldHint id="phone-hint" show={isOutpost}>Used only by the event team.</OutpostFieldHint>
+              <div className="field-label-group">
+                <label htmlFor="phone">Phone number<Req /></label>
+                <OutpostFieldHint id="phone-hint" show={isOutpost}>Used only by the event team.</OutpostFieldHint>
+              </div>
               <input
                 id="phone"
                 name="phone"
@@ -422,8 +436,10 @@ export default function SubmissionPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="email">Email<Req /></label>
-              <OutpostFieldHint id="email-hint" show={isOutpost}>Where should submission updates go?</OutpostFieldHint>
+              <div className="field-label-group">
+                <label htmlFor="email">Email<Req /></label>
+                <OutpostFieldHint id="email-hint" show={isOutpost}>Where should submission updates go?</OutpostFieldHint>
+              </div>
               <input
                 id="email"
                 name="email"
@@ -438,10 +454,12 @@ export default function SubmissionPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="category">Category, optional</label>
-              <OutpostFieldHint id="category-hint" show={isOutpost}>
-                Choose the category that best fits your {isHackathon ? "project" : "demo"}.
-              </OutpostFieldHint>
+              <div className="field-label-group">
+                <label htmlFor="category">Category, optional</label>
+                <OutpostFieldHint id="category-hint" show={isOutpost}>
+                  Choose the category that best fits your {isHackathon ? "project" : "demo"}.
+                </OutpostFieldHint>
+              </div>
               <input
                 id="category"
                 name="category"
@@ -455,12 +473,14 @@ export default function SubmissionPage() {
 
             {isHackathon ? (
               <div className="field">
-                <label htmlFor="videoUrl">Demo video link<Req /></label>
-                <OutpostFieldHint id="video-hint" show={isOutpost}>Link to a short public or link-accessible demo video.</OutpostFieldHint>
-                <Alert>
+                <div className="field-label-group">
+                  <label htmlFor="videoUrl">Demo video link<Req /></label>
+                  <OutpostFieldHint id="video-hint" show={isOutpost}>Link to a short public or link-accessible demo video.</OutpostFieldHint>
+                </div>
+                <Alert role="note">
                   <InfoIcon />
-                  <AlertTitle className="font-semibold">Maximum 90 seconds. No slides.</AlertTitle>
-                  <AlertDescription className="text-foreground">
+                  <AlertTitle>Maximum 90 seconds. No slides.</AlertTitle>
+                  <AlertDescription id="video-note">
                     Show the working product. Paste a public or link-accessible URL from YouTube, Loom, Google Drive, or another video host.
                   </AlertDescription>
                 </Alert>
@@ -473,7 +493,7 @@ export default function SubmissionPage() {
                   maxLength={MAX_HACKATHON_VIDEO_URL_LENGTH}
                   required
                   aria-invalid={Boolean(videoError) || undefined}
-                  aria-describedby={describedBy(isOutpost && "video-hint", "video-help", videoError && "video-error")}
+                  aria-describedby={describedBy(isOutpost && "video-hint", "video-note", "video-help", videoError && "video-error")}
                 />
                 <span id="video-help" className="muted form-help">
                   Make sure judges can open the link without requesting access.
@@ -490,8 +510,10 @@ export default function SubmissionPage() {
             </p>
 
             <div className="field">
-              <label htmlFor="twitter">Twitter/X</label>
-              <OutpostFieldHint id="twitter-hint" show={isOutpost}>Add at least one social profile.</OutpostFieldHint>
+              <div className="field-label-group">
+                <label htmlFor="twitter">Twitter/X</label>
+                <OutpostFieldHint id="twitter-hint" show={isOutpost}>Add at least one social profile.</OutpostFieldHint>
+              </div>
               <input
                 id="twitter"
                 name="twitter"
@@ -512,8 +534,10 @@ export default function SubmissionPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="linkedin">LinkedIn</label>
-              <OutpostFieldHint id="linkedin-hint" show={isOutpost}>A personal profile works best.</OutpostFieldHint>
+              <div className="field-label-group">
+                <label htmlFor="linkedin">LinkedIn</label>
+                <OutpostFieldHint id="linkedin-hint" show={isOutpost}>A personal profile works best.</OutpostFieldHint>
+              </div>
               <input
                 id="linkedin"
                 name="linkedin"

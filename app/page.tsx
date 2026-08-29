@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Image from "next/image";
 import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { absoluteUrl, adminPath, stagePath, submissionPath } from "@/lib/routes";
@@ -87,36 +88,47 @@ export default function HomePage() {
   }
 
   return (
-    <main className="narrow-page">
-      <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
-        <Brand label="Demo Queue" />
-        <h1>Run a fair demo queue without exposing private details.</h1>
-        <p className="lead">
-          Create an event, share the QR code in the presentation view, and control the live queue
-          from a private admin link.
-        </p>
+    <main className="narrow-page creator-page" data-visual-style={visualStyle}>
+      <section className="panel panel-pad creator-shell">
+        <header className="creator-intro">
+          {visualStyle === "outpost" ? (
+            <div className="creator-outpost-lockup">
+              <Image src="/outpost/logo-white.png" alt="Outpost" width={220} height={72} priority />
+              <span>Create event</span>
+            </div>
+          ) : (
+            <Brand label="Demo Queue" />
+          )}
+          <h1>Run a fair demo queue without exposing private details.</h1>
+          <p className="lead">
+            Create an event, share the QR code in the presentation view, and control the live queue
+            from a private admin link.
+          </p>
+        </header>
 
-        <form className="form" onSubmit={onSubmit} style={{ marginTop: 22 }}>
-          <div className="field">
+        <form className="form creator-layout" onSubmit={onSubmit}>
+          <div className="creator-controls">
+            <div className="field">
             <label htmlFor="name">Event name</label>
             <input id="name" value={name} onChange={(event) => setName(event.target.value)} required />
-          </div>
+            </div>
 
-          <div className="field">
+            <div className="field">
             <label htmlFor="eventType">Event type</label>
             <EventTypeSelect
               id="eventType"
               value={eventType}
               onValueChange={setEventType}
+              visualStyle={visualStyle}
             />
             <span className="muted form-help">
               {eventType === "hackathon"
                 ? "Teams submit a project and video for judging before the finalists present."
                 : "People make quick personal submissions for the live demo queue."}
             </span>
-          </div>
+            </div>
 
-          <div className="field">
+            <div className="field">
             <label htmlFor="meetUrl">Google Meet link</label>
             <input
               id="meetUrl"
@@ -126,9 +138,9 @@ export default function HomePage() {
               onChange={(event) => setMeetUrl(event.target.value)}
               required
             />
-          </div>
+            </div>
 
-          <fieldset className="visual-style-fieldset">
+            <fieldset className="visual-style-fieldset">
             <legend>Visual style</legend>
             <p className="muted form-help">
               This branding appears on the public submission, status, and presentation views.
@@ -161,36 +173,44 @@ export default function HomePage() {
                 </label>
               ))}
             </div>
-          </fieldset>
+            </fieldset>
 
-          <section
-            className={`event-style-live-preview visual-${visualStyle}`}
-            aria-label={`${VISUAL_STYLE_LABELS[visualStyle]} presentation preview`}
-          >
-            <div className="event-style-live-preview-head">
-              <strong>{VISUAL_STYLE_LABELS[visualStyle].toUpperCase()}</strong>
-              <span>{name.trim() || "Frontier Hack"}</span>
+            <div className="actions">
+              <button className="button" disabled={isCreating} type="submit">
+                {isCreating ? "Creating..." : "Create event"}
+              </button>
+              <span className="muted creator-action-note">You can change these settings anytime.</span>
             </div>
-            <div className="event-style-live-preview-body">
-              <div>
-                <span>Now presenting</span>
-                <h3>Signal Relay</h3>
-                <p>Low-latency telemetry for off-grid teams and devices.</p>
-              </div>
-              <ol>
-                <li><b>2</b><span>Trailhead</span></li>
-                <li><b>3</b><span>Basecamp</span></li>
-                <li><b>4</b><span>Northline</span></li>
-              </ol>
-            </div>
-            <div className="event-style-live-preview-foot">12 in the queue</div>
-          </section>
-
-          <div className="actions">
-            <button className="button" disabled={isCreating} type="submit">
-              {isCreating ? "Creating..." : "Create event"}
-            </button>
           </div>
+
+          <aside className="creator-preview-column" aria-label="Live presentation preview">
+            <div className="creator-preview-heading">
+              <strong>Live preview</strong>
+              <span>This is what your audience will see.</span>
+            </div>
+            <section
+              className={`event-style-live-preview visual-${visualStyle}`}
+              aria-label={`${VISUAL_STYLE_LABELS[visualStyle]} presentation preview`}
+            >
+              <div className="event-style-live-preview-head">
+                <strong>{VISUAL_STYLE_LABELS[visualStyle].toUpperCase()}</strong>
+                <span>{name.trim() || "Frontier Hack"}</span>
+              </div>
+              <div className="event-style-live-preview-body">
+                <div>
+                  <span>Now presenting</span>
+                  <h3>Signal Relay</h3>
+                  <p>Low-latency telemetry for off-grid teams and devices.</p>
+                </div>
+                <ol>
+                  <li><b>2</b><span>Trailhead</span></li>
+                  <li><b>3</b><span>Basecamp</span></li>
+                  <li><b>4</b><span>Northline</span></li>
+                </ol>
+              </div>
+              <div className="event-style-live-preview-foot">12 in the queue</div>
+            </section>
+          </aside>
         </form>
 
         {savedEvents.length > 0 ? (

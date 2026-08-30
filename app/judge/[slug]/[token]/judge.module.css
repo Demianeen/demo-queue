@@ -75,11 +75,15 @@
 .saveError { color: var(--app-bad); }
 .closedNotice { margin-top: 16px; padding: 10px 12px; border: 1px solid var(--app-line); border-radius: 9px; background: color-mix(in srgb, var(--app-bg) 68%, white); color: var(--app-muted); font-size: 12px; }
 .criteria { display: grid; margin-top: 20px; }
-.criterion { display: grid; gap: 7px; padding: 20px 0; border-top: 1px solid var(--app-line); }
+.criterion { min-width: 0; display: grid; gap: 7px; margin: 0; padding: 20px 0; border: 0; border-top: 1px solid var(--app-line); }
 .criterion:first-child { border-top: 0; }
-.criterionTitle { font-size: 14px; font-weight: 780; }
+.criterionTitle { padding: 0; font-size: 14px; font-weight: 780; }
 .criterionHelp { min-height: 38px; color: var(--app-muted); font-size: 12px; line-height: 1.5; }
-.criterion select { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--app-line); border-radius: 9px; background: white; color: var(--app-ink); font: inherit; font-weight: 680; }
-.criterion select:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 24%, transparent); border-color: var(--primary); }
-.criterion select:disabled { cursor: not-allowed; opacity: .64; }
+.scoreScale { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--app-line); border-radius: 9px; background: white; }
+.scoreOption, .scoreSelected { min-width: 0; min-height: 40px; display: grid; place-items: center; padding: 0; border: 0; border-right: 1px solid var(--app-line); background: transparent; color: var(--app-ink); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.scoreOption:last-child, .scoreSelected:last-child { border-right: 0; }
+.scoreOption:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 7%, white); }
+.scoreSelected { background: #3f35c8; color: white; font-weight: 780; }
+.scoreOption:focus-visible, .scoreSelected:focus-visible { position: relative; z-index: 1; outline: 3px solid color-mix(in srgb, var(--primary) 32%, transparent); outline-offset: -3px; }
+.scoreOption:disabled, .scoreSelected:disabled { cursor: not-allowed; opacity: .64; }
 .nextProject { width: 100%; margin-top: auto; }

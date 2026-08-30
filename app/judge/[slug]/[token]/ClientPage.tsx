@@ -305,14 +305,28 @@ export default function JudgeClientPage() {
           {isClosed ? <div className={styles.closedNotice}>Scores are read-only because judging is closed.</div> : null}
           <div className={styles.criteria}>
             {JUDGING_CRITERIA.map((criterion) => (
-              <label className={styles.criterion} key={criterion}>
-                <span className={styles.criterionTitle}>{JUDGING_CRITERION_LABELS[criterion]}</span>
+              <fieldset className={styles.criterion} key={criterion}>
+                <legend className={styles.criterionTitle}>{JUDGING_CRITERION_LABELS[criterion]}</legend>
                 <span className={styles.criterionHelp}>{CRITERION_HELP[criterion]}</span>
-                <select disabled={!isOpen || !selected} value={currentScores[criterion] ?? ""} onChange={(event) => selected && void updateScore(String(selected.id), criterion, event.target.value)}>
-                  <option value="">Select 0–10</option>
-                  {Array.from({ length: 11 }, (_, value) => <option key={value} value={value}>{value}</option>)}
-                </select>
-              </label>
+                <div className={styles.scoreScale} role="radiogroup" aria-label={`${JUDGING_CRITERION_LABELS[criterion]} score`}>
+                  {Array.from({ length: 11 }, (_, value) => {
+                    const selectedScore = currentScores[criterion] === value;
+                    return (
+                      <button
+                        aria-checked={selectedScore}
+                        className={selectedScore ? styles.scoreSelected : styles.scoreOption}
+                        disabled={!isOpen || !selected}
+                        key={value}
+                        onClick={() => selected && void updateScore(String(selected.id), criterion, String(value))}
+                        role="radio"
+                        type="button"
+                      >
+                        {value}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
             ))}
           </div>
           <Button className={styles.nextProject} disabled={selectedIndex < 0 || selectedIndex >= data.assignments.length - 1} onClick={() => selectOffset(1)}>Next project <ChevronRightIcon /></Button>

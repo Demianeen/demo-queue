@@ -15,6 +15,12 @@
 .table { border-collapse: collapse; font-size: 12px; min-width: 620px; width: 100%; }
 .table th, .table td { border-bottom: 1px solid var(--app-line); padding: 7px; text-align: left; vertical-align: top; }
 .table th { color: var(--app-muted); font-size: 11px; text-transform: uppercase; }
+.judgeReviews { display: flex; flex-wrap: wrap; gap: 6px; }
+.judgeReview, .judgeReviewPending { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 9px; border: 1px solid var(--app-line); border-radius: 999px; background: color-mix(in srgb, var(--app-paper) 86%, white); color: var(--app-ink); font: inherit; cursor: help; }
+.judgeReview strong, .judgeReviewPending strong { font-variant-numeric: tabular-nums; }
+.judgeReview strong { color: var(--app-good); }
+.judgeReviewPending strong { color: var(--app-muted); font-weight: 650; }
+.judgeReview:focus-visible, .judgeReviewPending:focus-visible { outline: 3px solid color-mix(in srgb, var(--app-accent) 24%, transparent); outline-offset: 2px; }
 .message { color: var(--app-muted); font-size: 13px; font-weight: 700; margin: 0; }
 .sectionHeading { align-items: start; display: flex; gap: 12px; justify-content: space-between; }
 .normalizationCard { display: grid; gap: 10px; border-top: 1px solid var(--app-line); padding-top: 12px; }

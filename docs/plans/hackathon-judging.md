@@ -52,7 +52,9 @@ These are accepted decisions, not questions to reconfirm unless implementation r
 29. The public submission page reacts immediately when submissions close and replaces the form with a clear closed state.
 30. Saving the judge roster does not assign submissions. `Assign submissions` performs the balanced distribution, Coverage shows both assigned names, and `Open judging` then exposes the assignments to judges.
 31. The private judge page is a desktop workspace with one selected project at a time: assignment rail on the left, project description, video, repository, and rendered README in the center, and a fixed scoring panel on the right.
-32. Judge scoring keeps the existing 0–10 selects. Mobile and iPad judge layouts are not part of this delivery.
+32. Judge scoring uses visible segmented 0–10 number controls matching the selected judge-workspace design. Mobile and iPad judge layouts are not part of this delivery.
+33. Admin judging progress uses one row per submission. Each assigned judge is shown with their review average or pending state, and hovering or focusing the judge review reveals Innovation, Execution, and Demo clarity values.
+34. Coverage and raw scores are not duplicated as separate admin tables; completion remains visible in the consolidated table status.
 
 ## Google Sheet Fallback
 

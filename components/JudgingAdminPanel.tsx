@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { randomToken } from "@/lib/tokens";
 import { absoluteUrl } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
 import { DndContext, closestCenter, type DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
@@ -22,6 +23,36 @@ function formatTimer(ms: number) {
 
 function judgeKey(value: string) {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
+}
+
+function JudgeReview({ judgeName, review }: {
+  judgeName: string;
+  review?: {
+    innovation?: number;
+    execution?: number;
+    demoClarity?: number;
+    completed: boolean;
+  };
+}) {
+  const values = review ? JUDGING_CRITERIA.map((criterion) => review[criterion]) : [];
+  const average = review?.completed && values.every((value) => value !== undefined)
+    ? values.reduce<number>((sum, value) => sum + (value ?? 0), 0) / values.length
+    : null;
+  const hasScores = values.some((value) => value !== undefined);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger className={average === null ? styles.judgeReviewPending : styles.judgeReview} type="button">
+        <span>{judgeName}</span>
+        <strong>{average === null ? (hasScores ? "In progress" : "Pending") : average.toFixed(1)}</strong>
+      </TooltipTrigger>
+      <TooltipContent>
+        {hasScores
+          ? JUDGING_CRITERIA.map((criterion) => `${JUDGING_CRITERION_LABELS[criterion]} ${review?.[criterion] ?? "—"}`).join(" · ")
+          : "No scores saved yet"}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; adminToken: string; judges: string[] }) {
@@ -65,6 +96,10 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
   const remaining = timer?.timerStatus === "running" ? (timer.remainingMs - (now - (timer.serverNow ?? now))) : (timer?.remainingMs ?? 0);
   const complete = progress?.scoring.filter((row) => row.completeReviewCount > 0).length ?? 0;
   const links = useMemo(() => new Map((access ?? []).map((item) => [item.judgeKey, item])), [access]);
+  const reviewsByAssignment = useMemo(
+    () => new Map((progress?.reviews ?? []).map((review) => [`${String(review.submissionId)}:${review.judgeKey}`, review])),
+    [progress?.reviews],
+  );
   const unavailableJudgeName = access?.find((item) => item.judgeKey === unavailableJudge)?.judgeName;
 
   async function run(label: string, action: () => Promise<unknown>) {
@@ -88,7 +123,7 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
 
   return (
     <section className={`panel ${styles.panel}`} aria-labelledby="judging-admin-title">
-      <div className={styles.heading}><div><h2 id="judging-admin-title">Hackathon judging</h2><p>Private judge links, progress, and raw scores.</p></div><span className={styles.status}>{progress?.eventStatus ?? "Loading…"}</span></div>
+      <div className={styles.heading}><div><h2 id="judging-admin-title">Hackathon judging</h2><p>Private judge links, progress, and results.</p></div><span className={styles.status}>{progress?.eventStatus ?? "Loading…"}</span></div>
       <div className={styles.actions}>
         <Button variant="outline" disabled={busy || Boolean(progress?.submissionsClosedAt)} onClick={() => void run("Submissions closed.", () => closeSubmissions({ slug, adminToken }))}>{progress?.submissionsClosedAt ? "Submissions closed" : "Close submissions"}</Button>
         {progress?.eventStatus === "setup" || progress?.eventStatus === "preparing_assignments" ? <Button variant="outline" disabled={busy || !progress?.submissionsClosedAt || progress?.eventStatus !== "setup"} onClick={() => void prepare()}>{busy ? "Assigning..." : "Assign submissions"}</Button> : null}
@@ -100,8 +135,40 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
         <div className={styles.card}><h3>Judge links</h3><p className={styles.help}>Create one private link per roster judge.</p>{judges.map((judge) => { const item = links.get(judgeKey(judge)); return <div className={styles.row} key={judge}><span>{judge}</span>{item ? <Button size="sm" variant="outline" onClick={() => void copyLink(item.judgeKey, item.token)}>Copy link</Button> : <Button size="sm" variant="outline" disabled={busy} onClick={() => void makeLink(judge)}>Create link</Button>}</div>; })}</div>
         <div className={styles.card}><h3>Timer</h3><div className={remaining < 0 ? `${styles.timer} ${styles.overtime}` : styles.timer}>{formatTimer(remaining)}</div><div className={styles.timerActions}><input aria-label="Judging minutes" inputMode="numeric" value={minutes} onChange={(event) => setMinutes(event.target.value.replace(/\D/g, "").slice(0, 3))} /><Button size="sm" variant="outline" disabled={busy} onClick={() => void run("Timer saved.", () => setTimer({ slug, adminToken, durationMs: Math.max(1, Number(minutes)) * 60_000 }))}>Set minutes</Button><Button size="sm" variant="outline" disabled={busy || progress?.eventStatus !== "open"} onClick={() => void run("Added 5 minutes.", () => addTime({ slug, adminToken, deltaMs: 5 * 60_000 }))}>+5 min</Button></div></div>
       </div>
-      <div className={styles.card}><h3>Coverage</h3><p className={styles.help}>{progress?.eventStatus === "setup" ? "Assign submissions to distribute two judges per entry. Open judging only when the assignments look right." : `${complete} of ${progress?.totalSubmissions ?? 0} submissions have at least one complete review. Two reviews are the target.`}</p><div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>Submission</th><th>Assigned judges</th><th>Complete reviews</th><th>Status</th></tr></thead><tbody>{progress?.scoring.map((row) => <tr key={String(row.submissionId)}><td>{row.demoTitle}</td><td>{row.assignedJudges.length > 0 ? row.assignedJudges.join(" + ") : "Not assigned"}</td><td>{row.completeReviewCount}</td><td>{row.assignedJudges.length === 0 ? "Waiting for assignment" : row.warning ?? "Ready"}</td></tr>)}</tbody></table></div></div>
-      <div className={styles.card}><h3>Raw scores</h3><p className={styles.help}>Visible only to the event admin, including after judging closes.</p><div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>Judge</th><th>Submission</th>{JUDGING_CRITERIA.map((criterion) => <th key={criterion}>{JUDGING_CRITERION_LABELS[criterion]}</th>)}</tr></thead><tbody>{progress?.reviews.length ? progress.reviews.map((review, index) => <tr key={`${review.submissionId}-${review.judgeKey}-${index}`}><td>{review.judgeName}</td><td>{progress.scoring.find((row) => String(row.submissionId) === String(review.submissionId))?.demoTitle ?? "Submission"}</td><td>{review.innovation ?? "—"}</td><td>{review.execution ?? "—"}</td><td>{review.demoClarity ?? "—"}</td></tr>) : <tr><td colSpan={5}>No scores saved yet.</td></tr>}</tbody></table></div></div>
+      <div className={styles.card}>
+        <h3>Judging progress</h3>
+        <p className={styles.help}>
+          {progress?.eventStatus === "setup"
+            ? "Assign submissions to distribute two judges per entry. Open judging only when the assignments look right."
+            : `${complete} of ${progress?.totalSubmissions ?? 0} submissions have at least one complete review. Hover a judge score to see the three criteria.`}
+        </p>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead><tr><th>Submission</th><th>Judge reviews</th><th>Status</th></tr></thead>
+            <tbody>
+              {progress?.scoring.map((row) => (
+                <tr key={String(row.submissionId)}>
+                  <td>{row.demoTitle}</td>
+                  <td>
+                    {row.assignedJudges.length > 0 ? (
+                      <div className={styles.judgeReviews}>
+                        {row.assignedJudges.map((judgeName) => (
+                          <JudgeReview
+                            judgeName={judgeName}
+                            key={judgeName}
+                            review={reviewsByAssignment.get(`${String(row.submissionId)}:${judgeKey(judgeName)}`)}
+                          />
+                        ))}
+                      </div>
+                    ) : "Not assigned"}
+                  </td>
+                  <td>{row.assignedJudges.length === 0 ? "Waiting for assignment" : `${row.completeReviewCount} of ${row.assignedJudges.length} complete`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div className={styles.card}>
         <h3>Redistribute an unavailable judge</h3>
         <div className={styles.timerActions}>

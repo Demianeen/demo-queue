@@ -2,7 +2,7 @@
 
 import { FormEvent, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { InfoIcon, Plus, Trash2 } from "lucide-react";
+import { InfoIcon, LockKeyholeIcon, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -318,6 +318,15 @@ export default function SubmissionPage() {
             : "You will get a private status link after submitting. The Meet link appears there once you are listed as a demoer."}
         </p>
 
+        {stage.event.submissionsClosed ? (
+          <Alert className="mt-6" role="status">
+            <LockKeyholeIcon />
+            <AlertTitle>Submissions are closed</AlertTitle>
+            <AlertDescription>
+              This event is no longer accepting new {isHackathon ? "projects" : "demos"}.
+            </AlertDescription>
+          </Alert>
+        ) : (
         <form className="form" onSubmit={onSubmit} style={{ marginTop: 24 }}>
           <div className="form-section">
             <h2>
@@ -720,6 +729,7 @@ export default function SubmissionPage() {
             </button>
           </div>
         </form>
+        )}
       </section>
     </main>
   );

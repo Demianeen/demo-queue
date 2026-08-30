@@ -82,6 +82,7 @@ export function buildStagePreviewFixture({
       slug: "preview",
       eventType,
       visualStyle,
+      submissionsClosed: false,
       queuePublished: true,
       stageScreenMode: "demo",
       showSubmissionCountOnStage: false,

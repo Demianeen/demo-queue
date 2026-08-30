@@ -3,14 +3,41 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
+import {
+  BookOpenIcon,
+  CheckCircle2Icon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CircleIcon,
+  ExternalLinkIcon,
+  GitForkIcon,
+  LockKeyholeIcon,
+} from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { api } from "../../../../convex/_generated/api";
-import { Brand } from "@/app/Brand";
 import { Skeleton } from "@/app/Skeleton";
-import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
+import { Button } from "@/components/ui/button";
+import {
+  JUDGING_CRITERIA,
+  JUDGING_CRITERION_LABELS,
+} from "@/lib/judging-rubric";
 import { Id } from "../../../../convex/_generated/dataModel";
 import styles from "./judge.module.css";
 
 type Criterion = (typeof JUDGING_CRITERIA)[number];
+type ScoreState = Partial<Record<Criterion, number>>;
+
+const CRITERION_HELP: Record<Criterion, string> = {
+  innovation: "Originality of the idea and how clearly it differs from existing solutions.",
+  execution: "Quality, robustness, and completeness of the implementation.",
+  demoClarity: "How effectively the demo communicates the product and its value.",
+};
+
+function scoreIsComplete(scores: ScoreState) {
+  return JUDGING_CRITERIA.every((criterion) => scores[criterion] !== undefined);
+}
 
 function formatTimer(ms: number) {
   const seconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
@@ -29,12 +56,81 @@ function useSignedTimer(timer: { remainingMs: number; serverNow: number; running
   return timer.running ? timer.remainingMs - (now - timer.serverNow) : timer.remainingMs;
 }
 
+function youtubeEmbedUrl(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/^www\./, "").toLowerCase();
+    let id = "";
+    if (host === "youtu.be") id = url.pathname.split("/").filter(Boolean)[0] ?? "";
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      if (url.pathname === "/watch") id = url.searchParams.get("v") ?? "";
+      else id = url.pathname.match(/^\/(?:embed|shorts)\/([^/]+)/)?.[1] ?? "";
+    }
+    return /^[A-Za-z0-9_-]{6,}$/.test(id)
+      ? `https://www.youtube-nocookie.com/embed/${id}`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function Readme({ repositoryUrl }: { repositoryUrl: string | null }) {
+  const [state, setState] = useState<{
+    status: "idle" | "loading" | "ready" | "error";
+    markdown: string;
+  }>({ status: "idle", markdown: "" });
+
+  useEffect(() => {
+    if (!repositoryUrl) {
+      setState({ status: "idle", markdown: "" });
+      return;
+    }
+    const controller = new AbortController();
+    setState({ status: "loading", markdown: "" });
+    void fetch(`/api/github-readme?url=${encodeURIComponent(repositoryUrl)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("README unavailable");
+        return await response.json() as { markdown: string };
+      })
+      .then((result) => setState({ status: "ready", markdown: result.markdown }))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setState({ status: "error", markdown: "" });
+      });
+    return () => controller.abort();
+  }, [repositoryUrl]);
+
+  return (
+    <section className={styles.readmeSection}>
+      <div className={styles.sectionLabel}><BookOpenIcon /> README</div>
+      {state.status === "loading" ? (
+        <div className={styles.readmeLoading}><Skeleton w="58%" h={24} /><Skeleton h={14} /><Skeleton w="85%" h={14} /><Skeleton h={90} /></div>
+      ) : state.status === "ready" ? (
+        <div className={styles.markdown}>
+          <ReactMarkdown rehypePlugins={[rehypeRaw, rehypeSanitize]}>{state.markdown}</ReactMarkdown>
+        </div>
+      ) : (
+        <p className={styles.emptyCopy}>
+          {repositoryUrl ? "The README could not be displayed here. Open the repository to review it on GitHub." : "No GitHub repository was provided."}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export default function JudgeClientPage() {
   const params = useParams<{ slug: string; token: string }>();
-  const data = useQuery(api.judging.getMyAssignments, { slug: params.slug, capabilityToken: params.token });
+  const data = useQuery(api.judging.getMyAssignments, {
+    slug: params.slug,
+    capabilityToken: params.token,
+  });
   const saveReview = useMutation(api.judging.saveReview);
-  const [scores, setScores] = useState<Record<string, Partial<Record<Criterion, number>>>>({});
+  const [scores, setScores] = useState<Record<string, ScoreState>>({});
   const [saveState, setSaveState] = useState<Record<string, "saving" | "saved" | "error">>({});
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const remainingMs = useSignedTimer(data?.timer);
 
   useEffect(() => {
@@ -46,16 +142,44 @@ export default function JudgeClientPage() {
         next[String(assignment.id)] = Object.fromEntries(
           JUDGING_CRITERIA.filter((criterion) => assignment.review?.[criterion] !== undefined)
             .map((criterion) => [criterion, assignment.review?.[criterion]]),
-        ) as Partial<Record<Criterion, number>>;
+        ) as ScoreState;
       }
       return next;
+    });
+    setSelectedId((current) => {
+      if (current && data.assignments.some((assignment) => String(assignment.id) === current)) return current;
+      return String(data.assignments.find((assignment) => !assignment.review?.completed)?.id ?? data.assignments[0]?.id ?? "") || null;
     });
   }, [data]);
 
   const completedCount = useMemo(
-    () => data?.assignments.filter((assignment) => assignment.review?.completed).length ?? 0,
-    [data],
+    () => data?.assignments.filter((assignment) => {
+      const localScores = scores[String(assignment.id)];
+      return localScores ? scoreIsComplete(localScores) : Boolean(assignment.review?.completed);
+    }).length ?? 0,
+    [data, scores],
   );
+  const selectedIndex = data?.assignments.findIndex((assignment) => String(assignment.id) === selectedId) ?? -1;
+  const selected = selectedIndex >= 0 ? data?.assignments[selectedIndex] : undefined;
+  const isOpen = data?.judgingStatus === "open";
+  const isClosed = data?.judgingStatus === "closed";
+
+  function selectOffset(offset: number) {
+    if (!data || selectedIndex < 0) return;
+    const next = data.assignments[selectedIndex + offset];
+    if (next) setSelectedId(String(next.id));
+  }
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) return;
+      const offset = event.key.toLowerCase() === "j" ? -1 : event.key.toLowerCase() === "k" ? 1 : 0;
+      const next = data?.assignments[selectedIndex + offset];
+      if (offset && next) setSelectedId(String(next.id));
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [data, selectedIndex]);
 
   async function updateScore(submissionId: string, criterion: Criterion, value: string) {
     const numeric = value === "" ? undefined : Number(value);
@@ -78,59 +202,122 @@ export default function JudgeClientPage() {
   }
 
   if (!data) {
-    return <main className="narrow-page"><section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}><Skeleton w={120} h={12} /><Skeleton w="60%" h={38} style={{ marginTop: 18 }} /><Skeleton h={140} style={{ marginTop: 22 }} /></section></main>;
+    return <main className={styles.loadingPage}><section className={styles.loadingPanel}><Skeleton w={170} h={12} /><Skeleton w="48%" h={38} style={{ marginTop: 18 }} /><Skeleton h={520} style={{ marginTop: 22 }} /></section></main>;
+  }
+  if (!isOpen && !isClosed) {
+    return (
+      <main className={styles.waitingPage}>
+        <section className={styles.waitingPanel}>
+          <div className={styles.privateLabel}><LockKeyholeIcon /> Private judge link</div>
+          <h1>{data.eventName}</h1>
+          <p>Hi {data.judgeName}. Your assignments will appear here when the event team opens judging.</p>
+        </section>
+      </main>
+    );
   }
 
-  const isOpen = data.judgingStatus === "open";
-  const isClosed = data.judgingStatus === "closed";
+  const currentScores = selected ? scores[String(selected.id)] ?? {} : {};
+  const currentSaveState = selected ? saveState[String(selected.id)] : undefined;
+  const currentComplete = scoreIsComplete(currentScores);
+  const embedUrl = youtubeEmbedUrl(selected?.videoUrl ?? null);
+  const saveStateClass = currentSaveState === "error"
+    ? styles.saveError
+    : currentSaveState === "saved" || currentComplete
+      ? styles.saveState
+      : styles.savePending;
+
   return (
-    <main className="narrow-page">
-      <section className="panel panel-pad" style={{ width: "min(820px, 100%)" }}>
-        <Brand label="Private judge link" />
-        <h1>{data.eventName}</h1>
-        <p className="lead">Judge workspace for {data.judgeName}. Your scores are private.</p>
-        {!isOpen ? (
-          <div className={styles.notice} role="status">
-            <strong>{isClosed ? "Judging is closed" : "Judging has not opened yet"}</strong>
-            <span>{isClosed ? "Your saved scores are read-only." : "The event team will open your assignments when everything is ready."}</span>
+    <main className={styles.workspace}>
+      <header className={styles.topbar}>
+        <div className={styles.eventIdentity}>
+          <span className={styles.privateLabel}><LockKeyholeIcon /> Private judge link</span>
+          <span className={styles.divider} />
+          <span className={styles.eventName}>{data.eventName}</span>
+        </div>
+        <div className={styles.timeBlock}>
+          <span>{isClosed ? "Judging closed" : "Time remaining"}</span>
+          <strong className={remainingMs < 0 ? styles.overtime : undefined}>{formatTimer(remainingMs)}</strong>
+        </div>
+        <div className={styles.topActions}>
+          <Button variant="outline" disabled={selectedIndex <= 0} onClick={() => selectOffset(-1)}><ChevronLeftIcon /> Previous</Button>
+          <Button disabled={selectedIndex < 0 || selectedIndex >= data.assignments.length - 1} onClick={() => selectOffset(1)}>Next <ChevronRightIcon /></Button>
+        </div>
+      </header>
+
+      <div className={styles.columns}>
+        <aside className={styles.assignmentRail}>
+          <div className={styles.railHeader}>
+            <strong>Your assignments</strong>
+            <span>{completedCount} of {data.assignments.length} complete</span>
+            <div className={styles.progressTrack}><span style={{ width: `${data.assignments.length ? (completedCount / data.assignments.length) * 100 : 0}%` }} /></div>
           </div>
-        ) : null}
-        {isOpen ? (
-          <div className={styles.toolbar}>
-            <span><strong>{completedCount}</strong> of {data.assignments.length} reviews complete</span>
-            <span className={remainingMs < 0 ? `${styles.timer} ${styles.timerOvertime}` : styles.timer}>{formatTimer(remainingMs)}</span>
-          </div>
-        ) : null}
-        {isOpen || isClosed ? (
-          <div className={styles.assignments}>
-            {data.assignments.map((assignment) => {
+          <nav className={styles.assignmentList} aria-label="Assigned submissions">
+            {data.assignments.map((assignment, index) => {
               const id = String(assignment.id);
-              const review = scores[id] ?? {};
-              const state = saveState[id];
+              const localScores = scores[id];
+              const complete = localScores ? scoreIsComplete(localScores) : Boolean(assignment.review?.completed);
+              const active = id === selectedId;
               return (
-                <article className={styles.assignment} key={id}>
-                  <div className={styles.assignmentHeading}>
-                    <div><h2>{assignment.demoTitle}</h2><p>{assignment.name}{assignment.category ? ` · ${assignment.category}` : ""}</p></div>
-                    <span className={styles.saveState} role="status">{state === "saving" ? "Saving…" : state === "error" ? "Error saving" : state === "saved" ? "Saved" : assignment.review?.completed ? "Saved" : "Not started"}</span>
-                  </div>
-                  <p className={styles.description}>{assignment.description}</p>
-                  <div className={styles.scoreGrid}>
-                    {JUDGING_CRITERIA.map((criterion) => (
-                      <label key={criterion}>
-                        <span>{JUDGING_CRITERION_LABELS[criterion]}</span>
-                        <select disabled={!isOpen} value={review[criterion] ?? ""} onChange={(event) => void updateScore(id, criterion, event.target.value)}>
-                          <option value="">Select 0–10</option>
-                          {Array.from({ length: 11 }, (_, value) => <option key={value} value={value}>{value}</option>)}
-                        </select>
-                      </label>
-                    ))}
-                  </div>
-                </article>
+                <button className={active ? styles.assignmentActive : styles.assignmentButton} key={id} onClick={() => setSelectedId(id)} type="button">
+                  <span className={styles.assignmentNumber}>{index + 1}</span>
+                  <span className={styles.assignmentText}><strong>{assignment.demoTitle}</strong><small>{assignment.name}</small></span>
+                  {complete ? <CheckCircle2Icon className={styles.completeIcon} /> : <CircleIcon className={styles.incompleteIcon} />}
+                </button>
               );
             })}
+          </nav>
+          <p className={styles.shortcutHint}>Press <kbd>J</kbd> <kbd>K</kbd> to navigate</p>
+        </aside>
+
+        <article className={styles.projectPane}>
+          {selected ? (
+            <>
+              <div className={styles.projectIntro}>
+                <h1>{selected.demoTitle}</h1>
+                <p className={styles.projectMeta}>{selected.name}{selected.category ? ` · ${selected.category}` : ""}</p>
+                <p className={styles.description}>{selected.description}</p>
+                <div className={styles.projectLinks}>
+                  {selected.githubUrl ? <a href={selected.githubUrl} target="_blank" rel="noreferrer"><GitForkIcon /> GitHub repository <ExternalLinkIcon /></a> : null}
+                  {selected.videoUrl ? <a href={selected.videoUrl} target="_blank" rel="noreferrer">Demo video <ExternalLinkIcon /></a> : null}
+                </div>
+              </div>
+              {embedUrl ? (
+                <div className={styles.videoFrame}>
+                  <iframe allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" src={embedUrl} title={`${selected.demoTitle} demo video`} />
+                </div>
+              ) : selected.videoUrl ? (
+                <a className={styles.videoFallback} href={selected.videoUrl} target="_blank" rel="noreferrer">Open the demo video <ExternalLinkIcon /></a>
+              ) : (
+                <div className={styles.videoFallback}>No demo video was provided.</div>
+              )}
+              <Readme repositoryUrl={selected.githubUrl} />
+            </>
+          ) : <p className={styles.emptyCopy}>No submissions are assigned to this judge.</p>}
+        </article>
+
+        <aside className={styles.scorePanel}>
+          <div className={styles.scoreHeading}>
+            <div><h2>Score this project</h2><p>Score each criterion from 0 to 10.</p></div>
+            <span className={saveStateClass} role="status">
+              {currentSaveState === "saving" ? "Saving…" : currentSaveState === "error" ? "Could not save" : currentSaveState === "saved" || currentComplete ? "Saved" : "Not started"}
+            </span>
           </div>
-        ) : null}
-      </section>
+          {isClosed ? <div className={styles.closedNotice}>Scores are read-only because judging is closed.</div> : null}
+          <div className={styles.criteria}>
+            {JUDGING_CRITERIA.map((criterion) => (
+              <label className={styles.criterion} key={criterion}>
+                <span className={styles.criterionTitle}>{JUDGING_CRITERION_LABELS[criterion]}</span>
+                <span className={styles.criterionHelp}>{CRITERION_HELP[criterion]}</span>
+                <select disabled={!isOpen || !selected} value={currentScores[criterion] ?? ""} onChange={(event) => selected && void updateScore(String(selected.id), criterion, event.target.value)}>
+                  <option value="">Select 0–10</option>
+                  {Array.from({ length: 11 }, (_, value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
+            ))}
+          </div>
+          <Button className={styles.nextProject} disabled={selectedIndex < 0 || selectedIndex >= data.assignments.length - 1} onClick={() => selectOffset(1)}>Next project <ChevronRightIcon /></Button>
+        </aside>
+      </div>
     </main>
   );
 }

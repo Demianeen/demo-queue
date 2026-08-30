@@ -3,7 +3,7 @@ title: Hackathon Judging
 status: COMPLETE
 tier: Tier 3
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-08-30
 ---
 
 # Hackathon Judging
@@ -49,6 +49,10 @@ These are accepted decisions, not questions to reconfirm unless implementation r
 26. Previous submitted finalist and placement versions are retained with `@convex-dev/table-history`.
 27. Reopening judging keeps the last submitted finalist status active, but marks normalization and the finalist and placement drafts `Needs review`. Resubmission requires judging to close and the score basis to be reconfirmed.
 28. Existing hackathon queue copy is separated from judging finalist copy: `Presentation lineup` and `Scheduled to present` describe the queue; `Finalist` describes the submitted judging decision.
+29. The public submission page reacts immediately when submissions close and replaces the form with a clear closed state.
+30. Saving the judge roster does not assign submissions. `Assign submissions` performs the balanced distribution, Coverage shows both assigned names, and `Open judging` then exposes the assignments to judges.
+31. The private judge page is a desktop workspace with one selected project at a time: assignment rail on the left, project description, video, repository, and rendered README in the center, and a fixed scoring panel on the right.
+32. Judge scoring keeps the existing 0–10 selects. Mobile and iPad judge layouts are not part of this delivery.
 
 ## Google Sheet Fallback
 

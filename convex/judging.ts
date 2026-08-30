@@ -352,6 +352,8 @@ export const getMyAssignments = query({
               description: submission.description,
               name: submission.name,
               category: submission.category,
+              githubUrl: submission.githubUrl ?? null,
+              videoUrl: submission.videoUrl ?? null,
               review: reviewBySubmission.get(submission._id) ?? null,
             }))
           : [],
@@ -413,7 +415,12 @@ export const getAdminProgress = query({
       submissionsClosedAt: event.submissionsClosedAt ?? null,
       assignmentVersion: event.assignmentVersion ?? null,
       totalSubmissions: submissions.length,
-      scoring: scoreSubmissions(submissions, reviews),
+      scoring: scoreSubmissions(submissions, reviews).map((row) => ({
+        ...row,
+        assignedJudges:
+          submissions.find((submission) => submission._id === row.submissionId)
+            ?.roundOneAssignedJudges ?? [],
+      })),
       reviews: reviews.map((review) => ({
         submissionId: review.submissionId,
         judgeKey: review.judgeKey,

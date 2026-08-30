@@ -1040,9 +1040,7 @@ export default function AdminPage() {
         judges,
       });
       setJudgesOpen(false);
-      setJudgesMessage(
-        `${result.judgeCount} judges saved. ${result.assignedActiveSubmissionCount} of ${result.activeSubmissionCount} active submissions assigned.`,
-      );
+      setJudgesMessage(`${result.judgeCount} judges saved. Assign submissions when entries are closed.`);
     } catch (error) {
       setJudgesMessage(error instanceof Error ? error.message : "Could not save judges.");
     } finally {
@@ -1369,9 +1367,9 @@ export default function AdminPage() {
                 >
                   <form className="admin-modal" onSubmit={saveJudges}>
                     <div className="admin-modal-heading">
-                      <h2 id="round-one-judges-title">Assign judges</h2>
+                      <h2 id="round-one-judges-title">Judges</h2>
                       <p>
-                        Paste one judge name per line. Every active submission receives two different judges, distributed as evenly as possible.
+                        Paste one judge name per line. You will distribute submissions after entries close.
                       </p>
                     </div>
                     <label className="admin-modal-field">
@@ -1404,7 +1402,7 @@ export default function AdminPage() {
                         Cancel
                       </Button>
                       <Button disabled={judgesBusy} type="submit">
-                        {judgesBusy ? "Assigning..." : "Save judges and assign"}
+                        {judgesBusy ? "Saving..." : "Save judges"}
                       </Button>
                     </div>
                   </form>

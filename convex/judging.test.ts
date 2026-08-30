@@ -90,6 +90,26 @@ test("visual style is available to stage and private participant pages", async (
 
   const stage = await t.query(api.events.getStage, { slug: "outpost-hack" });
   expect(stage.event.visualStyle).toBe("outpost");
+  expect(stage.event.submissionsClosed).toBe(false);
+
+  await t.mutation(api.judging.closeSubmissions, {
+    slug: "outpost-hack",
+    adminToken: "admin",
+  });
+  expect((await t.query(api.events.getStage, { slug: "outpost-hack" })).event.submissionsClosed).toBe(true);
+  await expect(
+    t.mutation(api.events.adminAddTestSubmissions, {
+      slug: "outpost-hack",
+      adminToken: "admin",
+      submissions: [{
+        participantToken: "late-participant",
+        name: "Late person",
+        demoTitle: "Late demo",
+        description: "Too late",
+        phone: "+440000000001",
+      }],
+    }),
+  ).rejects.toThrow("Submissions are closed.");
 
   const participant = await t.query(api.events.getParticipant, {
     slug: "outpost-hack",
@@ -113,6 +133,9 @@ test("judge links isolate access and a single complete review produces a score",
     judgeName: "Sam",
     capabilityToken: "sam-secret",
   });
+  expect(
+    (await t.run(async (ctx) => await ctx.db.get(submissionId)))?.roundOneAssignedJudges,
+  ).toBeUndefined();
   expect(
     (await t.query(api.judging.listJudgeAccess, { slug: "hack", adminToken: "admin" }))[0]
       .token,
@@ -162,6 +185,7 @@ test("judge links isolate access and a single complete review produces a score",
     adminToken: "admin",
   });
   expect(progress.scoring[0]).toMatchObject({
+    assignedJudges: expect.arrayContaining(["Alex"]),
     completeReviewCount: 1,
     score: 8,
     warning: "Only one complete review",

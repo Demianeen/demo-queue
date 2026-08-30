@@ -25,6 +25,7 @@ import {
   buildJudgingSheetValues,
   buildJudgingSubmissionRow,
   buildFilterViewRequests,
+  hasBlankStageFinalistJudgingSheetHeaders,
   hasPreStageFinalistJudgingSheetHeaders,
   isCompatibleJudgingSheetHeaders,
   type JudgingSheetSubmission,
@@ -506,21 +507,41 @@ async function syncExistingJudgingSheet({
   if (legacyLayout || !currentLayout) {
     throw new ConvexError("The existing Judging tab has an incompatible layout; it was left untouched.");
   }
-  if (hasPreStageFinalistJudgingSheetHeaders(existingHeaders)) {
+  const needsStageFinalistColumn = hasPreStageFinalistJudgingSheetHeaders(existingHeaders);
+  const needsStageFinalistHeader =
+    needsStageFinalistColumn || hasBlankStageFinalistJudgingSheetHeaders(existingHeaders);
+  if (needsStageFinalistHeader) {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {
-        requests: [{
-          insertDimension: {
-            range: {
-              sheetId,
-              dimension: "COLUMNS",
-              startIndex: 25,
-              endIndex: 26,
+        requests: [
+          ...(needsStageFinalistColumn
+            ? [{
+                insertDimension: {
+                  range: {
+                    sheetId,
+                    dimension: "COLUMNS" as const,
+                    startIndex: 25,
+                    endIndex: 26,
+                  },
+                  inheritFromBefore: true,
+                },
+              }]
+            : []),
+          {
+            updateCells: {
+              start: {
+                sheetId,
+                rowIndex: JUDGING_HEADER_ROW - 1,
+                columnIndex: 25,
+              },
+              rows: [{
+                values: [{ userEnteredValue: { stringValue: "Stage finalist" } }],
+              }],
+              fields: "userEnteredValue",
             },
-            inheritFromBefore: true,
           },
-        }],
+        ],
       },
     });
   }

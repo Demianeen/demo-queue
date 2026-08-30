@@ -8,6 +8,7 @@ import {
   buildJudgingSubmissionRow,
   buildSyncedBasicFilter,
   buildFilterViewRequests,
+  hasBlankStageFinalistJudgingSheetHeaders,
   hasPreStageFinalistJudgingSheetHeaders,
   isCompatibleJudgingSheetHeaders,
 } from "../lib/judging-sheet.ts";
@@ -154,6 +155,12 @@ test("judging sheet accepts current and pre-stage-finalist production layouts", 
     true,
   );
   assert.equal(hasPreStageFinalistJudgingSheetHeaders(productionHeaders), false);
+  const partiallyUpgradedHeaders = productionHeaders.map((header) =>
+    header === "Stage finalist" ? "" : header
+  );
+  assert.equal(isCompatibleJudgingSheetHeaders(partiallyUpgradedHeaders), true);
+  assert.equal(hasBlankStageFinalistJudgingSheetHeaders(partiallyUpgradedHeaders), true);
+  assert.equal(hasBlankStageFinalistJudgingSheetHeaders(productionHeaders), false);
   assert.equal(isCompatibleJudgingSheetHeaders([...productionHeaders, "Unexpected"]), false);
 });
 

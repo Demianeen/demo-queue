@@ -75,6 +75,46 @@ async function prepareAssignments(t: ReturnType<typeof convexTest>) {
   }
 }
 
+test("replacing judges before reviews start redistributes existing assignments", async () => {
+  const { t, eventId } = await createHackathon(["Alex", "Sam", "Taylor"]);
+  for (let index = 0; index < 6; index += 1) {
+    await addSubmission(t, eventId, index);
+  }
+  await t.mutation(api.judging.createJudgeAccess, {
+    slug: "hack",
+    adminToken: "admin",
+    judgeName: "Alex",
+    capabilityToken: "alex-secret",
+  });
+  await prepareAssignments(t);
+
+  await expect(
+    t.mutation(api.events.saveRoundOneJudges, {
+      slug: "hack",
+      adminToken: "admin",
+      judges: ["David", "Michael", "Nikodem"],
+    }),
+  ).resolves.toEqual({ judgeCount: 3, reassignedSubmissionCount: 6 });
+
+  const submissions = await t.run(async (ctx) =>
+    await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .collect(),
+  );
+  expect(
+    submissions.every((submission) =>
+      submission.roundOneAssignedJudges?.every((judge) =>
+        ["David", "Michael", "Nikodem"].includes(judge),
+      ),
+    ),
+  ).toBe(true);
+  expect(
+    (await t.query(api.judging.listJudgeAccess, { slug: "hack", adminToken: "admin" }))[0]
+      .active,
+  ).toBe(false);
+});
+
 test("visual style is available to stage and private participant pages", async () => {
   const t = convexTest(schema, modules);
   t.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);

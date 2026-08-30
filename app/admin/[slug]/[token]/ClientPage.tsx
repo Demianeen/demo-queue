@@ -1040,7 +1040,11 @@ export default function AdminPage() {
         judges,
       });
       setJudgesOpen(false);
-      setJudgesMessage(`${result.judgeCount} judges saved. Assign submissions when entries are closed.`);
+      setJudgesMessage(
+        result.reassignedSubmissionCount > 0
+          ? `${result.judgeCount} judges saved. ${result.reassignedSubmissionCount} existing assignments redistributed.`
+          : `${result.judgeCount} judges saved. Assign submissions when entries are closed.`,
+      );
     } catch (error) {
       setJudgesMessage(error instanceof Error ? error.message : "Could not save judges.");
     } finally {

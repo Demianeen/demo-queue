@@ -8,6 +8,7 @@ export const JUDGING_DATA_START_ROW = JUDGING_HEADER_ROW + 1;
 export const ROUND_ONE_JUDGE_SLOTS = 2;
 export const ROUND_ONE_MINIMUM_JUDGES = 2;
 export const JUDGING_CATEGORY_COUNT = JUDGING_CRITERIA.length;
+export const FINALIST_COUNT = 6;
 export const MAXIMUM_SCORE = JUDGING_SCORE_MAX;
 
 export type JudgingSheetSubmission = {
@@ -55,11 +56,12 @@ export const JUDGING_HEADERS = [
   "Completed judges",
   "Final score",
   "Rank",
+  "Stage finalist",
   "GitHub",
 ] as const;
 
 export const ROUND_ONE_SCORE_COLUMN_INDICES = [15, 16, 17, 19, 20, 21] as const;
-export const FORMULA_COLUMN_RANGES = [{ startColumnIndex: 22, endColumnIndex: 25 }] as const;
+export const FORMULA_COLUMN_RANGES = [{ startColumnIndex: 22, endColumnIndex: 26 }] as const;
 export type JudgingFormulaColumn = {
   column: string;
   values: string[][];
@@ -67,6 +69,15 @@ export type JudgingFormulaColumn = {
 
 export const ALL_SUBMISSIONS_FILTER_VIEW_TITLE = "All submissions (score)";
 export const judgeFilterViewTitle = (judge: string) => `Judge: ${judge}`;
+
+export function isCompatibleJudgingSheetHeaders(headers: unknown[]) {
+  return (
+    headers[0] === "Submission ID" &&
+    headers[14] === "Judge 1" &&
+    headers[25] === "Stage finalist" &&
+    headers[26] === "GitHub"
+  );
+}
 
 export function buildFilterViewRequests(
   sheetId: number,
@@ -191,6 +202,7 @@ export function buildJudgingFormulaColumns(submissionCount: number): JudgingForm
       completedJudges: `=IF(AND(LEN(TRIM(O${row}))>0,COUNT(P${row}:R${row})=3),1,0)+IF(AND(LEN(TRIM(S${row}))>0,COUNT(T${row}:V${row})=3),1,0)`,
       finalScore: `=IF(OR($N${row}="excluded",W${row}=0),"",(IF(AND(LEN(TRIM(O${row}))>0,COUNT(P${row}:R${row})=3),AVERAGE(P${row}:R${row}),0)+IF(AND(LEN(TRIM(S${row}))>0,COUNT(T${row}:V${row})=3),AVERAGE(T${row}:V${row}),0))/W${row})`,
       rank: `=IF(X${row}="","",RANK(X${row},$X$${JUDGING_DATA_START_ROW}:$X,0))`,
+      finalist: `=IF(X${row}="",FALSE,COUNTIF($X$${JUDGING_DATA_START_ROW}:$X,">"&X${row})+COUNTIF($X$${JUDGING_DATA_START_ROW}:X${row},X${row})<=${FINALIST_COUNT})`,
     };
   });
 
@@ -198,5 +210,6 @@ export function buildJudgingFormulaColumns(submissionCount: number): JudgingForm
     { column: "W", values: formulas.map(({ completedJudges }) => [completedJudges]) },
     { column: "X", values: formulas.map(({ finalScore }) => [finalScore]) },
     { column: "Y", values: formulas.map(({ rank }) => [rank]) },
+    { column: "Z", values: formulas.map(({ finalist }) => [finalist]) },
   ];
 }

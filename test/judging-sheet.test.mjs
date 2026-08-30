@@ -8,6 +8,7 @@ import {
   buildJudgingSubmissionRow,
   buildSyncedBasicFilter,
   buildFilterViewRequests,
+  isCompatibleJudgingSheetHeaders,
 } from "../lib/judging-sheet.ts";
 import { makeSampleHackathonTeam } from "../lib/sampleData.ts";
 import {
@@ -42,7 +43,7 @@ test("judging sheet keeps submission data and category scoring on one tab", () =
     ],
   });
 
-  assert.equal(JUDGING_HEADERS.length, 26);
+  assert.equal(JUDGING_HEADERS.length, 27);
   assert.equal(values.length, 5);
   assert.deepEqual(values[3], [...JUDGING_HEADERS]);
   assert.equal(values[4].length, JUDGING_HEADERS.length);
@@ -52,13 +53,14 @@ test("judging sheet keeps submission data and category scoring on one tab", () =
   assert.equal(values[4][6], "https://example.com/video");
   assert.equal(values[4][14], "Alex Morgan");
   assert.equal(values[4][18], "Sam Lee");
-  assert.equal(values[4][25], "https://github.com/orbit/launchpad");
+  assert.equal(values[4][25], "");
+  assert.equal(values[4][26], "https://github.com/orbit/launchpad");
   assert.equal(values[4][22], "");
 
   const formulaColumns = buildJudgingFormulaColumns(1);
   assert.deepEqual(
     formulaColumns.map(({ column }) => column),
-    ["W", "X", "Y"],
+    ["W", "X", "Y", "Z"],
   );
   assert.match(formulaColumns[0].values[0][0], /COUNT\(P5:R5\)=3/);
   assert.match(formulaColumns[0].values[0][0], /COUNT\(T5:V5\)=3/);
@@ -67,7 +69,9 @@ test("judging sheet keeps submission data and category scoring on one tab", () =
   assert.match(formulaColumns[1].values[0][0], /\$N5="excluded"/);
   assert.match(formulaColumns[2].values[0][0], /\$X\$5:\$X/);
   assert.match(formulaColumns[2].values[0][0], /^=IF\(X5="",""/);
-  assert.equal(formulaColumns.length, 3);
+  assert.match(formulaColumns[3].values[0][0], /^=IF\(X5="",FALSE/);
+  assert.match(formulaColumns[3].values[0][0], /<=6\)$/);
+  assert.equal(formulaColumns.length, 4);
   for (const { values: formulaValues } of formulaColumns) {
     const formula = formulaValues[0][0];
     assert.equal(
@@ -97,6 +101,46 @@ test("judging sheet source updates stop before judge-entered columns", () => {
   assert.equal(row.length, 14);
   assert.equal(row[0], "submission-2");
   assert.equal(row[13], "eligible");
+});
+
+test("judging sheet accepts the production stage-finalist layout", () => {
+  const productionHeaders = [
+    "Submission ID",
+    "Team",
+    "Team members",
+    "Project",
+    "Description",
+    "Category",
+    "Video",
+    "Presenter",
+    "Email",
+    "Phone",
+    "Twitter/X",
+    "LinkedIn",
+    "Submitted",
+    "Status",
+    "Judge 1",
+    "Innovation (0-10)",
+    "Execution (0-10)",
+    "Demo clarity (0-10)",
+    "Judge 2",
+    "Innovation (0-10)",
+    "Execution (0-10)",
+    "Demo clarity (0-10)",
+    "Completed judges",
+    "Final score",
+    "Rank",
+    "Stage finalist",
+    "GitHub",
+  ];
+
+  assert.equal(isCompatibleJudgingSheetHeaders(productionHeaders), true);
+  assert.equal(
+    isCompatibleJudgingSheetHeaders(
+      productionHeaders.filter((header) => header !== "Stage finalist"),
+    ),
+    false,
+  );
 });
 
 test("judging sheet final score accepts one completed review", () => {

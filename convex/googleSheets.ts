@@ -20,6 +20,7 @@ import {
   buildJudgingSheetValues,
   buildJudgingSubmissionRow,
   buildFilterViewRequests,
+  isCompatibleJudgingSheetHeaders,
   type JudgingSheetSubmission,
 } from "../lib/judging-sheet";
 
@@ -520,7 +521,7 @@ async function syncExistingJudgingSheet({
   });
   const existingHeaders = headerResponse.data.values?.[0] ?? [];
   const legacyLayout = existingHeaders.includes("R1 judge 1") || existingHeaders.includes("R2 judge 1");
-  const currentLayout = existingHeaders[0] === "Submission ID" && existingHeaders[14] === "Judge 1" && existingHeaders[25] === "GitHub";
+  const currentLayout = isCompatibleJudgingSheetHeaders(existingHeaders);
   if (legacyLayout || !currentLayout) {
     throw new ConvexError("The existing Judging tab has an incompatible layout; it was left untouched.");
   }
@@ -570,7 +571,7 @@ async function syncExistingJudgingSheet({
       values: [["Scoring", "Each assigned judge scores Innovation, Execution, and Demo clarity from 0 to 10. Final score appears after at least one judge completes all three scores."]],
     },
     {
-      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A4:Z4`,
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A4:AA4`,
       values: [[...JUDGING_HEADERS]],
     },
   ];
@@ -591,7 +592,7 @@ async function syncExistingJudgingSheet({
       values: [sourceRow],
     });
     sourceUpdates.push({
-      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!Z${row}`,
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!AA${row}`,
       values: [[submission.githubUrl ?? ""]],
     });
     if (submission.roundOneAssignedJudges?.length === 2) {

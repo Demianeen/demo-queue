@@ -34,3 +34,17 @@ export function stageSubmissionPrompt(eventType: EventType) {
 export function shouldShowMeetAvailabilityCopy(status: string) {
   return status !== "done";
 }
+
+export function isJudgingSheetSyncPending({
+  spreadsheetUrl,
+  requestedRevision,
+  syncedRevision,
+  error,
+}: {
+  spreadsheetUrl?: string;
+  requestedRevision: number;
+  syncedRevision: number;
+  error?: string;
+}) {
+  return Boolean(spreadsheetUrl && !error && requestedRevision > syncedRevision);
+}

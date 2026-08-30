@@ -78,6 +78,11 @@ type AdminSubmission = {
   category?: string;
   teamName?: string;
   teamMembers: string[];
+  teamMemberContacts: Array<{
+    name: string;
+    email?: string;
+    whatsappPhone?: string;
+  }>;
   videoUrl?: string | null;
   videoDeleteAt?: number;
   videoDeletedAt?: number;
@@ -2385,13 +2390,36 @@ function SubmissionForm({
 }
 
 function Contact({ item }: { item: AdminSubmission }) {
-  const hasContact = item.phone || item.email || item.twitter || item.linkedin;
+  const contacts = [
+    {
+      name: item.name,
+      email: item.email,
+      phone: item.teamName ? undefined : item.phone,
+      whatsappPhone: item.teamName ? item.phone : undefined,
+    },
+    ...item.teamMemberContacts.map((contact) => ({ ...contact, phone: undefined })),
+  ].filter((contact) => contact.email || contact.phone || contact.whatsappPhone);
+  const hasContact = contacts.length > 0 || item.twitter || item.linkedin;
   if (!hasContact) return null;
 
   return (
     <div className="contact-list">
-      <span>{item.phone}</span>
-      {item.email ? <a href={`mailto:${item.email}`}>{item.email}</a> : null}
+      {contacts.map((contact, index) => (
+        <div className="contact-person" key={`${contact.name}-${index}`}>
+          {contacts.length > 1 ? <strong>{contact.name}</strong> : null}
+          {contact.phone ? <span>{contact.phone}</span> : null}
+          {contact.whatsappPhone ? (
+            <a
+              href={`https://wa.me/${contact.whatsappPhone.replace(/\D/g, "")}`}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {contact.whatsappPhone}
+            </a>
+          ) : null}
+          {contact.email ? <a href={`mailto:${contact.email}`}>{contact.email}</a> : null}
+        </div>
+      ))}
       {item.twitter ? (
         <a href={socialUrl("twitter", item.twitter)} rel="noreferrer" target="_blank">
           {item.twitter}

@@ -35,6 +35,11 @@ import {
 } from "../lib/judging-assignment";
 import { participantLineupStatus } from "../lib/event-state";
 import { normalizeVisualStyle } from "../lib/visual-style";
+import {
+  parseTeamContact,
+  type TeamContact,
+  type TeamContactInput,
+} from "../lib/team-contacts";
 import { visualStyleValidator } from "./visualStyle";
 import { ZodError } from "zod";
 
@@ -74,7 +79,7 @@ const publicSubmissionFields = (submission: Doc<"submissions">) => ({
 
 const adminSubmissionFields = (
   submission: Doc<"submissions">,
-  teamMembers: string[] = [],
+  teamMemberContacts: Array<Pick<Doc<"teamMembers">, "name" | "email" | "whatsappPhone">> = [],
   videoUrl: string | null = null,
 ) => ({
   ...publicSubmissionFields(submission),
@@ -84,7 +89,8 @@ const adminSubmissionFields = (
   linkedin: submission.linkedin,
   participantToken: submission.participantToken,
   screenshotId: submission.screenshotId,
-  teamMembers,
+  teamMembers: teamMemberContacts.map((member) => member.name),
+  teamMemberContacts,
   videoUrl: submission.videoUrl ?? videoUrl,
   videoDeleteAt: submission.videoDeleteAt,
   videoDeletedAt: submission.videoDeletedAt,
@@ -314,6 +320,21 @@ function normalizeTeamMembers(values: string[]) {
     }
   }
   return unique;
+}
+
+function normalizeTeamContact(value: TeamContactInput): TeamContact {
+  try {
+    return parseTeamContact(value);
+  } catch (error) {
+    zodToConvexError(error);
+  }
+}
+
+function normalizeTeamMemberContacts(values: TeamContactInput[]) {
+  if (values.length > MAX_ADDITIONAL_TEAM_MEMBERS) {
+    throw new ConvexError(`Add no more than ${MAX_ADDITIONAL_TEAM_MEMBERS} additional team members.`);
+  }
+  return values.map(normalizeTeamContact);
 }
 
 function normalizeArchivedGoogleDriveVideo(value: string) {
@@ -558,10 +579,10 @@ export const getAdmin = query({
       .query("teamMembers")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
-    const membersBySubmission = new Map<string, string[]>();
+    const membersBySubmission = new Map<string, Doc<"teamMembers">[]>();
     for (const member of teamMembers) {
       const members = membersBySubmission.get(member.submissionId) ?? [];
-      members.push(member.name);
+      members.push(member);
       membersBySubmission.set(member.submissionId, members);
     }
     const adminSubmissions = await Promise.all(
@@ -742,6 +763,15 @@ export const submitHackathon = mutation({
     name: v.string(),
     teamName: v.string(),
     teamMembers: v.array(v.string()),
+    teamMemberContacts: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          email: v.string(),
+          whatsappPhone: v.string(),
+        }),
+      ),
+    ),
     demoTitle: v.string(),
     description: v.string(),
     phone: v.string(),
@@ -761,8 +791,23 @@ export const submitHackathon = mutation({
 
     const now = Date.now();
     const fields = normalizeSubmissionTextFields(args);
+    // The optional contact payload distinguishes the new team-grid client from
+    // stale clients during rollout. New clients get strict per-person contact
+    // validation; legacy clients retain their existing submission contract.
+    const presenter = args.teamMemberContacts
+      ? normalizeTeamContact({
+          name: fields.name,
+          email: fields.email ?? "",
+          whatsappPhone: fields.phone,
+        })
+      : null;
     const teamName = normalizeTeamName(args.teamName);
-    const teamMembers = normalizeTeamMembers(args.teamMembers);
+    const teamMemberContacts = args.teamMemberContacts
+      ? normalizeTeamMemberContacts(args.teamMemberContacts)
+      : [];
+    const teamMembers = args.teamMemberContacts
+      ? teamMemberContacts.map((member) => member.name)
+      : normalizeTeamMembers(args.teamMembers);
     const githubUrl = normalizeGithubRepositoryUrl(args.githubUrl);
     const videoUrl = normalizeHackathonVideoUrl(args.videoUrl);
     if (!githubUrl) {
@@ -785,6 +830,9 @@ export const submitHackathon = mutation({
       eventId: event._id,
       participantToken: args.participantToken,
       ...fields,
+      name: presenter?.name ?? fields.name,
+      phone: presenter?.whatsappPhone ?? fields.phone,
+      email: presenter?.email ?? fields.email,
       teamName,
       githubUrl,
       videoUrl,
@@ -796,11 +844,14 @@ export const submitHackathon = mutation({
       updatedAt: now,
     });
 
-    for (const memberName of teamMembers) {
+    for (const [index, memberName] of teamMembers.entries()) {
+      const contact = teamMemberContacts[index];
       await ctx.db.insert("teamMembers", {
         eventId: event._id,
         submissionId,
         name: memberName,
+        email: contact?.email,
+        whatsappPhone: contact?.whatsappPhone,
         createdAt: now,
       });
     }

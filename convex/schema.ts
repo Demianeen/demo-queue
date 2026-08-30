@@ -98,6 +98,8 @@ export default defineSchema({
     eventId: v.id("events"),
     submissionId: v.id("submissions"),
     name: v.string(),
+    email: v.optional(v.string()),
+    whatsappPhone: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_event", ["eventId"])

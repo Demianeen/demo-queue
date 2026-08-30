@@ -1,10 +1,12 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { InfoIcon } from "lucide-react";
+import { InfoIcon, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { api } from "../../../convex/_generated/api";
 import { participantPath } from "@/lib/routes";
 import { randomQueueOrder, randomToken } from "@/lib/tokens";
@@ -26,12 +28,19 @@ import {
   MAX_ADDITIONAL_TEAM_MEMBERS,
   MAX_GITHUB_REPOSITORY_URL_LENGTH,
   MAX_HACKATHON_VIDEO_URL_LENGTH,
-  MAX_TEAM_MEMBER_NAME_LENGTH,
   MAX_TEAM_NAME_LENGTH,
   normalizeHackathonVideoUrl,
   normalizeGithubRepositoryUrl,
-  parseAdditionalTeamMembers,
 } from "@/lib/hackathon";
+import {
+  TEAM_CONTACT_FIELD_LIMITS,
+  teamContactSchema,
+  type TeamContact,
+  type TeamContactInput,
+} from "@/lib/team-contacts";
+
+type TeamContactField = keyof TeamContactInput;
+type TeamContactErrors = Record<number, Partial<Record<TeamContactField, string>>>;
 
 function Req() {
   return <span style={{ color: "var(--app-bad)" }}> *</span>;
@@ -80,7 +89,9 @@ export default function SubmissionPage() {
   const [linkedinError, setLinkedinError] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [teamNameError, setTeamNameError] = useState("");
-  const [teamMembersError, setTeamMembersError] = useState("");
+  const [teamContactErrors, setTeamContactErrors] = useState<TeamContactErrors>({});
+  const [teamMemberRowIds, setTeamMemberRowIds] = useState([0]);
+  const nextTeamMemberRowId = useRef(1);
   const [videoError, setVideoError] = useState("");
   const [githubError, setGithubError] = useState("");
   const [rulesError, setRulesError] = useState("");
@@ -114,16 +125,22 @@ export default function SubmissionPage() {
     const twitter = read("twitter");
     const linkedin = read("linkedin");
     const teamName = read("teamName");
-    const teamMembers = parseAdditionalTeamMembers(read("teamMembers"));
+    const rawTeamContacts: TeamContactInput[] = isHackathon
+      ? teamMemberRowIds.map((rowId) => ({
+          name: read(`teamMemberName-${rowId}`),
+          email: read(`teamMemberEmail-${rowId}`),
+          whatsappPhone: read(`teamMemberWhatsapp-${rowId}`),
+        }))
+      : [];
+    const parsedTeamContacts: Array<TeamContact | null> = [];
+    const nextTeamContactErrors: TeamContactErrors = {};
     const githubUrl = read("githubUrl");
     const rulesAccepted = form.get("rulesAccepted") === "on";
     const videoUrl = read("videoUrl");
     const lengthIssue = firstFieldLimitIssue({
-      name: read("name"),
+      ...(isHackathon ? {} : { name: read("name"), phone, email: read("email") }),
       demoTitle: read("demoTitle"),
       description: read("description"),
-      phone,
-      email: read("email"),
       category: read("category"),
       twitter,
       linkedin,
@@ -134,7 +151,7 @@ export default function SubmissionPage() {
     setLinkedinError("");
     setPhoneError("");
     setTeamNameError("");
-    setTeamMembersError("");
+    setTeamContactErrors({});
     setVideoError("");
     setGithubError("");
     setRulesError("");
@@ -147,7 +164,7 @@ export default function SubmissionPage() {
       invalidFieldNames.add(lengthIssue.field);
       valid = false;
     }
-    if (!isValidPhone(phone)) {
+    if (!isHackathon && !isValidPhone(phone)) {
       setPhoneError("Enter a valid phone number (7-15 digits).");
       invalidFieldNames.add("phone");
       valid = false;
@@ -172,19 +189,36 @@ export default function SubmissionPage() {
     }
 
     if (isHackathon) {
+      rawTeamContacts.forEach((contact, index) => {
+        const result = teamContactSchema.safeParse(contact);
+        if (result.success) {
+          parsedTeamContacts.push(result.data);
+          return;
+        }
+
+        parsedTeamContacts.push(null);
+        const rowId = teamMemberRowIds[index];
+        nextTeamContactErrors[rowId] = {};
+        for (const issue of result.error.issues) {
+          const field = issue.path[0];
+          if (field === "name" || field === "email" || field === "whatsappPhone") {
+            nextTeamContactErrors[rowId][field] ??= issue.message;
+            invalidFieldNames.add(
+              field === "name"
+                ? `teamMemberName-${rowId}`
+                : field === "email"
+                  ? `teamMemberEmail-${rowId}`
+                  : `teamMemberWhatsapp-${rowId}`,
+            );
+          }
+        }
+        valid = false;
+      });
+      setTeamContactErrors(nextTeamContactErrors);
+
       if (!teamName || teamName.length > MAX_TEAM_NAME_LENGTH) {
         setTeamNameError(`Enter a team name up to ${MAX_TEAM_NAME_LENGTH} characters.`);
         invalidFieldNames.add("teamName");
-        valid = false;
-      }
-      if (
-        teamMembers.length > MAX_ADDITIONAL_TEAM_MEMBERS ||
-        teamMembers.some((member) => member.length > MAX_TEAM_MEMBER_NAME_LENGTH)
-      ) {
-        setTeamMembersError(
-          `Add up to ${MAX_ADDITIONAL_TEAM_MEMBERS} additional members, one per line, with names up to ${MAX_TEAM_MEMBER_NAME_LENGTH} characters.`,
-        );
-        invalidFieldNames.add("teamMembers");
         valid = false;
       }
       if (!normalizeHackathonVideoUrl(videoUrl)) {
@@ -212,14 +246,18 @@ export default function SubmissionPage() {
 
     const participantToken = randomToken(32);
     try {
+      const presenter = isHackathon ? parsedTeamContacts[0] : null;
+      const additionalTeamContacts = isHackathon
+        ? (parsedTeamContacts.slice(1) as TeamContact[])
+        : [];
       const sharedFields = {
         slug: params.slug,
         participantToken,
-        name: read("name"),
+        name: presenter?.name ?? read("name"),
         demoTitle: read("demoTitle"),
         description: read("description"),
-        phone: read("phone"),
-        email: read("email") || undefined,
+        phone: presenter?.whatsappPhone ?? read("phone"),
+        email: presenter?.email ?? (read("email") || undefined),
         category: read("category") || undefined,
         twitter: twitter || undefined,
         linkedin: linkedin || undefined,
@@ -229,7 +267,8 @@ export default function SubmissionPage() {
         await submitHackathon({
           ...sharedFields,
           teamName,
-          teamMembers,
+          teamMembers: additionalTeamContacts.map((member) => member.name),
+          teamMemberContacts: additionalTeamContacts,
           githubUrl,
           rulesAccepted,
           videoUrl,
@@ -302,29 +341,119 @@ export default function SubmissionPage() {
                   />
                   {teamNameError ? <span id="team-name-error" className="form-error">{teamNameError}</span> : null}
                 </div>
-                <div className="field">
+                <div className="field team-members-field">
                   <div className="field-label-group">
-                    <label htmlFor="teamMembers">Other team members, one per line</label>
-                    <OutpostFieldHint id="team-members-hint" show={isOutpost}>Add everyone besides the presenter below.</OutpostFieldHint>
+                    <label id="team-members-label">Team members<Req /></label>
+                    <OutpostFieldHint id="team-members-hint" show={isOutpost}>
+                      Add a contact for every person on the team.
+                    </OutpostFieldHint>
                   </div>
-                  <textarea
-                    id="teamMembers"
-                    name="teamMembers"
-                    placeholder={"Sam Lee\nAlex Morgan"}
-                    rows={3}
-                    aria-invalid={Boolean(teamMembersError) || undefined}
-                    aria-describedby={describedBy(isOutpost && "team-members-hint", teamMembersError && "team-members-error")}
-                  />
+                  <div
+                    className="team-members-grid"
+                    role="group"
+                    aria-labelledby="team-members-label"
+                    aria-describedby={describedBy(isOutpost && "team-members-hint", "team-members-help")}
+                  >
+                    {teamMemberRowIds.map((rowId, index) => {
+                      const errors = teamContactErrors[rowId] ?? {};
+                      const isPresenter = index === 0;
+                      return (
+                        <div className="team-member-row" key={rowId}>
+                          <div className="team-member-row-header">
+                            <strong>{isPresenter ? "Presenter" : `Team member ${index + 1}`}</strong>
+                            {!isPresenter ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Remove team member ${index + 1}`}
+                                onClick={() => {
+                                  setTeamMemberRowIds((rows) => rows.filter((id) => id !== rowId));
+                                  setTeamContactErrors((current) => {
+                                    const next = { ...current };
+                                    delete next[rowId];
+                                    return next;
+                                  });
+                                }}
+                              >
+                                <Trash2 />
+                              </Button>
+                            ) : null}
+                          </div>
+                          <div className="team-member-inputs">
+                            <div className="team-member-cell">
+                              <label htmlFor={`teamMemberName-${rowId}`}>Name</label>
+                              <Input
+                                id={`teamMemberName-${rowId}`}
+                                name={`teamMemberName-${rowId}`}
+                                placeholder="Sam Lee"
+                                autoComplete={isPresenter ? "name" : "off"}
+                                maxLength={TEAM_CONTACT_FIELD_LIMITS.name}
+                                required
+                                aria-invalid={Boolean(errors.name) || undefined}
+                                aria-describedby={errors.name ? `teamMemberName-${rowId}-error` : undefined}
+                              />
+                              {errors.name ? <span id={`teamMemberName-${rowId}-error`} className="form-error">{errors.name}</span> : null}
+                            </div>
+                            <div className="team-member-cell">
+                              <label htmlFor={`teamMemberEmail-${rowId}`}>Email</label>
+                              <Input
+                                id={`teamMemberEmail-${rowId}`}
+                                name={`teamMemberEmail-${rowId}`}
+                                type="email"
+                                placeholder="sam@example.com"
+                                autoComplete={isPresenter ? "email" : "off"}
+                                maxLength={TEAM_CONTACT_FIELD_LIMITS.email}
+                                required
+                                aria-invalid={Boolean(errors.email) || undefined}
+                                aria-describedby={errors.email ? `teamMemberEmail-${rowId}-error` : undefined}
+                              />
+                              {errors.email ? <span id={`teamMemberEmail-${rowId}-error`} className="form-error">{errors.email}</span> : null}
+                            </div>
+                            <div className="team-member-cell">
+                              <label htmlFor={`teamMemberWhatsapp-${rowId}`}>WhatsApp number</label>
+                              <Input
+                                id={`teamMemberWhatsapp-${rowId}`}
+                                name={`teamMemberWhatsapp-${rowId}`}
+                                type="tel"
+                                inputMode="tel"
+                                placeholder="+44 7700 900123"
+                                autoComplete={isPresenter ? "tel" : "off"}
+                                maxLength={TEAM_CONTACT_FIELD_LIMITS.whatsappPhone}
+                                required
+                                aria-invalid={Boolean(errors.whatsappPhone) || undefined}
+                                aria-describedby={errors.whatsappPhone ? `teamMemberWhatsapp-${rowId}-error` : undefined}
+                              />
+                              {errors.whatsappPhone ? <span id={`teamMemberWhatsapp-${rowId}-error`} className="form-error">{errors.whatsappPhone}</span> : null}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="team-members-footer">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={teamMemberRowIds.length >= MAX_ADDITIONAL_TEAM_MEMBERS + 1}
+                        onClick={() => {
+                          const nextId = nextTeamMemberRowId.current;
+                          nextTeamMemberRowId.current += 1;
+                          setTeamMemberRowIds((rows) => [...rows, nextId]);
+                        }}
+                      >
+                        <Plus />
+                        Add team member
+                      </Button>
+                    </div>
+                  </div>
                   <span className="muted form-help">
-                    The presenter below is included automatically. Add up to {MAX_ADDITIONAL_TEAM_MEMBERS} others.
+                    <span id="team-members-help">The first person is the presenter. Add up to {MAX_ADDITIONAL_TEAM_MEMBERS} others.</span>
                   </span>
-                  {teamMembersError ? (
-                    <span id="team-members-error" className="form-error">{teamMembersError}</span>
-                  ) : null}
                 </div>
               </>
             ) : null}
-            <div className="field">
+            {!isHackathon ? <div className="field">
               <div className="field-label-group">
                 <label htmlFor="name">{isHackathon ? "Presenter and primary contact" : "Your name"}<Req /></label>
                 <OutpostFieldHint id="presenter-hint" show={isOutpost}>Who should the event team contact?</OutpostFieldHint>
@@ -339,7 +468,7 @@ export default function SubmissionPage() {
                 aria-describedby={describedBy(isOutpost && "presenter-hint", fieldLimitIssue?.field === "name" && "name-limit-error")}
               />
               <FieldLimitError field="name" issue={fieldLimitIssue} />
-            </div>
+            </div> : null}
 
             <div className="field">
               <div className="field-label-group">
@@ -409,7 +538,7 @@ export default function SubmissionPage() {
               </div>
             ) : null}
 
-            <div className="field">
+            {!isHackathon ? <div className="field">
               <div className="field-label-group">
                 <label htmlFor="phone">Phone number<Req /></label>
                 <OutpostFieldHint id="phone-hint" show={isOutpost}>Used only by the event team.</OutpostFieldHint>
@@ -433,9 +562,9 @@ export default function SubmissionPage() {
               {phoneError ? (
                 <span id="phone-error" className="form-error">{phoneError}</span>
               ) : null}
-            </div>
+            </div> : null}
 
-            <div className="field">
+            {!isHackathon ? <div className="field">
               <div className="field-label-group">
                 <label htmlFor="email">Email<Req /></label>
                 <OutpostFieldHint id="email-hint" show={isOutpost}>Where should submission updates go?</OutpostFieldHint>
@@ -451,7 +580,7 @@ export default function SubmissionPage() {
                 aria-describedby={describedBy(isOutpost && "email-hint", fieldLimitIssue?.field === "email" && "email-limit-error")}
               />
               <FieldLimitError field="email" issue={fieldLimitIssue} />
-            </div>
+            </div> : null}
 
             <div className="field">
               <div className="field-label-group">

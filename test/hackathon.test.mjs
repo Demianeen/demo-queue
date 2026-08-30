@@ -5,8 +5,12 @@ import {
   MAX_HACKATHON_VIDEO_URL_LENGTH,
   normalizeHackathonVideoUrl,
   normalizeGithubRepositoryUrl,
-  parseAdditionalTeamMembers,
 } from "../lib/hackathon.ts";
+import {
+  normalizeInternationalPhone,
+  parseTeamContact,
+  teamContactSchema,
+} from "../lib/team-contacts.ts";
 
 test("video links accept normalized HTTPS URLs", () => {
   assert.equal(
@@ -30,8 +34,42 @@ test("video links reject unsafe or malformed URLs", () => {
   );
 });
 
-test("team-member parsing normalizes blank lines and whitespace", () => {
-  assert.deepEqual(parseAdditionalTeamMembers(" Alex \n\nMorgan\r\n"), ["Alex", "Morgan"]);
+test("team contacts normalize valid international WhatsApp numbers", () => {
+  assert.equal(normalizeInternationalPhone(" +44 20 7946 0958 "), "+442079460958");
+  assert.deepEqual(
+    parseTeamContact({
+      name: " Sam Lee ",
+      email: "sam@example.com",
+      whatsappPhone: "+44 20 7946 0958",
+    }),
+    {
+      name: "Sam Lee",
+      email: "sam@example.com",
+      whatsappPhone: "+442079460958",
+    },
+  );
+});
+
+test("team contacts require a valid email", () => {
+  assert.equal(
+    teamContactSchema.safeParse({
+      name: "Sam Lee",
+      email: "not-an-email",
+      whatsappPhone: "+44 20 7946 0958",
+    }).success,
+    false,
+  );
+});
+
+test("team contacts require an explicit phone country code", () => {
+  assert.equal(
+    teamContactSchema.safeParse({
+      name: "Sam Lee",
+      email: "sam@example.com",
+      whatsappPhone: "020 7946 0958",
+    }).success,
+    false,
+  );
 });
 
 test("GitHub repository links normalize only repository roots", () => {

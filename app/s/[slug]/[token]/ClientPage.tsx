@@ -31,8 +31,8 @@ const statusLabels: Record<string, string> = {
 
 const hackathonStatusLabels: Record<string, string> = {
   ...statusLabels,
-  candidate: "Submitted, waiting for finalist selection",
-  queued: "Your team is listed as a finalist",
+  candidate: "Submitted, waiting for judging",
+  queued: "Scheduled to present",
   done: "Presentation complete",
 };
 
@@ -171,6 +171,10 @@ export default function ParticipantStatusPage() {
 
         <p className="lead">{participant.submission.description}</p>
 
+        {participant.submission.finalist ? (
+          <div className="copy-line">Your team was selected as a finalist.</div>
+        ) : null}
+
         {participant.event.eventType === "hackathon" ? (
           <div className="hackathon-status-details">
             <div>
@@ -277,9 +281,11 @@ export default function ParticipantStatusPage() {
             <button className="button" type="submit">
               Save contact
             </button>
-            <button className="button danger" type="button" onClick={withdrawDemo}>
-              Withdraw
-            </button>
+            {!participant.event.submissionsClosed ? (
+              <button className="button danger" type="button" onClick={withdrawDemo}>
+                Withdraw
+              </button>
+            ) : null}
           </div>
         </form>
 

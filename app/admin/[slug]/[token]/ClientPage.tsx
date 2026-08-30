@@ -26,6 +26,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { makeSampleHackathonTeam, makeSamplePerson } from "@/lib/sampleData";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
+import { JudgingAdminPanel } from "@/components/JudgingAdminPanel";
 import { Skeleton } from "@/app/Skeleton";
 import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError } from "@/lib/validation";
 import { parseRoundOneJudges } from "@/lib/judging-assignment";
@@ -923,8 +924,8 @@ export default function AdminPage() {
     try {
       for (let start = 0; start < safeCount; start += batchSize) {
         const batchCount = Math.min(batchSize, safeCount - start);
-        const submissions = Array.from({ length: batchCount }, () => {
-          const sample = isHackathonEvent ? makeSampleHackathonTeam() : makeSamplePerson();
+        const submissions = Array.from({ length: batchCount }, (_, batchIndex) => {
+          const sample = isHackathonEvent ? makeSampleHackathonTeam(start + batchIndex) : makeSamplePerson();
           return {
             participantToken: randomToken(32),
             ...sample,
@@ -1039,9 +1040,7 @@ export default function AdminPage() {
         judges,
       });
       setJudgesOpen(false);
-      setJudgesMessage(
-        `${result.judgeCount} judges saved. ${result.assignedActiveSubmissionCount} of ${result.activeSubmissionCount} active submissions assigned.`,
-      );
+      setJudgesMessage(`${result.judgeCount} judges saved. Assign submissions when entries are closed.`);
     } catch (error) {
       setJudgesMessage(error instanceof Error ? error.message : "Could not save judges.");
     } finally {
@@ -1074,7 +1073,7 @@ export default function AdminPage() {
 
   const activeItem = activeId ? itemsById.get(activeId) : null;
   const lineupCount = board.lineup.length;
-  const lineupNoun = admin.event.eventType === "hackathon" ? "finalist" : "demoer";
+  const lineupNoun = admin.event.eventType === "hackathon" ? "presenter" : "demoer";
   const demoerCountLabel = `${lineupCount} ${lineupNoun}${lineupCount === 1 ? "" : "s"}`;
   const hiddenSubmissions = admin.hidden ?? [];
   const inactiveSubmissions = [
@@ -1167,7 +1166,7 @@ export default function AdminPage() {
                       <DropdownMenuItem className="split-action-item" onClick={skip}>
                         <span>Skip for now</span>
                             <small>
-                              Move current presenter to the bottom of {admin.event.eventType === "hackathon" ? "Finalists" : "Demoers"}.
+                              Move current presenter to the bottom of the {admin.event.eventType === "hackathon" ? "presentation lineup" : "demo queue"}.
                             </small>
                       </DropdownMenuItem>
                       <DropdownMenuItem
@@ -1187,12 +1186,12 @@ export default function AdminPage() {
                 </Button>
               ) : (
                 <Button onClick={publish} type="button">
-                  {admin.event.eventType === "hackathon" ? "Publish finalists" : "Make queue live"}
+                  {admin.event.eventType === "hackathon" ? "Publish presentation lineup" : "Make queue live"}
                 </Button>
               )}
               {!queueIsLive ? (
                 <Button variant="outline" onClick={shuffle} type="button">
-                  Shuffle {admin.event.eventType === "hackathon" ? "finalists" : "demoers"}
+                  Shuffle {admin.event.eventType === "hackathon" ? "presentation lineup" : "demoers"}
                 </Button>
               ) : null}
               {!queueIsLive && admin.event.eventType === "demo" ? (
@@ -1305,7 +1304,7 @@ export default function AdminPage() {
                       </h2>
                       <p>
                         {isHackathonEvent
-                          ? "Add generated submissions with team and project details to All submissions. Test submissions do not include uploaded videos."
+                          ? "Add generated submissions with team, project, working video, and README-backed GitHub links to All submissions."
                           : "Add generated people to All people. Move any of them into Demoers to test presenter flow."}
                       </p>
                     </div>
@@ -1330,7 +1329,7 @@ export default function AdminPage() {
                       />
                     </label>
                     <p className="admin-modal-help">
-                      Maximum 1000. They start in {allSubmissionsLabel}, not {isHackathonEvent ? "Finalists" : "Demoers"}.
+                      Maximum 1000. They start in {allSubmissionsLabel}, not {isHackathonEvent ? "the presentation lineup" : "Demoers"}.
                     </p>
                     {testPeopleMessage ? (
                       <p className="admin-modal-error">{testPeopleMessage}</p>
@@ -1368,9 +1367,9 @@ export default function AdminPage() {
                 >
                   <form className="admin-modal" onSubmit={saveJudges}>
                     <div className="admin-modal-heading">
-                      <h2 id="round-one-judges-title">Assign judges</h2>
+                      <h2 id="round-one-judges-title">Judges</h2>
                       <p>
-                        Paste one judge name per line. Every active submission receives two different judges, distributed as evenly as possible.
+                        Paste one judge name per line. You will distribute submissions after entries close.
                       </p>
                     </div>
                     <label className="admin-modal-field">
@@ -1403,7 +1402,7 @@ export default function AdminPage() {
                         Cancel
                       </Button>
                       <Button disabled={judgesBusy} type="submit">
-                        {judgesBusy ? "Assigning..." : "Save judges and assign"}
+                        {judgesBusy ? "Saving..." : "Save judges"}
                       </Button>
                     </div>
                   </form>
@@ -1437,7 +1436,7 @@ export default function AdminPage() {
               </div>
               <input id="meetUrl" readOnly value={admin.event.meetUrl} />
               <span className="muted" style={{ fontSize: 12 }}>
-                Published {admin.event.eventType === "hackathon" ? "finalists" : "demoers"} see it on their status pages. It stays hidden in the
+                Published {admin.event.eventType === "hackathon" ? "presenters" : "demoers"} see it on their status pages. It stays hidden in the
                 presentation view unless you enable it after publishing.
               </span>
             </div>
@@ -1590,7 +1589,7 @@ export default function AdminPage() {
                 ) : (
                   <div className="stage-timer-empty-state" aria-label="Demo timer unavailable">
                     {isHackathonEvent
-                      ? "Move a submission from All submissions to Finalists to enable presenter timer controls."
+                      ? "Move a submission from All submissions to the presentation lineup to enable presenter timer controls."
                       : "Move someone from All people to Demoers to enable presenter timer controls."}
                   </div>
                 )}
@@ -1630,6 +1629,14 @@ export default function AdminPage() {
           />
         </section>
 
+        {isHackathonEvent ? (
+          <JudgingAdminPanel
+            slug={params.slug}
+            adminToken={params.token}
+            judges={admin.event.roundOneJudges}
+          />
+        ) : null}
+
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
@@ -1660,7 +1667,7 @@ export default function AdminPage() {
                 role="tab"
                 type="button"
               >
-                <span>{admin.event.eventType === "hackathon" ? "Finalists" : "Demoers"}</span>
+                <span>{admin.event.eventType === "hackathon" ? "Presentation lineup" : "Demoers"}</span>
                 <span className="admin-tab-count">{lineupCount}</span>
               </button>
             </div>
@@ -1714,7 +1721,7 @@ export default function AdminPage() {
                 <div className="lineup-toolbar">
                   <div>
                     <h2 style={{ margin: 0 }}>
-                      {admin.event.eventType === "hackathon" ? "Finalists" : "Demoers"}
+                      {admin.event.eventType === "hackathon" ? "Presentation lineup" : "Demoers"}
                     </h2>
                     <p className="muted" style={{ margin: "4px 0 0" }}>
                       Drag rows to set the live running order.
@@ -1778,7 +1785,7 @@ export default function AdminPage() {
                         id="lineup"
                         emptyMessage={
                           isHackathonEvent
-                            ? "Use All submissions to add a submission to Finalists."
+                            ? "Use All submissions to add a submission to the presentation lineup."
                             : "Use All people to add someone to Demoers."
                         }
                       >

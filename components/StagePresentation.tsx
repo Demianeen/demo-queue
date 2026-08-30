@@ -88,7 +88,7 @@ export function StagePresentation({
   const visualStyle = normalizeVisualStyle(stage.event.visualStyle);
   const isOutpost = isOutpostStyle(visualStyle);
   const isHackathon = stage.event.eventType === "hackathon";
-  const lineupNoun = isHackathon ? "finalist" : "demoer";
+  const lineupNoun = isHackathon ? "presenter" : "demoer";
   const projectNoun = isHackathon ? "project" : "demo";
   const currentId = stage.current?.id ?? "empty";
   const lineupIds = stage.lineup.map((item) => item.id).join("-") || "empty";
@@ -139,7 +139,7 @@ export function StagePresentation({
     (isOutpost ? stage.current?.demoTitle : stage.current?.teamName ?? stage.current?.name) ??
     (isLive
       ? liveLineupIsComplete
-        ? `End of the ${isHackathon ? "finalist" : "demo"} list`
+        ? `End of the ${isHackathon ? "presentation" : "demo"} lineup`
         : `No ${lineupNoun} selected`
       : `Submit your ${projectNoun} here`);
   const currentStageSubtitle =
@@ -344,13 +344,13 @@ export function StagePresentation({
                 <div className="stage-lineup-empty">
                   <h2>
                     {stage.current
-                      ? `End of the ${isHackathon ? "finalist" : "demo"} list`
-                      : `No more ${isHackathon ? "finalists" : "demos"} queued`}
+                      ? `End of the ${isHackathon ? "presentation" : "demo"} lineup`
+                      : `No more ${isHackathon ? "presenters" : "demos"} queued`}
                   </h2>
                   <p>
                     {stage.current
                       ? `This is the last ${projectNoun}.`
-                      : `The ${isHackathon ? "finalist" : "demo"} list is complete.`}
+                      : `The ${isHackathon ? "presentation" : "demo"} lineup is complete.`}
                   </p>
                 </div>
               )}

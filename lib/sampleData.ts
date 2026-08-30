@@ -34,6 +34,16 @@ const TEAM_PREFIXES = [
 
 const TEAM_SUFFIXES = ["Labs", "Collective", "Works", "Studio", "Crew", "Systems"];
 
+const SAMPLE_GITHUB_URLS = [
+  "https://github.com/vercel/next.js",
+  "https://github.com/get-convex/convex-js",
+];
+
+const SAMPLE_VIDEO_URLS = [
+  "https://www.youtube.com/watch?v=_B4NpBJIKq0",
+  "https://player.vimeo.com/video/76979871",
+];
+
 const DESCRIPTION_TEMPLATES = [
   (p: string) => `A ${p} that ships in an afternoon. Demoing the live onboarding flow.`,
   (p: string) => `We built a ${p} after getting fed up with the status quo. 3-min live demo.`,
@@ -67,6 +77,8 @@ export type SamplePerson = {
 export type SampleHackathonTeam = SamplePerson & {
   teamName: string;
   teamMembers: string[];
+  githubUrl: string;
+  videoUrl: string;
 };
 
 function makeSampleIdentity() {
@@ -96,7 +108,7 @@ export function makeSamplePerson(): SamplePerson {
   };
 }
 
-export function makeSampleHackathonTeam(): SampleHackathonTeam {
+export function makeSampleHackathonTeam(sequence?: number): SampleHackathonTeam {
   const lead = makeSamplePerson();
   const memberCount = 1 + Math.floor(Math.random() * 3);
   const members = new Set<string>();
@@ -110,5 +122,7 @@ export function makeSampleHackathonTeam(): SampleHackathonTeam {
     ...lead,
     teamName: `${pick(TEAM_PREFIXES)} ${pick(TEAM_SUFFIXES)}`,
     teamMembers: [...members],
+    githubUrl: sequence === undefined ? pick(SAMPLE_GITHUB_URLS) : SAMPLE_GITHUB_URLS[sequence % SAMPLE_GITHUB_URLS.length],
+    videoUrl: sequence === undefined ? pick(SAMPLE_VIDEO_URLS) : SAMPLE_VIDEO_URLS[sequence % SAMPLE_VIDEO_URLS.length],
   };
 }

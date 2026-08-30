@@ -12,6 +12,14 @@ Convex agent skills for common tasks can be installed by running
 
 <!-- convex-ai-end -->
 
+## Plans
+
+Write every implementation plan under `docs/plans/` so it is stored in Git.
+Start each plan with YAML frontmatter containing `title`, `status`, `tier`,
+`created`, and `updated`. Use only `DRAFT`, `REVIEWED`, `ACCEPTED`,
+`IMPLEMENTING`, `BLOCKED`, `COMPLETE`, or `SUPERSEDED` for `status`; query
+`ACCEPTED` as planned work and `COMPLETE` as completed work.
+
 ## UI component primitives
 
 Before creating custom alerts, notices, dialogs, fields, inputs, or other common

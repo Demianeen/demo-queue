@@ -55,6 +55,7 @@ These are accepted decisions, not questions to reconfirm unless implementation r
 32. Judge scoring uses visible segmented 0–10 number controls matching the selected judge-workspace design. Mobile and iPad judge layouts are not part of this delivery.
 33. Admin judging progress uses one row per submission. Each assigned judge is shown with their review average or pending state, and hovering or focusing the judge review reveals Innovation, Execution, and Demo clarity values.
 34. Coverage and raw scores are not duplicated as separate admin tables; completion remains visible in the consolidated table status.
+35. Normalization approval is decision-first for each judge: show a plain-language average impact, a four-column Raw versus Normalized preview, and explicit Keep raw scores or Use normalized scores choices. Criterion deltas, unclamped values, and clamped values remain available in collapsed calculation details.
 
 ## Google Sheet Fallback
 

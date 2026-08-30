@@ -281,7 +281,108 @@ function DecisionDropZone({ id, children }: { id: string; children: ReactNode })
 
 function NormalizationSection({ slug, adminToken, overview, saveDecision }: { slug: string; adminToken: string; overview: any; saveDecision: (args: any) => Promise<unknown> }) {
   if (!overview || overview.judgingStatus !== "closed") return null;
- return <div className={styles.card}><div className={styles.sectionHeading}><div><h3>Score normalization</h3><p className={styles.help}>Choose how each judge&apos;s complete reviews should count.</p></div><span className={styles.status}>{overview.scoreBasisReady ? "Ready" : "Needs decisions"}</span></div>{overview.judges.filter((judge: any) => judge.completeReviewCount > 0).map((judge: any) => <div className={styles.normalizationCard} key={judge.judgeKey}><div className={styles.row}><strong>{judge.judgeName}</strong><span>{judge.completeReviewCount} complete review{judge.completeReviewCount === 1 ? "" : "s"}{judge.lowData ? " · Low data" : ""}</span></div>{judge.lowData ? <p className={styles.warning}>Fewer than 5 complete reviews. You can still choose an adjustment.</p> : null}<div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>Demo</th><th>Raw avg</th><th>Delta (I/E/D)</th><th>Unclamped (I/E/D)</th><th>Clamped (I/E/D)</th><th>Adjusted avg</th></tr></thead><tbody>{judge.reviews.map((review: any) => <tr key={String(review.submissionId)}><td>{review.demoTitle}</td><td>{review.rawAverage.toFixed(2)}</td><td>{JUDGING_CRITERIA.map((criterion) => <span key={criterion}>{review.delta?.[criterion]?.toFixed(2) ?? "0.00"} </span>)}</td><td>{JUDGING_CRITERIA.map((criterion) => <span key={criterion}>{review.unclamped?.[criterion]?.toFixed(2) ?? "—"} </span>)}</td><td>{JUDGING_CRITERIA.map((criterion) => <span key={criterion}>{review.clamped?.[criterion]?.toFixed(2) ?? "—"} </span>)}</td><td>{review.adjustedAverage.toFixed(2)}</td></tr>)}</tbody></table></div><div className={styles.actions}><span className={judge.decision ? (judge.decision.stale ? styles.warning : styles.help) : styles.warning}>{judge.decision ? (judge.decision.stale ? "Needs review" : `Using ${judge.decision.decision === "apply" ? "adjusted" : "raw"} scores`) : "Choose a score basis"}</span><Button size="sm" variant={judge.decision?.decision === "apply" && !judge.decision.stale ? "default" : "outline"} onClick={() => void saveDecision({ slug, adminToken, judgeKey: judge.judgeKey, decision: "apply" })}>Apply adjustment</Button><Button size="sm" variant={judge.decision?.decision === "raw" && !judge.decision.stale ? "default" : "outline"} onClick={() => void saveDecision({ slug, adminToken, judgeKey: judge.judgeKey, decision: "raw" })}>Keep raw</Button></div></div>)}</div>;
+  const judgesWithReviews = overview.judges.filter((judge: any) => judge.completeReviewCount > 0);
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.sectionHeading}>
+        <div>
+          <h3>Score normalization</h3>
+          <p className={styles.help}>Review each judge, then choose which scores should count. Nothing changes until you approve a choice.</p>
+        </div>
+        <span className={styles.status}>{overview.scoreBasisReady ? "Ready" : "Decision needed"}</span>
+      </div>
+      <div className={styles.normalizationList}>
+        {judgesWithReviews.map((judge: any) => {
+          const averageChange = judge.reviews.reduce(
+            (sum: number, review: any) => sum + (review.adjustedAverage - review.rawAverage),
+            0,
+          ) / judge.reviews.length;
+          const changeDescription = Math.abs(averageChange) < 0.005
+            ? "Normalization leaves this judge's average unchanged."
+            : `Normalization ${averageChange > 0 ? "raises" : "lowers"} this judge's scores by ${Math.abs(averageChange).toFixed(2)} points on average.`;
+          const decisionLabel = judge.decision && !judge.decision.stale
+            ? judge.decision.decision === "apply" ? "Using normalized scores" : "Using raw scores"
+            : judge.decision?.stale ? "Review again" : "Choose an option";
+
+          return (
+            <section className={styles.normalizationCard} key={judge.judgeKey}>
+              <div className={styles.normalizationHeader}>
+                <div>
+                  <h4>{judge.judgeName}</h4>
+                  <p>{judge.completeReviewCount} completed review{judge.completeReviewCount === 1 ? "" : "s"}</p>
+                </div>
+                <div className={styles.normalizationBadges}>
+                  {judge.lowData ? <span className={styles.lowDataBadge}>Limited data</span> : null}
+                  <span className={styles.decisionBadge}>{decisionLabel}</span>
+                </div>
+              </div>
+
+              <div className={styles.normalizationSummary}>
+                <strong>{changeDescription}</strong>
+                {judge.lowData ? <span>Based on fewer than five completed reviews. You can still choose either option.</span> : null}
+              </div>
+
+              <div className={styles.tableWrap}>
+                <table className={`${styles.table} ${styles.normalizationPreview}`}>
+                  <thead><tr><th>Project</th><th>Raw score</th><th>Normalized score</th><th>Change</th></tr></thead>
+                  <tbody>
+                    {judge.reviews.map((review: any) => {
+                      const change = review.adjustedAverage - review.rawAverage;
+                      return (
+                        <tr key={String(review.submissionId)}>
+                          <td>{review.demoTitle}</td>
+                          <td>{review.rawAverage.toFixed(2)}</td>
+                          <td>{review.adjustedAverage.toFixed(2)}</td>
+                          <td className={change > 0.005 ? styles.positiveChange : change < -0.005 ? styles.negativeChange : undefined}>
+                            {change > 0.005 ? "+" : ""}{change.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className={styles.normalizationChoices} aria-label={`Score basis for ${judge.judgeName}`}>
+                <Button
+                  variant={judge.decision?.decision === "raw" && !judge.decision.stale ? "default" : "outline"}
+                  onClick={() => void saveDecision({ slug, adminToken, judgeKey: judge.judgeKey, decision: "raw" })}
+                >
+                  Keep raw scores
+                </Button>
+                <Button
+                  variant={judge.decision?.decision === "apply" && !judge.decision.stale ? "default" : "outline"}
+                  onClick={() => void saveDecision({ slug, adminToken, judgeKey: judge.judgeKey, decision: "apply" })}
+                >
+                  Use normalized scores
+                </Button>
+              </div>
+
+              <details className={styles.calculationDetails}>
+                <summary>Show calculation details</summary>
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
+                    <thead><tr><th>Project</th><th>Criterion adjustment (I/E/D)</th><th>Before clamping (I/E/D)</th><th>After clamping (I/E/D)</th></tr></thead>
+                    <tbody>
+                      {judge.reviews.map((review: any) => (
+                        <tr key={String(review.submissionId)}>
+                          <td>{review.demoTitle}</td>
+                          <td>{JUDGING_CRITERIA.map((criterion) => review.delta?.[criterion]?.toFixed(2) ?? "0.00").join(" · ")}</td>
+                          <td>{JUDGING_CRITERIA.map((criterion) => review.unclamped?.[criterion]?.toFixed(2) ?? "—").join(" · ")}</td>
+                          <td>{JUDGING_CRITERIA.map((criterion) => review.clamped?.[criterion]?.toFixed(2) ?? "—").join(" · ")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function DecisionSection({ slug, adminToken, decision, saveFinalistDraft, submitFinalists, savePlacementDraft, submitPlacements }: { slug: string; adminToken: string; decision: any; saveFinalistDraft: (args: any) => Promise<unknown>; submitFinalists: (args: any) => Promise<unknown>; savePlacementDraft: (args: any) => Promise<unknown>; submitPlacements: (args: any) => Promise<unknown> }) {

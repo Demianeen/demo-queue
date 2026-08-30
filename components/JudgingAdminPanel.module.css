@@ -23,7 +23,26 @@
 .judgeReview:focus-visible, .judgeReviewPending:focus-visible { outline: 3px solid color-mix(in srgb, var(--app-accent) 24%, transparent); outline-offset: 2px; }
 .message { color: var(--app-muted); font-size: 13px; font-weight: 700; margin: 0; }
 .sectionHeading { align-items: start; display: flex; gap: 12px; justify-content: space-between; }
-.normalizationCard { display: grid; gap: 10px; border-top: 1px solid var(--app-line); padding-top: 12px; }
+.normalizationList { display: grid; gap: 12px; }
+.normalizationCard { display: grid; gap: 14px; border: 1px solid var(--app-line); border-radius: 10px; padding: 14px; background: color-mix(in srgb, var(--app-paper) 84%, white); }
+.normalizationHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.normalizationHeader h4, .normalizationHeader p { margin: 0; }
+.normalizationHeader h4 { font-size: 16px; }
+.normalizationHeader p { margin-top: 3px; color: var(--app-muted); font-size: 12px; }
+.normalizationBadges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.lowDataBadge, .decisionBadge { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 8px; border: 1px solid var(--app-line); border-radius: 999px; font-size: 11px; font-weight: 760; }
+.lowDataBadge { border-color: color-mix(in srgb, var(--app-warn) 35%, var(--app-line)); background: color-mix(in srgb, var(--app-warn) 8%, white); color: var(--app-warn); }
+.decisionBadge { color: var(--app-muted); }
+.normalizationSummary { display: grid; gap: 3px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--app-soft-blue) 70%, white); font-size: 12px; line-height: 1.45; }
+.normalizationSummary strong { color: var(--app-ink); font-size: 13px; }
+.normalizationSummary span { color: var(--app-muted); }
+.normalizationPreview { min-width: 560px; }
+.positiveChange { color: var(--app-good); font-weight: 760; }
+.negativeChange { color: var(--app-warn); font-weight: 760; }
+.normalizationChoices { display: flex; flex-wrap: wrap; gap: 8px; }
+.calculationDetails { border-top: 1px solid var(--app-line); padding-top: 10px; }
+.calculationDetails summary { width: fit-content; color: var(--app-muted); font-size: 12px; font-weight: 720; cursor: pointer; }
+.calculationDetails[open] summary { margin-bottom: 10px; color: var(--app-ink); }
 .warning { color: var(--app-warn); font-size: 12px; font-weight: 750; margin: 0; }
 .modeButtons { display: flex; gap: 8px; }
 .decisionBoard { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }

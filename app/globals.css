@@ -259,6 +259,78 @@ h3 {
   font-weight: 600;
 }
 
+.team-members-grid {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.team-member-row {
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid var(--app-line);
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.team-member-row-header,
+.team-members-footer {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.team-member-row-header strong {
+  color: var(--app-ink);
+  font-size: 13px;
+}
+
+.team-member-inputs {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.team-member-cell {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.team-member-cell label {
+  color: var(--app-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.team-member-cell .form-error {
+  line-height: 1.35;
+}
+
+.outpost-content .form-section > .team-members-field > .team-members-grid {
+  grid-column: 2;
+}
+
+.outpost-content .team-member-row {
+  background: rgba(248, 246, 240, 0.38);
+  border-color: #aaa69f;
+  border-radius: 4px;
+}
+
+.outpost-content .team-member-cell input {
+  background: rgba(248, 246, 240, 0.68);
+  border-color: #aaa69f;
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+.outpost-content .team-member-cell input:focus {
+  border-color: #111212;
+  box-shadow: 0 0 0 2px rgba(17, 18, 18, 0.12);
+}
+
 .submission-confirmation {
   align-items: start;
   background: rgba(255, 255, 255, 0.62);
@@ -2941,6 +3013,22 @@ h3 {
   min-width: 0;
 }
 
+.contact-person {
+  border-bottom: 1px solid color-mix(in srgb, var(--app-line), transparent 35%);
+  display: grid;
+  gap: 2px;
+  padding-bottom: 4px;
+}
+
+.contact-person:last-of-type {
+  border-bottom: 0;
+}
+
+.contact-person strong {
+  color: var(--app-ink);
+  font-size: 11px;
+}
+
 .history-card-head {
   align-items: flex-start;
   display: flex;
@@ -3233,6 +3321,10 @@ h3 {
     grid-template-columns: minmax(145px, 30%) minmax(0, 1fr);
   }
 
+  .team-member-inputs {
+    grid-template-columns: 1fr;
+  }
+
 }
 
 /* Phone-first: the form/status cards go full-bleed instead of floating in a
@@ -3326,6 +3418,10 @@ h3 {
   .outpost-content .form-section > .field > [data-slot="alert"],
   .outpost-content .form-section > .field > .form-help,
   .outpost-content .form-section > .field > .form-error {
+    grid-column: 1;
+  }
+
+  .outpost-content .form-section > .team-members-field > .team-members-grid {
     grid-column: 1;
   }
 

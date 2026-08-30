@@ -123,7 +123,6 @@ function JudgeReview({ judgeName, review, normalizedReview, useNormalized, onTog
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger
         className={average === null ? styles.judgeReviewPending : styles.judgeReview}
-        onFocus={keepOpen}
         onMouseEnter={keepOpen}
         onMouseLeave={scheduleClose}
         type="button"

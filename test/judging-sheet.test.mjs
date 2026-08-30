@@ -250,8 +250,11 @@ test("judging sheet creates stable judge and score filter views", () => {
     { filterViewId: 11, title: "Judge: Alex Morgan" },
     { filterViewId: 12, title: "All submissions (score)" },
   ]);
-  assert.equal(repeat[0].updateFilterView.filterView.filterViewId, 11);
-  assert.equal(repeat[1].updateFilterView.filterView.filterViewId, 12);
+  assert.equal(repeat.length, 4);
+  assert.equal(repeat[0].deleteFilterView.filterId, 11);
+  assert.equal(repeat[1].addFilterView.filter.title, "Judge: Alex Morgan");
+  assert.equal(repeat[2].deleteFilterView.filterId, 12);
+  assert.equal(repeat[3].addFilterView.filter.title, "All submissions (score)");
 });
 
 test("hackathon sample data includes a team and valid project fields", () => {

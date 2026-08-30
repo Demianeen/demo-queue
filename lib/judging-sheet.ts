@@ -111,11 +111,28 @@ export function buildFilterViewRequests(
       sortSpecs: [{ dimensionIndex: 23, sortOrder: "DESCENDING" }],
     },
   ];
-  return views.map((view) => {
+  return views.flatMap((view) => {
     const existing = existingViews.find((candidate) => candidate.title === view.title);
+    const addRequest = {
+      addFilterView: {
+        filter: {
+          ...view,
+          range: {
+            sheetId,
+            startRowIndex: JUDGING_HEADER_ROW - 1,
+            endRowIndex,
+            startColumnIndex: 0,
+            endColumnIndex: JUDGING_HEADERS.length,
+          },
+        },
+      },
+    };
     return existing?.filterViewId !== undefined
-      ? { updateFilterView: { filterView: { ...view, filterViewId: existing.filterViewId, range: { sheetId, startRowIndex: JUDGING_HEADER_ROW - 1, endRowIndex, startColumnIndex: 0, endColumnIndex: JUDGING_HEADERS.length } }, fields: "title,range,filterSpecs,sortSpecs" } }
-      : { addFilterView: { filter: { ...view, range: { sheetId, startRowIndex: JUDGING_HEADER_ROW - 1, endRowIndex, startColumnIndex: 0, endColumnIndex: JUDGING_HEADERS.length } } } };
+      ? [
+          { deleteFilterView: { filterId: existing.filterViewId } },
+          addRequest,
+        ]
+      : [addRequest];
   });
 }
 

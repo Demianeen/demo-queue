@@ -65,6 +65,9 @@ export const FORMULA_COLUMN_RANGES = [{ startColumnIndex: 22, endColumnIndex: 26
 const PRE_STAGE_FINALIST_JUDGING_HEADERS = JUDGING_HEADERS.filter(
   (header) => header !== "Stage finalist",
 );
+const BLANK_STAGE_FINALIST_JUDGING_HEADERS = JUDGING_HEADERS.map(
+  (header) => header === "Stage finalist" ? "" : header,
+);
 export type JudgingFormulaColumn = {
   column: string;
   values: string[][];
@@ -75,11 +78,16 @@ export const judgeFilterViewTitle = (judge: string) => `Judge: ${judge}`;
 
 export function isCompatibleJudgingSheetHeaders(headers: unknown[]) {
   return matchesJudgingSheetHeaders(headers, JUDGING_HEADERS) ||
-    matchesJudgingSheetHeaders(headers, PRE_STAGE_FINALIST_JUDGING_HEADERS);
+    matchesJudgingSheetHeaders(headers, PRE_STAGE_FINALIST_JUDGING_HEADERS) ||
+    matchesJudgingSheetHeaders(headers, BLANK_STAGE_FINALIST_JUDGING_HEADERS);
 }
 
 export function hasPreStageFinalistJudgingSheetHeaders(headers: unknown[]) {
   return matchesJudgingSheetHeaders(headers, PRE_STAGE_FINALIST_JUDGING_HEADERS);
+}
+
+export function hasBlankStageFinalistJudgingSheetHeaders(headers: unknown[]) {
+  return matchesJudgingSheetHeaders(headers, BLANK_STAGE_FINALIST_JUDGING_HEADERS);
 }
 
 function matchesJudgingSheetHeaders(headers: unknown[], expectedHeaders: readonly string[]) {

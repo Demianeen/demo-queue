@@ -7,7 +7,6 @@ import { google, type sheets_v4 } from "googleapis";
 import { randomUUID } from "node:crypto";
 import {
   FORMULA_COLUMN_RANGES,
-  FINALIST_COUNT,
   JUDGING_CATEGORY_COUNT,
   JUDGING_DATA_START_ROW,
   JUDGING_HEADER_ROW,
@@ -20,6 +19,7 @@ import {
   buildSyncedBasicFilter,
   buildJudgingSheetValues,
   buildJudgingSubmissionRow,
+  buildFilterViewRequests,
   type JudgingSheetSubmission,
 } from "../lib/judging-sheet";
 
@@ -115,7 +115,7 @@ function columnWidthRequest(
   } satisfies sheets_v4.Schema$Request;
 }
 
-function formattingRequests(sheetId: number, rowCount: number) {
+function formattingRequests(sheetId: number, rowCount: number, judges: string[] = []) {
   const endRowIndex = Math.max(rowCount, JUDGING_DATA_START_ROW);
   const requests: sheets_v4.Schema$Request[] = [
     {
@@ -222,6 +222,8 @@ function formattingRequests(sheetId: number, rowCount: number) {
     requests.push(scoreValidationRequest(sheetId, columnIndex, endRowIndex));
     requests.push(columnWidthRequest(sheetId, columnIndex, columnIndex + 1, 120));
   }
+
+  requests.push(...buildFilterViewRequests(sheetId, endRowIndex, judges));
 
   for (const range of FORMULA_COLUMN_RANGES) {
     requests.push({
@@ -337,7 +339,13 @@ async function replaceJudgingTab({
     if (sheetToReplaceId !== undefined) {
       swapRequests.push({ deleteSheet: { sheetId: sheetToReplaceId } });
     }
-    swapRequests.push(...formattingRequests(tempSheetId, values.length));
+    swapRequests.push(
+      ...formattingRequests(
+        tempSheetId,
+        values.length,
+        values.slice(JUDGING_DATA_START_ROW - 1).flatMap((row) => [String(row[14] ?? ""), String(row[18] ?? "")]),
+      ),
+    );
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: { requests: swapRequests },
@@ -361,12 +369,16 @@ function syncFormattingRequests({
   endRowIndex,
   basicFilter,
   protectedRanges,
+  judges,
+  filterViews,
 }: {
   sheetId: number;
   currentRowCount: number;
   endRowIndex: number;
   basicFilter: sheets_v4.Schema$BasicFilter | undefined;
   protectedRanges: sheets_v4.Schema$ProtectedRange[];
+  judges: string[];
+  filterViews: sheets_v4.Schema$FilterView[];
 }) {
   const requests: sheets_v4.Schema$Request[] = [];
   if (currentRowCount < endRowIndex) {
@@ -388,6 +400,7 @@ function syncFormattingRequests({
   if (syncedBasicFilter) {
     requests.push({ setBasicFilter: { filter: syncedBasicFilter } });
   }
+  requests.push(...buildFilterViewRequests(sheetId, endRowIndex, judges, filterViews));
   requests.push({
     repeatCell: {
       range: {
@@ -491,7 +504,7 @@ async function syncExistingJudgingSheet({
   const spreadsheet = await sheets.spreadsheets.get({
     spreadsheetId,
     fields:
-      "sheets(properties(sheetId,title,gridProperties(rowCount)),basicFilter,protectedRanges(protectedRangeId,description,range))",
+      "sheets(properties(sheetId,title,gridProperties(rowCount)),basicFilter,protectedRanges(protectedRangeId,description,range),filterViews(filterViewId,title))",
   });
   const managedSheet = spreadsheet.data.sheets?.find(
     (sheet) => sheet.properties?.title === JUDGING_SHEET_NAME,
@@ -507,27 +520,30 @@ async function syncExistingJudgingSheet({
   });
   const existingHeaders = headerResponse.data.values?.[0] ?? [];
   const legacyLayout = existingHeaders.includes("R1 judge 1") || existingHeaders.includes("R2 judge 1");
-  const currentLayout = existingHeaders[0] === "Submission ID" && existingHeaders[14] === "Judge 1";
+  const currentLayout = existingHeaders[0] === "Submission ID" && existingHeaders[14] === "Judge 1" && existingHeaders[25] === "GitHub";
   if (legacyLayout || !currentLayout) {
-    await replaceJudgingTab({
-      sheets,
-      spreadsheetId,
-      values: buildJudgingSheetValues({ eventName, meetUrl, submissions }),
-      replaceDefaultSheet: false,
-    });
-    return;
+    throw new ConvexError("The existing Judging tab has an incompatible layout; it was left untouched.");
   }
 
   const existingIdsResponse = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A${JUDGING_DATA_START_ROW}:A`,
+    range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A${JUDGING_DATA_START_ROW}:S`,
   });
   const existingIdRows = existingIdsResponse.data.values ?? [];
   const rowBySubmissionId = new Map<string, number>();
+  const existingJudgeSlots = new Map<number, [string, string]>();
+  const sheetJudges = new Set<string>();
   existingIdRows.forEach((values, index) => {
     const submissionId = String(values[0] ?? "").trim();
     if (submissionId && !rowBySubmissionId.has(submissionId)) {
-      rowBySubmissionId.set(submissionId, JUDGING_DATA_START_ROW + index);
+      const row = JUDGING_DATA_START_ROW + index;
+      rowBySubmissionId.set(submissionId, row);
+      const judgeSlots: [string, string] = [
+        String(values[14] ?? "").trim(),
+        String(values[18] ?? "").trim(),
+      ];
+      existingJudgeSlots.set(row, judgeSlots);
+      judgeSlots.filter(Boolean).forEach((judge) => sheetJudges.add(judge));
     }
   });
 
@@ -547,14 +563,14 @@ async function syncExistingJudgingSheet({
     },
     {
       range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A2:K2`,
-      values: [["Judges per submission", ROUND_ONE_MINIMUM_JUDGES, "", "Categories per judge", JUDGING_CATEGORY_COUNT, "", "Stage finalists", FINALIST_COUNT, "", "Score range", `0-${MAXIMUM_SCORE}`]],
+      values: [["Judges per submission", ROUND_ONE_MINIMUM_JUDGES, "", "Categories per judge", JUDGING_CATEGORY_COUNT, "", "Review status", "Eligible submissions", "", "Score range", `0-${MAXIMUM_SCORE}`]],
     },
     {
       range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A3:B3`,
-      values: [["Scoring", "Each assigned judge scores Innovation, Execution, and Demo clarity from 0 to 10. Final score appears after both judges complete all three scores."]],
+      values: [["Scoring", "Each assigned judge scores Innovation, Execution, and Demo clarity from 0 to 10. Final score appears after at least one judge completes all three scores."]],
     },
     {
-      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A4:AA4`,
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A4:Z4`,
       values: [[...JUDGING_HEADERS]],
     },
   ];
@@ -562,33 +578,38 @@ async function syncExistingJudgingSheet({
 
   for (const submission of submissions) {
     const row = rowBySubmissionId.get(submission.id) ?? nextRow++;
+    const [existingJudgeOne, existingJudgeTwo] = existingJudgeSlots.get(row) ?? ["", ""];
+    const assignedJudges = submission.roundOneAssignedJudges ?? [];
+    const assignmentDrift =
+      (existingJudgeOne !== "" && assignedJudges[0] !== undefined && existingJudgeOne !== assignedJudges[0]) ||
+      (existingJudgeTwo !== "" && assignedJudges[1] !== undefined && existingJudgeTwo !== assignedJudges[1]);
     rowBySubmissionId.set(submission.id, row);
+    const sourceRow = buildJudgingSubmissionRow(submission);
+    if (assignmentDrift) sourceRow[13] = "assignment drift";
     sourceUpdates.push({
       range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A${row}:N${row}`,
-      values: [buildJudgingSubmissionRow(submission)],
+      values: [sourceRow],
     });
     sourceUpdates.push({
-      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!AA${row}`,
+      range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!Z${row}`,
       values: [[submission.githubUrl ?? ""]],
     });
     if (submission.roundOneAssignedJudges?.length === 2) {
-      sourceUpdates.push(
-        {
-          range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!O${row}`,
-          values: [[submission.roundOneAssignedJudges[0]]],
-        },
-        {
-          range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!S${row}`,
-          values: [[submission.roundOneAssignedJudges[1]]],
-        },
-      );
+      if (!existingJudgeOne) {
+        sheetJudges.add(submission.roundOneAssignedJudges[0]);
+        sourceUpdates.push({ range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!O${row}`, values: [[submission.roundOneAssignedJudges[0]]] });
+      }
+      if (!existingJudgeTwo) {
+        sheetJudges.add(submission.roundOneAssignedJudges[1]);
+        sourceUpdates.push({ range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!S${row}`, values: [[submission.roundOneAssignedJudges[1]]] });
+      }
     }
   }
   for (const [submissionId, row] of rowBySubmissionId) {
     if (!currentSubmissionIds.has(submissionId)) {
       sourceUpdates.push({
         range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!N${row}`,
-        values: [["removed"]],
+        values: [["excluded"]],
       });
     }
   }
@@ -604,6 +625,8 @@ async function syncExistingJudgingSheet({
     endRowIndex,
     basicFilter: managedSheet.basicFilter,
     protectedRanges: managedSheet.protectedRanges ?? [],
+    judges: [...sheetJudges],
+    filterViews: managedSheet.filterViews ?? [],
   });
   if (formatting.length > 0) {
     await sheets.spreadsheets.batchUpdate({

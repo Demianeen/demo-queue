@@ -7,6 +7,7 @@ import {
   buildJudgingSheetValues,
   buildJudgingSubmissionRow,
   buildSyncedBasicFilter,
+  buildFilterViewRequests,
 } from "../lib/judging-sheet.ts";
 import { makeSampleHackathonTeam } from "../lib/sampleData.ts";
 import {
@@ -41,7 +42,7 @@ test("judging sheet keeps submission data and category scoring on one tab", () =
     ],
   });
 
-  assert.equal(JUDGING_HEADERS.length, 27);
+  assert.equal(JUDGING_HEADERS.length, 26);
   assert.equal(values.length, 5);
   assert.deepEqual(values[3], [...JUDGING_HEADERS]);
   assert.equal(values[4].length, JUDGING_HEADERS.length);
@@ -51,25 +52,22 @@ test("judging sheet keeps submission data and category scoring on one tab", () =
   assert.equal(values[4][6], "https://example.com/video");
   assert.equal(values[4][14], "Alex Morgan");
   assert.equal(values[4][18], "Sam Lee");
-  assert.equal(values[4][26], "https://github.com/orbit/launchpad");
+  assert.equal(values[4][25], "https://github.com/orbit/launchpad");
   assert.equal(values[4][22], "");
 
   const formulaColumns = buildJudgingFormulaColumns(1);
   assert.deepEqual(
     formulaColumns.map(({ column }) => column),
-    ["W", "X", "Y", "Z"],
+    ["W", "X", "Y"],
   );
   assert.match(formulaColumns[0].values[0][0], /COUNT\(P5:R5\)=3/);
   assert.match(formulaColumns[0].values[0][0], /COUNT\(T5:V5\)=3/);
-  assert.match(formulaColumns[1].values[0][0], /AVERAGE\(P5:R5,T5:V5\)/);
-  assert.match(formulaColumns[1].values[0][0], /\$N5="withdrawn"/);
-  assert.match(formulaColumns[1].values[0][0], /\$N5="hidden"/);
-  assert.match(formulaColumns[1].values[0][0], /\$N5="no_show"/);
-  assert.match(formulaColumns[1].values[0][0], /\$N5="removed"/);
+  assert.match(formulaColumns[1].values[0][0], /COUNT\(P5:R5\)=3/);
+  assert.match(formulaColumns[1].values[0][0], /COUNT\(T5:V5\)=3/);
+  assert.match(formulaColumns[1].values[0][0], /\$N5="excluded"/);
   assert.match(formulaColumns[2].values[0][0], /\$X\$5:\$X/);
   assert.match(formulaColumns[2].values[0][0], /^=IF\(X5="",""/);
-  assert.match(formulaColumns[3].values[0][0], /^=IF\(X5="",FALSE/);
-  assert.match(formulaColumns[3].values[0][0], /\$H\$2/);
+  assert.equal(formulaColumns.length, 3);
   for (const { values: formulaValues } of formulaColumns) {
     const formula = formulaValues[0][0];
     assert.equal(
@@ -98,7 +96,15 @@ test("judging sheet source updates stop before judge-entered columns", () => {
 
   assert.equal(row.length, 14);
   assert.equal(row[0], "submission-2");
-  assert.equal(row[13], "queued");
+  assert.equal(row[13], "eligible");
+});
+
+test("judging sheet final score accepts one completed review", () => {
+  const finalScoreFormula = buildJudgingFormulaColumns(1)[1].values[0][0];
+
+  assert.match(finalScoreFormula, /,0\)\+IF/);
+  assert.match(finalScoreFormula, /\/W5\)$/);
+  assert.doesNotMatch(finalScoreFormula, /AVERAGE\(IF/);
 });
 
 test("judging sheet sync preserves judge filter and sort configuration", () => {
@@ -125,6 +131,25 @@ test("judging sheet sync preserves judge filter and sort configuration", () => {
     buildSyncedBasicFilter({ tableId: "judging-table" }, { sheetId: 7 }),
     null,
   );
+});
+
+test("judging sheet creates stable judge and score filter views", () => {
+  const requests = buildFilterViewRequests(7, 30, ["Alex Morgan", "Alex Morgan", "Sam \"S\" Lee"]);
+  assert.equal(requests.length, 3);
+  assert.equal(requests[0].addFilterView.filter.title, "Judge: Alex Morgan");
+  assert.match(
+    requests[0].addFilterView.filter.filterSpecs[0].filterCriteria.condition.values[0].userEnteredValue,
+    /OR\(\$O5="Alex Morgan",\$S5="Alex Morgan"\)/,
+  );
+  assert.equal(requests[2].addFilterView.filter.title, "All submissions (score)");
+  assert.equal(requests[2].addFilterView.filter.sortSpecs[0].dimensionIndex, 23);
+  assert.equal(requests[2].addFilterView.filter.sortSpecs[0].sortOrder, "DESCENDING");
+  const repeat = buildFilterViewRequests(7, 31, ["Alex Morgan"], [
+    { filterViewId: 11, title: "Judge: Alex Morgan" },
+    { filterViewId: 12, title: "All submissions (score)" },
+  ]);
+  assert.equal(repeat[0].updateFilterView.filterView.filterViewId, 11);
+  assert.equal(repeat[1].updateFilterView.filterView.filterViewId, 12);
 });
 
 test("hackathon sample data includes a team and valid project fields", () => {

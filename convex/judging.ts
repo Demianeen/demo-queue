@@ -561,10 +561,9 @@ function normalizationState(
   }
   const decisionByJudge = new Map(decisions.map((decision) => [decision.judgeKey, decision]));
   const contributingJudgeKeys = [...reviewsByJudge.keys()];
-  const ready = contributingJudgeKeys.every((judgeKey) => {
-    const decision = decisionByJudge.get(judgeKey);
-    return Boolean(decision && !decision.stale);
-  });
+  // Normalized scores are the default. A fresh explicit raw decision is the
+  // only state that opts one judge out of the adjustment.
+  const ready = true;
   return {
     activeSubmissions,
     completeReviews,
@@ -598,6 +597,8 @@ function normalizationPreviewForJudge(
     decision: decision
       ? { decision: decision.decision, stale: decision.stale }
       : null,
+    effectiveDecision:
+      decision?.decision === "raw" && !decision.stale ? "raw" : "apply",
     reviews: judgeReviews.map((review) => {
       const raw = reviewRow(review)!;
       const values = delta ? adjusted(raw, delta) : { unclamped: raw, clamped: raw };
@@ -696,26 +697,11 @@ export const saveNormalizationDecision = mutation({
         createdAt: now,
       });
     }
-    const nextDecisionByJudge = new Map(state.decisionByJudge);
-    nextDecisionByJudge.set(args.judgeKey, {
-      ...(existing ?? {
-        _id: "pending" as Doc<"normalizationDecisions">["_id"],
-        _creationTime: now,
-        eventId: event._id,
-        judgeKey: args.judgeKey,
-        createdAt: now,
-      }),
-      ...fields,
-    });
-    const ready = state.contributingJudgeKeys.every((judgeKey) => {
-      const decision = nextDecisionByJudge.get(judgeKey);
-      return Boolean(decision && !decision.stale);
-    });
     await ctx.db.patch(event._id, {
-      confirmedScoreBasisVersion: ready ? version : undefined,
+      confirmedScoreBasisVersion: version,
       updatedAt: now,
     });
-    return { scoreBasisReady: ready };
+    return { scoreBasisReady: true };
   },
 });
 
@@ -740,7 +726,8 @@ function scoreSubmissionsWithNormalization(
       const raw = reviewRow(review)!;
       const decision = state.decisionByJudge.get(review.judgeKey);
       const delta = state.deltaByJudge.get(review.judgeKey);
-      if (state.ready && decision?.decision === "apply" && !decision.stale && delta) {
+      const useAdjustment = !decision || decision.stale || decision.decision === "apply";
+      if (state.ready && useAdjustment && delta) {
         adjustedReviewCount += 1;
         return average(adjusted(raw, delta).clamped);
       }

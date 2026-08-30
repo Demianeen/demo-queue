@@ -372,12 +372,22 @@ test("normalization decisions, finalist amendments, and placements stay independ
     slug: "hack",
     adminToken: "admin",
   });
-  expect(initialOverview.scoreBasisReady).toBe(false);
+  expect(initialOverview.scoreBasisReady).toBe(true);
   expect(initialOverview.judges).toHaveLength(2);
   expect(initialOverview.judges.every((judge) => judge.lowData)).toBe(true);
   expect(initialOverview.judges[0].reviews[0]).toMatchObject({
     raw: { innovation: 9, execution: 9, demoClarity: 9 },
     rawAverage: 9,
+  });
+
+  const defaultRanked = await t.query(api.judging.getFinalistDecision, {
+    slug: "hack",
+    adminToken: "admin",
+  });
+  expect(defaultRanked.scoreBasisReady).toBe(true);
+  expect(defaultRanked.submissions[0]).toMatchObject({
+    submissionId: secondId,
+    adjustedReviewCount: 2,
   });
 
   expect(
@@ -387,7 +397,7 @@ test("normalization decisions, finalist amendments, and placements stay independ
       judgeKey: "alex",
       decision: "apply",
     }),
-  ).toEqual({ scoreBasisReady: false });
+  ).toEqual({ scoreBasisReady: true });
   expect(
     await t.mutation(api.judging.saveNormalizationDecision, {
       slug: "hack",
@@ -432,7 +442,7 @@ test("normalization decisions, finalist amendments, and placements stay independ
     slug: "hack",
     adminToken: "admin",
   });
-  expect(staleOverview.scoreBasisReady).toBe(false);
+  expect(staleOverview.scoreBasisReady).toBe(true);
   expect(staleOverview.judges.find((judge) => judge.judgeKey === "alex")?.decision).toEqual({
     decision: "apply",
     stale: true,

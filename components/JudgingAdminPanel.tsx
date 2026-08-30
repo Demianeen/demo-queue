@@ -1,12 +1,13 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { randomToken } from "@/lib/tokens";
 import { absoluteUrl } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
 import { DndContext, closestCenter, type DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
@@ -14,6 +15,8 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from "@dnd-kit/utilities";
 import type { Id } from "@/convex/_generated/dataModel";
 import styles from "./JudgingAdminPanel.module.css";
+
+const SHOW_FINALIST_TOOLS = false;
 
 function formatTimer(ms: number) {
   const seconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
@@ -25,32 +28,146 @@ function judgeKey(value: string) {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
 }
 
-function JudgeReview({ judgeName, review }: {
-  judgeName: string;
-  review?: {
-    innovation?: number;
-    execution?: number;
-    demoClarity?: number;
-    completed: boolean;
-  };
-}) {
-  const values = review ? JUDGING_CRITERIA.map((criterion) => review[criterion]) : [];
-  const average = review?.completed && values.every((value) => value !== undefined)
+type ReviewValues = {
+  innovation?: number;
+  execution?: number;
+  demoClarity?: number;
+  completed: boolean;
+};
+
+type NormalizedReview = {
+  raw: Record<(typeof JUDGING_CRITERIA)[number], number>;
+  clamped: Record<(typeof JUDGING_CRITERIA)[number], number>;
+};
+
+function scoreAverage(review: ReviewValues | NormalizedReview["clamped"] | undefined) {
+  if (!review) return null;
+  const values = JUDGING_CRITERIA.map((criterion) => review[criterion]);
+  return values.every((value) => value !== undefined)
     ? values.reduce<number>((sum, value) => sum + (value ?? 0), 0) / values.length
     : null;
-  const hasScores = values.some((value) => value !== undefined);
+}
+
+function JudgeReview({ judgeName, review, normalizedReview, useNormalized, onToggleNormalization, disabled, open, onOpenChange, lowData, completeReviewCount, popoverAlign }: {
+  judgeName: string;
+  review?: ReviewValues;
+  normalizedReview?: NormalizedReview;
+  useNormalized: boolean;
+  onToggleNormalization: () => void;
+  disabled: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  lowData: boolean;
+  completeReviewCount: number;
+  popoverAlign: "start" | "end";
+}) {
+  const closeTimer = useRef<number | null>(null);
+  const displayReview = useNormalized && normalizedReview ? normalizedReview.clamped : review;
+  const average = review?.completed ? scoreAverage(displayReview) : null;
+  const hasScores = JUDGING_CRITERIA.some((criterion) => review?.[criterion] !== undefined);
+  const rawDescription = hasScores
+    ? JUDGING_CRITERIA.map((criterion) => `${JUDGING_CRITERION_LABELS[criterion]} ${review?.[criterion] ?? "—"}`).join(" · ")
+    : "No scores saved yet";
+  const normalizedDescription = normalizedReview
+    ? JUDGING_CRITERIA.map((criterion) => `${JUDGING_CRITERION_LABELS[criterion]} ${normalizedReview.clamped[criterion].toFixed(1)}`).join(" · ")
+    : "";
+
+  useEffect(() => () => {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+  }, []);
+
+  function keepOpen() {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    onOpenChange(true);
+  }
+
+  function scheduleClose() {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    closeTimer.current = window.setTimeout(() => onOpenChange(false), 140);
+  }
+
+  const chipContent = (
+    <>
+      <span className={styles.judgeName}>{judgeName}</span>
+      {hasScores ? JUDGING_CRITERIA.map((criterion) => {
+        const rawValue = review?.[criterion];
+        const displayValue = displayReview?.[criterion];
+        const change = useNormalized && rawValue !== undefined && displayValue !== undefined
+          ? displayValue - rawValue
+          : 0;
+        return (
+          <span className={styles.judgeCriterion} key={criterion}>
+            <span>{criterion === "innovation" ? "Innovation" : criterion === "execution" ? "Exec" : "Demo"}</span>
+            <strong className={change > 0.005 ? styles.scoreRaised : change < -0.005 ? styles.scoreLowered : undefined}>
+              {displayValue === undefined ? "—" : useNormalized ? displayValue.toFixed(1) : displayValue}
+            </strong>
+          </span>
+        );
+      }) : null}
+      {average === null ? <span className={styles.reviewState}>{hasScores ? "In progress" : "Pending"}</span> : null}
+    </>
+  );
+
+  if (!normalizedReview) {
+    return (
+      <Tooltip>
+        <TooltipTrigger className={average === null ? styles.judgeReviewPending : styles.judgeReview} type="button">
+          {chipContent}
+        </TooltipTrigger>
+        <TooltipContent>{rawDescription}</TooltipContent>
+      </Tooltip>
+    );
+  }
 
   return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger
+        className={average === null ? styles.judgeReviewPending : styles.judgeReview}
+        onFocus={keepOpen}
+        onMouseEnter={keepOpen}
+        onMouseLeave={scheduleClose}
+        type="button"
+      >
+        {chipContent}
+      </PopoverTrigger>
+      <PopoverContent
+        align={popoverAlign}
+        className={styles.judgeScorePopover}
+        initialFocus={false}
+        onMouseEnter={keepOpen}
+        onMouseLeave={scheduleClose}
+        side="top"
+      >
+        <div>
+          <strong>{useNormalized ? "Original scores" : "Normalized scores"}</strong>
+          <p>{useNormalized ? rawDescription : normalizedDescription}</p>
+          {lowData ? <p className={styles.popoverWarning}>Limited data: based on {completeReviewCount} completed review{completeReviewCount === 1 ? "" : "s"}.</p> : null}
+        </div>
+        <Button
+          disabled={disabled}
+          onClick={() => {
+            onToggleNormalization();
+            onOpenChange(false);
+          }}
+          size="sm"
+          variant="outline"
+        >
+          {useNormalized ? `Use raw values for ${judgeName}` : `Use normalized values for ${judgeName}`}
+        </Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function SubmissionScore({ score, rawScore, normalized }: { score: number | null; rawScore: number | null; normalized: boolean }) {
+  if (score === null) return <span className={styles.mutedScore}>Not scored</span>;
+  const change = rawScore === null ? 0 : score - rawScore;
+  const value = <strong className={change > 0.005 ? styles.scoreRaised : change < -0.005 ? styles.scoreLowered : undefined}>{score.toFixed(2)}</strong>;
+  if (!normalized || rawScore === null) return value;
+  return (
     <Tooltip>
-      <TooltipTrigger className={average === null ? styles.judgeReviewPending : styles.judgeReview} type="button">
-        <span>{judgeName}</span>
-        <strong>{average === null ? (hasScores ? "In progress" : "Pending") : average.toFixed(1)}</strong>
-      </TooltipTrigger>
-      <TooltipContent>
-        {hasScores
-          ? JUDGING_CRITERIA.map((criterion) => `${JUDGING_CRITERION_LABELS[criterion]} ${review?.[criterion] ?? "—"}`).join(" · ")
-          : "No scores saved yet"}
-      </TooltipContent>
+      <TooltipTrigger className={styles.scoreTrigger} type="button">{value}</TooltipTrigger>
+      <TooltipContent>Original score: {rawScore.toFixed(2)}</TooltipContent>
     </Tooltip>
   );
 }
@@ -70,7 +187,7 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
   const reopenJudging = useMutation(api.judging.reopenJudging);
   const applyRedistribution = useMutation(api.judging.applyRedistribution);
   const normalization = useQuery(api.judging.getNormalizationOverview, { slug, adminToken });
-  const decision = useQuery(api.judging.getFinalistDecision, { slug, adminToken });
+  const decision = useQuery(api.judging.getFinalistDecision, SHOW_FINALIST_TOOLS ? { slug, adminToken } : "skip");
   const saveNormalization = useMutation(api.judging.saveNormalizationDecision);
   const saveFinalistDraft = useMutation(api.judging.saveFinalistDraft);
   const submitFinalists = useMutation(api.judging.submitFinalists);
@@ -81,6 +198,7 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
   const [minutes, setMinutes] = useState("60");
   const [unavailableJudge, setUnavailableJudge] = useState("");
   const [redistributionOverrides, setRedistributionOverrides] = useState<Record<string, string[]>>({});
+  const [openScorePopover, setOpenScorePopover] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const redistribution = useQuery(
     api.judging.previewRedistribution,
@@ -100,6 +218,45 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
     () => new Map((progress?.reviews ?? []).map((review) => [`${String(review.submissionId)}:${review.judgeKey}`, review])),
     [progress?.reviews],
   );
+  const normalizedByAssignment = useMemo(() => {
+    const map = new Map<string, { review: NormalizedReview; effectiveDecision: "apply" | "raw"; lowData: boolean; completeReviewCount: number }>();
+    for (const judge of normalization?.judges ?? []) {
+      for (const review of judge.reviews ?? []) {
+        map.set(`${String(review.submissionId)}:${judge.judgeKey}`, {
+          review,
+          effectiveDecision: judge.effectiveDecision === "raw" ? "raw" : "apply",
+          lowData: judge.lowData,
+          completeReviewCount: judge.completeReviewCount,
+        });
+      }
+    }
+    return map;
+  }, [normalization?.judges]);
+  const scoringRows = useMemo(() => {
+    const useClosedNormalization = progress?.eventStatus === "closed";
+    return (progress?.scoring ?? []).map((row) => {
+      const contributingScores = row.assignedJudges.flatMap((judgeName) => {
+        const key = `${String(row.submissionId)}:${judgeKey(judgeName)}`;
+        const review = reviewsByAssignment.get(key);
+        if (!review?.completed) return [];
+        const normalized = normalizedByAssignment.get(key);
+        const effectiveReview = useClosedNormalization && normalized?.effectiveDecision === "apply"
+          ? normalized.review.clamped
+          : review;
+        const reviewAverage = scoreAverage(effectiveReview);
+        return reviewAverage === null ? [] : [reviewAverage];
+      });
+      const effectiveScore = contributingScores.length
+        ? contributingScores.reduce((sum, score) => sum + score, 0) / contributingScores.length
+        : null;
+      return { ...row, effectiveScore };
+    }).sort((left, right) => {
+      if (left.effectiveScore === null && right.effectiveScore === null) return left.demoTitle.localeCompare(right.demoTitle);
+      if (left.effectiveScore === null) return 1;
+      if (right.effectiveScore === null) return -1;
+      return right.effectiveScore - left.effectiveScore || left.demoTitle.localeCompare(right.demoTitle);
+    });
+  }, [normalizedByAssignment, progress?.eventStatus, progress?.scoring, reviewsByAssignment]);
   const unavailableJudgeName = access?.find((item) => item.judgeKey === unavailableJudge)?.judgeName;
 
   async function run(label: string, action: () => Promise<unknown>) {
@@ -140,28 +297,56 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
         <p className={styles.help}>
           {progress?.eventStatus === "setup"
             ? "Assign submissions to distribute two judges per entry. Open judging only when the assignments look right."
-            : `${complete} of ${progress?.totalSubmissions ?? 0} submissions have at least one complete review. Hover a judge score to see the three criteria.`}
+            : progress?.eventStatus === "closed"
+              ? `${complete} of ${progress?.totalSubmissions ?? 0} submissions have at least one complete review. Sorted by normalized score. Hover an adjusted value to see the original score.`
+              : `${complete} of ${progress?.totalSubmissions ?? 0} submissions have at least one complete review. Started reviews show all three criteria.`}
         </p>
         <div className={styles.tableWrap}>
           <table className={styles.table}>
-            <thead><tr><th>Submission</th><th>Judge reviews</th><th>Status</th></tr></thead>
+            <thead><tr><th>Submission</th><th>Judge reviews</th><th>Score</th><th>Status</th></tr></thead>
             <tbody>
-              {progress?.scoring.map((row) => (
+              {scoringRows.map((row) => (
                 <tr key={String(row.submissionId)}>
                   <td>{row.demoTitle}</td>
                   <td>
                     {row.assignedJudges.length > 0 ? (
                       <div className={styles.judgeReviews}>
-                        {row.assignedJudges.map((judgeName) => (
-                          <JudgeReview
-                            judgeName={judgeName}
-                            key={judgeName}
-                            review={reviewsByAssignment.get(`${String(row.submissionId)}:${judgeKey(judgeName)}`)}
-                          />
-                        ))}
+                        {row.assignedJudges.map((judgeName, judgeIndex) => {
+                          const key = `${String(row.submissionId)}:${judgeKey(judgeName)}`;
+                          const normalized = normalizedByAssignment.get(key);
+                          return (
+                            <JudgeReview
+                              disabled={busy}
+                              completeReviewCount={normalized?.completeReviewCount ?? 0}
+                              judgeName={judgeName}
+                              key={judgeName}
+                              onOpenChange={(nextOpen) => setOpenScorePopover((current) =>
+                                nextOpen ? key : current === key ? null : current,
+                              )}
+                              onToggleNormalization={() => void run(
+                                normalized?.effectiveDecision === "apply"
+                                  ? `${judgeName} now uses raw scores.`
+                                  : `${judgeName} now uses normalized scores.`,
+                                () => saveNormalization({
+                                  slug,
+                                  adminToken,
+                                  judgeKey: judgeKey(judgeName),
+                                  decision: normalized?.effectiveDecision === "apply" ? "raw" : "apply",
+                                }),
+                              )}
+                              review={reviewsByAssignment.get(key)}
+                              normalizedReview={normalized?.review}
+                              open={openScorePopover === key}
+                              lowData={normalized?.lowData ?? false}
+                              popoverAlign={judgeIndex === 0 ? "end" : "start"}
+                              useNormalized={progress?.eventStatus === "closed" && normalized?.effectiveDecision === "apply"}
+                            />
+                          );
+                        })}
                       </div>
                     ) : "Not assigned"}
                   </td>
+                  <td><SubmissionScore score={row.effectiveScore} rawScore={row.score} normalized={progress?.eventStatus === "closed"} /></td>
                   <td>{row.assignedJudges.length === 0 ? "Waiting for assignment" : `${row.completeReviewCount} of ${row.assignedJudges.length} complete`}</td>
                 </tr>
               ))}
@@ -247,16 +432,17 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
         ) : null}
       </div>
       {message ? <p className={styles.message} role="status">{message}</p> : null}
-      <NormalizationSection slug={slug} adminToken={adminToken} overview={normalization} saveDecision={saveNormalization} />
-      <DecisionSection
-        slug={slug}
-        adminToken={adminToken}
-        decision={decision}
-        saveFinalistDraft={saveFinalistDraft}
-        submitFinalists={submitFinalists}
-        savePlacementDraft={savePlacementDraft}
-        submitPlacements={submitPlacements}
-      />
+      {SHOW_FINALIST_TOOLS ? (
+        <DecisionSection
+          slug={slug}
+          adminToken={adminToken}
+          decision={decision}
+          saveFinalistDraft={saveFinalistDraft}
+          submitFinalists={submitFinalists}
+          savePlacementDraft={savePlacementDraft}
+          submitPlacements={submitPlacements}
+        />
+      ) : null}
     </section>
   );
 }
@@ -277,112 +463,6 @@ function DraggableSubmissionRow({ id, children, subdued }: { id: string; childre
 function DecisionDropZone({ id, children }: { id: string; children: ReactNode }) {
   const droppable = useDroppable({ id });
   return <div ref={droppable.setNodeRef}>{children}</div>;
-}
-
-function NormalizationSection({ slug, adminToken, overview, saveDecision }: { slug: string; adminToken: string; overview: any; saveDecision: (args: any) => Promise<unknown> }) {
-  if (!overview || overview.judgingStatus !== "closed") return null;
-  const judgesWithReviews = overview.judges.filter((judge: any) => judge.completeReviewCount > 0);
-
-  return (
-    <div className={styles.card}>
-      <div className={styles.sectionHeading}>
-        <div>
-          <h3>Score normalization</h3>
-          <p className={styles.help}>Review each judge, then choose which scores should count. Nothing changes until you approve a choice.</p>
-        </div>
-        <span className={styles.status}>{overview.scoreBasisReady ? "Ready" : "Decision needed"}</span>
-      </div>
-      <div className={styles.normalizationList}>
-        {judgesWithReviews.map((judge: any) => {
-          const averageChange = judge.reviews.reduce(
-            (sum: number, review: any) => sum + (review.adjustedAverage - review.rawAverage),
-            0,
-          ) / judge.reviews.length;
-          const changeDescription = Math.abs(averageChange) < 0.005
-            ? "Normalization leaves this judge's average unchanged."
-            : `Normalization ${averageChange > 0 ? "raises" : "lowers"} this judge's scores by ${Math.abs(averageChange).toFixed(2)} points on average.`;
-          const decisionLabel = judge.decision && !judge.decision.stale
-            ? judge.decision.decision === "apply" ? "Using normalized scores" : "Using raw scores"
-            : judge.decision?.stale ? "Review again" : "Choose an option";
-
-          return (
-            <section className={styles.normalizationCard} key={judge.judgeKey}>
-              <div className={styles.normalizationHeader}>
-                <div>
-                  <h4>{judge.judgeName}</h4>
-                  <p>{judge.completeReviewCount} completed review{judge.completeReviewCount === 1 ? "" : "s"}</p>
-                </div>
-                <div className={styles.normalizationBadges}>
-                  {judge.lowData ? <span className={styles.lowDataBadge}>Limited data</span> : null}
-                  <span className={styles.decisionBadge}>{decisionLabel}</span>
-                </div>
-              </div>
-
-              <div className={styles.normalizationSummary}>
-                <strong>{changeDescription}</strong>
-                {judge.lowData ? <span>Based on fewer than five completed reviews. You can still choose either option.</span> : null}
-              </div>
-
-              <div className={styles.tableWrap}>
-                <table className={`${styles.table} ${styles.normalizationPreview}`}>
-                  <thead><tr><th>Project</th><th>Raw score</th><th>Normalized score</th><th>Change</th></tr></thead>
-                  <tbody>
-                    {judge.reviews.map((review: any) => {
-                      const change = review.adjustedAverage - review.rawAverage;
-                      return (
-                        <tr key={String(review.submissionId)}>
-                          <td>{review.demoTitle}</td>
-                          <td>{review.rawAverage.toFixed(2)}</td>
-                          <td>{review.adjustedAverage.toFixed(2)}</td>
-                          <td className={change > 0.005 ? styles.positiveChange : change < -0.005 ? styles.negativeChange : undefined}>
-                            {change > 0.005 ? "+" : ""}{change.toFixed(2)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className={styles.normalizationChoices} aria-label={`Score basis for ${judge.judgeName}`}>
-                <Button
-                  variant={judge.decision?.decision === "raw" && !judge.decision.stale ? "default" : "outline"}
-                  onClick={() => void saveDecision({ slug, adminToken, judgeKey: judge.judgeKey, decision: "raw" })}
-                >
-                  Keep raw scores
-                </Button>
-                <Button
-                  variant={judge.decision?.decision === "apply" && !judge.decision.stale ? "default" : "outline"}
-                  onClick={() => void saveDecision({ slug, adminToken, judgeKey: judge.judgeKey, decision: "apply" })}
-                >
-                  Use normalized scores
-                </Button>
-              </div>
-
-              <details className={styles.calculationDetails}>
-                <summary>Show calculation details</summary>
-                <div className={styles.tableWrap}>
-                  <table className={styles.table}>
-                    <thead><tr><th>Project</th><th>Criterion adjustment (I/E/D)</th><th>Before clamping (I/E/D)</th><th>After clamping (I/E/D)</th></tr></thead>
-                    <tbody>
-                      {judge.reviews.map((review: any) => (
-                        <tr key={String(review.submissionId)}>
-                          <td>{review.demoTitle}</td>
-                          <td>{JUDGING_CRITERIA.map((criterion) => review.delta?.[criterion]?.toFixed(2) ?? "0.00").join(" · ")}</td>
-                          <td>{JUDGING_CRITERIA.map((criterion) => review.unclamped?.[criterion]?.toFixed(2) ?? "—").join(" · ")}</td>
-                          <td>{JUDGING_CRITERIA.map((criterion) => review.clamped?.[criterion]?.toFixed(2) ?? "—").join(" · ")}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
-            </section>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 function DecisionSection({ slug, adminToken, decision, saveFinalistDraft, submitFinalists, savePlacementDraft, submitPlacements }: { slug: string; adminToken: string; decision: any; saveFinalistDraft: (args: any) => Promise<unknown>; submitFinalists: (args: any) => Promise<unknown>; savePlacementDraft: (args: any) => Promise<unknown>; submitPlacements: (args: any) => Promise<unknown> }) {

@@ -266,6 +266,8 @@ test("judging sheet creates stable judge and score filter views", () => {
 
 test("hackathon sample data includes a team and valid project fields", () => {
   const sample = makeSampleHackathonTeam();
+  const youtubeSample = makeSampleHackathonTeam(0);
+  const genericIframeSample = makeSampleHackathonTeam(1);
 
   assert.ok(sample.teamName.length > 0 && sample.teamName.length <= 80);
   assert.ok(sample.teamMembers.length >= 1 && sample.teamMembers.length <= 3);
@@ -274,6 +276,10 @@ test("hackathon sample data includes a team and valid project fields", () => {
   assert.ok(sample.demoTitle.length <= 64);
   assert.ok(sample.description.length <= 240);
   assert.match(sample.email, /@example\.com$/);
+  assert.match(sample.githubUrl, /^https:\/\/github\.com\//);
+  assert.match(sample.videoUrl, /^https:\/\//);
+  assert.match(youtubeSample.videoUrl, /youtube\.com/);
+  assert.match(genericIframeSample.videoUrl, /player\.vimeo\.com/);
 });
 
 test("event UI state stays non-live until publishing and finishes cleanly", () => {

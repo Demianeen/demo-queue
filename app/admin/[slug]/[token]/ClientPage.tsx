@@ -924,8 +924,8 @@ export default function AdminPage() {
     try {
       for (let start = 0; start < safeCount; start += batchSize) {
         const batchCount = Math.min(batchSize, safeCount - start);
-        const submissions = Array.from({ length: batchCount }, () => {
-          const sample = isHackathonEvent ? makeSampleHackathonTeam() : makeSamplePerson();
+        const submissions = Array.from({ length: batchCount }, (_, batchIndex) => {
+          const sample = isHackathonEvent ? makeSampleHackathonTeam(start + batchIndex) : makeSamplePerson();
           return {
             participantToken: randomToken(32),
             ...sample,
@@ -1304,7 +1304,7 @@ export default function AdminPage() {
                       </h2>
                       <p>
                         {isHackathonEvent
-                          ? "Add generated submissions with team and project details to All submissions. Test submissions do not include uploaded videos."
+                          ? "Add generated submissions with team, project, working video, and README-backed GitHub links to All submissions."
                           : "Add generated people to All people. Move any of them into Demoers to test presenter flow."}
                       </p>
                     </div>

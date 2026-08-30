@@ -10,7 +10,7 @@ updated: 2026-08-30
 
 ## Outcome
 
-Add one private hackathon judging round to the existing Demo Queue app. Judges score assigned submissions from private links. The existing event admin runs judging, approves normalization per judge, selects and submits finalists, and records ordered first-through-third placements.
+Add one private hackathon judging round to the existing Demo Queue app. Judges score assigned submissions from private links. The existing event admin runs judging and can switch individual judges between normalized and raw scoring. Finalist and placement storage remains available, but its admin UI is hidden for this version.
 
 Keep the current Google Sheet as a deliberately simple fallback. Demo events remain unchanged.
 
@@ -36,8 +36,8 @@ These are accepted decisions, not questions to reconfirm unless implementation r
 13. Normalization is mean-centering per judge and criterion: `raw - judge mean + event mean`.
 14. Adjusted scores are clamped to 0-10. The admin can see the raw score, proposed delta, unclamped value when relevant, and final clamped value.
 15. A judge with fewer than five complete reviews gets a low-data warning, but the admin may still choose the adjustment.
-16. Normalization approval is per judge: `Apply adjustment` or `Keep raw`. The combined score basis becomes ready automatically once every judge with at least one complete review has a fresh choice. There is no extra confirmation step.
-17. Any contributing score edit recomputes normalization, marks only that judge's choice stale, and makes the combined score basis unready until that judge chooses again. Partial autosaves do not invalidate normalization.
+16. Normalization is applied by default per judge. The admin can switch one judge to `Use raw values` from any of that judge's score popovers; there is no extra confirmation step.
+17. Any contributing score edit recomputes normalization. A stale raw override returns to the normalized default, while partial autosaves do not change the score basis.
 18. The finalist deliberation view keeps all submissions on the left, sorted by the confirmed score basis, and an ordered finalist draft on the right. Unreviewed submissions remain visible.
 19. The admin can drag submissions into, out of, and within the finalist draft. Selected submissions remain visible and subdued on the left.
 20. `Submit finalists` stores the current finalist list in Convex and changes only finalist status on each affected participant's private submission page.
@@ -55,7 +55,13 @@ These are accepted decisions, not questions to reconfirm unless implementation r
 32. Judge scoring uses visible segmented 0–10 number controls matching the selected judge-workspace design. Mobile and iPad judge layouts are not part of this delivery.
 33. Admin judging progress uses one row per submission. Each assigned judge is shown with their review average or pending state, and hovering or focusing the judge review reveals Innovation, Execution, and Demo clarity values.
 34. Coverage and raw scores are not duplicated as separate admin tables; completion remains visible in the consolidated table status.
-35. Normalization approval is decision-first for each judge: show a plain-language average impact, a four-column Raw versus Normalized preview, and explicit Keep raw scores or Use normalized scores choices. Criterion deltas, unclamped values, and clamped values remain available in collapsed calculation details.
+35. Normalization controls live in each judge's score popover in the main progress table. The popover shows the alternate values and switches every review from that judge between raw and normalized scores. There is no separate normalization table.
+36. Normalized scores are the default score basis. A fresh explicit `Keep raw scores` choice overrides that default for one judge; a missing or stale choice uses the latest normalized values.
+37. The judging-progress table remains visible after judging closes. It is sorted by the effective score, shows all three criterion values for every judge without hovering, and uses normalized values by default. Hovering or focusing an adjusted review reveals its original raw values. Green means the value increased; red means it decreased.
+38. The finalist and placement admin workspace is hidden for this version. Its stored data and backend functions remain unchanged for possible later use.
+39. Judge pages embed YouTube links with the YouTube player and embed other valid HTTPS video links in a generic iframe.
+40. Admin-generated hackathon test submissions include working video and README-backed GitHub links so the complete judge workspace can be checked without manual data entry.
+41. A judge score popover closes when the pointer leaves both the score chip and popover. The first judge's popover extends left and the second extends right so the other judge's scores remain visible.
 
 ## Google Sheet Fallback
 

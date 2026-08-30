@@ -75,6 +75,16 @@ function youtubeEmbedUrl(value: string | null) {
   }
 }
 
+function genericVideoEmbedUrl(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function Readme({ repositoryUrl }: { repositoryUrl: string | null }) {
   const [state, setState] = useState<{
     status: "idle" | "loading" | "ready" | "error";
@@ -219,7 +229,8 @@ export default function JudgeClientPage() {
   const currentScores = selected ? scores[String(selected.id)] ?? {} : {};
   const currentSaveState = selected ? saveState[String(selected.id)] : undefined;
   const currentComplete = scoreIsComplete(currentScores);
-  const embedUrl = youtubeEmbedUrl(selected?.videoUrl ?? null);
+  const youtubeUrl = youtubeEmbedUrl(selected?.videoUrl ?? null);
+  const embedUrl = youtubeUrl ?? genericVideoEmbedUrl(selected?.videoUrl ?? null);
   const saveStateClass = currentSaveState === "error"
     ? styles.saveError
     : currentSaveState === "saved" || currentComplete
@@ -283,7 +294,14 @@ export default function JudgeClientPage() {
               </div>
               {embedUrl ? (
                 <div className={styles.videoFrame}>
-                  <iframe allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" src={embedUrl} title={`${selected.demoTitle} demo video`} />
+                  <iframe
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    sandbox={youtubeUrl ? undefined : "allow-forms allow-presentation allow-same-origin allow-scripts"}
+                    src={embedUrl}
+                    title={`${selected.demoTitle} demo video`}
+                  />
                 </div>
               ) : selected.videoUrl ? (
                 <a className={styles.videoFallback} href={selected.videoUrl} target="_blank" rel="noreferrer">Open the demo video <ExternalLinkIcon /></a>

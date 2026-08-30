@@ -406,10 +406,19 @@ export const getAdminProgress = query({
   args: { slug: v.string(), adminToken: v.string() },
   handler: async (ctx, args) => {
     const event = await adminEvent(ctx, args.slug, args.adminToken);
-    const submissions = (await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000)).filter(isJudgingSubmission);
-    const reviews = await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000);
-    const access = await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(100);
+    const [allSubmissions, reviews, access, teamMembers] = await Promise.all([
+      ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
+      ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000),
+      ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(100),
+      ctx.db.query("teamMembers").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
+    ]);
+    const submissions = allSubmissions.filter(isJudgingSubmission);
     const nameByJudgeKey = new Map(access.map((judge) => [judge.judgeKey, judge.judgeName]));
+    const teamMembersBySubmission = new Map<string, string[]>();
+    for (const member of teamMembers) {
+      const key = String(member.submissionId);
+      teamMembersBySubmission.set(key, [...(teamMembersBySubmission.get(key) ?? []), member.name]);
+    }
     return {
       eventStatus: event.judgingStatus ?? "setup",
       submissionsClosedAt: event.submissionsClosedAt ?? null,
@@ -417,6 +426,10 @@ export const getAdminProgress = query({
       totalSubmissions: submissions.length,
       scoring: scoreSubmissions(submissions, reviews).map((row) => ({
         ...row,
+        teamMembers: [
+          row.presenterName,
+          ...(teamMembersBySubmission.get(String(row.submissionId)) ?? []),
+        ],
         assignedJudges:
           submissions.find((submission) => submission._id === row.submissionId)
             ?.roundOneAssignedJudges ?? [],
@@ -431,6 +444,61 @@ export const getAdminProgress = query({
         completed: review.completed,
         updatedAt: review.updatedAt,
       })),
+    };
+  },
+});
+
+export const getAdminSubmissionReview = query({
+  args: {
+    slug: v.string(),
+    adminToken: v.string(),
+    submissionId: v.id("submissions"),
+  },
+  handler: async (ctx, args) => {
+    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const submission = await ctx.db.get(args.submissionId);
+    if (
+      !submission ||
+      submission.eventId !== event._id ||
+      !isJudgingSubmission(submission)
+    ) {
+      throw new ConvexError("Submission not found.");
+    }
+
+    const [teamMembers, reviews] = await Promise.all([
+      ctx.db
+        .query("teamMembers")
+        .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
+        .take(20),
+      ctx.db
+        .query("reviews")
+        .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
+        .take(100),
+    ]);
+    const assignedJudges = submission.roundOneAssignedJudges ?? [];
+
+    return {
+      eventName: event.name,
+      submission: {
+        id: submission._id,
+        demoTitle: submission.demoTitle,
+        description: submission.description,
+        name: submission.name,
+        category: submission.category,
+        githubUrl: submission.githubUrl ?? null,
+        videoUrl: submission.videoUrl ?? null,
+        people: [submission.name, ...teamMembers.map((member) => member.name)],
+      },
+      reviews: assignedJudges.map((judgeName) => {
+        const review = reviews.find((candidate) => sameJudge(candidate.judgeKey, judgeName));
+        return {
+          judgeName,
+          innovation: review?.innovation,
+          execution: review?.execution,
+          demoClarity: review?.demoClarity,
+          completed: review?.completed ?? false,
+        };
+      }),
     };
   },
 });

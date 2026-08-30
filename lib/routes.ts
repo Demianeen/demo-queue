@@ -17,6 +17,10 @@ export function adminPath(slug: string, token: string) {
   return `/admin/${slug}/${token}`;
 }
 
+export function adminReviewPath(slug: string, token: string, submissionId: string) {
+  return `${adminPath(slug, token)}/review/${submissionId}`;
+}
+
 export function participantPath(slug: string, token: string) {
   return `/s/${slug}/${token}`;
 }

@@ -2,10 +2,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { randomToken } from "@/lib/tokens";
-import { absoluteUrl } from "@/lib/routes";
+import { absoluteUrl, adminReviewPath } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -328,7 +329,17 @@ export function JudgingAdminPanel({
             <tbody>
               {scoringRows.map((row) => (
                 <tr key={String(row.submissionId)}>
-                  <td>{row.demoTitle}</td>
+                  <td>
+                    <div className={styles.submissionIdentity}>
+                      <Link
+                        className={styles.submissionLink}
+                        href={adminReviewPath(slug, adminToken, String(row.submissionId))}
+                      >
+                        {row.demoTitle}
+                      </Link>
+                      <small className={styles.submissionPeople}>{row.teamMembers.join(", ")}</small>
+                    </div>
+                  </td>
                   <td>
                     {row.assignedJudges.length > 0 ? (
                       <div className={styles.judgeReviews}>

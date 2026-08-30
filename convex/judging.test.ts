@@ -188,6 +188,14 @@ test("visual style is available to stage and private participant pages", async (
 test("judge links isolate access and a single complete review produces a score", async () => {
   const { t, eventId } = await createHackathon(["Alex", "Sam"]);
   const submissionId = await addSubmission(t, eventId, 1);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("teamMembers", {
+      eventId,
+      submissionId,
+      name: "Teammate 1",
+      createdAt: Date.now(),
+    });
+  });
   await t.mutation(api.judging.createJudgeAccess, {
     slug: "hack",
     adminToken: "admin",
@@ -255,6 +263,7 @@ test("judge links isolate access and a single complete review produces a score",
     assignedJudges: expect.arrayContaining(["Alex"]),
     completeReviewCount: 1,
     score: 8,
+    teamMembers: ["Person 1", "Teammate 1"],
     warning: "Only one complete review",
   });
   expect(progress.reviews[0]).toMatchObject({
@@ -263,6 +272,28 @@ test("judge links isolate access and a single complete review produces a score",
     execution: 7,
     demoClarity: 9,
     completed: true,
+  });
+  expect(
+    await t.query(api.judging.getAdminSubmissionReview, {
+      slug: "hack",
+      adminToken: "admin",
+      submissionId,
+    }),
+  ).toMatchObject({
+    eventName: "Hack",
+    submission: {
+      id: submissionId,
+      people: ["Person 1", "Teammate 1"],
+    },
+    reviews: expect.arrayContaining([
+      {
+        judgeName: "Alex",
+        innovation: 8,
+        execution: 7,
+        demoClarity: 9,
+        completed: true,
+      },
+    ]),
   });
   expect(
     await t.query(api.judging.getMyAssignments, {

@@ -15,6 +15,10 @@
 .table { border-collapse: collapse; font-size: 12px; min-width: 620px; width: 100%; }
 .table th, .table td { border-bottom: 1px solid var(--app-line); padding: 7px; text-align: left; vertical-align: top; }
 .table th { color: var(--app-muted); font-size: 11px; text-transform: uppercase; }
+.submissionIdentity { display: grid; gap: 3px; min-width: 150px; }
+.submissionLink { color: var(--app-ink); font-weight: 750; text-decoration-color: color-mix(in srgb, var(--app-ink) 28%, transparent); text-underline-offset: 3px; }
+.submissionLink:hover { color: var(--primary); text-decoration-color: currentColor; }
+.submissionPeople { color: var(--app-muted); font-size: 10px; line-height: 1.35; }
 .judgeReviews { display: flex; flex-wrap: wrap; gap: 6px; }
 .judgeReview, .judgeReviewPending { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-height: 34px; padding: 5px 9px; border: 1px solid var(--app-line); border-radius: 9px; background: color-mix(in srgb, var(--app-paper) 86%, white); color: var(--app-ink); font: inherit; cursor: help; }
 .judgeName { font-weight: 700; }

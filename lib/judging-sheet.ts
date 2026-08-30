@@ -62,6 +62,9 @@ export const JUDGING_HEADERS = [
 
 export const ROUND_ONE_SCORE_COLUMN_INDICES = [15, 16, 17, 19, 20, 21] as const;
 export const FORMULA_COLUMN_RANGES = [{ startColumnIndex: 22, endColumnIndex: 26 }] as const;
+const PRE_STAGE_FINALIST_JUDGING_HEADERS = JUDGING_HEADERS.filter(
+  (header) => header !== "Stage finalist",
+);
 export type JudgingFormulaColumn = {
   column: string;
   values: string[][];
@@ -71,12 +74,17 @@ export const ALL_SUBMISSIONS_FILTER_VIEW_TITLE = "All submissions (score)";
 export const judgeFilterViewTitle = (judge: string) => `Judge: ${judge}`;
 
 export function isCompatibleJudgingSheetHeaders(headers: unknown[]) {
-  return (
-    headers[0] === "Submission ID" &&
-    headers[14] === "Judge 1" &&
-    headers[25] === "Stage finalist" &&
-    headers[26] === "GitHub"
-  );
+  return matchesJudgingSheetHeaders(headers, JUDGING_HEADERS) ||
+    matchesJudgingSheetHeaders(headers, PRE_STAGE_FINALIST_JUDGING_HEADERS);
+}
+
+export function hasPreStageFinalistJudgingSheetHeaders(headers: unknown[]) {
+  return matchesJudgingSheetHeaders(headers, PRE_STAGE_FINALIST_JUDGING_HEADERS);
+}
+
+function matchesJudgingSheetHeaders(headers: unknown[], expectedHeaders: readonly string[]) {
+  return headers.length === expectedHeaders.length &&
+    expectedHeaders.every((header, index) => headers[index] === header);
 }
 
 export function buildFilterViewRequests(
@@ -199,8 +207,8 @@ export function buildJudgingFormulaColumns(submissionCount: number): JudgingForm
   const formulas = Array.from({ length: submissionCount }, (_, index) => {
     const row = JUDGING_DATA_START_ROW + index;
     return {
-      completedJudges: `=IF(AND(LEN(TRIM(O${row}))>0,COUNT(P${row}:R${row})=3),1,0)+IF(AND(LEN(TRIM(S${row}))>0,COUNT(T${row}:V${row})=3),1,0)`,
-      finalScore: `=IF(OR($N${row}="excluded",W${row}=0),"",(IF(AND(LEN(TRIM(O${row}))>0,COUNT(P${row}:R${row})=3),AVERAGE(P${row}:R${row}),0)+IF(AND(LEN(TRIM(S${row}))>0,COUNT(T${row}:V${row})=3),AVERAGE(T${row}:V${row}),0))/W${row})`,
+      completedJudges: `=IF(COUNT(P${row}:R${row})=3,1,0)+IF(COUNT(T${row}:V${row})=3,1,0)`,
+      finalScore: `=IF(OR($N${row}="excluded",W${row}=0),"",(IF(COUNT(P${row}:R${row})=3,AVERAGE(P${row}:R${row}),0)+IF(COUNT(T${row}:V${row})=3,AVERAGE(T${row}:V${row}),0))/W${row})`,
       rank: `=IF(X${row}="","",RANK(X${row},$X$${JUDGING_DATA_START_ROW}:$X,0))`,
       finalist: `=IF(X${row}="",FALSE,COUNTIF($X$${JUDGING_DATA_START_ROW}:$X,">"&X${row})+COUNTIF($X$${JUDGING_DATA_START_ROW}:X${row},X${row})<=${FINALIST_COUNT})`,
     };

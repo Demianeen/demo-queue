@@ -8,9 +8,14 @@ import {
   buildJudgingSubmissionRow,
   buildSyncedBasicFilter,
   buildFilterViewRequests,
+  hasPreStageFinalistJudgingSheetHeaders,
   isCompatibleJudgingSheetHeaders,
 } from "../lib/judging-sheet.ts";
 import { makeSampleHackathonTeam } from "../lib/sampleData.ts";
+import {
+  googleApiFailure,
+  googleApiReason,
+} from "../lib/google-api-error.ts";
 import {
   completedQueueLabel,
   isJudgingSheetSyncPending,
@@ -104,7 +109,7 @@ test("judging sheet source updates stop before judge-entered columns", () => {
   assert.equal(row[13], "eligible");
 });
 
-test("judging sheet accepts the production stage-finalist layout", () => {
+test("judging sheet accepts current and pre-stage-finalist production layouts", () => {
   const productionHeaders = [
     "Submission ID",
     "Team",
@@ -140,13 +145,24 @@ test("judging sheet accepts the production stage-finalist layout", () => {
     isCompatibleJudgingSheetHeaders(
       productionHeaders.filter((header) => header !== "Stage finalist"),
     ),
-    false,
+    true,
   );
+  assert.equal(
+    hasPreStageFinalistJudgingSheetHeaders(
+      productionHeaders.filter((header) => header !== "Stage finalist"),
+    ),
+    true,
+  );
+  assert.equal(hasPreStageFinalistJudgingSheetHeaders(productionHeaders), false);
+  assert.equal(isCompatibleJudgingSheetHeaders([...productionHeaders, "Unexpected"]), false);
 });
 
-test("judging sheet final score accepts one completed review", () => {
+test("judging sheet final score accepts one completed unassigned review", () => {
+  const completedJudgesFormula = buildJudgingFormulaColumns(1)[0].values[0][0];
   const finalScoreFormula = buildJudgingFormulaColumns(1)[1].values[0][0];
 
+  assert.doesNotMatch(completedJudgesFormula, /TRIM\(O5\)|TRIM\(S5\)/);
+  assert.doesNotMatch(finalScoreFormula, /TRIM\(O5\)|TRIM\(S5\)/);
   assert.match(finalScoreFormula, /,0\)\+IF/);
   assert.match(finalScoreFormula, /\/W5\)$/);
   assert.doesNotMatch(finalScoreFormula, /AVERAGE\(IF/);
@@ -170,6 +186,27 @@ test("failed judging sheet sync can be retried", () => {
     }),
     true,
   );
+});
+
+test("Google API errors distinguish invalid requests from expired authorization", () => {
+  const invalidRequest = {
+    response: {
+      status: 400,
+      data: { error: { status: "INVALID_ARGUMENT" } },
+    },
+  };
+  assert.equal(googleApiReason(invalidRequest), "INVALID_ARGUMENT");
+  assert.equal(
+    googleApiFailure(invalidRequest),
+    "Google rejected the judging sheet update (INVALID_ARGUMENT).",
+  );
+  assert.doesNotMatch(googleApiFailure(invalidRequest), /authorization/i);
+
+  assert.match(
+    googleApiFailure({ response: { status: 400, data: { error: "invalid_grant" } } }),
+    /authorization/i,
+  );
+  assert.match(googleApiFailure({ response: { status: 401 } }), /authorization/i);
 });
 
 test("judging sheet sync preserves judge filter and sort configuration", () => {

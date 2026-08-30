@@ -6,6 +6,11 @@ import { api, internal } from "./_generated/api";
 import { google, type sheets_v4 } from "googleapis";
 import { randomUUID } from "node:crypto";
 import {
+  googleApiFailure,
+  googleApiReason,
+  googleApiStatus,
+} from "../lib/google-api-error";
+import {
   FORMULA_COLUMN_RANGES,
   JUDGING_CATEGORY_COUNT,
   JUDGING_DATA_START_ROW,
@@ -20,6 +25,7 @@ import {
   buildJudgingSheetValues,
   buildJudgingSubmissionRow,
   buildFilterViewRequests,
+  hasPreStageFinalistJudgingSheetHeaders,
   isCompatibleJudgingSheetHeaders,
   type JudgingSheetSubmission,
 } from "../lib/judging-sheet";
@@ -40,30 +46,6 @@ function googleAuth() {
   const auth = new google.auth.OAuth2(clientId, clientSecret);
   auth.setCredentials({ refresh_token: refreshToken });
   return auth;
-}
-
-function googleApiStatus(error: unknown) {
-  if (typeof error !== "object" || error === null) return undefined;
-  const candidate = error as { code?: unknown; response?: { status?: unknown } };
-  if (typeof candidate.code === "number") return candidate.code;
-  return typeof candidate.response?.status === "number" ? candidate.response.status : undefined;
-}
-
-function googleApiFailure(error: unknown) {
-  const status = googleApiStatus(error);
-  if (status === 400 || status === 401) {
-    return "Google authorization is no longer valid. Run the OAuth setup helper again.";
-  }
-  if (status === 403) {
-    return "The connected Google account does not have permission to update the judging sheet.";
-  }
-  if (status === 404) {
-    return "Google could not find the configured Drive file.";
-  }
-  if (status === 429) {
-    return "Google temporarily rate-limited the judging sheet export. Try again shortly.";
-  }
-  return status ? `Google API request failed with status ${status}.` : "Google API request failed.";
 }
 
 function quoteSheetTitle(title: string) {
@@ -448,8 +430,7 @@ function syncFormattingRequests({
     const existingProtection = protectedRanges.find(
       (protectedRange) =>
         protectedRange.description === "Formula cells" &&
-        protectedRange.range?.startColumnIndex === range.startColumnIndex &&
-        protectedRange.range?.endColumnIndex === range.endColumnIndex,
+        protectedRange.range?.startColumnIndex === range.startColumnIndex,
     );
     if (existingProtection?.protectedRangeId !== undefined) {
       requests.push({
@@ -525,6 +506,24 @@ async function syncExistingJudgingSheet({
   if (legacyLayout || !currentLayout) {
     throw new ConvexError("The existing Judging tab has an incompatible layout; it was left untouched.");
   }
+  if (hasPreStageFinalistJudgingSheetHeaders(existingHeaders)) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          insertDimension: {
+            range: {
+              sheetId,
+              dimension: "COLUMNS",
+              startIndex: 25,
+              endIndex: 26,
+            },
+            inheritFromBefore: true,
+          },
+        }],
+      },
+    });
+  }
 
   const existingIdsResponse = await sheets.spreadsheets.values.get({
     spreadsheetId,
@@ -595,14 +594,20 @@ async function syncExistingJudgingSheet({
       range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!AA${row}`,
       values: [[submission.githubUrl ?? ""]],
     });
-    if (submission.roundOneAssignedJudges?.length === 2) {
+    if (assignedJudges.length === 2) {
       if (!existingJudgeOne) {
-        sheetJudges.add(submission.roundOneAssignedJudges[0]);
-        sourceUpdates.push({ range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!O${row}`, values: [[submission.roundOneAssignedJudges[0]]] });
+        sheetJudges.add(assignedJudges[0]);
+        sourceUpdates.push({
+          range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!O${row}`,
+          values: [[assignedJudges[0]]],
+        });
       }
       if (!existingJudgeTwo) {
-        sheetJudges.add(submission.roundOneAssignedJudges[1]);
-        sourceUpdates.push({ range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!S${row}`, values: [[submission.roundOneAssignedJudges[1]]] });
+        sheetJudges.add(assignedJudges[1]);
+        sourceUpdates.push({
+          range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!S${row}`,
+          values: [[assignedJudges[1]]],
+        });
       }
     }
   }
@@ -668,6 +673,12 @@ export const syncJudgingSheet = internalAction({
       await syncExistingJudgingSheet({ sheets, ...snapshot });
       await ctx.runMutation(internal.events.completeJudgingSheetSync, args);
     } catch (error) {
+      if (!(error instanceof ConvexError)) {
+        console.error("Judging sheet sync failed.", {
+          status: googleApiStatus(error),
+          reason: googleApiReason(error),
+        });
+      }
       const message =
         error instanceof ConvexError
           ? String(error.data)

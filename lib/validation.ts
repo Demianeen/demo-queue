@@ -11,7 +11,7 @@ export const SUBMISSION_FIELD_LIMITS = {
   email: 254,
   twitter: 200,
   linkedin: 300,
-  category: 10,
+  category: 30,
 } as const;
 
 export type SubmissionFieldName = keyof typeof SUBMISSION_FIELD_LIMITS;

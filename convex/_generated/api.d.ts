@@ -12,6 +12,7 @@ import type * as ai from "../ai.js";
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
 import type * as googleSheets from "../googleSheets.js";
+import type * as judging from "../judging.js";
 import type * as visualStyle from "../visualStyle.js";
 
 import type {
@@ -25,6 +26,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   events: typeof events;
   googleSheets: typeof googleSheets;
+  judging: typeof judging;
   visualStyle: typeof visualStyle;
 }>;
 
@@ -54,4 +56,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  judgingDecisionHistory: import("@convex-dev/table-history/_generated/component.js").ComponentApi<"judgingDecisionHistory">;
+};

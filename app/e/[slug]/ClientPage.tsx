@@ -314,7 +314,7 @@ export default function SubmissionPage() {
         </div>
         <p className="lead">
           {isHackathon
-            ? "Submit once for your team. You will get a private status link, and finalists will use the Meet link to present."
+            ? "Submit once for your team. You will get a private status link, and the Meet link will appear there if you are scheduled to present."
             : "You will get a private status link after submitting. The Meet link appears there once you are listed as a demoer."}
         </p>
 

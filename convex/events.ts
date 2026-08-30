@@ -512,6 +512,7 @@ export const getParticipantMeta = query({
         name: event.name,
         slug: event.slug,
         eventType: eventType(event),
+        submissionsClosed: event.submissionsClosedAt !== undefined,
       },
       submission: {
         demoTitle: submission.demoTitle,
@@ -692,6 +693,7 @@ export const getParticipant = query({
         slug: event.slug,
         eventType: eventType(event),
         visualStyle: normalizeVisualStyle(event.visualStyle),
+        submissionsClosed: event.submissionsClosedAt !== undefined,
       },
       submission: {
         ...publicSubmissionFields(submission),
@@ -702,6 +704,7 @@ export const getParticipant = query({
         linkedin: submission.linkedin,
         githubUrl: submission.githubUrl,
         rulesAcceptedAt: submission.rulesAcceptedAt,
+        finalist: submission.finalist ?? false,
         teamMembers: teamMembers.map((member) => member.name),
         videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
         videoDeleteAt: submission.videoDeleteAt,
@@ -788,6 +791,7 @@ export const submitHackathon = mutation({
     if (eventType(event) !== "hackathon") {
       throw new ConvexError("This event accepts personal demo submissions.");
     }
+    if (event.submissionsClosedAt !== undefined) throw new ConvexError("Submissions are closed.");
 
     const now = Date.now();
     const fields = normalizeSubmissionTextFields(args);
@@ -1029,6 +1033,7 @@ export const withdrawSubmission = mutation({
     if (!submission || submission.eventId !== event._id) {
       throw new ConvexError("Submission not found");
     }
+    if (event.submissionsClosedAt !== undefined) throw new ConvexError("Submissions are closed.");
 
     await ctx.db.patch(submission._id, { status: "withdrawn", updatedAt: Date.now() });
     await logAction(ctx, event._id, "submission_withdrawn", "participant", submission._id);
@@ -1149,6 +1154,9 @@ export const changeEventType = mutation({
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
     requireAdmin(event, args.adminToken);
+    if (event.judgingStatus !== undefined || event.submissionsClosedAt !== undefined) {
+      throw new ConvexError("Event type cannot change after judging has started.");
+    }
     if (eventType(event) === args.eventType) return { deletedSubmissions: 0 };
 
     const submissions = await ctx.db

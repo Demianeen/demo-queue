@@ -1,0 +1,16 @@
+.page { display: grid; gap: 18px; }
+.notice { display: grid; gap: 4px; padding: 14px 16px; border: 1px solid var(--app-line); border-radius: 12px; background: rgba(255,255,255,.55); }
+.notice span, .assignment-heading p, .description { color: var(--app-muted); }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--app-line); border-radius: 12px; background: rgba(255,255,255,.55); }
+.timer { font-variant-numeric: tabular-nums; font-weight: 800; }
+.timerOvertime { color: var(--app-bad); }
+.assignments { display: grid; gap: 16px; margin-top: 18px; }
+.assignment { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--app-line); border-radius: 14px; background: rgba(255,255,255,.5); }
+.assignmentHeading { display: flex; align-items: start; justify-content: space-between; gap: 14px; }
+.assignmentHeading h2 { margin: 0 0 4px; font-size: 20px; }
+.assignmentHeading p, .description { margin: 0; font-size: 14px; line-height: 1.45; }
+.saveState { color: var(--app-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.scoreGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.scoreGrid label { display: grid; gap: 6px; color: var(--app-ink); font-size: 12px; font-weight: 750; }
+.scoreGrid select { min-height: 40px; border: 1px solid var(--app-line); border-radius: 8px; background: white; padding: 0 8px; }
+@media (max-width: 620px) { .scoreGrid { grid-template-columns: 1fr; } .assignmentHeading, .toolbar { align-items: start; flex-direction: column; } }

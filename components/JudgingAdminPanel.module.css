@@ -1,0 +1,31 @@
+.panel { display: grid; gap: 16px; margin: 18px 0; padding: 18px; }
+.heading, .row, .timerActions { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+.heading h2, .card h3 { margin: 0 0 4px; }
+.heading p, .help { color: var(--app-muted); font-size: 13px; margin: 0; }
+.status { border: 1px solid var(--app-line); border-radius: 999px; font-size: 12px; font-weight: 800; padding: 5px 9px; text-transform: uppercase; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card { display: grid; gap: 10px; border: 1px solid var(--app-line); border-radius: 12px; padding: 14px; }
+.row { border-top: 1px solid var(--app-line); padding-top: 8px; }
+.timer { font-size: 42px; font-variant-numeric: tabular-nums; font-weight: 850; }
+.overtime { color: var(--app-bad); }
+.timerActions { justify-content: flex-start; flex-wrap: wrap; }
+.timerActions input, .timerActions select { min-height: 36px; border: 1px solid var(--app-line); border-radius: 8px; padding: 0 8px; }
+.tableWrap { overflow-x: auto; }
+.table { border-collapse: collapse; font-size: 12px; min-width: 620px; width: 100%; }
+.table th, .table td { border-bottom: 1px solid var(--app-line); padding: 7px; text-align: left; vertical-align: top; }
+.table th { color: var(--app-muted); font-size: 11px; text-transform: uppercase; }
+.message { color: var(--app-muted); font-size: 13px; font-weight: 700; margin: 0; }
+.sectionHeading { align-items: start; display: flex; gap: 12px; justify-content: space-between; }
+.normalizationCard { display: grid; gap: 10px; border-top: 1px solid var(--app-line); padding-top: 12px; }
+.warning { color: var(--app-warn); font-size: 12px; font-weight: 750; margin: 0; }
+.modeButtons { display: flex; gap: 8px; }
+.decisionBoard { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.submissionRow, .submissionSubdued, .decisionRow, .decisionRowSubdued { align-items: center; display: flex; gap: 8px; justify-content: space-between; border-top: 1px solid var(--app-line); padding: 8px 0; }
+.submissionSubdued, .decisionRowSubdued { opacity: .55; }
+.submissionRow > span, .submissionSubdued > span { flex: 1; }
+.decisionRow, .decisionRowSubdued { background: rgba(255,255,255,.4); border: 1px solid var(--app-line); border-radius: 8px; padding: 6px 8px; }
+.dragHandle { background: transparent; color: var(--app-muted); cursor: grab; font-size: 18px; padding: 0 4px; }
+.rowButtons { display: inline-flex; gap: 2px; }
+@media (max-width: 720px) { .decisionBoard { grid-template-columns: 1fr; } .sectionHeading { flex-direction: column; } }
+@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } .heading { align-items: flex-start; flex-direction: column; } }

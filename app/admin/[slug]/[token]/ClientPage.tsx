@@ -26,6 +26,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { makeSampleHackathonTeam, makeSamplePerson } from "@/lib/sampleData";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
+import { JudgingAdminPanel } from "@/components/JudgingAdminPanel";
 import { Skeleton } from "@/app/Skeleton";
 import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError } from "@/lib/validation";
 import { parseRoundOneJudges } from "@/lib/judging-assignment";
@@ -1074,7 +1075,7 @@ export default function AdminPage() {
 
   const activeItem = activeId ? itemsById.get(activeId) : null;
   const lineupCount = board.lineup.length;
-  const lineupNoun = admin.event.eventType === "hackathon" ? "finalist" : "demoer";
+  const lineupNoun = admin.event.eventType === "hackathon" ? "presenter" : "demoer";
   const demoerCountLabel = `${lineupCount} ${lineupNoun}${lineupCount === 1 ? "" : "s"}`;
   const hiddenSubmissions = admin.hidden ?? [];
   const inactiveSubmissions = [
@@ -1167,7 +1168,7 @@ export default function AdminPage() {
                       <DropdownMenuItem className="split-action-item" onClick={skip}>
                         <span>Skip for now</span>
                             <small>
-                              Move current presenter to the bottom of {admin.event.eventType === "hackathon" ? "Finalists" : "Demoers"}.
+                              Move current presenter to the bottom of the {admin.event.eventType === "hackathon" ? "presentation lineup" : "demo queue"}.
                             </small>
                       </DropdownMenuItem>
                       <DropdownMenuItem
@@ -1187,12 +1188,12 @@ export default function AdminPage() {
                 </Button>
               ) : (
                 <Button onClick={publish} type="button">
-                  {admin.event.eventType === "hackathon" ? "Publish finalists" : "Make queue live"}
+                  {admin.event.eventType === "hackathon" ? "Publish presentation lineup" : "Make queue live"}
                 </Button>
               )}
               {!queueIsLive ? (
                 <Button variant="outline" onClick={shuffle} type="button">
-                  Shuffle {admin.event.eventType === "hackathon" ? "finalists" : "demoers"}
+                  Shuffle {admin.event.eventType === "hackathon" ? "presentation lineup" : "demoers"}
                 </Button>
               ) : null}
               {!queueIsLive && admin.event.eventType === "demo" ? (
@@ -1330,7 +1331,7 @@ export default function AdminPage() {
                       />
                     </label>
                     <p className="admin-modal-help">
-                      Maximum 1000. They start in {allSubmissionsLabel}, not {isHackathonEvent ? "Finalists" : "Demoers"}.
+                      Maximum 1000. They start in {allSubmissionsLabel}, not {isHackathonEvent ? "the presentation lineup" : "Demoers"}.
                     </p>
                     {testPeopleMessage ? (
                       <p className="admin-modal-error">{testPeopleMessage}</p>
@@ -1437,7 +1438,7 @@ export default function AdminPage() {
               </div>
               <input id="meetUrl" readOnly value={admin.event.meetUrl} />
               <span className="muted" style={{ fontSize: 12 }}>
-                Published {admin.event.eventType === "hackathon" ? "finalists" : "demoers"} see it on their status pages. It stays hidden in the
+                Published {admin.event.eventType === "hackathon" ? "presenters" : "demoers"} see it on their status pages. It stays hidden in the
                 presentation view unless you enable it after publishing.
               </span>
             </div>
@@ -1590,7 +1591,7 @@ export default function AdminPage() {
                 ) : (
                   <div className="stage-timer-empty-state" aria-label="Demo timer unavailable">
                     {isHackathonEvent
-                      ? "Move a submission from All submissions to Finalists to enable presenter timer controls."
+                      ? "Move a submission from All submissions to the presentation lineup to enable presenter timer controls."
                       : "Move someone from All people to Demoers to enable presenter timer controls."}
                   </div>
                 )}
@@ -1630,6 +1631,14 @@ export default function AdminPage() {
           />
         </section>
 
+        {isHackathonEvent ? (
+          <JudgingAdminPanel
+            slug={params.slug}
+            adminToken={params.token}
+            judges={admin.event.roundOneJudges}
+          />
+        ) : null}
+
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
@@ -1660,7 +1669,7 @@ export default function AdminPage() {
                 role="tab"
                 type="button"
               >
-                <span>{admin.event.eventType === "hackathon" ? "Finalists" : "Demoers"}</span>
+                <span>{admin.event.eventType === "hackathon" ? "Presentation lineup" : "Demoers"}</span>
                 <span className="admin-tab-count">{lineupCount}</span>
               </button>
             </div>
@@ -1714,7 +1723,7 @@ export default function AdminPage() {
                 <div className="lineup-toolbar">
                   <div>
                     <h2 style={{ margin: 0 }}>
-                      {admin.event.eventType === "hackathon" ? "Finalists" : "Demoers"}
+                      {admin.event.eventType === "hackathon" ? "Presentation lineup" : "Demoers"}
                     </h2>
                     <p className="muted" style={{ margin: "4px 0 0" }}>
                       Drag rows to set the live running order.
@@ -1778,7 +1787,7 @@ export default function AdminPage() {
                         id="lineup"
                         emptyMessage={
                           isHackathonEvent
-                            ? "Use All submissions to add a submission to Finalists."
+                            ? "Use All submissions to add a submission to the presentation lineup."
                             : "Use All people to add someone to Demoers."
                         }
                       >

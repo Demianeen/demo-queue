@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { makeSampleHackathonTeam, makeSamplePerson } from "@/lib/sampleData";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { JudgingAdminPanel } from "@/components/JudgingAdminPanel";
+import { SubmissionRowActions } from "@/components/SubmissionRowActions";
 import { Skeleton } from "@/app/Skeleton";
 import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError } from "@/lib/validation";
 import { parseRoundOneJudges } from "@/lib/judging-assignment";
@@ -62,7 +63,6 @@ import {
   QrCode,
   RotateCcw,
   Undo2,
-  MoreHorizontal,
   FileSpreadsheet,
   UserPlus,
 } from "lucide-react";
@@ -1638,6 +1638,9 @@ export default function AdminPage() {
             slug={params.slug}
             adminToken={params.token}
             judges={admin.event.roundOneJudges}
+            lineupSubmissionIds={board.lineup}
+            onAddToLineup={addToLineup}
+            onRemoveFromLineup={removeFromLineup}
           />
         ) : null}
 
@@ -2019,7 +2022,7 @@ function LineupRow({
         <Contact item={item} />
       </td>
       <td>
-        <RowActions
+        <SubmissionRowActions
           menuLabel={`More actions for ${item.name}`}
           menuItems={[
             { label: `Remove from ${lineupNoun}s`, onSelect: onMoveToPool },
@@ -2090,7 +2093,7 @@ function AllPeopleRow({
         <Contact item={item} />
       </td>
       <td>
-        <RowActions
+        <SubmissionRowActions
           menuLabel={`More actions for ${item.name}`}
           menuItems={
             item.rosterStatus === "inactive"
@@ -2156,37 +2159,6 @@ function CategoryCell({ category }: { category?: string }) {
     <span className="admin-category-text" aria-label={fullCategory} title={fullCategory}>
       {visibleCategory}
     </span>
-  );
-}
-
-function RowActions({
-  menuLabel,
-  menuItems,
-}: {
-  menuLabel: string;
-  menuItems: { label: string; onSelect: () => void }[];
-}) {
-  return (
-    <div className="table-actions">
-      {menuItems.length > 0 ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger className="table-row-menu-trigger" aria-label={menuLabel}>
-            <MoreHorizontal size={16} aria-hidden />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="table-row-menu-content" sideOffset={4}>
-            {menuItems.map((action) => (
-              <DropdownMenuItem
-                className="table-row-menu-item"
-                key={action.label}
-                onClick={action.onSelect}
-              >
-                {action.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-    </div>
   );
 }
 

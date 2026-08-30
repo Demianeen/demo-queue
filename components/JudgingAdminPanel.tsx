@@ -9,6 +9,7 @@ import { absoluteUrl } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SubmissionRowActions } from "@/components/SubmissionRowActions";
 import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
 import { DndContext, closestCenter, type DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
@@ -171,7 +172,21 @@ function SubmissionScore({ score, rawScore, normalized }: { score: number | null
   );
 }
 
-export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; adminToken: string; judges: string[] }) {
+export function JudgingAdminPanel({
+  slug,
+  adminToken,
+  judges,
+  lineupSubmissionIds,
+  onAddToLineup,
+  onRemoveFromLineup,
+}: {
+  slug: string;
+  adminToken: string;
+  judges: string[];
+  lineupSubmissionIds: Id<"submissions">[];
+  onAddToLineup: (submissionId: Id<"submissions">) => Promise<void>;
+  onRemoveFromLineup: (submissionId: Id<"submissions">) => Promise<void>;
+}) {
   const progress = useQuery(api.judging.getAdminProgress, { slug, adminToken });
   const access = useQuery(api.judging.listJudgeAccess, { slug, adminToken });
   const timer = useQuery(api.judging.getJudgingTimer, { slug, adminToken });
@@ -212,6 +227,10 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
   }, [timer?.remainingMs, timer?.serverNow, timer?.timerStatus]);
   const remaining = timer?.timerStatus === "running" ? (timer.remainingMs - (now - (timer.serverNow ?? now))) : (timer?.remainingMs ?? 0);
   const complete = progress?.scoring.filter((row) => row.completeReviewCount > 0).length ?? 0;
+  const lineupSubmissionKeys = useMemo(
+    () => new Set(lineupSubmissionIds.map(String)),
+    [lineupSubmissionIds],
+  );
   const links = useMemo(() => new Map((access ?? []).map((item) => [item.judgeKey, item])), [access]);
   const reviewsByAssignment = useMemo(
     () => new Map((progress?.reviews ?? []).map((review) => [`${String(review.submissionId)}:${review.judgeKey}`, review])),
@@ -302,7 +321,7 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
         </p>
         <div className={styles.tableWrap}>
           <table className={styles.table}>
-            <thead><tr><th>Submission</th><th>Judge reviews</th><th>Score</th><th>Status</th></tr></thead>
+            <thead><tr><th>Submission</th><th>Judge reviews</th><th>Score</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               {scoringRows.map((row) => (
                 <tr key={String(row.submissionId)}>
@@ -347,6 +366,28 @@ export function JudgingAdminPanel({ slug, adminToken, judges }: { slug: string; 
                   </td>
                   <td><SubmissionScore score={row.effectiveScore} rawScore={row.score} normalized={progress?.eventStatus === "closed"} /></td>
                   <td>{row.assignedJudges.length === 0 ? "Waiting for assignment" : `${row.completeReviewCount} of ${row.assignedJudges.length} complete`}</td>
+                  <td>
+                    <SubmissionRowActions
+                      menuLabel={`More actions for ${row.demoTitle}`}
+                      menuItems={[
+                        lineupSubmissionKeys.has(String(row.submissionId))
+                          ? {
+                              label: "Remove from presenters",
+                              onSelect: () => void run(
+                                `${row.demoTitle} removed from presenters.`,
+                                () => onRemoveFromLineup(row.submissionId),
+                              ),
+                            }
+                          : {
+                              label: "Add to presenters",
+                              onSelect: () => void run(
+                                `${row.demoTitle} added to presenters.`,
+                                () => onAddToLineup(row.submissionId),
+                              ),
+                            },
+                      ]}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>

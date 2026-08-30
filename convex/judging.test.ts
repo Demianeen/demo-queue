@@ -80,12 +80,6 @@ test("replacing judges before reviews start redistributes existing assignments",
   for (let index = 0; index < 6; index += 1) {
     await addSubmission(t, eventId, index);
   }
-  await t.mutation(api.judging.createJudgeAccess, {
-    slug: "hack",
-    adminToken: "admin",
-    judgeName: "Alex",
-    capabilityToken: "alex-secret",
-  });
   await prepareAssignments(t);
 
   await expect(
@@ -109,10 +103,43 @@ test("replacing judges before reviews start redistributes existing assignments",
       ),
     ),
   ).toBe(true);
-  expect(
-    (await t.query(api.judging.listJudgeAccess, { slug: "hack", adminToken: "admin" }))[0]
-      .active,
-  ).toBe(false);
+});
+
+test("saving a roster deactivates omitted links and reactivates re-added links", async () => {
+  const { t } = await createHackathon(["Alex", "Sam"]);
+  await t.mutation(api.judging.createJudgeAccess, {
+    slug: "hack",
+    adminToken: "admin",
+    judgeName: "Alex",
+    capabilityToken: "alex-secret",
+  });
+
+  await t.mutation(api.events.saveRoundOneJudges, {
+    slug: "hack",
+    adminToken: "admin",
+    judges: ["Sam", "Taylor"],
+  });
+  const inactiveAccess = (
+    await t.query(api.judging.listJudgeAccess, { slug: "hack", adminToken: "admin" })
+  ).find((access) => access.judgeName === "Alex");
+  expect(inactiveAccess).toMatchObject({
+    active: false,
+    token: "alex-secret",
+  });
+
+  await t.mutation(api.events.saveRoundOneJudges, {
+    slug: "hack",
+    adminToken: "admin",
+    judges: ["Alex", "Sam", "Taylor"],
+  });
+  const reactivatedAccess = (
+    await t.query(api.judging.listJudgeAccess, { slug: "hack", adminToken: "admin" })
+  ).find((access) => access.judgeName === "Alex");
+  expect(reactivatedAccess).toMatchObject({
+    active: true,
+    token: "alex-secret",
+  });
+  expect(reactivatedAccess?.deactivatedAt).toBeUndefined();
 });
 
 test("visual style is available to stage and private participant pages", async () => {

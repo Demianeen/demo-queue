@@ -27,6 +27,15 @@ test("field limit issue returns null when every provided field is valid", () => 
   assert.equal(firstFieldLimitIssue({ name: "Valid name", category: "AI" }), null);
 });
 
+test("category allows up to 30 characters", () => {
+  assert.equal(SUBMISSION_FIELD_LIMITS.category, 30);
+  assert.equal(firstFieldLimitIssue({ category: "x".repeat(30) }), null);
+  assert.deepEqual(firstFieldLimitIssue({ category: "x".repeat(31) }), {
+    field: "category",
+    message: "Category must be 30 characters or fewer.",
+  });
+});
+
 test("first invalid field follows rendered form order instead of validation order", () => {
   const invalidFields = new Set(["rulesAccepted", "phone", "twitter"]);
 

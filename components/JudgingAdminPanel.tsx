@@ -231,7 +231,10 @@ export function JudgingAdminPanel({
     () => new Set(lineupSubmissionIds.map(String)),
     [lineupSubmissionIds],
   );
-  const links = useMemo(() => new Map((access ?? []).map((item) => [item.judgeKey, item])), [access]);
+  const links = useMemo(
+    () => new Map((access ?? []).filter((item) => item.active).map((item) => [item.judgeKey, item])),
+    [access],
+  );
   const reviewsByAssignment = useMemo(
     () => new Map((progress?.reviews ?? []).map((review) => [`${String(review.submissionId)}:${review.judgeKey}`, review])),
     [progress?.reviews],

@@ -1099,22 +1099,23 @@ export const saveRoundOneJudges = mutation({
         reassignedSubmissionCount += 1;
       }
 
-      const accessRows = await ctx.db
-        .query("judgeAccess")
-        .withIndex("by_event", (q) => q.eq("eventId", event._id))
-        .take(100);
-      for (const access of accessRows) {
-        if (access.active && !roster.some((judge) => sameJudge(judge, access.judgeName))) {
-          await ctx.db.patch(access._id, {
-            active: false,
-            deactivatedAt: now,
-            updatedAt: now,
-          });
-        }
-      }
     }
 
     const now = Date.now();
+    const judgeAccess = await ctx.db
+      .query("judgeAccess")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .take(100);
+    for (const access of judgeAccess) {
+      const active = roster.some((judge) => sameJudge(judge, access.judgeName));
+      if (access.active === active) continue;
+      await ctx.db.patch(access._id, {
+        active,
+        deactivatedAt: active ? undefined : now,
+        updatedAt: now,
+      });
+    }
+
     await ctx.db.patch(event._id, { roundOneJudges: roster, updatedAt: now });
     await logAction(ctx, event._id, "round_one_judges_saved", "admin", String(roster.length));
     await queueJudgingSheetSync(ctx, event, 0);

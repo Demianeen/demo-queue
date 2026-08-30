@@ -26,8 +26,12 @@ import {
   MAX_TEAM_NAME_LENGTH,
 } from "../lib/hackathon";
 import {
+  assignRoundOneJudgePair,
+  buildJudgeAssignmentCounts,
+  isValidRoundOneAssignment,
   parseRoundOneJudges,
   rosterIncludesJudge,
+  sameJudge,
 } from "../lib/judging-assignment";
 import { participantLineupStatus } from "../lib/event-state";
 import { normalizeVisualStyle } from "../lib/visual-style";
@@ -1055,21 +1059,66 @@ export const saveRoundOneJudges = mutation({
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .take(1000);
-    const assignedJudges = submissions
+    const removedAssignedJudges = submissions
       .flatMap((submission) => submission.roundOneAssignedJudges ?? [])
       .filter((judge) => !rosterIncludesJudge(roster, judge));
-    if (assignedJudges.length > 0) {
-      const removed = [...new Set(assignedJudges)].join(", ");
-      throw new ConvexError(
-        `Keep assigned judges in the list before saving. Still assigned: ${removed}.`,
-      );
+    let reassignedSubmissionCount = 0;
+    if (removedAssignedJudges.length > 0) {
+      const reviews = await ctx.db
+        .query("reviews")
+        .withIndex("by_event", (q) => q.eq("eventId", event._id))
+        .take(1);
+      if (reviews.length > 0) {
+        const removed = [...new Set(removedAssignedJudges)].join(", ");
+        throw new ConvexError(
+          `Reviews have started. Redistribute these judges before removing them: ${removed}.`,
+        );
+      }
+
+      const retainedAssignments = submissions.map((submission) => {
+        const assignment = submission.roundOneAssignedJudges;
+        return isValidRoundOneAssignment(assignment) &&
+          assignment!.every((judge) => rosterIncludesJudge(roster, judge))
+          ? assignment
+          : undefined;
+      });
+      const counts = buildJudgeAssignmentCounts(retainedAssignments);
+      const now = Date.now();
+      for (const submission of submissions) {
+        const assignment = submission.roundOneAssignedJudges;
+        if (
+          !isValidRoundOneAssignment(assignment) ||
+          assignment!.every((judge) => rosterIncludesJudge(roster, judge))
+        ) {
+          continue;
+        }
+        await ctx.db.patch(submission._id, {
+          roundOneAssignedJudges: assignRoundOneJudgePair(roster, counts),
+          updatedAt: now,
+        });
+        reassignedSubmissionCount += 1;
+      }
+
+      const accessRows = await ctx.db
+        .query("judgeAccess")
+        .withIndex("by_event", (q) => q.eq("eventId", event._id))
+        .take(100);
+      for (const access of accessRows) {
+        if (access.active && !roster.some((judge) => sameJudge(judge, access.judgeName))) {
+          await ctx.db.patch(access._id, {
+            active: false,
+            deactivatedAt: now,
+            updatedAt: now,
+          });
+        }
+      }
     }
 
     const now = Date.now();
     await ctx.db.patch(event._id, { roundOneJudges: roster, updatedAt: now });
     await logAction(ctx, event._id, "round_one_judges_saved", "admin", String(roster.length));
     await queueJudgingSheetSync(ctx, event, 0);
-    return { judgeCount: roster.length };
+    return { judgeCount: roster.length, reassignedSubmissionCount };
   },
 });
 

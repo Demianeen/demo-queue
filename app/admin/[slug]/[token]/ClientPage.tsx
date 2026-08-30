@@ -7,7 +7,11 @@ import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
-import { completedQueueLabel, lineupPositionLabel } from "@/lib/event-state";
+import {
+  completedQueueLabel,
+  isJudgingSheetSyncPending,
+  lineupPositionLabel,
+} from "@/lib/event-state";
 import { socialUrl } from "@/lib/social";
 import { randomToken } from "@/lib/tokens";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -401,10 +405,12 @@ export default function AdminPage() {
   const stageTimerView = useTimerView(effectiveStageTimer);
   const effectiveDemoTimer = demoTimerOverride ?? admin?.event.demoTimer;
   const demoTimerView = useTimerView(effectiveDemoTimer);
-  const judgingSheetSyncPending = Boolean(
-    admin?.event.judgingSheetUrl &&
-      admin.event.judgingSheetSyncRevision > admin.event.judgingSheetSyncedRevision,
-  );
+  const judgingSheetSyncPending = isJudgingSheetSyncPending({
+    spreadsheetUrl: admin?.event.judgingSheetUrl,
+    requestedRevision: admin?.event.judgingSheetSyncRevision ?? 0,
+    syncedRevision: admin?.event.judgingSheetSyncedRevision ?? 0,
+    error: admin?.event.judgingSheetSyncError,
+  });
   const judgingSheetSyncStatus = admin?.event.judgingSheetSyncError
     ? `Sync failed: ${admin.event.judgingSheetSyncError}`
     : judgingSheetSyncPending

@@ -13,6 +13,7 @@ import {
 import { makeSampleHackathonTeam } from "../lib/sampleData.ts";
 import {
   completedQueueLabel,
+  isJudgingSheetSyncPending,
   lineupPositionLabel,
   participantLineupStatus,
   shouldShowMeetAvailabilityCopy,
@@ -149,6 +150,26 @@ test("judging sheet final score accepts one completed review", () => {
   assert.match(finalScoreFormula, /,0\)\+IF/);
   assert.match(finalScoreFormula, /\/W5\)$/);
   assert.doesNotMatch(finalScoreFormula, /AVERAGE\(IF/);
+});
+
+test("failed judging sheet sync can be retried", () => {
+  assert.equal(
+    isJudgingSheetSyncPending({
+      spreadsheetUrl: "https://docs.google.com/spreadsheets/d/example/edit",
+      requestedRevision: 2,
+      syncedRevision: 1,
+      error: "Google authorization is no longer valid.",
+    }),
+    false,
+  );
+  assert.equal(
+    isJudgingSheetSyncPending({
+      spreadsheetUrl: "https://docs.google.com/spreadsheets/d/example/edit",
+      requestedRevision: 2,
+      syncedRevision: 1,
+    }),
+    true,
+  );
 });
 
 test("judging sheet sync preserves judge filter and sort configuration", () => {

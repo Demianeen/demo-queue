@@ -1,11 +1,13 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { visualStyleValidator } from "./visualStyle";
 
 export default defineSchema({
   events: defineTable({
     name: v.string(),
     slug: v.string(),
     eventType: v.optional(v.union(v.literal("demo"), v.literal("hackathon"))),
+    visualStyle: v.optional(visualStyleValidator),
     meetUrl: v.string(),
     adminToken: v.string(),
     judgingSheetId: v.optional(v.string()),

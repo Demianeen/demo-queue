@@ -34,6 +34,8 @@ import {
   sameJudge,
 } from "../lib/judging-assignment";
 import { participantLineupStatus } from "../lib/event-state";
+import { normalizeVisualStyle } from "../lib/visual-style";
+import { visualStyleValidator } from "./visualStyle";
 import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -399,6 +401,7 @@ export const createEvent = mutation({
     name: v.string(),
     slug: v.string(),
     eventType: v.union(v.literal("demo"), v.literal("hackathon")),
+    visualStyle: v.optional(visualStyleValidator),
     meetUrl: v.string(),
     adminToken: v.string(),
   },
@@ -417,6 +420,7 @@ export const createEvent = mutation({
       name: args.name.trim(),
       slug: args.slug,
       eventType: args.eventType,
+      visualStyle: normalizeVisualStyle(args.visualStyle),
       meetUrl: args.meetUrl.trim(),
       adminToken: args.adminToken,
       queuePublished: false,
@@ -519,6 +523,7 @@ export const getStage = query({
         name: event.name,
         slug: event.slug,
         eventType: eventType(event),
+        visualStyle: normalizeVisualStyle(event.visualStyle),
         queuePublished: event.queuePublished,
         stageScreenMode: stageScreenMode(event),
         showSubmissionCountOnStage: event.showSubmissionCountOnStage ?? false,
@@ -665,6 +670,7 @@ export const getParticipant = query({
         name: event.name,
         slug: event.slug,
         eventType: eventType(event),
+        visualStyle: normalizeVisualStyle(event.visualStyle),
       },
       submission: {
         ...publicSubmissionFields(submission),

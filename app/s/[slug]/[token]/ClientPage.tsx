@@ -14,6 +14,9 @@ import {
 } from "@/lib/validation";
 import { Brand } from "@/app/Brand";
 import { shouldShowMeetAvailabilityCopy } from "@/lib/event-state";
+import { OutpostHero } from "@/components/OutpostHero";
+import { cn } from "@/lib/utils";
+import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
 
 const statusLabels: Record<string, string> = {
   candidate: "Submitted, waiting to be added as a demoer",
@@ -66,6 +69,9 @@ export default function ParticipantStatusPage() {
       </main>
     );
   }
+
+  const visualStyle = normalizeVisualStyle(participant.event.visualStyle);
+  const isOutpost = isOutpostStyle(visualStyle);
 
   async function saveContact(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -129,9 +135,24 @@ export default function ParticipantStatusPage() {
   }
 
   return (
-    <main className="narrow-page">
-      <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
-        <Brand label={participant.event.name} />
+    <main className={isOutpost ? "outpost-public-page" : "narrow-page"}>
+      {isOutpost ? (
+        <OutpostHero
+          eventName={participant.event.name}
+          eventType={participant.event.eventType}
+          mode="status"
+        />
+      ) : null}
+      <section
+        className={cn("panel panel-pad", isOutpost && "outpost-content")}
+        style={isOutpost ? undefined : { width: "min(760px, 100%)" }}
+      >
+        {isOutpost ? null : <Brand label={participant.event.name} />}
+        {isOutpost ? (
+          <p className="outpost-event-kicker">
+            {participant.event.eventType === "hackathon" ? "Project status" : "Demo status"} · {participant.event.name}
+          </p>
+        ) : null}
         <h1>
           {(participant.event.eventType === "hackathon" ? hackathonStatusLabels : statusLabels)[
             participant.submission.status

@@ -497,8 +497,8 @@ export default function AdminPage() {
 
   if (!admin) {
     return (
-      <main className="page">
-        <div className="shell">
+      <main className="page admin-page">
+        <div className="shell admin-shell">
           <Skeleton w={90} h={12} radius={6} style={{ marginBottom: 14 }} />
           <Skeleton w={320} h={40} radius={12} style={{ marginBottom: 18 }} />
           <section className="admin-grid">
@@ -1892,6 +1892,7 @@ function StagePreviewPanel({
       <div className="admin-stage-links">
         <Popover>
           <PopoverTrigger
+            data-slot="button"
             className={cn(
               buttonVariants({ variant: "outline" }),
               "admin-link-popover-trigger",
@@ -1909,6 +1910,7 @@ function StagePreviewPanel({
         </Popover>
       </div>
       <a
+        data-slot="button"
         className={cn(buttonVariants({ variant: "outline" }), "w-full")}
         href={url}
         rel="noreferrer"

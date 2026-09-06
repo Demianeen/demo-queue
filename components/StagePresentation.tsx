@@ -1,5 +1,7 @@
 "use client";
 
+import { EventWelcome } from "./EventWelcome";
+import { eventThemeProperties } from "@/lib/event-theme";
 import Image from "next/image";
 import { AstraBackdrop } from "@/components/AstraBackdrop";
 import { AstraBrand } from "@/components/AstraBrand";
@@ -262,11 +264,19 @@ export function StagePresentation({
 
   const Root = embedded ? "div" : "main";
 
+  if (visualStyle === "neutral" && showQrStage) return <Root className="neutral-stage" style={eventThemeProperties(stage.event.theme)} inert={embedded ? true : undefined}>
+    <EventWelcome name={stage.event.name} eventType={stage.event.eventType} submissionUrl={submissionUrl} theme={stage.event.theme} closed={stage.event.submissionsClosed} />
+    {showQueueTimer && <div className={`neutral-stage-timer is-${queueTimerUrgency}`} aria-live="polite">{queueTimer.label} <strong>{queueTimer.display}</strong></div>}
+    {showSubmissionCount && <p className="neutral-stage-count">{waitingCount} {isHackathon ? "projects" : "demos"} submitted</p>}
+  </Root>;
+
   return (
     <Root
       aria-hidden={embedded ? true : undefined}
+      style={visualStyle === "neutral" ? eventThemeProperties(stage.event.theme) : undefined}
       className={cn(
         "stage",
+        visualStyle === "neutral" && "stage-neutral",
         isOutpost && "stage-outpost",
         isAstra && "stage-astra",
         isDevDay && "stage-devday",
@@ -291,7 +301,7 @@ export function StagePresentation({
           <AstraBackdrop animated={!embedded} />
           <AstraBrand className="astra-stage-brand" />
         </>
-      ) : isOutpost ? (
+      ) : visualStyle === "neutral" ? null : isOutpost ? (
         <Image
           className="outpost-stage-mark"
           src="/outpost/logo-white.png"

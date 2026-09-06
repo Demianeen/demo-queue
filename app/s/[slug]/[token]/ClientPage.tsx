@@ -1,5 +1,6 @@
 "use client";
 
+import { eventThemeProperties } from "@/lib/event-theme";
 import { FormEvent, ReactNode, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
@@ -167,7 +168,7 @@ export function ParticipantPage({
   }
 
   return (
-    <main className={isDevDay ? "devday-public-page" : isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
+    <main data-event-style={visualStyle} style={visualStyle === "neutral" ? eventThemeProperties(participant.event.theme) : undefined} className={isDevDay ? "devday-public-page" : isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
       {isDevDay ? (
         <DevDayHero eventName={participant.event.name} eventType={participant.event.eventType} mode="status" />
       ) : null}
@@ -185,7 +186,7 @@ export function ParticipantPage({
         className={cn("panel panel-pad", isOutpost && "outpost-content", isAstra && "astra-content", isDevDay && "devday-content")}
         style={isOutpost || isAstra || isDevDay ? undefined : { width: "min(760px, 100%)" }}
       >
-        {isOutpost || isAstra || isDevDay ? null : <Brand label={participant.event.name} />}
+        {isOutpost || isAstra || isDevDay ? null : visualStyle === "neutral" ? <p className="neutral-event-name">{participant.event.name}</p> : <Brand label={participant.event.name} />}
         {isAstra ? <p className="astra-eyebrow">{participant.event.name}</p> : null}
         {isDevDay ? (
           <p className="devday-eyebrow">{participant.event.eventType === "hackathon" ? "Community hackathon" : "Demo queue"} / Your submission</p>

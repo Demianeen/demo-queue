@@ -1,3 +1,6 @@
+import { paginationOptsValidator } from "convex/server";
+import { requireOrganization } from "./organizationAuth";
+import { randomToken } from "../lib/tokens";
 import { ConvexError, v } from "convex/values";
 import {
   DatabaseReader,
@@ -34,7 +37,8 @@ import {
   sameJudge,
 } from "../lib/judging-assignment";
 import { participantLineupStatus } from "../lib/event-state";
-import { normalizeVisualStyle } from "../lib/visual-style";
+import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
+import { MAX_ORGANIZATION_STYLES, normalizeVisualStyle } from "../lib/visual-style";
 import {
   parseTeamContact,
   type TeamContact,
@@ -403,14 +407,28 @@ async function deleteSubmissionData(
 
 export const createEvent = mutation({
   args: {
+    expectedOrganizationId: v.string(),
     name: v.string(),
     slug: v.string(),
     eventType: v.union(v.literal("demo"), v.literal("hackathon")),
     visualStyle: v.optional(visualStyleValidator),
+    styleId: v.optional(v.id("organizationStyles")),
     meetUrl: v.string(),
-    adminToken: v.string(),
   },
   handler: async (ctx, args) => {
+    const { organizationId, actor } = await requireOrganization(ctx);
+    if (args.expectedOrganizationId !== organizationId) {
+      throw new ConvexError("Your organization changed. Reload events before creating an event.");
+    }
+    const name = args.name.trim();
+    if (!name || name.length > 160) throw new ConvexError("Enter an event name of 1–160 characters.");
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(args.slug) || args.slug.length > 200) {
+      throw new ConvexError("Invalid event slug.");
+    }
+    let meetUrl: URL;
+    try { meetUrl = new URL(args.meetUrl); } catch { throw new ConvexError("Enter a valid meeting URL."); }
+    if (!["https:", "http:"].includes(meetUrl.protocol)) throw new ConvexError("Enter an HTTP or HTTPS meeting URL.");
+    const adminToken = randomToken(32);
     const existing = await ctx.db
       .query("events")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
@@ -420,14 +438,24 @@ export const createEvent = mutation({
       throw new ConvexError("That event slug already exists");
     }
 
+    const selectedStyle = args.styleId ? await ctx.db.get(args.styleId) : null;
+    if (args.styleId && (!selectedStyle || selectedStyle.organizationId !== organizationId)) throw new ConvexError("Style not found.");
+    const defaultStyle = !args.styleId && !args.visualStyle
+      ? (await ctx.db.query("organizationStyles").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(MAX_ORGANIZATION_STYLES)).find((style) => style.isDefault)
+      : null;
+    const resolvedStyle = selectedStyle ?? defaultStyle;
+    const visualStyle = resolvedStyle ? resolvedStyle.preset ?? "neutral" : args.visualStyle ?? "neutral";
+    const theme = visualStyle === "neutral" ? (selectedStyle ?? defaultStyle)?.theme ?? DEFAULT_EVENT_THEME : undefined;
     const now = Date.now();
     const eventId = await ctx.db.insert("events", {
-      name: args.name.trim(),
+      name,
+      workosOrganizationId: organizationId,
       slug: args.slug,
       eventType: args.eventType,
-      visualStyle: normalizeVisualStyle(args.visualStyle),
+      visualStyle,
+      theme,
       meetUrl: args.meetUrl.trim(),
-      adminToken: args.adminToken,
+      adminToken,
       queuePublished: false,
       stageScreenMode: "qr",
       showSubmissionCountOnStage: false,
@@ -439,8 +467,63 @@ export const createEvent = mutation({
       updatedAt: now,
     });
 
-    await logAction(ctx, eventId, "event_created", "admin");
-    return { eventId };
+    await logAction(ctx, eventId, "event_created", actor);
+    return { eventId, adminToken };
+  },
+});
+
+export const listOrganizationEvents = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    const { organizationId } = await requireOrganization(ctx);
+    const result = await ctx.db.query("events")
+      .withIndex("by_workosOrganizationId", (q) => q.eq("workosOrganizationId", organizationId))
+      .order("desc")
+      .paginate(paginationOpts);
+    return {
+      ...result,
+      organizationId,
+      page: result.page.map((event) => ({
+        id: event._id,
+        name: event.name,
+        slug: event.slug,
+        eventType: eventType(event),
+        createdAt: event.createdAt,
+        organizationId,
+      })),
+    };
+  },
+});
+
+export const getOrganizationEventDetails = query({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const { organizationId } = await requireOrganization(ctx);
+    const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    if (!event || event.workosOrganizationId !== organizationId) return null;
+    const [submissions, decision] = await Promise.all([
+      ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1001),
+      ctx.db.query("judgingDecisions").withIndex("by_event", (q) => q.eq("eventId", event._id)).unique(),
+    ]);
+    const isHackathon = eventType(event) === "hackathon";
+    let resultsStatus: "not_applicable" | "pending" | "needs_review" | "confirmed" = isHackathon ? (decision?.placementStatus === "needs_review" || decision?.finalistStatus === "needs_review") ? "needs_review" : "pending" : "not_applicable";
+    let winners: { place: number; demoTitle: string; teamName: string }[] = [];
+    if (isHackathon && event.judgingStatus === "closed" && decision?.finalistStatus === "submitted" && decision.placementStatus === "submitted") {
+      const placed = await Promise.all(decision.placementIds.map((id) => ctx.db.get(id)));
+      if (placed.length > 0 && placed.length <= 3 && new Set(decision.placementIds).size === placed.length && placed.every((submission) => submission && submission.eventId === event._id && decision.finalistIds.includes(submission._id))) {
+        winners = placed.map((submission, index) => ({ place: index + 1, demoTitle: submission!.demoTitle, teamName: submission!.teamName || submission!.name }));
+        resultsStatus = "confirmed";
+      } else resultsStatus = "needs_review";
+    }
+    return {
+      organizationId, name: event.name, slug: event.slug, eventType: eventType(event),
+      adminToken: event.adminToken, createdAt: event.createdAt,
+      visualStyle: normalizeVisualStyle(event.visualStyle), theme: event.theme,
+      submissionsClosed: event.submissionsClosedAt !== undefined, queuePublished: event.queuePublished,
+      judgingStatus: isHackathon ? event.judgingStatus ?? "setup" : null,
+      submissionCount: Math.min(submissions.length, 1000), submissionCountCapped: submissions.length > 1000,
+      resultsStatus, winners,
+    };
   },
 });
 
@@ -530,6 +613,7 @@ export const getStage = query({
         slug: event.slug,
         eventType: eventType(event),
         visualStyle: normalizeVisualStyle(event.visualStyle),
+        theme: event.theme,
         submissionsClosed: event.submissionsClosedAt !== undefined,
         queuePublished: event.queuePublished,
         stageScreenMode: stageScreenMode(event),
@@ -678,6 +762,7 @@ export const getParticipant = query({
         slug: event.slug,
         eventType: eventType(event),
         visualStyle: normalizeVisualStyle(event.visualStyle),
+        theme: event.theme,
         submissionsClosed: event.submissionsClosedAt !== undefined,
       },
       submission: {

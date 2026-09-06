@@ -10,9 +10,12 @@
 
 import type * as ai from "../ai.js";
 import type * as crons from "../crons.js";
+import type * as eventTheme from "../eventTheme.js";
 import type * as events from "../events.js";
 import type * as googleSheets from "../googleSheets.js";
 import type * as judging from "../judging.js";
+import type * as organizationAuth from "../organizationAuth.js";
+import type * as organizationStyles from "../organizationStyles.js";
 import type * as visualStyle from "../visualStyle.js";
 
 import type {
@@ -24,9 +27,12 @@ import type {
 declare const fullApi: ApiFromModules<{
   ai: typeof ai;
   crons: typeof crons;
+  eventTheme: typeof eventTheme;
   events: typeof events;
   googleSheets: typeof googleSheets;
   judging: typeof judging;
+  organizationAuth: typeof organizationAuth;
+  organizationStyles: typeof organizationStyles;
   visualStyle: typeof visualStyle;
 }>;
 

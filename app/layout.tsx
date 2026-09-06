@@ -6,6 +6,7 @@ import "./astra.css";
 import "./devday.css";
 import "./devday-stage.css";
 import { Fragment } from "react";
+import "./workspace.css";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { PageBackground } from "./PageBackground";
 import { TooltipProvider } from "@/components/ui/tooltip";

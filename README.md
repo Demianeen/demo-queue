@@ -235,12 +235,22 @@ Set these variables in the matching frontend hosting environment:
 - `WORKOS_CLIENT_ID`
 - `WORKOS_API_KEY`
 - `WORKOS_COOKIE_PASSWORD` (an independent random secret of at least 32 characters)
-- `NEXT_PUBLIC_WORKOS_REDIRECT_URI` (the app's HTTPS origin plus `/callback`)
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI` for local development and Production
+  (the app's origin plus `/callback`)
 
-Set the same `WORKOS_CLIENT_ID` on the corresponding Convex deployment before
-its functions deploy. Missing it causes auth configuration validation to fail.
-`convex.json` currently configures automatic AuthKit provisioning only for local
-development; it does not configure production or preview credentials.
+Set Preview variables at the Vercel environment level using the Staging WorkOS
+environment. Preview callbacks derive from Vercel's trusted `VERCEL_BRANCH_URL`;
+do not set one branch's redirect URL for all previews. Workspace routes opened
+on a unique deployment URL redirect to the stable branch host before sign-in so
+the authentication cookie and callback share a host. Production uses its separate
+Production WorkOS environment and explicit callback URL.
+
+Set matching `WORKOS_CLIENT_ID` and `WORKOS_API_KEY` on the corresponding Convex
+deployment before its functions deploy. Missing the client ID causes auth
+configuration validation to fail; installed Convex 1.40.0 also reads the API key
+from the backend when applying AuthKit settings. `convex.json` provisions local
+development and registers preview/production callbacks and CORS origins using
+existing credentials. It does not supply hosting credentials.
 
 In the matching WorkOS environment, configure the callback URI, homepage and CORS
 origin for the actual frontend URL, enable the intended Google sign-in method,

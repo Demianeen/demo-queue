@@ -2,6 +2,7 @@
 
 import { getWorkOS, signOut, switchToOrganization, withAuth } from "@workos-inc/authkit-nextjs";
 import { unstable_rethrow } from "next/navigation";
+import { getWorkOSRedirectUri } from "@/lib/auth-config";
 
 export async function selectOrganization(organizationId: string) {
   try {
@@ -23,5 +24,7 @@ export async function selectOrganization(organizationId: string) {
 }
 
 export async function logOut() {
-  await signOut({ returnTo: new URL("/", process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI!).toString() });
+  const redirectUri = getWorkOSRedirectUri();
+  if (!redirectUri) throw new Error("Authentication is not configured.");
+  await signOut({ returnTo: new URL("/", redirectUri).toString() });
 }

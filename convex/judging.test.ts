@@ -21,10 +21,22 @@ const modules = {
   "./judging.ts": () => import("./judging"),
 };
 
+
+// These tests cover existing account-free events, including records without an organization.
+async function seedLegacyEvent(t: ReturnType<typeof convexTest>, input: {
+  name: string; slug: string; eventType: "hackathon"; meetUrl: string;
+  adminToken: string; visualStyle?: "outpost";
+}) {
+  const eventId = await t.run((ctx) => ctx.db.insert("events", {
+    ...input, queuePublished: false, createdAt: Date.now(), updatedAt: Date.now(),
+  }));
+  return { eventId };
+}
+
 async function createHackathon(judges = ["Alex", "Sam", "Taylor"]) {
   const t = convexTest(schema, modules);
   t.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);
-  const event = await t.mutation(api.events.createEvent, {
+  const event = await seedLegacyEvent(t, {
     name: "Hack",
     slug: "hack",
     eventType: "hackathon",
@@ -145,7 +157,7 @@ test("saving a roster deactivates omitted links and reactivates re-added links",
 test("visual style is available to stage and private participant pages", async () => {
   const t = convexTest(schema, modules);
   t.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);
-  const event = await t.mutation(api.events.createEvent, {
+  const event = await seedLegacyEvent(t, {
     name: "Outpost Hack",
     slug: "outpost-hack",
     eventType: "hackathon",

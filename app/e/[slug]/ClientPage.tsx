@@ -1,5 +1,6 @@
 "use client";
 
+import { eventThemeProperties } from "@/lib/event-theme";
 import { FormEvent, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { InfoIcon, LockKeyholeIcon, Plus, Trash2 } from "lucide-react";
@@ -285,7 +286,7 @@ export default function SubmissionPage() {
   }
 
   return (
-    <main className={isOutpost ? "outpost-public-page" : "narrow-page"}>
+    <main data-event-style={visualStyle} style={visualStyle === "neutral" ? eventThemeProperties(stage.event.theme) : undefined} className={isOutpost ? "outpost-public-page" : "narrow-page"}>
       {isOutpost ? (
         <OutpostHero
           eventName={stage.event.name}
@@ -297,7 +298,7 @@ export default function SubmissionPage() {
         className={cn("panel panel-pad", isOutpost && "outpost-content")}
         style={isOutpost ? undefined : { width: "min(760px, 100%)" }}
       >
-        {isOutpost ? null : <Brand label={stage.event.name} />}
+        {isOutpost ? null : visualStyle === "neutral" ? <p className="neutral-event-name">{stage.event.name}</p> : <Brand label={stage.event.name} />}
         <div>
           {isOutpost ? (
             <p className="outpost-event-kicker">

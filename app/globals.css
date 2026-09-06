@@ -1,6 +1,8 @@
 @import "tailwindcss";
+
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+
 
 @custom-variant dark (&:is(.dark *));
 
@@ -436,326 +438,6 @@ h3 {
   margin-top: 8px;
 }
 
-/* Event creator. The same form drives both visual styles; the selected style
-   changes the full creator shell and its live preview immediately. */
-.creator-shell {
-  width: min(1240px, 100%);
-}
-
-.creator-intro {
-  max-width: 760px;
-}
-
-.creator-layout {
-  gap: clamp(28px, 4vw, 58px);
-  margin-top: 24px;
-}
-
-.creator-controls {
-  display: grid;
-  gap: 14px;
-  min-width: 0;
-}
-
-.creator-preview-column {
-  align-self: start;
-  min-width: 0;
-}
-
-.creator-preview-heading {
-  display: grid;
-  font-size: 12px;
-  gap: 2px;
-  margin-bottom: 10px;
-}
-
-.creator-preview-heading strong {
-  color: var(--app-ink);
-}
-
-.creator-preview-heading span,
-.creator-action-note {
-  color: var(--app-muted);
-}
-
-.creator-controls .actions {
-  align-items: center;
-}
-
-.creator-action-note {
-  font-size: 12px;
-}
-
-.creator-outpost-lockup {
-  align-items: center;
-  display: flex;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.creator-outpost-lockup img {
-  background: #0a0b0b;
-  height: 48px;
-  object-fit: contain;
-  object-position: left center;
-  padding: 8px 12px;
-  width: auto;
-}
-
-.creator-outpost-lockup span {
-  border-left: 1px solid currentColor;
-  font-family: var(--font-outpost-display), Impact, sans-serif;
-  font-size: 18px;
-  letter-spacing: 0.04em;
-  padding-left: 16px;
-  text-transform: uppercase;
-}
-
-@media (min-width: 1024px) {
-  .creator-layout {
-    align-items: start;
-    grid-template-columns: minmax(330px, 0.8fr) minmax(500px, 1.2fr);
-  }
-
-  .creator-preview-column {
-    position: sticky;
-    top: 24px;
-  }
-}
-
-.creator-page[data-visual-style="outpost"] {
-  background-color: #080a0b;
-  background-image: linear-gradient(rgba(3, 4, 4, 0.7), rgba(3, 4, 4, 0.7)), url(/outpost/wide-black.webp);
-  background-position: center;
-  background-size: cover;
-  color: #111212;
-  font-family: var(--font-outpost-body), Inter, ui-sans-serif, sans-serif;
-}
-
-.creator-page[data-visual-style="outpost"] .creator-shell {
-  --app-ink: #111212;
-  --app-muted: #65635f;
-  --app-line: #aaa69f;
-  background: #f4f1e9;
-  border: 0;
-  border-radius: 10px;
-  box-shadow: none;
-}
-
-.creator-page[data-visual-style="outpost"] :is(h1, h2, legend) {
-  font-family: var(--font-outpost-display), Impact, sans-serif;
-  font-weight: 400;
-}
-
-.creator-page[data-visual-style="outpost"] h1 {
-  font-size: clamp(42px, 5vw, 68px);
-  line-height: 0.96;
-  text-transform: uppercase;
-}
-
-.creator-page[data-visual-style="outpost"] :is(input, select) {
-  background: rgba(248, 246, 240, 0.7);
-  border-color: #aaa69f;
-  border-radius: 4px;
-  box-shadow: none;
-}
-
-.creator-page[data-visual-style="outpost"] :is(input, select):focus {
-  border-color: #111212;
-  box-shadow: 0 0 0 2px rgba(17, 18, 18, 0.12);
-}
-
-.creator-page[data-visual-style="outpost"] .visual-style-option {
-  background: #f8f5ed;
-  border-color: #aaa69f;
-  border-radius: 4px;
-}
-
-.creator-page[data-visual-style="outpost"] .visual-style-option.is-selected {
-  border-color: #111212;
-  box-shadow: inset 0 0 0 1px #111212;
-}
-
-.creator-page[data-visual-style="outpost"] .visual-style-option:focus-within {
-  box-shadow: 0 0 0 2px rgba(17, 18, 18, 0.14);
-}
-
-.creator-page[data-visual-style="outpost"] .visual-style-preview {
-  border-radius: 3px;
-}
-
-.creator-page[data-visual-style="outpost"] .creator-controls > .actions .button {
-  background: #111212;
-  border-radius: 4px;
-}
-
-.creator-page[data-visual-style="outpost"] .creator-controls > .actions .button:disabled {
-  background: #c8c3ba;
-  color: #65635f;
-}
-
-.creator-page[data-visual-style="outpost"] .creator-preview-column {
-  background-color: #070808;
-  background-image: linear-gradient(rgba(3, 4, 4, 0.55), rgba(3, 4, 4, 0.55)), url(/outpost/wide-black.webp);
-  background-position: center;
-  background-size: cover;
-  color: #f4f1e9;
-  padding: clamp(18px, 2.6vw, 30px);
-}
-
-.creator-page[data-visual-style="outpost"] .creator-preview-heading strong,
-.creator-page[data-visual-style="outpost"] .creator-preview-heading span {
-  color: #f4f1e9;
-}
-
-.creator-page[data-visual-style="outpost"] .creator-preview-heading span {
-  opacity: 0.62;
-}
-
-.creator-page[data-visual-style="outpost"] .link-stack {
-  border-top: 1px solid rgba(17, 18, 18, 0.18);
-  margin-top: 26px;
-  padding-top: 24px;
-}
-
-.creator-page[data-visual-style="outpost"] .event-item a {
-  color: #111212;
-}
-
-.creator-page[data-visual-style="outpost"] .event-item .pill {
-  background: transparent;
-  border: 1px solid #111212;
-  border-radius: 3px;
-  color: #111212;
-}
-
-/* Visual style selector. The Outpost previews use the supplied topo artwork;
-   Codex remains the existing product treatment for backwards compatibility. */
-.visual-style-fieldset {
-  border: 0;
-  margin: 4px 0 0;
-  padding: 0;
-}
-
-.visual-style-fieldset legend {
-  color: #304238;
-  font-size: 13px;
-  font-weight: 700;
-  margin-bottom: 5px;
-  padding: 0;
-}
-
-.visual-style-fieldset > p {
-  margin-bottom: 10px;
-}
-
-.visual-style-options {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.visual-style-option {
-  background: rgba(255, 255, 255, 0.66);
-  border: 1px solid var(--app-line);
-  border-radius: 12px;
-  color: var(--app-ink);
-  cursor: pointer;
-  display: grid;
-  gap: 8px;
-  padding: 8px;
-  position: relative;
-  text-align: left;
-}
-
-.visual-style-option:hover {
-  border-color: rgba(79, 70, 229, 0.48);
-}
-
-.visual-style-option:focus-within {
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
-}
-
-.visual-style-option.is-selected {
-  border-color: var(--cx-indigo);
-  box-shadow: inset 0 0 0 1px var(--cx-indigo);
-}
-
-.visual-style-option > input {
-  height: 1px;
-  margin: -1px;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-  position: absolute;
-  width: 1px;
-}
-
-.visual-style-preview {
-  align-content: space-between;
-  background: var(--cx-gradient);
-  border-radius: 7px;
-  color: white;
-  display: grid;
-  min-height: 78px;
-  overflow: hidden;
-  padding: 10px;
-  position: relative;
-}
-
-.visual-style-option-outpost .visual-style-preview {
-  background-image: linear-gradient(rgba(4, 5, 5, 0.35), rgba(4, 5, 5, 0.35)), url(/outpost/wide-black.webp);
-  background-position: center;
-  background-size: cover;
-  color: #f5f1e8;
-  font-family: var(--font-outpost-body), Inter, ui-sans-serif, sans-serif;
-}
-
-.visual-style-option-outpost .visual-style-preview-brand {
-  font-family: var(--font-outpost-display), Impact, sans-serif;
-  font-size: 18px;
-  font-weight: 400;
-  letter-spacing: 0.04em;
-}
-
-.visual-style-preview-brand {
-  font-size: 13px;
-  font-weight: 950;
-  letter-spacing: 0.08em;
-  position: relative;
-  z-index: 1;
-}
-
-.visual-style-preview-lines {
-  background: currentColor;
-  height: 2px;
-  opacity: 0.7;
-  width: 42%;
-}
-
-.visual-style-option-label {
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.2;
-}
-
-.visual-style-check {
-  align-items: center;
-  background: #fff;
-  border: 1px solid rgba(11, 12, 16, 0.22);
-  border-radius: 999px;
-  display: flex;
-  font-size: 10px;
-  font-weight: 900;
-  height: 20px;
-  justify-content: center;
-  position: absolute;
-  right: 14px;
-  top: 14px;
-  width: 20px;
-  z-index: 2;
-}
-
 .shared-stage-preview {
   aspect-ratio: 36 / 25;
   background: #08090b;
@@ -1161,12 +843,7 @@ h3 {
   white-space: nowrap;
 }
 
-.button.event-remove {
-  font-size: 13px;
-  font-weight: 700;
-  min-height: 28px;
-  padding: 0 10px;
-}
+
 
 .event-item-title {
   min-width: 0;
@@ -2576,11 +2253,15 @@ h3 {
 }
 
 /* The admin is an operator workspace shared by every public visual style.
-   Neutral paper, compact geometry, and a strong information hierarchy keep
+   Neutral Base surfaces, compact geometry, and a strong information hierarchy keep
    the controls consistent while the embedded stage remains the branding source. */
 .admin-page {
-  background: #e9e8e3;
-  color: #171714;
+  background: #ffffff;
+  color: #101113;
+  --app-ink: #101113;
+  --app-muted: #71717a;
+  --app-line: #d7d8dc;
+  --primary: #101113;
   min-height: 100vh;
   padding: 28px;
 }
@@ -2599,41 +2280,42 @@ h3 {
 .admin-control-panel,
 .admin-page .admin-stage-preview-panel,
 .admin-page .admin-workspace {
-  background: #f8f6ef;
-  border: 1px solid #d5d2c9;
-  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
 .admin-page-header {
-  border-bottom: 1px solid #d5d2c9;
+  border-bottom: 1px solid #e4e4e7;
   margin-bottom: 18px;
   padding-bottom: 18px;
 }
 
 .admin-console-kicker {
   align-items: center;
-  color: #62615c;
+  color: #71717a;
   display: flex;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 500;
   gap: 10px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   margin-bottom: 12px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .admin-console-kicker span + span {
-  border-left: 1px solid #aaa69d;
-  font-weight: 650;
-  letter-spacing: 0.04em;
+  border-left: 1px solid #e4e4e7;
+  font-weight: 400;
+  letter-spacing: 0;
   padding-left: 10px;
 }
 
 .admin-event-title {
-  font-size: clamp(32px, 3.4vw, 44px);
+  font-size: clamp(28px, 2.8vw, 36px);
+  font-weight: 600;
   letter-spacing: -0.035em;
   margin-bottom: 0;
   text-wrap: balance;
@@ -2645,52 +2327,52 @@ h3 {
 
 .admin-status-strip .pill {
   background: transparent;
-  border: 1px solid #bdb9b0;
-  border-radius: 3px;
-  color: #41413d;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  color: #52525b;
 }
 
 .admin-status-strip .pill.green {
-  background: #e1eadf;
-  border-color: #97ad92;
-  color: #234322;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
 }
 
 .admin-status-strip .pill.yellow {
-  background: #f3ead1;
-  border-color: #cbb882;
-  color: #684e13;
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
 }
 
 .admin-primary-actions {
-  border-bottom: 1px solid #d5d2c9;
-  border-top: 1px solid #d5d2c9;
+  border-bottom: 1px solid #e4e4e7;
+  border-top: 1px solid #e4e4e7;
   margin: 0 0 20px;
   padding: 14px 0;
 }
 
 .admin-page :is(.button, button, input, textarea, [data-slot="select-trigger"]) {
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .admin-page .field :is(input, select, textarea) {
-  background: #fffef9;
-  border-color: #c8c5bc;
+  background: #ffffff;
+  border-color: #d7d8dc;
   box-shadow: none;
 }
 
 .admin-page .field :is(input, select, textarea):focus {
-  border-color: #171714;
+  border-color: #101113;
   box-shadow: 0 0 0 2px rgba(23, 23, 20, 0.12);
 }
 
 .admin-section-label {
-  color: #62615c;
-  font-size: 11px;
-  font-weight: 850;
-  letter-spacing: 0.08em;
+  color: #71717a;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
   margin: 20px 0 10px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .admin-page .admin-event-settings {
@@ -2698,17 +2380,19 @@ h3 {
 }
 
 .admin-page .stage-timer-admin {
-  background: #fffef9;
-  border-color: #d5d2c9;
+  background: #ffffff;
+  border-color: #e4e4e7;
   border-radius: 6px;
   margin-top: 0;
 }
 
 .admin-page .stage-timer-readout {
-  background: #171714;
-  border: 0;
-  border-radius: 4px;
-  color: #f8f6ef;
+  background: #fafafa;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  color: #101113;
+  font-size: 40px;
+  font-weight: 500;
 }
 
 .admin-page .stage-timer-admin.is-overtime .stage-timer-readout {
@@ -2723,28 +2407,28 @@ h3 {
 
 .admin-page .admin-stage-preview-heading .muted,
 .admin-page .stage-timer-admin-title {
-  color: #4c4b47;
-  letter-spacing: 0.08em;
+  color: #52525b;
+  letter-spacing: 0;
 }
 
 .admin-page .admin-stage-controls {
-  background: #e8e6df;
-  border-color: #d5d2c9;
+  background: #f4f4f5;
+  border-color: #e4e4e7;
   border-radius: 6px;
 }
 
 .admin-page .admin-stage-mode {
-  border-radius: 3px;
+  border-radius: 6px;
 }
 
 .admin-page .admin-stage-mode.is-active {
-  background: #171714;
-  color: #f8f6ef;
+  background: #101113;
+  color: #ffffff;
 }
 
 .admin-page .admin-stage-preview-viewport {
-  border-color: #171714;
-  border-radius: 4px;
+  border-color: #101113;
+  border-radius: 6px;
   box-shadow: none;
 }
 
@@ -2754,7 +2438,7 @@ h3 {
 
 .admin-page .admin-tabs {
   background: transparent;
-  border-bottom-color: #d5d2c9;
+  border-bottom-color: #e4e4e7;
   gap: 2px;
   padding: 8px 10px 0;
 }
@@ -2762,35 +2446,35 @@ h3 {
 .admin-page .admin-tab {
   border-bottom: 3px solid transparent;
   border-radius: 3px 3px 0 0;
-  color: #62615c;
+  color: #71717a;
   min-height: 44px;
 }
 
 .admin-page .admin-tab.is-active {
   background: transparent;
-  border-bottom-color: #171714;
-  color: #171714;
+  border-bottom-color: #101113;
+  color: #101113;
 }
 
 .admin-page .admin-tab-count {
-  background: #dedbd3;
-  border-radius: 3px;
+  background: #f4f4f5;
+  border-radius: 6px;
 }
 
 .admin-page .admin-table th {
-  background: #efede6;
-  border-bottom-color: #d5d2c9;
-  color: #62615c;
+  background: #fafafa;
+  border-bottom-color: #e4e4e7;
+  color: #71717a;
 }
 
 .admin-page .admin-table td {
-  background: #fffef9;
-  border-bottom-color: #e4e1d9;
-  color: #171714;
+  background: #ffffff;
+  border-bottom-color: #eeeef0;
+  color: #101113;
 }
 
 .admin-page .admin-table tbody tr:hover td {
-  background: #f4f1e9;
+  background: #fafafa;
 }
 
 .admin-page .admin-table-wrap {
@@ -2798,7 +2482,7 @@ h3 {
 }
 
 .admin-page .table-row-menu-trigger {
-  border-radius: 4px;
+  border-radius: 6px;
   height: 36px;
   width: 36px;
 }
@@ -3344,31 +3028,6 @@ h3 {
     border-radius: 0;
     box-shadow: none;
     padding: 28px 20px calc(28px + env(safe-area-inset-bottom));
-  }
-
-  .visual-style-options {
-    grid-template-columns: 1fr;
-  }
-
-  .creator-page > .creator-shell {
-    padding: 24px 18px calc(24px + env(safe-area-inset-bottom));
-  }
-
-  .creator-outpost-lockup img {
-    height: 42px;
-  }
-
-  .creator-page[data-visual-style="outpost"] .creator-shell {
-    border-radius: 0;
-  }
-
-  .creator-page[data-visual-style="outpost"] h1 {
-    font-size: 42px;
-  }
-
-  .creator-page[data-visual-style="outpost"] .creator-preview-column {
-    margin-inline: -18px;
-    padding: 22px 18px;
   }
 
   .outpost-public-page {

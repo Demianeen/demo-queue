@@ -1,77 +1,87 @@
-# Judge workspace design QA
+# Neutral workspace design QA
 
-- Source visual truth: `/Users/demian/.codex/generated_images/01a04e60-bea5-7200-ad54-f9bdd7215c01/exec-57b13b2e-cde2-44cc-be90-e6667eff8c7a.png`
-- Admin source state: `/var/folders/1b/wrjh6hrn5zqgnrsh2nv8kh380000gn/T/codex-clipboard-73ad0603-6519-48db-894e-afb4b139edf6.png`
-- Normalization source state: `/var/folders/1b/wrjh6hrn5zqgnrsh2nv8kh380000gn/T/codex-clipboard-d20d049a-5f9c-47b2-a703-616809267b9b.png`
-- Final implementation screenshot: `/Users/demian/.codex/visualizations/2026/08/29/01a04e60-bea5-7200-ad54-f9bdd7215c01/judge-score-buttons-final-2026-08-30.png`
-- Final side-by-side comparison: `/Users/demian/.codex/visualizations/2026/08/29/01a04e60-bea5-7200-ad54-f9bdd7215c01/judge-score-buttons-final-comparison-2026-08-30.png`
-- Admin implementation screenshot: `/Users/demian/.codex/visualizations/2026/08/29/01a04e60-bea5-7200-ad54-f9bdd7215c01/admin-judging-progress-table-2026-08-30.png`
-- Admin focused comparison: `/Users/demian/.codex/visualizations/2026/08/29/01a04e60-bea5-7200-ad54-f9bdd7215c01/admin-judging-progress-comparison-2026-08-30.png`
-- Simplified normalization screenshot: `/Users/demian/.codex/visualizations/2026/08/29/01a04e60-bea5-7200-ad54-f9bdd7215c01/admin-normalization-simplified-2862x1462-2026-08-30.png`
-- Normalization comparison: `/Users/demian/.codex/visualizations/2026/08/29/01a04e60-bea5-7200-ad54-f9bdd7215c01/admin-normalization-comparison-2026-08-30.png`
-- Route: `http://localhost:3100/judge/judge-workspace-qa-2026-08-30/<private-judge-token>`
-- Viewport: 1487 × 1058 CSS px, device scale factor 1
-- Source pixels: 1487 × 1058
-- Implementation pixels: 1487 × 1058
-- Normalization: both images use identical desktop dimensions and one-times density.
-- State: judging open, first assignment selected, three reviews complete, README loading, scores 7, 8, and 9 selected.
+final result: passed
 
-## Full-view comparison
+## Source and capture
 
-The implementation preserves the approved three-column composition, fixed event/timer/navigation bar, compact assignment rail, large project/video/README reading area, and fixed scoring panel. The scoring panel now uses the mock's visible segmented 0–10 number controls with the same purple selected state. The replacement YouTube video loads in the embedded 16:9 player and the external demo-video link remains present.
+Source: `/var/folders/1b/wrjh6hrn5zqgnrsh2nv8kh380000gn/T/codex-clipboard-81867fdd-eed5-4595-bf5d-8ba305937a67.png` (1487×1058).
 
-The admin implementation consolidates the former Coverage and Raw scores cards into one Judging progress table. Each submission row shows its assigned judges and their average scores; the three criterion values appear in a tooltip on hover or keyboard focus. Completion remains visible in the final Status column without repeating each review as another table row.
+Implementation: `http://localhost:3000/events`, real authenticated Outpost first-event state, name entered as Demo Night, Demo selected, default style, no meeting URL. Server is bound to this worktree.
 
-The normalization implementation replaces the six-column calculation-first layout with a decision-first card for each judge. Each card states whether normalization raises or lowers the judge's scores, previews Project, Raw score, Normalized score, and Change, then presents the two approval choices. Criterion adjustments, unclamped values, and clamped values remain available under a collapsed calculation-details disclosure.
+Evidence directory: `/Users/demian/.codex/visualizations/2026/09/05/01a0715b-ed44-70a0-aec3-d83d37dd7e17`.
 
-## Focused comparison
+- `workspace-final.png`: 1910×1075, browser CSS viewport 1910×1075, no emulation.
+- `workspace-final-comparison.png`: source and implementation together, 2486×971. Both main-content regions are exactly 1243px wide; source crop x122/y87 and implementation crop x333/y87, 1243×971 each. No resampling or content alteration. Different viewport widths are normalized by comparing the same centered, fixed-maximum-width content region. Full frames were also inspected separately, including header edges and avatar placement.
+- Earlier `workspace-desktop.png` and `workspace-comparison.png` support the iteration history.
+- `styles-dark.png`, `stage-dark.png`, `submission-dark.png`: actual saved style and real event consumers. The QR code was subsequently fixed to invariant dark-on-white with a quiet zone so arbitrary theme colors cannot reduce its contrast.
 
-No separate crop was needed because the rail, all three segmented score controls, selected states, save state, timer, and bottom navigation are readable in the full 1487 × 1058 capture. Targeted browser checks additionally confirmed changing Innovation from 7 to 6 saved successfully, returning it to 7 saved successfully, and the replacement video resolves to the expected privacy-enhanced YouTube embed URL.
+## Fidelity surfaces and findings
 
-The admin table received a focused comparison because the user-provided source shows only the two original table cards. Browser verification confirmed the consolidated table contains all four submissions, both assigned judges per submission, average score values, completion state, and a hover tooltip reading `Innovation 7 · Execution 8 · Demo clarity 9` for Alex Morgan's Demo Queue review.
+- Typography: existing Geist Sans matches the reference's plain sans-serif direction. Title hierarchy, field sizes, wrapping, and helper text match. Minor glyph/weight differences from the raster reference are P3.
+- Layout: form/preview widths, gap, heading placement, field heights, full-width create action, style selector and header composition match. White shell, small corners, and subtle borders retained. No horizontal overflow.
+- Colors: white app, near-black action/text, gray helpers/borders. The organization control is borderless as in the source. Neutral event styling is separate from app styling.
+- Images: generated pale corner texture follows the source motif; Lucide presentation/code/link icons match the source family. Real QR differs from the mock's decorative pattern intentionally. Initials and swatch text are live UI.
+- Copy: approved first-event heading, org attribution, type choices, preview and style copy retained. Input begins blank with Demo Night as a placeholder; screenshot shows entered text. Actual event creation uses the user's name.
+- Focused comparison: full-resolution main-content crops were inspected together. Controls, radio borders, title placement, helper wrapping, texture, and QR are legible at that scale; full-frame header inspection confirmed the corrected borderless selector.
 
-The normalization comparison uses the same closed-judging state and the supplied wide desktop source. The final capture keeps all three judges visible while reducing the default columns from six to four, separating the low-data warning from the decision status, and hiding calculation internals until requested. Browser verification confirmed the first calculation-details disclosure opens to show criterion adjustment, before-clamping, and after-clamping values, then closes without losing the review state.
+No remaining actionable P0/P1/P2 findings in the approved desktop screen.
 
 ## Comparison history
 
-1. Initial capture: `judge-workspace-implementation.jpg`
-   - P2: `Not started` used the green saved-state color.
-   - Fix: added a muted pending state and reserved green for a saved or complete review.
-2. Interaction capture: `judge-workspace-implementation-v2.jpg`
-   - P2: native select focus could leave the scoring column horizontally offset.
-   - Fix: explicitly disabled horizontal scrolling in the project and score panes.
-3. README capture: `judge-workspace-implementation-v3.jpg`
-   - P2: repositories using HTML inside Markdown displayed the HTML as literal source text.
-   - Fix: rendered raw Markdown HTML through `rehype-raw` and sanitized it with `rehype-sanitize`.
-4. Final capture: `judge-workspace-implementation-v5.jpg`
-   - The earlier P2 findings are resolved. No actionable P0, P1, or P2 mismatch remains.
-5. Segmented-score capture: `judge-score-buttons-2026-08-30.png`
-   - P2: segmented controls matched the mock's layout, but the selected number used the product's black primary token instead of the mock's purple state.
-   - Fix: applied the mock's purple selected-number color and retained visible focus, hover, disabled, and autosave behavior.
-6. Final segmented-score capture: `judge-score-buttons-final-2026-08-30.png`
-   - The score controls now match the source structure, density, and selected state. No actionable P0, P1, or P2 mismatch remains.
-7. Admin progress capture: `admin-judging-progress-table-2026-08-30.png`
-   - The duplicated Coverage and Raw scores cards are replaced by one denser table. Judge identity, average score, completion, and raw criteria remain available without duplicated review rows.
-   - No actionable P0, P1, or P2 mismatch remains.
-8. Normalization simplification: `admin-normalization-simplified-2862x1462-2026-08-30.png`
-   - P1: the source makes technical calculation columns more prominent than the per-judge approval decision.
-   - Fix: elevated a plain-language impact summary and two explicit decision buttons, reduced the preview to four columns, and moved calculation internals into a disclosure.
-   - Post-fix evidence: all score changes remain visible in the preview and all technical values remain available on demand. No actionable P0, P1, or P2 mismatch remains.
+1. First rendered comparison: found extra organization-select border, overly faint unchecked radio, small vertical offsets in controls and preview content. Kept QA blocked.
+2. Corrected border through the shadcn trigger's supported class composition, darkened unselected radio, adjusted field gaps and preview padding. Re-captured and compared normalized main regions.
+3. Final capture above confirms fixes. Minor texture and font differences remain P3. No further changes required for the approved screen.
 
-## Required fidelity surfaces
+## Interaction checks
 
-- Fonts and typography: existing Geist typography is retained; hierarchy and wrapping match the selected workspace density.
-- Spacing and layout rhythm: three fixed judge-workspace regions, the consolidated progress table, and separated normalization cards preserve existing gutters, borders, radii, and a clearer decision rhythm.
-- Colors and tokens: repository product tokens remain in use across the workspace; the scoring selection uses the source design's purple state for direct fidelity.
-- Image quality and assets: the real YouTube embed and repository README assets render without application-generated substitutes.
-- Copy and content: private-link context, assignment progress, project metadata, score criteria, save state, navigation, judge identity, score averages, raw criteria, completion states, normalization impact, approval choices, clamping, and low-data context are all present.
+- Existing Google session completes actual WorkOS callback and Convex authentication.
+- Outpost/Test organization switch replaces the active workspace.
+- Demo/Hackathon updates the preview copy; event-name draft survives Styles and back.
+- Save custom style, receive confirmation, select it for event creation, create event, see it in the organization list.
+- Test custom style absent from Outpost's dropdown.
+- Custom dark theme appears on real presentation and submission pages; fields retain readable contrast.
+- Account menu exposes saved links and sign out. Saved links load existing device entries.
+- No browser errors/warnings on the final workspace.
+- Responsive DOM at 389×845: one-column layout, no overflow, 68px type tiles, 56px create button, preview below form. Desktop emulation reset before handoff.
 
-## Findings
+## Remaining limits / follow-up polish
 
-No remaining P0, P1, or P2 findings.
+- Browser mobile screenshot emulation produced scaled/cropped captures. These images were rejected as evidence. Mobile geometry was measured, but mobile visual fidelity is not claimed.
+- No browser logout, published timer/live lineup, or participant-status check in this pass. No production build/deploy.
+- One QA style and one QA event remain in the Test organization. No Outpost events/defaults were changed.
+- Minor raster texture/glyph differences are P3 polish only.
 
-## Follow-up polish
+## Existing styles and titles, September 6: PASS
 
-No remaining P3 item from this update.
+Authenticated /events Styles view now exposes Demo Queue, Codex, Outpost and saved custom styles. Inspected 813×872 screenshot at /Users/demian/.codex/visualizations/2026/09/05/01a0715b-ed44-70a0-aec3-d83d37dd7e17/style-selection-fixed.png: white workspace, aligned library controls, preset explanation/default action and actual presentation preview. The existing neutral workspace design is retained.
 
-final result: passed
+Real browser checks: preset default saved in Test, persisted through reload and appeared in event creation; Demo Queue default restored afterward. Existing custom editor and blank New style both open correctly. Outpost default unchanged. Titles match Events, Create event and Styles with organization name, including full-refresh verification. TypeScript, focused ESLint, 42 Node tests and 18 Convex tests pass. Development synced; production untouched. No new mobile visual check or loading performance claim.
+
+
+## Workspace routes/loading, September 6: PASS
+
+Rendered /styles directly and after full refresh at 1910×1075; screenshot /Users/demian/.codex/visualizations/2026/09/05/01a0715b-ed44-70a0-aec3-d83d37dd7e17/styles-route-final.png. Neutral workspace and original style-preview composition retained. Real URLs and titles checked on Events, Create event and Styles. Back/Forward retains event draft; Styles/Events retains custom-style draft. Successful organization switch stays on Styles and resets organization-specific edits. Clean Test event-list hydration and final Styles show no browser errors/warnings.
+
+Local warm reload-to-form samples fell from 1878/1854 ms to 779/524 ms; active recompilation also produced an interim 1886 ms sample. No production performance claim. 65 tests, TypeScript and focused lint passed. Auth failure fault injection and mobile visual check not performed. No event/style data saved during this verification.
+
+## September 6: account menu, event overview, organization width
+
+PASS: FleetOS-inspired account menu at /styles and /events, profile photo/name/email, organization submenu, Saved event links and separated red Sign out. Tested Test/Outpost switching and Saved event links/back. Sign out intentionally not executed.
+
+PASS: Events list -> /events/qa-workspace-styling-sep-5-5731b2/overview -> existing admin controls -> browser Back, direct overview reload, missing event/back-to-events, presentation Copy feedback. Creation draft survives Events -> overview -> Events -> Create event. White neutral layout inspected at 813x873 and 1910x1075. Manage event link contrast corrected after screenshot inspection (white text on dark background).
+
+PASS: Header organization select sizes to selected label: Test trigger ~90px/container119px; Outpost trigger ~126px/container156px at the same viewport. Actual switching tested, restored Test. Maximum width retained for long names; no fabricated organization records.
+
+Backend tests cover organization denial, missing/foreign/legacy events, ordered confirmed placements, draft/open/needs-review suppression and foreign placement rejection. No persisted winner fixture; populated winner UI not rendered against real data. Submission count is bounded at 1001 reads and displays 1000+ over the cap. Mobile emulation not reverified. Development query synced to precious-elk-564; no production or event-record mutation.
+
+Evidence images under /Users/demian/.codex/visualizations/2026/09/05/01a0715b-ed44-70a0-aec3-d83d37dd7e17/: event-list.png, event-details-desktop.png, account-menu-fleetos.png.
+
+## September 6: Base admin
+
+PASS at 1910x1075: shared admin white surfaces, neutral gray borders, moderate corner radii, white/gray timer and consistent dark primary actions. Current custom dark presentation remains visible inside its iframe. No page backdrop or horizontal overflow. Verified Demoers/All people tabs, opening/cancelling test-people dialog without creating records, and form QR popover. TSC/focused ESLint pass. Screenshot: admin-base-desktop.png in the evidence directory above. Other event presets, populated tables and mobile not visually exercised; no timer/publish/type/settings changes or deployment.
+
+## September 6: style editor deferred
+
+PASS: /styles now contains selection, previews and organization-default action only. Base/Codex/Outpost and saved custom style previews verified; no authoring fields/New style. Event creation copy no longer promises customization. TSC/lint and six style backend tests pass. No real defaults changed during QA. Evidence styles-selection-only.png at 813x873. MCP authoring deferred to next PR.
+
+PR cleanup (September 6): earlier style-editor checks are historical. The current selection-only behavior is recorded in `docs/plans/defer-style-editor.md`.

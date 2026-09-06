@@ -1,5 +1,6 @@
 "use client";
 
+import { eventThemeProperties } from "@/lib/event-theme";
 import { FormEvent, ReactNode, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
@@ -135,7 +136,7 @@ export default function ParticipantStatusPage() {
   }
 
   return (
-    <main className={isOutpost ? "outpost-public-page" : "narrow-page"}>
+    <main data-event-style={visualStyle} style={visualStyle === "neutral" ? eventThemeProperties(participant.event.theme) : undefined} className={isOutpost ? "outpost-public-page" : "narrow-page"}>
       {isOutpost ? (
         <OutpostHero
           eventName={participant.event.name}
@@ -147,7 +148,7 @@ export default function ParticipantStatusPage() {
         className={cn("panel panel-pad", isOutpost && "outpost-content")}
         style={isOutpost ? undefined : { width: "min(760px, 100%)" }}
       >
-        {isOutpost ? null : <Brand label={participant.event.name} />}
+        {isOutpost ? null : visualStyle === "neutral" ? <p className="neutral-event-name">{participant.event.name}</p> : <Brand label={participant.event.name} />}
         {isOutpost ? (
           <p className="outpost-event-kicker">
             {participant.event.eventType === "hackathon" ? "Project status" : "Demo status"} · {participant.event.name}

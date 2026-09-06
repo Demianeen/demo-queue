@@ -31,47 +31,50 @@ different behavior.
 
 ## Convex deployment safety
 
-The only canonical Convex deployments for this project are:
+Before claiming CI is missing or proposing a new workflow, inspect the live PR's
+checks and commit statuses, their owning integrations, and the repository's
+GitHub Actions runs. A missing local `.github` directory is not evidence that a
+PR has no automation. Distinguish GitHub Actions workflows from external checks
+shown on GitHub, state what was verified, and retry the existing check through
+its owning service before proposing replacement automation.
 
-- Production: `giant-egret-456`
-- Development Cloud: `precious-elk-564`
+Local development uses the existing Convex deployment `precious-elk-564`.
+Production is `giant-egret-456`. Preview deployments are managed by the
+project's CI/CD integration and may have different deployment names.
 
-If a command, URL, dashboard link, environment file, or CLI output names any
-other deployment, stop immediately. It is an anonymous or wrong project
-deployment and must not be read, written, configured, or deployed to.
+For local development commands, verify that `.env.local` exists and selects
+`precious-elk-564`. Before each local Convex command, report whether `.env.local`
+exists and the exact deployment selector. Do not create, copy, replace, or edit
+`.env.local` to make commands work. Do not authenticate, bootstrap, repair project
+selection, or create/select an anonymous deployment. If local setup is missing,
+unauthenticated, or points to another development deployment, stop and leave
+setup to the user.
 
-When interpreting Convex CLI output, use the exact deployment name and URL as
-the authoritative identity. Generic verbs such as `Provisioned`, `Configured`,
-or `Developing against` do not by themselves mean that a new deployment was
-created. Compare the reported deployment name and URL with the canonical values
-above before drawing any conclusion or stopping work.
+Agents may run, restart, and stop `convex dev` against `precious-elk-564`,
+including syncing schema/functions and running development checks, without
+asking for permission again.
 
-Treat an absent `.env.local` as an intentional unconfigured-worktree state. Do
-not run an unqualified deployment-aware Convex command such as `convex run`,
-`convex dev`, `convex deploy`, or `convex env`: the CLI can configure the
-worktree, recreate `.env.local`, or select an anonymous development deployment.
-Use an explicit deployment reference supplied by the user, or stop and ask
-before configuring anything. Never create or select an anonymous Convex
-deployment on the user's behalf. Before each Convex command, verify and report
-both whether `.env.local` exists and the exact deployment selector the command
-will use.
+Preview and Production deployments run through CI/CD, not local `convex deploy`.
+When asked to deploy or retry CI/CD, rerun the relevant GitHub Actions workflow.
+If the check is owned by Vercel's GitHub integration instead, use its Redeploy
+control. Verify the repository, project, branch, commit, and target environment
+before restarting. A preview deployment identified by this project's CI/CD is
+valid even when its name differs from the development and production names;
+do not reject it solely for that difference. Inspect the run and address
+reproducible failures before retrying unchanged failures repeatedly.
 
-Convex readiness includes both deployment configuration and CLI authorization.
-Never set up, authenticate, repair, reconfigure, or bootstrap Convex on the
-user's behalf. Do not create, copy, replace, or edit `.env.local` to make Convex
-commands work, and do not start an authentication or project-selection flow. If
-the existing Convex setup is missing, unauthenticated, or names anything other
-than the canonical deployments above, stop and leave the setup to the user.
+Production deploys through the production pipeline after merge. Do not trigger
+a production deployment, change production configuration, or mutate production
+data unless that production action is explicitly authorized. Restarting a PR
+preview does not authorize deploying Production. Read-only inspection of
+verified project deployments is allowed; direct configuration changes still
+require authorization and must not substitute for the CI/CD deployment flow.
 
-Agents may run, restart, and stop `convex dev` whenever needed for development
-work, provided the existing `.env.local` and CLI output both identify the
-canonical development deployment `precious-elk-564`. This permission includes
-syncing local schema and function changes and running development-only checks.
-Do not ask for permission before running these development commands.
-It does not permit agents to create or select a deployment, repair Convex setup,
-or authenticate the CLI. Production deployment `giant-egret-456` remains
-protected: do not deploy, reconfigure, or mutate production unless the user has
-explicitly authorized that production action.
+Use exact deployment names and URLs to verify identity. Words such as
+`Provisioned`, `Configured`, or `Developing against` alone do not establish that
+a new deployment was created. Stop if the target cannot be verified as belonging
+to this project. Never substitute development credentials or deployments for
+Preview or Production.
 
 ## Commit authorship
 

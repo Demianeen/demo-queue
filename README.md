@@ -6,6 +6,7 @@ Realtime demo-night picker for events.
 
 - Next.js
 - Convex
+- WorkOS AuthKit sign-in and organization membership for event creation
 - Secret-link access for admins and participants
 - Manual Google Meet link for v1
 - Hosted video links for hackathon submissions
@@ -64,13 +65,13 @@ reads `CONVEX_DEPLOY_KEY`, sets the frontend Convex URL env var for the build
 command, then deploys Convex functions:
 https://docs.convex.dev/production/hosting/vercel
 
-Production Vercel should manually set only:
+Production Vercel requires its deploy key plus the WorkOS variables listed below:
 
 ```bash
 CONVEX_DEPLOY_KEY=<production deploy key>
 ```
 
-Preview Vercel should manually set only:
+Preview Vercel requires its deploy key plus separately configured preview WorkOS variables:
 
 ```bash
 CONVEX_DEPLOY_KEY=<preview deploy key>
@@ -174,7 +175,7 @@ downloaded service-account JSON.
 
 Production app build:
 
-- Required in Vercel: `CONVEX_DEPLOY_KEY`.
+- Required in Vercel: `CONVEX_DEPLOY_KEY` and the WorkOS variables above.
 - Not manually required in Vercel: `NEXT_PUBLIC_CONVEX_URL`, because
   `convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd ...`
   sets it for `pnpm run build`.
@@ -185,7 +186,7 @@ Production app build:
 
 Preview app build:
 
-- Required in Vercel Preview: preview `CONVEX_DEPLOY_KEY`.
+- Required in Vercel Preview: preview `CONVEX_DEPLOY_KEY` and preview WorkOS variables above.
 - Not manually required in Vercel Preview: `NEXT_PUBLIC_CONVEX_URL`, because
   Convex creates a preview deployment and injects its URL for the build.
 - If you need a full admin link for a preview from the local CLI, pass the
@@ -204,6 +205,64 @@ Vercel can expose generated app URL variables such as `VERCEL_URL`,
 `VERCEL_BRANCH_URL`, and `VERCEL_PROJECT_PRODUCTION_URL` when system env vars
 are enabled:
 https://vercel.com/docs/environment-variables/system-environment-variables
+
+## Organization access and styles
+
+`/events` and `/styles` require a WorkOS session and active organization membership.
+New events belong to the organization in the verified access token. Event lists,
+overviews, and organization defaults are scoped to that organization. Membership
+lists are cached per user and environment for at most 60 seconds; organization
+switches check membership directly. Convex independently verifies access tokens.
+
+Existing account-free admin, participant, judge, submission, and presentation
+links remain valid. Events created before organization access was added remain
+available through those links; they are not automatically assigned to an
+organization. Device-saved event links are at `/saved`.
+
+Styles provides existing-style previews, event selection, and organization
+defaults. Existing events keep their saved appearance. Style authoring is deferred
+to a separate MCP change. The admin interface always uses Base; public pages use
+the event's selected style.
+
+### WorkOS configuration before merging or deploying
+
+Local development is configured for `precious-elk-564`. Production uses
+`giant-egret-456` and must have a separate production WorkOS environment.
+Development WorkOS credentials must not be reused in production.
+
+Set these variables in the matching frontend hosting environment:
+
+- `WORKOS_CLIENT_ID`
+- `WORKOS_API_KEY`
+- `WORKOS_COOKIE_PASSWORD` (an independent random secret of at least 32 characters)
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI` for local development and Production
+  (the app's origin plus `/callback`)
+
+Set Preview variables at the Vercel environment level using the Staging WorkOS
+environment. Preview callbacks derive from Vercel's trusted `VERCEL_BRANCH_URL`;
+do not set one branch's redirect URL for all previews. Workspace routes opened
+on a unique deployment URL redirect to the stable branch host before sign-in so
+the authentication cookie and callback share a host. Production uses its separate
+Production WorkOS environment and explicit callback URL.
+
+Set matching `WORKOS_CLIENT_ID` and `WORKOS_API_KEY` on the corresponding Convex
+deployment before its functions deploy. Missing the client ID causes auth
+configuration validation to fail; installed Convex 1.40.0 also reads the API key
+from the backend when applying AuthKit settings. `convex.json` provisions local
+development and registers preview/production callbacks and CORS origins using
+existing credentials. It does not supply hosting credentials.
+
+In the matching WorkOS environment, configure the callback URI, homepage and CORS
+origin for the actual frontend URL, enable the intended Google sign-in method,
+and provision invitation-only organizations and memberships. Configure production
+Google OAuth credentials rather than relying on development demo credentials.
+Preview deployments also need matching frontend/Convex WorkOS configuration and
+an allowed callback URL; production credentials do not supply this automatically.
+
+Before merging, verify that configuration and complete a hosted invited-user
+login, organization-scoped event creation, and access-denied smoke test. Keep
+admin capability links private. Production setup remains an explicit merge gate
+in `docs/plans/workos-development-setup.md` (P01).
 
 ## Queue ops
 
@@ -256,7 +315,7 @@ an admin URL only when explicitly requested.
 
 ## Manual test cases
 
-1. Create an event from `/`, paste a fake Meet link, and open the generated admin and presentation view links.
+1. Sign in with an invited account at `/events`, select your organization, create an event with a test Meet link, and open its overview, admin, and presentation links.
 2. Submit two demos from the QR/form link and confirm they appear in the admin queue without showing contact info in the presentation view.
 3. Hide one queued demo from admin and confirm another eligible demo fills the queue gap when available.
 4. Publish the queue, click `Advance`, and confirm the presentation view updates, the participant page reveals the Meet link for everyone in the published lineup, and the presentation view shows the Meet link only after `Show in presentation view` is enabled.

@@ -652,7 +652,7 @@ h3 {
 .visual-style-options {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .visual-style-option {
@@ -783,7 +783,7 @@ h3 {
   width: 1440px;
 }
 
-.shared-stage-preview-canvas > .stage:not(.stage-outpost) {
+.shared-stage-preview-canvas > .stage:not(.stage-outpost):not(.stage-astra) {
   background-color: #eef1ff;
   background-image:
     linear-gradient(rgba(247, 248, 255, 0.36), rgba(247, 248, 255, 0.3)),

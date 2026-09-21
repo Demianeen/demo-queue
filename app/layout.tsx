@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Koulen } from "next/font/google";
 import { GeistSans } from "geist/font/sans";
 import "./globals.css";
+import "./astra.css";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { PageBackground } from "./PageBackground";
 import { TooltipProvider } from "@/components/ui/tooltip";

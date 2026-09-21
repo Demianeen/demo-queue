@@ -1,0 +1,426 @@
+/* Astra's supplied artwork and original lettering stay unmodified. */
+@font-face {
+  font-family: "Astra Sans";
+  src: url("/astra/openai-sans-medium.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+[data-visual-style="astra"] {
+  font-family: "Astra Sans", var(--font-geist-sans), sans-serif;
+}
+
+.astra-brand {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.astra-brand img {
+  width: auto;
+  max-width: 42%;
+  height: 32px;
+  object-fit: contain;
+}
+
+.astra-brand > span {
+  background: #ffffff4d;
+  width: 1px;
+  height: 28px;
+}
+
+.astra-eyebrow {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.astra-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #030405;
+  pointer-events: none;
+}
+
+.astra-backdrop img,
+.astra-backdrop canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.astra-backdrop canvas {
+  opacity: 0;
+}
+
+.astra-backdrop[data-renderer="webgl"] canvas {
+  opacity: 1;
+}
+
+.visual-style-option-astra .visual-style-preview {
+  background: #030405 url("/astra/gpt6-astra-background.webp") center / cover no-repeat;
+}
+
+.visual-style-option-astra .visual-style-preview-brand {
+  font-family: "Astra Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-shadow: 0 1px 8px #000;
+}
+
+/* The creator keeps its existing workflow, with a quiet, dark control surface. */
+.creator-page[data-visual-style="astra"] {
+  --app-ink: #f5f5f3;
+  --app-muted: #b4b6bc;
+  --app-line: #3c3e46;
+  --app-panel: #101216;
+  --app-accent-dark: #e8cba7;
+  --app-soft-blue: #323039;
+  --cx-indigo: #e8cba7;
+  background: #030405;
+  color: var(--app-ink);
+}
+
+.creator-page[data-visual-style="astra"] .creator-shell {
+  border-color: #292c32;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.creator-page[data-visual-style="astra"] .astra-brand {
+  margin-bottom: 32px;
+}
+
+.creator-page[data-visual-style="astra"] h1 {
+  font-weight: 500;
+  letter-spacing: -.045em;
+}
+
+.creator-page[data-visual-style="astra"] .field label,
+.creator-page[data-visual-style="astra"] .visual-style-fieldset legend {
+  color: #e0e1e5;
+}
+
+.creator-page[data-visual-style="astra"] :is(input, [data-slot="select-trigger"]) {
+  background: #191c22;
+  border-color: #484b54;
+  color: #f5f5f3;
+}
+
+.creator-page[data-visual-style="astra"] input:focus {
+  border-color: #e8cba7;
+  box-shadow: 0 0 0 3px #e8cba726;
+}
+
+.creator-page[data-visual-style="astra"] .creator-preview-column {
+  background: #080a0d;
+  border-color: #34373f;
+}
+
+.creator-page[data-visual-style="astra"] .creator-preview-heading span {
+  color: #b4b6bc;
+}
+
+.creator-page[data-visual-style="astra"] .visual-style-option {
+  background: #191c22;
+}
+
+.creator-page[data-visual-style="astra"] .visual-style-check {
+  color: #131518;
+}
+
+.creator-page[data-visual-style="astra"] .button:not(.ghost) {
+  background: #f1ede6;
+  color: #151619;
+}
+
+.creator-page[data-visual-style="astra"] .button:not(.ghost):hover {
+  background: #fff;
+}
+
+.creator-page[data-visual-style="astra"] .button:disabled {
+  opacity: .5;
+}
+
+.creator-page[data-visual-style="astra"] .event-copy {
+  background: #24272e;
+}
+
+/* Public pages: a full galaxy composition beside a legible paper form. */
+.astra-public-page {
+  background: #030405;
+  display: grid;
+  grid-template-columns: minmax(320px, 42%) minmax(0, 1fr);
+  min-height: 100vh;
+  padding: 16px;
+}
+
+.astra-hero {
+  align-self: start;
+  color: #f5f5f3;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: calc(100svh - 32px);
+  overflow: hidden;
+  padding: clamp(28px, 4vw, 64px);
+  position: sticky;
+  top: 16px;
+}
+
+.astra-hero .astra-backdrop {
+  inset: 12% -8% 15%;
+}
+
+.astra-hero .astra-backdrop img {
+  height: auto;
+  top: 50%;
+  transform: translateY(-50%);
+  mask-image: linear-gradient(transparent, #000 14%, #000 84%, transparent);
+}
+
+.astra-hero .astra-brand,
+.astra-hero-copy {
+  position: relative;
+  z-index: 1;
+}
+
+.astra-hero-copy {
+  padding-top: 260px;
+}
+
+.astra-hero-copy h2 {
+  font-size: clamp(36px, 4vw, 64px);
+  font-weight: 500;
+  letter-spacing: -.055em;
+  line-height: 1;
+  max-width: 10ch;
+}
+
+.astra-hero-copy > p:last-child {
+  color: #bfc1c6;
+  font-size: 16px;
+  line-height: 1.55;
+  max-width: 30ch;
+  margin-bottom: 0;
+}
+
+.astra-content {
+  --app-accent: #6c481e;
+  --app-accent-dark: #684721;
+  --app-line: #d8d6d1;
+  --cx-indigo: #7c592d;
+  align-self: start;
+  background: #f5f4ef;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: none;
+  min-width: 0;
+  min-height: calc(100svh - 32px);
+  padding: clamp(26px, 4vw, 64px);
+  backdrop-filter: none;
+}
+
+.astra-content h1 {
+  font-weight: 500;
+  letter-spacing: -.04em;
+}
+
+.astra-content > .astra-eyebrow {
+  color: #716554;
+  margin-bottom: 28px;
+}
+
+/* Projection: native launch motion behind the same stage/QR/timer controls. */
+.stage-astra {
+  --app-ink: #f5f5f3;
+  --app-muted: #bec0c7;
+  --stage-subtitle-color: #d7d8dc;
+  background: #030405;
+  color: var(--app-ink);
+  isolation: isolate;
+}
+
+.stage-astra::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #030405b3, #03040514 65%, #03040573);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.astra-stage-brand {
+  position: absolute;
+  top: 32px;
+  left: 32px;
+  z-index: 2;
+}
+
+.stage-astra .stage-grid {
+  position: relative;
+  z-index: 1;
+  padding-top: 64px;
+}
+
+.stage-astra .stage-title {
+  font-weight: 500;
+  font-size: clamp(46px, calc(var(--stage-vw) * 6.8), 104px);
+  letter-spacing: -.055em;
+  line-height: 1.02;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.stage-astra .stage-subtitle {
+  font-weight: 500;
+  line-height: 1.25;
+  font-size: clamp(22px, calc(var(--stage-vw) * 2.4), 38px);
+}
+
+.stage-astra .stage-label {
+  font-weight: 500;
+  letter-spacing: .1em;
+  font-size: clamp(14px, calc(var(--stage-vw) * 1.1), 22px);
+}
+
+.stage-astra .stage-lineup-header .stage-label {
+  color: #bec0c7;
+}
+
+.stage-astra .stage-lineup-stack {
+  background: #080a0dd9;
+  border: 1px solid #ffffff30;
+  border-radius: 12px;
+  padding: 26px;
+}
+
+.stage-astra :is(.stage-lineup-header span, .stage-lineup-demo, .stage-lineup-list li.is-later .stage-lineup-demo, .stage-lineup-list li.is-later .stage-lineup-position, .stage-lineup-empty p, .stage-lineup-more, .stage-access-label, .stage-meet-url, .stage-qr-count) {
+  color: #bec0c7;
+}
+
+.stage-astra :is(.stage-lineup-person, .stage-lineup-position, .stage-lineup-empty) {
+  color: #f5f5f3;
+}
+
+.stage-astra :is(.stage-lineup-person, .stage-lineup-position) {
+  font-weight: 500;
+}
+
+.stage-astra .stage-access {
+  border-color: #ffffff30;
+}
+
+.stage-astra :is(.stage-demo-timer, .stage-queue-timer) {
+  color: #f5f5f3;
+}
+
+.stage-astra :is(.stage-demo-timer, .stage-queue-timer) strong {
+  font-weight: 500;
+  letter-spacing: -.04em;
+}
+
+.stage-astra .stage-queue-timer-track {
+  background: #ffffff30;
+}
+
+.stage-astra .stage-queue-timer-fill {
+  background: #ead2b4;
+}
+
+.stage-astra .stage-queue-timer.is-warning {
+  color: #f6cc81;
+}
+
+.stage-astra .stage-queue-timer.is-warning .stage-queue-timer-fill {
+  background: #f6cc81;
+}
+
+.stage-astra :is(.stage-demo-timer.is-overtime, .stage-queue-timer.is-danger) {
+  color: #ffb4ab;
+}
+
+.stage-astra .stage-queue-timer.is-danger .stage-queue-timer-fill {
+  background: #ffb4ab;
+}
+
+.stage-astra .stage-mascot {
+  display: none;
+}
+
+.stage-astra .stage-qr-stack {
+  padding-top: 0;
+}
+
+.stage-astra .qr-box {
+  background: #fff;
+  color: #111;
+}
+
+@media (max-width: 800px) {
+  .astra-public-page {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 10px;
+  }
+
+  .astra-hero {
+    position: relative;
+    top: auto;
+    min-height: 460px;
+    padding: 24px;
+  }
+
+  .astra-hero .astra-backdrop {
+    inset: 0 -2%;
+  }
+
+  .astra-hero-copy {
+    padding-top: 220px;
+  }
+
+  .astra-hero-copy h2 {
+    max-width: none;
+    font-size: 36px;
+  }
+
+  .astra-content {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .visual-style-options {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .visual-style-preview {
+    padding: 8px;
+  }
+
+  .visual-style-option-astra .visual-style-preview-brand {
+    max-width: 5ch;
+  }
+
+  .astra-brand {
+    gap: 12px;
+  }
+
+  .astra-brand img {
+    height: 25px;
+  }
+
+  .stage-astra .stage-lineup-stack {
+    padding: 20px;
+  }
+}

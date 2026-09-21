@@ -1,6 +1,8 @@
 "use client";
 
 import Image from "next/image";
+import { AstraBackdrop } from "@/components/AstraBackdrop";
+import { AstraBrand } from "@/components/AstraBrand";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 import { stageSubmissionPrompt } from "@/lib/event-state";
@@ -87,6 +89,7 @@ export function StagePresentation({
 }) {
   const visualStyle = normalizeVisualStyle(stage.event.visualStyle);
   const isOutpost = isOutpostStyle(visualStyle);
+  const isAstra = visualStyle === "astra";
   const isHackathon = stage.event.eventType === "hackathon";
   const lineupNoun = isHackathon ? "presenter" : "demoer";
   const projectNoun = isHackathon ? "project" : "demo";
@@ -259,13 +262,19 @@ export function StagePresentation({
   return (
     <Root
       aria-hidden={embedded ? true : undefined}
-      className={cn("stage", isOutpost && "stage-outpost", isAdvancing && "stage-advancing")}
+      className={cn("stage", isOutpost && "stage-outpost", isAstra && "stage-astra", isAdvancing && "stage-advancing")}
       inert={embedded ? true : undefined}
+      data-visual-style={visualStyle}
       ref={(node: HTMLElement | null) => {
         stageRootRef.current = node;
       }}
     >
-      {isOutpost ? (
+      {isAstra ? (
+        <>
+          <AstraBackdrop animated={!embedded} />
+          <AstraBrand className="astra-stage-brand" />
+        </>
+      ) : isOutpost ? (
         <Image
           className="outpost-stage-mark"
           src="/outpost/logo-white.png"

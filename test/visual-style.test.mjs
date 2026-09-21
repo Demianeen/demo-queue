@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  VISUAL_STYLE_LABELS,
   VISUAL_STYLES,
   isOutpostStyle,
   normalizeVisualStyle,
@@ -11,6 +12,12 @@ test("legacy or unknown styles fall back to Codex", () => {
   assert.equal(normalizeVisualStyle(undefined), "codex");
   assert.equal(normalizeVisualStyle(""), "codex");
   assert.equal(normalizeVisualStyle("outpost-orange"), "codex");
+});
+
+test("Astra is available as its own labeled visual style", () => {
+  assert.equal(normalizeVisualStyle("astra"), "astra");
+  assert.equal(VISUAL_STYLE_LABELS.astra, "GPT-6 Astra");
+  assert.equal(isOutpostStyle("astra"), false);
 });
 
 test("known visual styles normalize unchanged", () => {

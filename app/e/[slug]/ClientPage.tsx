@@ -21,6 +21,7 @@ import {
 } from "@/lib/validation";
 import { Brand } from "@/app/Brand";
 import { Skeleton } from "@/app/Skeleton";
+import { AstraHero } from "@/components/AstraHero";
 import { OutpostHero } from "@/components/OutpostHero";
 import { cn } from "@/lib/utils";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
@@ -100,6 +101,7 @@ export default function SubmissionPage() {
   const isHackathon = stage?.event.eventType === "hackathon";
   const visualStyle = normalizeVisualStyle(stage?.event.visualStyle);
   const isOutpost = isOutpostStyle(visualStyle);
+  const isAstra = visualStyle === "astra";
 
   if (!stage) {
     return (
@@ -285,7 +287,10 @@ export default function SubmissionPage() {
   }
 
   return (
-    <main className={isOutpost ? "outpost-public-page" : "narrow-page"}>
+    <main className={isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
+      {isAstra ? (
+        <AstraHero eventName={stage.event.name} eventType={stage.event.eventType} mode="submission" />
+      ) : null}
       {isOutpost ? (
         <OutpostHero
           eventName={stage.event.name}
@@ -294,10 +299,11 @@ export default function SubmissionPage() {
         />
       ) : null}
       <section
-        className={cn("panel panel-pad", isOutpost && "outpost-content")}
-        style={isOutpost ? undefined : { width: "min(760px, 100%)" }}
+        className={cn("panel panel-pad", isOutpost && "outpost-content", isAstra && "astra-content")}
+        style={isOutpost || isAstra ? undefined : { width: "min(760px, 100%)" }}
       >
-        {isOutpost ? null : <Brand label={stage.event.name} />}
+        {isOutpost || isAstra ? null : <Brand label={stage.event.name} />}
+        {isAstra ? <p className="astra-eyebrow">{stage.event.name}</p> : null}
         <div>
           {isOutpost ? (
             <p className="outpost-event-kicker">

@@ -14,6 +14,7 @@ import {
 } from "@/lib/validation";
 import { Brand } from "@/app/Brand";
 import { shouldShowMeetAvailabilityCopy } from "@/lib/event-state";
+import { AstraHero } from "@/components/AstraHero";
 import { OutpostHero } from "@/components/OutpostHero";
 import { cn } from "@/lib/utils";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
@@ -72,6 +73,7 @@ export default function ParticipantStatusPage() {
 
   const visualStyle = normalizeVisualStyle(participant.event.visualStyle);
   const isOutpost = isOutpostStyle(visualStyle);
+  const isAstra = visualStyle === "astra";
 
   async function saveContact(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -135,7 +137,10 @@ export default function ParticipantStatusPage() {
   }
 
   return (
-    <main className={isOutpost ? "outpost-public-page" : "narrow-page"}>
+    <main className={isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
+      {isAstra ? (
+        <AstraHero eventName={participant.event.name} eventType={participant.event.eventType} mode="status" />
+      ) : null}
       {isOutpost ? (
         <OutpostHero
           eventName={participant.event.name}
@@ -144,10 +149,11 @@ export default function ParticipantStatusPage() {
         />
       ) : null}
       <section
-        className={cn("panel panel-pad", isOutpost && "outpost-content")}
-        style={isOutpost ? undefined : { width: "min(760px, 100%)" }}
+        className={cn("panel panel-pad", isOutpost && "outpost-content", isAstra && "astra-content")}
+        style={isOutpost || isAstra ? undefined : { width: "min(760px, 100%)" }}
       >
-        {isOutpost ? null : <Brand label={participant.event.name} />}
+        {isOutpost || isAstra ? null : <Brand label={participant.event.name} />}
+        {isAstra ? <p className="astra-eyebrow">{participant.event.name}</p> : null}
         {isOutpost ? (
           <p className="outpost-event-kicker">
             {participant.event.eventType === "hackathon" ? "Project status" : "Demo status"} · {participant.event.name}

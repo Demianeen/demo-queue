@@ -13,6 +13,7 @@ const eslintConfig = [
   {
     ignores: [
       "convex/_generated/**",
+      "lib/vendor/astra-launch.mjs",
       ".next/**",
       "node_modules/**",
       "next-env.d.ts",

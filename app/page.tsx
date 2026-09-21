@@ -7,6 +7,7 @@ import { api } from "../convex/_generated/api";
 import { absoluteUrl, adminPath, stagePath, submissionPath } from "@/lib/routes";
 import { randomToken, slugify } from "@/lib/tokens";
 import { Brand } from "./Brand";
+import { AstraBrand } from "@/components/AstraBrand";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { StagePresentationPreview } from "@/components/StagePresentationPreview";
 import { buildStagePreviewFixture } from "@/lib/stage-preview-fixture";
@@ -97,7 +98,9 @@ export default function HomePage() {
     <main className="narrow-page creator-page" data-visual-style={visualStyle}>
       <section className="panel panel-pad creator-shell">
         <header className="creator-intro">
-          {visualStyle === "outpost" ? (
+          {visualStyle === "astra" ? (
+            <AstraBrand />
+          ) : visualStyle === "outpost" ? (
             <div className="creator-outpost-lockup">
               <Image src="/outpost/logo-white.png" alt="Outpost" width={220} height={72} priority />
               <span>Create event</span>

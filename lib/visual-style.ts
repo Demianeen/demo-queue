@@ -1,10 +1,11 @@
-export const VISUAL_STYLES = ["codex", "outpost"] as const;
+export const VISUAL_STYLES = ["codex", "outpost", "astra"] as const;
 
 export type VisualStyle = (typeof VISUAL_STYLES)[number];
 
 export const VISUAL_STYLE_LABELS: Record<VisualStyle, string> = {
   codex: "Codex",
   outpost: "Outpost",
+  astra: "GPT-6 Astra",
 };
 
 export function normalizeVisualStyle(value: string | undefined): VisualStyle {

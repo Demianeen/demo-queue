@@ -46,7 +46,10 @@ worst-case HTTP removal bound is approximately 65 seconds, not a strict 60.
 During temporary Test membership deactivation, the native MCP connection was
 denied at initialization. Membership was restored to Active and normal OAuth
 reconnected the native client. This does not establish the finer per-tool denial
-reason or cached-subscription invalidation; those are separate checks.
+reason. A fixed-token subscription received a positive-control update before
+expiry. A separate fresh-token writer changed the same QA record after expiry;
+the old subscription reported an authorization error and did not receive the
+new value. Both clients were closed and Test membership remains Active.
 
 The earlier Development access error is superseded. Fresh read-only checks
 confirmed the shared machine login and HTTP 200 project access. The current

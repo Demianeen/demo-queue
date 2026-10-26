@@ -1,6 +1,6 @@
 ---
 title: Bound backend organization access after membership removal
-status: BLOCKED
+status: VERIFIED IN DEVELOPMENT
 tier: Tier 3
 created: 2026-09-06
 updated: 2026-10-26
@@ -100,9 +100,18 @@ normal native OAuth login completed again. Browser refresh after revocation
 showed the sign-in screen. The test did not change Outpost membership or any
 Production access. Existing capability links keep their independent contract.
 
-The cached-subscription negative test and explicit provider refresh-denial
-receipt are still unverified. Do not clear those checks based on the HTTP or
-native-client results. Earlier entries below are historical, not current state.
+A fixed-token subscription received a positive-control record update before
+expiry, with two deliveries and no errors. At expiry plus 16 seconds, a separate
+fresh-token writer updated the same nondefault QA style. The expired
+subscription retained its old timestamp, had no further deliveries, and
+reported one authorization error. Both subscriptions were closed. Existing
+style contents and defaults were unchanged. This verifies cached-subscription
+denial against a real independent invalidation, not just an idle subscription.
+
+Provider refresh denial is observed through the browser returning to sign-in
+and the native client receiving an auth challenge; no raw refresh-token request
+or credentials were copied. Production runtime verification remains post-deploy.
+Earlier entries below are historical, not current state.
 
 Both independent security and lifecycle plan reviews approved the revised
 architecture. Their shared wording correction distinguishes admission-time

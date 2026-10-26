@@ -292,6 +292,47 @@ login, organization-scoped event creation, and access-denied smoke test.
 Production setup remains an explicit merge gate
 in `docs/plans/workos-development-setup.md` (P01).
 
+## Authenticated MCP
+
+The remote endpoint is the matching Convex deployment's `/mcp` HTTP action.
+It uses WorkOS Connect OAuth, not browser cookies, admin capability links,
+deployment keys, or machine credentials. Existing browser JWT providers are
+unchanged. Missing MCP configuration returns `503` without affecting the
+ordinary workspace or account-free event links.
+
+Configure `WORKOS_MCP_ISSUER` on the backend as its WorkOS environment's HTTPS
+AuthKit origin. `WORKOS_MCP_RESOURCE` is optional and otherwise derives from
+the built-in `CONVEX_SITE_URL` plus `/mcp`. Register that exact resource in the
+matching WorkOS Connect environment and enable the client's CIMD or DCR
+registration method. Keep the existing backend `WORKOS_API_KEY` in that same
+environment. Frontend env files do not configure the HTTP action.
+
+Development uses `https://precious-elk-564.convex.site/mcp`. Production uses
+`https://giant-egret-456.convex.site/mcp` only after explicit Production setup
+authorization. Never reuse Development identity-provider settings in Production.
+
+The protected-resource metadata is available at
+`/.well-known/oauth-protected-resource/mcp`. A native MCP client discovers WorkOS,
+completes normal OAuth, and selects an organization. Use supported OpenID scopes.
+Dynamic WorkOS clients do not receive arbitrary custom permission scopes.
+
+The fixed tools are `list_organizations`, `list_events`, `get_event`,
+`create_event`, `list_styles`, `create_style`, and `set_default_style`.
+Organization operations require the exact organization selected during OAuth
+and a fresh active membership. To use another organization, reauthorize through
+WorkOS and choose it there. A membership list does not switch an existing token.
+Event lists are paginated. New events remain unpublished. Style creation accepts
+only the existing structured theme fields and does not change the default.
+Changing the default is a separate explicit tool call. Existing event style
+snapshots remain unchanged. Responses exclude admin capabilities, participant
+contacts, and judging records.
+
+Before claiming the integration works, connect a real native client, create a
+style and an event in the Development Test organization, and read them back.
+Local SDK tests do not prove a hosted OAuth connection. See the
+[MCP verification plan](docs/plans/authenticated-mcp.md) and the
+[product-review artifact](docs/reports/auth-and-mcp-review.html).
+
 ## Queue ops
 
 For live events, use the fast queue helper to get queue data into the model

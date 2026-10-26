@@ -1,0 +1,88 @@
+import { ConvexError, v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
+import { internalMutation, internalQuery } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { createEventArgs, createOrganizationEvent } from "./events";
+import { saveOrganizationStyle, setOrganizationPresetDefault, setOrganizationSavedDefault } from "./organizationStyles";
+import { eventThemeValidator } from "./eventTheme";
+import { visualStyleValidator } from "./visualStyle";
+import { MAX_ORGANIZATION_STYLES, VISUAL_STYLES, VISUAL_STYLE_LABELS, normalizeVisualStyle } from "../lib/visual-style";
+import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
+
+function eventDto(event: Doc<"events">) {
+  return {
+    id: event._id, organizationId: event.workosOrganizationId, name: event.name,
+    slug: event.slug, eventType: event.eventType ?? "demo", visualStyle: normalizeVisualStyle(event.visualStyle),
+    theme: event.theme ?? null, createdAt: event.createdAt, queuePublished: event.queuePublished,
+    submissionsClosed: event.submissionsClosedAt !== undefined,
+  };
+}
+
+function styleDto(style: Doc<"organizationStyles">) {
+  return { id: style._id, name: style.name, theme: style.theme, preset: style.preset ?? null, isDefault: style.isDefault };
+}
+
+export const listEvents = internalQuery({
+  args: { organizationId: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { organizationId, paginationOpts }) => {
+    const result = await ctx.db.query("events").withIndex("by_workosOrganizationId", (q) => q.eq("workosOrganizationId", organizationId)).order("desc").paginate(paginationOpts);
+    return { page: result.page.map(eventDto), isDone: result.isDone, continueCursor: result.continueCursor };
+  },
+});
+
+export const getEvent = internalQuery({
+  args: { organizationId: v.string(), slug: v.string() },
+  handler: async (ctx, { organizationId, slug }) => {
+    const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    return event?.workosOrganizationId === organizationId ? eventDto(event) : null;
+  },
+});
+
+export const createEvent = internalMutation({
+  args: { ...createEventArgs, styleId: v.optional(v.string()), actor: v.string() },
+  handler: async (ctx, args) => {
+    const styleId = args.styleId ? ctx.db.normalizeId("organizationStyles", args.styleId) : undefined;
+    if (styleId === null) throw new ConvexError("Style not found.");
+    const { eventId } = await createOrganizationEvent(ctx, { ...args, styleId }, { organizationId: args.expectedOrganizationId, actor: args.actor });
+    const event = await ctx.db.get(eventId);
+    if (!event) throw new Error("operation_failed");
+    return eventDto(event);
+  },
+});
+
+export const listStyles = internalQuery({
+  args: { organizationId: v.string() },
+  handler: async (ctx, { organizationId }) => {
+    const styles = await ctx.db.query("organizationStyles").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(MAX_ORGANIZATION_STYLES);
+    const defaultStyle = styles.find((style) => style.isDefault);
+    return {
+      organizationId,
+      presets: VISUAL_STYLES.map((preset) => ({ preset, name: VISUAL_STYLE_LABELS[preset], theme: preset === "neutral" ? DEFAULT_EVENT_THEME : null, isDefault: defaultStyle ? defaultStyle.preset === preset : preset === "neutral" })),
+      styles: styles.filter((style) => !style.preset).map(styleDto),
+    };
+  },
+});
+
+export const createStyle = internalMutation({
+  args: { organizationId: v.string(), name: v.string(), theme: eventThemeValidator },
+  handler: async (ctx, args) => {
+    const id = await saveOrganizationStyle(ctx, { expectedOrganizationId: args.organizationId, name: args.name, theme: args.theme, isDefault: false }, args.organizationId);
+    const style = await ctx.db.get(id);
+    if (!style) throw new Error("operation_failed");
+    return styleDto(style);
+  },
+});
+
+export const setDefaultStyle = internalMutation({
+  args: { organizationId: v.string(), selection: v.union(v.object({ kind: v.literal("preset"), preset: visualStyleValidator }), v.object({ kind: v.literal("saved"), id: v.string() })) },
+  handler: async (ctx, { organizationId, selection }) => {
+    if (selection.kind === "preset") {
+      const id = await setOrganizationPresetDefault(ctx, { expectedOrganizationId: organizationId, preset: selection.preset }, organizationId);
+      return { organizationId, styleId: id };
+    }
+    const savedId = ctx.db.normalizeId("organizationStyles", selection.id);
+    if (!savedId) throw new ConvexError("Style not found.");
+    const id = await setOrganizationSavedDefault(ctx, { expectedOrganizationId: organizationId, id: savedId }, organizationId);
+    return { organizationId, styleId: id };
+  },
+});

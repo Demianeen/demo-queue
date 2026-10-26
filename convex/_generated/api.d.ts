@@ -16,6 +16,7 @@ import type * as eventTheme from "../eventTheme.js";
 import type * as events from "../events.js";
 import type * as googleSheets from "../googleSheets.js";
 import type * as judging from "../judging.js";
+import type * as mcpData from "../mcpData.js";
 import type * as organizationAuth from "../organizationAuth.js";
 import type * as organizationStyles from "../organizationStyles.js";
 import type * as visualStyle from "../visualStyle.js";
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   events: typeof events;
   googleSheets: typeof googleSheets;
   judging: typeof judging;
+  mcpData: typeof mcpData;
   organizationAuth: typeof organizationAuth;
   organizationStyles: typeof organizationStyles;
   visualStyle: typeof visualStyle;

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Event access and MCP · Review</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #17201c; background: #f4f5f1; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1080px; margin: auto; padding: 56px 32px 72px; }
+    header { margin-bottom: 32px; }
+    .eyebrow { color: #617067; letter-spacing: .12em; font-size: 12px; font-weight: 650; text-transform: uppercase; }
+    h1 { font-size: clamp(32px, 5vw, 48px); letter-spacing: -.05em; margin: 14px 0; line-height: 1.1; }
+    h2 { font-size: 23px; letter-spacing: -.025em; margin: 0 0 14px; }
+    h3 { font-size: 16px; margin: 0 0 8px; }
+    p, li { line-height: 1.55; }
+    p { margin: 8px 0; }
+    a { color: #16563c; text-underline-offset: 3px; }
+    .intro { max-width: 720px; font-size: 18px; color: #4f5c54; }
+    .status { padding: 18px 22px; border: 1px solid #debc75; background: #fff7e5; border-radius: 12px; margin-bottom: 28px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { background: white; border: 1px solid #dce2da; border-radius: 14px; padding: 26px; }
+    .step { font-size: 12px; color: #67756b; font-weight: 650; margin-bottom: 12px; }
+    .badge { display: inline-block; border-radius: 20px; padding: 4px 10px; font-size: 12px; font-weight: 650; background: #edf2ed; color: #35533f; }
+    .pending { background: #fff1d4; color: #805e1d; }
+    ul { padding-left: 20px; margin-bottom: 0; }
+    li + li { margin-top: 7px; }
+    section + section { margin-top: 28px; }
+    .evidence { margin-top: 34px; }
+    figure { margin: 0; }
+    .image-link { display: block; background: #fff; border: 1px solid #dce2da; border-radius: 10px; overflow: hidden; }
+    img { display: block; width: 100%; height: auto; }
+    figcaption { font-size: 13px; color: #5e6c62; line-height: 1.45; margin-top: 10px; }
+    details { border-top: 1px solid #dce2da; padding-top: 18px; margin-top: 24px; }
+    summary { cursor: pointer; font-weight: 600; }
+    code { font-size: .9em; overflow-wrap: anywhere; }
+    .proof { font-size: 14px; color: #4e5f53; }
+    .foot { margin-top: 36px; font-size: 12px; color: #68746c; }
+    @media (max-width: 700px) { main { padding: 30px 18px 48px; } .grid { grid-template-columns: 1fr; } .card { padding: 21px; } }
+    @media print { body { background: white; } main { padding: 0; } .card, .status { break-inside: avoid; } details { display: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">Product review · 26 October 2026</div>
+      <h1>Event access, then agent tools.</h1>
+      <p class="intro">Review the behavior and the proof below. No code review is expected. The two changes stay separate and merge in order.</p>
+    </header>
+
+    <aside class="status" aria-label="Current readiness">
+      <strong>Not yet ready to merge.</strong>
+      <p>The code passes local checks. Production login setup and the hosted MCP connection are still blocked. Production has not been changed.</p>
+    </aside>
+
+    <section class="grid" aria-label="Pull requests in merge order">
+      <article class="card">
+        <div class="step">1 · Organization workspaces</div>
+        <h2>Sign in, choose an org, create an event.</h2>
+        <span class="badge">Local behavior verified</span>
+        <p><a href="https://github.com/Demianeen/demo-queue/pull/41">Open PR #41</a></p>
+        <ul>
+          <li>Google login for invited operators.</li>
+          <li>The org picker controls the event list and new event ownership.</li>
+          <li>Test events disappear when switching to Outpost. Their private overview denies access.</li>
+          <li>Existing link-based admin access and account-free public links remain available.</li>
+          <li>Base, Codex, Outpost, and Astra stay selectable.</li>
+        </ul>
+        <p class="proof">55 Node tests, 28 Convex tests, lint, TypeScript, and the build passed. The current PR head is conflict-free with both Vercel checks passing.</p>
+      </article>
+
+      <article class="card">
+        <div class="step">2 · Authenticated MCP · Depends on PR #41</div>
+        <h2>Create styles and events from an agent.</h2>
+        <span class="badge pending">Local tests pass · Live connection blocked</span>
+        <ul>
+          <li>Normal WorkOS OAuth, using the same invited operator account.</li>
+          <li>List organizations and events, then inspect safe event details.</li>
+          <li>Create a structured style and use it when creating an event.</li>
+          <li>Every operation stays in the organization selected during OAuth.</li>
+          <li>No admin tokens, participant contacts, arbitrary code, or judging writes.</li>
+        </ul>
+        <p class="proof">55 Node tests and 38 Convex tests pass, including 10 MCP tests. Signed token denials, fresh membership, pagination, and style/event persistence pass locally. Hosted persistence and a real client connection remain unverified.</p>
+      </article>
+    </section>
+
+    <section class="card" aria-label="What needs attention">
+      <h2>What still needs attention.</h2>
+      <ul>
+        <li>Restore existing Convex CLI access before the new MCP backend can sync to Development. The hosted endpoint currently returns 404. The registered client profile is disabled until it works.</li>
+        <li>Finish Production Google OAuth, homepage/logout, and matching MCP configuration, with explicit Production authorization.</li>
+        <li>Verify the intended 60-second Production access-token policy and the remaining negative membership-revocation checks.</li>
+      </ul>
+      <p>No Production event migration is included. Existing events need a reviewable real/test classification before any later migration.</p>
+    </section>
+
+    <section class="evidence">
+      <h2>Actual Development screenshots.</h2>
+      <p>These are native-resolution browser captures. Open an image to inspect it at full size.</p>
+      <div class="grid">
+        <figure>
+          <a class="image-link" href="auth-review-assets/test-events.png"><img src="auth-review-assets/test-events.png" alt="Authenticated Test organization event list with the verification event persisted after reload" width="1257" height="1425"></a>
+          <figcaption>The Test organization contains the newly created event after a reload. No participants or live queue were created.</figcaption>
+        </figure>
+        <figure>
+          <a class="image-link" href="auth-review-assets/foreign-event.png"><img src="auth-review-assets/foreign-event.png" alt="Outpost selected while a Test organization event overview returns Event unavailable" width="1257" height="1425"></a>
+          <figcaption>The same private event overview is unavailable while Outpost is selected.</figcaption>
+        </figure>
+      </div>
+      <details>
+        <summary>See the restored Astra choice and preview.</summary>
+        <figure style="max-width: 650px; margin-top: 18px">
+          <a class="image-link" href="auth-review-assets/astra-creation.png"><img src="auth-review-assets/astra-creation.png" alt="GPT-6 Astra selected in the authenticated event creation form with the galaxy presentation preview" width="1257" height="1425"></a>
+          <figcaption>Astra can be chosen for one event without changing the organization's default.</figcaption>
+        </figure>
+      </details>
+    </section>
+
+    <details>
+      <summary>Verification boundaries and engineering record.</summary>
+      <p>Browser checks used the existing backend on <code>precious-elk-564</code>. Local tests and build cover the rebased source. They do not prove that the latest source was synced to Development or that Production authentication works.</p>
+      <p>Actual sign-out, mobile layout, populated winner presentation, and the complete removed-member/expired-subscription matrix remain unverified. Capability admin links intentionally retain their independent access contract.</p>
+      <p><a href="workos-premerge-configuration.md">Configuration record</a> · <a href="../plans/authenticated-mcp.md">MCP design and verification plan</a></p>
+    </details>
+    <p class="foot">Review artifact. Status is evidence-based, not a release or deployment approval.</p>
+  </main>
+</body>
+</html>

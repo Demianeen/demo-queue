@@ -88,8 +88,8 @@ tests and stored client configuration do not satisfy that gate.
 
 ## October 26 verification
 
-Implementation and local verification are complete. There are 55 passing Node
-tests and 38 passing Convex tests, including 10 MCP tests. TypeScript, lint,
+Implementation and local verification are complete. There are 84 passing Node
+tests and 39 passing Convex tests, including 10 MCP tests. TypeScript, lint,
 frozen dependency installation, the Next build, and the browser-platform HTTP
 bundle pass. Both older JSON-RPC clients and current protocol discovery use
 official SDK transports. Signed JWT denials, fresh membership revocation,
@@ -104,11 +104,18 @@ verification, so it does not prove hosted token rejection.
 
 Development WorkOS now has CIMD and DCR enabled and the exact canonical MCP
 resource registered. A live REST check verified the membership query and
-response shape without printing credentials. The native client profile is
-registered but disabled. A real client login attempt cannot proceed because
-the hosted MCP endpoint and metadata return HTTP 404. Existing Convex project
-access must be restored before the backend can be synced and configured.
-No CLI authentication repair or alternate deployment was attempted.
+response shape without printing credentials. The backend synced successfully
+to `precious-elk-564`, with its matching MCP issuer configured. Metadata returns
+HTTP 200; unauthenticated tool calls return HTTP 401 with the expected challenge.
+The earlier project-access blocker is superseded by fresh successful login and
+project checks. No CLI authentication repair or alternate deployment was needed.
+
+Native OAuth first failed because an explicit client resource setting duplicated
+the resource discovered from server metadata. Removing that redundant setting
+reached the real WorkOS consent screen with Test selected. Consent approval and
+live tool creation/readback remain pending. The client profile stays disabled
+until those checks pass. New preflight commands from PR #41 distinguish fresh
+authentication failures from configuration, network, and schema errors.
 
 Production remains unchanged. The matching Production Connect configuration,
 MCP issuer/resource, and real Production client proof are not supplied by this

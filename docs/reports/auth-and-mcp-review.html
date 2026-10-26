@@ -51,7 +51,7 @@
 
     <aside class="status" aria-label="Current readiness">
       <strong>Not yet ready to merge.</strong>
-      <p>The code passes local checks. Production login setup and the hosted MCP connection are still blocked. Production has not been changed.</p>
+      <p>Development is synced and the login safeguard works. The real MCP client has reached WorkOS consent for Test. Consent approval, live tool verification, and Production setup remain. Production has not been changed.</p>
     </aside>
 
     <section class="grid" aria-label="Pull requests in merge order">
@@ -67,13 +67,13 @@
           <li>Existing link-based admin access and account-free public links remain available.</li>
           <li>Base, Codex, Outpost, and Astra stay selectable.</li>
         </ul>
-        <p class="proof">55 Node tests, 28 Convex tests, lint, TypeScript, and the build passed. The current PR head is conflict-free with both Vercel checks passing.</p>
+        <p class="proof">84 Node tests, 29 Convex tests, lint, TypeScript, frozen install, and the build passed. This includes 29 safeguard tests and legacy-event preservation. Updated-head CI is checked separately.</p>
       </article>
 
       <article class="card">
         <div class="step">2 · Authenticated MCP · Depends on PR #41</div>
         <h2>Create styles and events from an agent.</h2>
-        <span class="badge pending">Local tests pass · Live connection blocked</span>
+        <span class="badge pending">Backend live · Consent pending</span>
         <p><a href="https://github.com/Demianeen/demo-queue/pull/43">Open PR #43</a></p>
         <ul>
           <li>Normal WorkOS OAuth, using the same invited operator account.</li>
@@ -82,18 +82,24 @@
           <li>Every operation stays in the organization selected during OAuth.</li>
           <li>No admin tokens, participant contacts, arbitrary code, or judging writes.</li>
         </ul>
-        <p class="proof">55 Node tests and 38 Convex tests pass, including 10 MCP tests. Both PR checks pass. Signed token denials, fresh membership, pagination, and style/event persistence pass locally. Hosted persistence and a real client connection remain unverified.</p>
+        <p class="proof">84 Node tests and 39 Convex tests pass, including 10 MCP tests. Development metadata returns 200 and unauthenticated tool calls return 401. Native OAuth reaches Test consent. Hosted tool calls and persistence remain unverified.</p>
       </article>
     </section>
 
     <section class="card" aria-label="What needs attention">
       <h2>What still needs attention.</h2>
       <ul>
-        <li>Restore existing Convex CLI access before the new MCP backend can sync to Development. The hosted endpoint currently returns 404. The registered client profile is disabled until it works.</li>
+        <li>Approve the native client's WorkOS consent for the Development Test organization, then verify tool discovery and persistent style/event creation. The profile remains disabled until verified.</li>
         <li>Finish Production Google OAuth, homepage/logout, and matching MCP configuration, with explicit Production authorization.</li>
         <li>Verify the intended 60-second Production access-token policy and the remaining negative membership-revocation checks.</li>
       </ul>
       <p>No Production event migration is included. Existing events need a reviewable real/test classification before any later migration.</p>
+    </section>
+
+    <section class="card" aria-label="Development safeguard">
+      <h2>No unnecessary login handoff.</h2>
+      <p>Login is shared across worktrees. The new check verifies current account and project access, retries a failed lookup once, and keeps schema errors separate. Only absent credentials or an explicit 401 can request login. Target-changing flags and deployment-key overrides are rejected.</p>
+      <p class="proof">Both the guarded sync and watcher reached readiness on <code>precious-elk-564</code>. The stale watcher in the older <code>f2ee</code> checkout was stopped. Existing records were preserved.</p>
     </section>
 
     <section class="evidence">
@@ -120,10 +126,10 @@
 
     <details>
       <summary>Verification boundaries and engineering record.</summary>
-      <p>Browser checks used the existing backend on <code>precious-elk-564</code>. Local tests and build cover the rebased source. They do not prove that the latest source was synced to Development or that Production authentication works.</p>
+      <p>The rebased backend synced successfully to <code>precious-elk-564</code>. Native OAuth originally failed because the client sent the resource twice. Removing the redundant local override reached the real consent screen. These results do not prove consent, live MCP tool calls, or Production authentication.</p>
       <p>Actual sign-out, mobile layout, populated winner presentation, and the complete removed-member/expired-subscription matrix remain unverified. Capability admin links intentionally retain their independent access contract.</p>
       <p>Independent authorization, integration, and MCP reviews found the missing Astra selector and missing organization continuation path. Both were corrected and tested. The configured cross-provider reviewer had expired authentication, so available native independent reviewers were used instead. No Linear review items were created.</p>
-      <p>Boundary Discipline kept delegated tokens outside browser-session APIs. Model the Domain kept style choices structured. Prove It Works kept local test evidence separate from the blocked hosted connection.</p>
+      <p>Boundary Discipline kept delegated tokens outside browser-session APIs. Model the Domain kept style choices structured. Encode Lessons in Structure turned the login handoff failure into a tested preflight instead of another reminder.</p>
       <p><a href="workos-premerge-configuration.md">Configuration record</a> · <a href="../plans/authenticated-mcp.md">MCP design and verification plan</a></p>
     </details>
     <p class="foot">Review artifact. Status is evidence-based, not a release or deployment approval.</p>

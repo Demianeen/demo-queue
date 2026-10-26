@@ -9,8 +9,8 @@ derives every built-in choice from the shared registry, including Astra.
 Authenticated theme tests cover Base, Codex, Outpost, and Astra. Legacy events
 without a stored style still render with the Codex fallback.
 
-Local validation passed with 55 Node tests, 28 Convex tests, TypeScript,
-focused ESLint, and a complete Next build. Independent authorization and
+Local validation passed with 84 Node tests, 29 Convex tests, TypeScript,
+full ESLint, frozen dependency installation, and a complete Next build. Independent authorization and
 integration reviews found the missing Astra choice, now corrected. These
 checks do not establish Production readiness.
 
@@ -28,10 +28,26 @@ access-token lifetime. Google OAuth setup, the intended 60-second policy, and
 Production sign-in verification remain merge prerequisites. Existing event
 classification and migration are not performed or authorized here.
 
-The Development Convex CLI denied access to the existing project. No login,
-project repair, deployment selection, or fallback deployment was attempted.
-The running app can use its already-deployed backend, but new backend changes
-cannot be live-verified until existing CLI access is restored.
+The earlier Development access error is superseded. Fresh read-only checks
+confirmed the shared machine login and HTTP 200 project access. The current
+backend synced successfully to `precious-elk-564` without another login,
+project repair, deployment selection, or data migration. The guarded sync and
+watcher startup also passed against that deployment.
+
+An older watcher remained active in the `f2ee` checkout with a schema that
+lacks organization ownership, theme, and later upstream fields. It was stopped
+to prevent competing development syncs. The screenshot's complete validator
+message was not captured, so its exact rejected field is not established.
+The current PR schema passes validation against the existing data. A regression
+test verifies that legacy event reads and capability updates preserve the ID,
+capability, and absent ownership/style fields.
+
+`pnpm convex:check` and `pnpm convex:sync` now produce fresh, sanitized readiness
+receipts. Only absent credentials or a definitive HTTP 401 reports a login
+requirement. Generic access failures retry once, and generic sync failures
+trigger another preflight. Schema failures remain distinct. All 29 safeguard
+tests pass, including dotenv fallback, deployment-key aliases, target-flag
+rejection, and the public development entrypoints.
 
 The remaining sections retain the September 6 configuration record. Their
 historical Preview names and checks are not current deployment authorization

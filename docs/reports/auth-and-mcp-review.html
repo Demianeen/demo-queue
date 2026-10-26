@@ -50,8 +50,8 @@
     </header>
 
     <aside class="status" aria-label="Current readiness">
-      <strong>Not yet ready to merge.</strong>
-      <p>Development is synced and the login safeguard works. The real MCP client has reached WorkOS consent for Test. Consent approval, live tool verification, and Production setup remain. Production has not been changed.</p>
+      <strong>Ready for product review.</strong>
+      <p>Development login, organization isolation, real MCP style/event creation, and expired-access denial are verified. Production auth is configured and your two organization invitations are sent. No Production code deployment or event migration was performed.</p>
     </aside>
 
     <section class="grid" aria-label="Pull requests in merge order">
@@ -73,7 +73,7 @@
       <article class="card">
         <div class="step">2 · Authenticated MCP · Depends on PR #41</div>
         <h2>Create styles and events from an agent.</h2>
-        <span class="badge pending">Backend live · Consent pending</span>
+        <span class="badge">Native client and persistence verified</span>
         <p><a href="https://github.com/Demianeen/demo-queue/pull/43">Open PR #43</a></p>
         <ul>
           <li>Normal WorkOS OAuth, using the same invited operator account.</li>
@@ -82,18 +82,25 @@
           <li>Every operation stays in the organization selected during OAuth.</li>
           <li>No admin tokens, participant contacts, arbitrary code, or judging writes.</li>
         </ul>
-        <p class="proof">84 Node tests and 39 Convex tests pass, including 10 MCP tests. Development metadata returns 200 and unauthenticated tool calls return 401. Native OAuth reaches Test consent. Hosted tool calls and persistence remain unverified.</p>
+        <p class="proof">84 Node tests and 39 Convex tests pass, including 10 MCP tests. A real native client completed Test-scoped OAuth, created a nondefault style and an unpublished event, then read back their saved values. The browser shows that same event. Outpost access was denied. <a href="auth-review-assets/mcp-receipt.json">Read the safe tool receipt.</a></p>
       </article>
     </section>
 
     <section class="card" aria-label="What needs attention">
-      <h2>What still needs attention.</h2>
+      <h2>Your review and the release boundary.</h2>
       <ul>
-        <li>Approve the native client's WorkOS consent for the Development Test organization, then verify tool discovery and persistent style/event creation. The profile remains disabled until verified.</li>
-        <li>Finish Production Google OAuth, homepage/logout, and matching MCP configuration, with explicit Production authorization.</li>
-        <li>Verify the intended 60-second Production access-token policy and the remaining negative membership-revocation checks.</li>
+        <li>Review the screenshots and intended organization behavior, then merge PR #41 before PR #43. No Linear review was created.</li>
+        <li>Your Production Outpost and Test invitations are pending acceptance. Google currently allows your email only. Adding other operators also needs Google audience configuration or app publishing.</li>
+        <li>Production Google-only login, homepage/logout URLs, 60-second tokens, Connect registration/resource, and backend issuer are configured. Production app login and MCP runtime can only be verified after the normal release. They are not claimed here.</li>
       </ul>
       <p>No Production event migration is included. Existing events need a reviewable real/test classification before any later migration.</p>
+    </section>
+
+    <section class="card" aria-label="Membership removal verification">
+      <h2>Removed access really stops.</h2>
+      <p>Temporary Development Test deactivation denied the native MCP connection and sent the browser back to sign-in. Membership was restored to Active, then normal OAuth reconnected the client and browser.</p>
+      <p>Both direct query and mutation rejected the expired browser token. An existing subscription first received a real update, then rejected access and received no new private data when a fresh-token writer changed the same QA record after expiry.</p>
+      <p class="proof">The signed browser token lasts 60 seconds. Convex permits five seconds of clock tolerance for new HTTP authentication, so the removal bound is approximately 65 seconds, not a strict 60. Already delivered data cannot be recalled. Capability admin links retain their separate access contract. <a href="auth-review-assets/access-expiry-receipt.json">Read the negative-test receipt.</a></p>
     </section>
 
     <section class="card" aria-label="Development safeguard">
@@ -106,6 +113,10 @@
       <h2>Actual Development screenshots.</h2>
       <p>These are native-resolution browser captures. Open an image to inspect it at full size.</p>
       <div class="grid">
+        <figure>
+          <a class="image-link" href="auth-review-assets/mcp-created-event.png"><img src="auth-review-assets/mcp-created-event.png" alt="MCP-created Test event shown in the browser with its custom style, zero submissions and unpublished status" width="1397" height="1584"></a>
+          <figcaption>The native client's saved style and unpublished event appear in the authenticated Test workspace. No participants or defaults changed.</figcaption>
+        </figure>
         <figure>
           <a class="image-link" href="auth-review-assets/test-events.png"><img src="auth-review-assets/test-events.png" alt="Authenticated Test organization event list with the verification event persisted after reload" width="1257" height="1425"></a>
           <figcaption>The Test organization contains the newly created event after a reload. No participants or live queue were created.</figcaption>
@@ -126,8 +137,8 @@
 
     <details>
       <summary>Verification boundaries and engineering record.</summary>
-      <p>The rebased backend synced successfully to <code>precious-elk-564</code>. Native OAuth originally failed because the client sent the resource twice. Removing the redundant local override reached the real consent screen. These results do not prove consent, live MCP tool calls, or Production authentication.</p>
-      <p>Actual sign-out, mobile layout, populated winner presentation, and the complete removed-member/expired-subscription matrix remain unverified. Capability admin links intentionally retain their independent access contract.</p>
+      <p>The rebased backend synced successfully to <code>precious-elk-564</code>. Native OAuth originally failed because the client sent the resource twice. Removing the redundant local override fixed authorization. Real tool creation and readback passed, and the enabled local profile was restored after negative testing.</p>
+      <p>Production login, actual sign-out, mobile layout, and populated winner presentation remain unverified. The native revoked-membership attempt failed at initialization, so it is not a captured per-tool membership-error receipt. Existing automated tests cover that per-call check. Capability admin links intentionally retain their independent access contract.</p>
       <p>Independent authorization, integration, and MCP reviews found the missing Astra selector and missing organization continuation path. Both were corrected and tested. The configured cross-provider reviewer had expired authentication, so available native independent reviewers were used instead. No Linear review items were created.</p>
       <p>Boundary Discipline kept delegated tokens outside browser-session APIs. Model the Domain kept style choices structured. Encode Lessons in Structure turned the login handoff failure into a tested preflight instead of another reminder.</p>
       <p><a href="workos-premerge-configuration.md">Configuration record</a> · <a href="../plans/authenticated-mcp.md">MCP design and verification plan</a></p>

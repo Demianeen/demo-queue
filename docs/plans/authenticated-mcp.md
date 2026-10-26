@@ -1,6 +1,6 @@
 ---
 title: Authenticated event and style MCP
-status: BLOCKED
+status: VERIFIED IN DEVELOPMENT
 tier: Tier 2
 created: 2026-10-26
 updated: 2026-10-26
@@ -79,7 +79,8 @@ API rejection of Connect tokens. Use the existing domain tests too.
 
 Development WorkOS needs CIMD or DCR and the exact canonical `/mcp` resource.
 Convex needs matching issuer/resource configuration and its existing WorkOS
-credential. Production settings and records remain untouched. Do not repair
+credential. Production auth settings require separate explicit authorization;
+event records remain untouched. Do not repair
 Convex CLI authorization or choose a different deployment when access is denied.
 
 The final gate is a real local client OAuth connection and successful event
@@ -112,16 +113,28 @@ project checks. No CLI authentication repair or alternate deployment was needed.
 
 Native OAuth first failed because an explicit client resource setting duplicated
 the resource discovered from server metadata. Removing that redundant setting
-reached the real WorkOS consent screen with Test selected. Consent approval and
-live tool creation/readback remain pending. The client profile stays disabled
-until those checks pass. New preflight commands from PR #41 distinguish fresh
+reached the real WorkOS consent screen with Test selected. Consent was approved,
+and the actual native client created a nondefault style and an unpublished
+event, read both back, and verified the style snapshot. The authenticated
+browser displayed the same event. An Outpost request returned
+`reauthorization_required`. The client profile is enabled. New preflight commands from PR #41 distinguish fresh
 authentication failures from configuration, network, and schema errors.
 
-Production remains unchanged. The matching Production Connect configuration,
-MCP issuer/resource, and real Production client proof are not supplied by this
-Development setup. Existing Google-login and short-lived-token merge gates
-also remain open in PR #41. No event backfill or real/test classification was
+With explicit authorization, matching Production Connect registration/resource,
+MCP issuer, Google-only provider, URLs, 60-second token policy, and initial
+Outpost/Test invitations are now configured. Invitations remain pending and
+Production runtime is not deployed or verified here. Google has only the
+owner's email in its Testing audience. No event backfill or real/test classification was
 performed. Classification must precede any separately authorized migration.
+
+Temporary Development Test membership deactivation denied native client
+initialization. Reactivation was independently read back Active, normal OAuth
+completed again, and the browser returned to Test. Direct expired browser
+queries and mutations were rejected. A fixed-token subscription received a
+positive-control update, then reported an authorization error and received no
+new value after an independent fresh-token write following expiry. Browser HTTP
+verification permits Convex's five-second clock tolerance, making the removal
+bound approximately 65 seconds. MCP checks active membership on every tool call.
 
 ## Sources
 

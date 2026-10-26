@@ -3,11 +3,12 @@ title: Bound backend organization access after membership removal
 status: BLOCKED
 tier: Tier 3
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-10-26
 ---
 
-The user authorized completing A01 with organization membership revocation
-bounded to 60 seconds. WorkOS remains authoritative; Convex remains the verifier
+The original target was membership revocation bounded to 60 seconds. Hosted
+verification found a five-second platform tolerance. The corrected HTTP bound
+is approximately 65 seconds with a 60-second WorkOS token. WorkOS remains authoritative; Convex remains the verifier
 of signed organization access tokens. This policy changes authentication token
 duration and refresh frequency, not event data or public capability access.
 
@@ -25,6 +26,8 @@ duration and refresh frequency, not event data or public capability access.
   operations or query-update execution. An operation admitted before expiration
   may finish and deliver its response afterward. Data already delivered to a browser cannot be
   recalled; existing public admin capability links keep their separate contract.
+  New HTTP authentication permits the verifier's five-second clock tolerance;
+  do not describe the signed token lifetime as a strict removal bound.
 - D04: Treat the 60-second provider setting as a deployment prerequisite. Convex
   strips registered JWT expiration/issuance claims from custom-JWT user identity,
   so application query code cannot independently enforce a maximum token lifetime.
@@ -76,6 +79,30 @@ a separate gate. This plan does not revoke existing capability URLs, replace the
 provider, add a membership table, or introduce scheduled authorization jobs.
 
 ## Configuration progress
+
+### October 26 current evidence
+
+Production's explicitly authorized access-token setting is now 60 seconds,
+independently read back. Development's genuine browser token had `exp - iat=60`.
+With the same unmodified token, hosted direct HTTP query and mutation identity
+were accepted four seconds after expiry. A later raw HTTP query returned 401
+at expiry plus 25 seconds; both SDK query and mutation rejected the token as
+expired at plus 32 seconds. The official Convex custom-JWT verifier sets
+`TemporalOptions.epsilon` to five seconds in
+[authentication validation](https://github.com/get-convex/convex-backend/blob/main/crates/authentication/src/lib.rs).
+This corrects the earlier strict 60-second claim, without adding an app-owned
+authorization cache or a new provider.
+
+The owner's Development Test membership was temporarily deactivated with
+explicit authorization. Native MCP initialization was denied with an auth
+challenge. The membership was restored and independently read back Active;
+normal native OAuth login completed again. Browser refresh after revocation
+showed the sign-in screen. The test did not change Outpost membership or any
+Production access. Existing capability links keep their independent contract.
+
+The cached-subscription negative test and explicit provider refresh-denial
+receipt are still unverified. Do not clear those checks based on the HTTP or
+native-client results. Earlier entries below are historical, not current state.
 
 Both independent security and lifecycle plan reviews approved the revised
 architecture. Their shared wording correction distinguishes admission-time

@@ -22,11 +22,31 @@ remains in the Development Test organization, named
 `Verification · Test organization · 26 Oct 2026`. No participants or queue were
 created. The review artifact records the screenshots and proof boundaries.
 
-Production remains untouched during the October 26 work. Read-only WorkOS
-inspection still finds Google disabled, no logout return URI, and a 300-second
-access-token lifetime. Google OAuth setup, the intended 60-second policy, and
-Production sign-in verification remain merge prerequisites. Existing event
-classification and migration are not performed or authorized here.
+With explicit October 26 authorization, Production auth configuration is now
+prepared. Google is the only enabled provider and signup remains disabled.
+The existing `demo-queue-sheets` Google project has a separate web client for
+WorkOS, with the exact WorkOS callback and only the owner's email allowed in
+Google's Testing audience. Existing Sheets credentials were not changed.
+Homepage, login and logout URLs use `https://demo-queue-tau.vercel.app`.
+The access-token lifetime is 60 seconds. Connect dynamic registration, client
+metadata documents, and the canonical Production MCP resource are configured;
+Convex's matching `WORKOS_MCP_ISSUER` was set and read back.
+
+Production Outpost and Test organizations exist. Invitations went only to
+`demyan310505@gmail.com` and remain pending acceptance. Configuration readback
+is not Production login or runtime proof. No Production code was deployed and
+no Production events were read, changed, classified, or migrated. Google app
+publishing for additional operators is not included in this initial setup.
+
+A Development browser-issued token had a verified 60-second signed lifetime.
+The hosted direct query and mutation accepted it four seconds after expiry,
+then both rejected it as expired at 32 seconds after expiry. Convex's official
+custom-JWT verifier explicitly allows five seconds of clock tolerance, so the
+worst-case HTTP removal bound is approximately 65 seconds, not a strict 60.
+During temporary Test membership deactivation, the native MCP connection was
+denied at initialization. Membership was restored to Active and normal OAuth
+reconnected the native client. This does not establish the finer per-tool denial
+reason or cached-subscription invalidation; those are separate checks.
 
 The earlier Development access error is superseded. Fresh read-only checks
 confirmed the shared machine login and HTTP 200 project access. The current

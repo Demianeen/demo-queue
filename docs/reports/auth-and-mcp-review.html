@@ -74,6 +74,7 @@
         <div class="step">2 · Authenticated MCP · Depends on PR #41</div>
         <h2>Create styles and events from an agent.</h2>
         <span class="badge pending">Local tests pass · Live connection blocked</span>
+        <p><a href="https://github.com/Demianeen/demo-queue/pull/43">Open PR #43</a></p>
         <ul>
           <li>Normal WorkOS OAuth, using the same invited operator account.</li>
           <li>List organizations and events, then inspect safe event details.</li>
@@ -81,7 +82,7 @@
           <li>Every operation stays in the organization selected during OAuth.</li>
           <li>No admin tokens, participant contacts, arbitrary code, or judging writes.</li>
         </ul>
-        <p class="proof">55 Node tests and 38 Convex tests pass, including 10 MCP tests. Signed token denials, fresh membership, pagination, and style/event persistence pass locally. Hosted persistence and a real client connection remain unverified.</p>
+        <p class="proof">55 Node tests and 38 Convex tests pass, including 10 MCP tests. Both PR checks pass. Signed token denials, fresh membership, pagination, and style/event persistence pass locally. Hosted persistence and a real client connection remain unverified.</p>
       </article>
     </section>
 
@@ -121,6 +122,8 @@
       <summary>Verification boundaries and engineering record.</summary>
       <p>Browser checks used the existing backend on <code>precious-elk-564</code>. Local tests and build cover the rebased source. They do not prove that the latest source was synced to Development or that Production authentication works.</p>
       <p>Actual sign-out, mobile layout, populated winner presentation, and the complete removed-member/expired-subscription matrix remain unverified. Capability admin links intentionally retain their independent access contract.</p>
+      <p>Independent authorization, integration, and MCP reviews found the missing Astra selector and missing organization continuation path. Both were corrected and tested. The configured cross-provider reviewer had expired authentication, so available native independent reviewers were used instead. No Linear review items were created.</p>
+      <p>Boundary Discipline kept delegated tokens outside browser-session APIs. Model the Domain kept style choices structured. Prove It Works kept local test evidence separate from the blocked hosted connection.</p>
       <p><a href="workos-premerge-configuration.md">Configuration record</a> · <a href="../plans/authenticated-mcp.md">MCP design and verification plan</a></p>
     </details>
     <p class="foot">Review artifact. Status is evidence-based, not a release or deployment approval.</p>

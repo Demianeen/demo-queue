@@ -4,7 +4,6 @@ type RedirectEnvironment = {
   NEXT_PUBLIC_WORKOS_REDIRECT_URI?: string;
 };
 
-// Only deployment configuration chooses the callback, never a request header.
 export function getWorkOSRedirectUri(env: RedirectEnvironment = {
   VERCEL_ENV: process.env.VERCEL_ENV,
   VERCEL_BRANCH_URL: process.env.VERCEL_BRANCH_URL,
@@ -27,7 +26,6 @@ export function previewWorkspaceUrl(requestUrl: string, redirectUri: string | un
   return callback.toString();
 }
 
-// Safe to import from middleware: this returns only readiness, never secrets.
 export function isAuthConfigured() {
   return Boolean(
     process.env.WORKOS_CLIENT_ID &&

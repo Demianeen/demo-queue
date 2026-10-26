@@ -38,7 +38,6 @@ async function WorkspaceContent({ children }: { children: React.ReactNode }) {
       : Promise.resolve(null);
     const [organizations, data] = await Promise.all([membershipsPromise, dataPromise]);
     const active = organizations.find((org) => org.id === auth.organizationId);
-    // Validate even empty event pages before crossing the server/client boundary.
     if (active && (!data || data.events.organizationId !== active.id || data.styles.organizationId !== active.id || data.events.page.some((event) => event.organizationId !== active.id))) throw new Error("Workspace organization mismatch");
     if (process.env.NODE_ENV === "development") console.info("workspace-load", { authMs: Math.round(authMs), dataMs: Math.round(performance.now() - dataStart), totalMs: Math.round(performance.now() - startedAt) });
     return <EventsAuthProvider key={`${auth.user.id}:${auth.sessionId}:${auth.organizationId}`} initialAuth={initialAuth}>

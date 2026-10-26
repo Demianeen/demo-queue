@@ -2252,9 +2252,6 @@ h3 {
   margin: 0;
 }
 
-/* The admin is an operator workspace shared by every public visual style.
-   Neutral Base surfaces, compact geometry, and a strong information hierarchy keep
-   the controls consistent while the embedded stage remains the branding source. */
 .admin-page {
   background: #ffffff;
   color: #101113;

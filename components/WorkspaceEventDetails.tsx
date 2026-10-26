@@ -21,7 +21,6 @@ export function WorkspaceEventDetails({ slug, organizationId, initial }: { slug:
   const { isAuthenticated } = useConvexAuth();
   const workspaceOrganizationId = useContext(WorkspaceOrganizationContext);
   const live = useQuery(api.events.getOrganizationEventDetails, isAuthenticated && workspaceOrganizationId === organizationId ? { slug } : "skip");
-  // A null live result revokes access; only an unresolved query can use server data.
   const event = live === undefined ? initial : live;
   if (workspaceOrganizationId !== organizationId) return <section className="workspace-heading"><title>Workspace changed | Demo Queue</title><h1>Your workspace changed</h1><p>Reload to continue with your current organization.</p><a href="/events">Reload events</a></section>;
   if (!event || event.organizationId !== organizationId || event.slug !== slug) return <section className="workspace-heading"><title>Event unavailable | Demo Queue</title><h1>Event unavailable</h1><p>This event may have been removed or belong to another organization.</p><Link className="workspace-back-link" href="/events"><ArrowLeft aria-hidden />Back to events</Link></section>;

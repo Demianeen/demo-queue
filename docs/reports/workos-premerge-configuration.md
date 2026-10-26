@@ -1,6 +1,41 @@
 # WorkOS premerge configuration report
 
-Updated: September 6, 2026. PR: https://github.com/Demianeen/demo-queue/pull/41
+Updated: October 26, 2026. PR: https://github.com/Demianeen/demo-queue/pull/41
+
+## Current review status
+
+The code is rebased onto the Astra theme change in `main`. The event form now
+derives every built-in choice from the shared registry, including Astra.
+Authenticated theme tests cover Base, Codex, Outpost, and Astra. Legacy events
+without a stored style still render with the Codex fallback.
+
+Local validation passed with 55 Node tests, 28 Convex tests, TypeScript,
+focused ESLint, and a complete Next build. Independent authorization and
+integration reviews found the missing Astra choice, now corrected. These
+checks do not establish Production readiness.
+
+The signed-in Development browser session verified event creation, reload
+persistence, Test/Outpost isolation, private overview denial across organizations,
+and the account-free admin fallback. Public submission and presentation pages
+also returned successfully without a login redirect. One unpublished event
+remains in the Development Test organization, named
+`Verification · Test organization · 26 Oct 2026`. No participants or queue were
+created. The review artifact records the screenshots and proof boundaries.
+
+Production remains untouched during the October 26 work. Read-only WorkOS
+inspection still finds Google disabled, no logout return URI, and a 300-second
+access-token lifetime. Google OAuth setup, the intended 60-second policy, and
+Production sign-in verification remain merge prerequisites. Existing event
+classification and migration are not performed or authorized here.
+
+The Development Convex CLI denied access to the existing project. No login,
+project repair, deployment selection, or fallback deployment was attempted.
+The running app can use its already-deployed backend, but new backend changes
+cannot be live-verified until existing CLI access is restored.
+
+The remaining sections retain the September 6 configuration record. Their
+historical Preview names and checks are not current deployment authorization
+or current-head verification.
 
 ## Environment mapping
 

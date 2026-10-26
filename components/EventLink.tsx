@@ -11,7 +11,6 @@ export function EventLink({ label, href }: { label: string; href: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // clipboard unavailable - the link is still openable
     }
   }
 

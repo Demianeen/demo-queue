@@ -59,7 +59,6 @@ test("organization listing is paginated and excludes other organizations and leg
 
 test("clients cannot choose organization ownership or admin capability", async () => {
   const t = convexTest(schema, modules).withIdentity(identity("org_outpost"));
-  // Explicit casts model a malicious client sending fields absent from the public type.
   await expect(t.mutation(api.events.createEvent, { ...input, workosOrganizationId: "org_test" } as typeof input)).rejects.toThrow();
   await expect(t.mutation(api.events.createEvent, { ...input, adminToken: "chosen" } as typeof input)).rejects.toThrow();
   await expect(t.query(api.events.listOrganizationEvents, { ...page, organizationId: "org_test" } as typeof page)).rejects.toThrow();
@@ -75,8 +74,6 @@ test("invalid creation inputs and duplicate slugs leave no partial events", asyn
   expect((await t.query(api.events.listOrganizationEvents, page)).page).toHaveLength(1);
 });
 
-// A queued mutation retains its original arguments even if its session refreshes
-// into another organization before Convex executes it.
 test("a queued creation cannot move to another organization after token refresh", async () => {
   const t = convexTest(schema, modules);
   const switchedSession = t.withIdentity(identity("org_test"));
@@ -112,7 +109,7 @@ test("overview shows only confirmed placements in final order, never draft score
   const details = () => user.query(api.events.getOrganizationEventDetails, { slug: input.slug });
   expect(await details()).toMatchObject({ submissionCount: 3, resultsStatus: "pending", winners: [] });
   await t.run((ctx) => ctx.db.patch(decisionId, { placementStatus: "submitted" }));
-  expect((await details())?.winners).toEqual([]); // Open/setup judging is not final.
+  expect((await details())?.winners).toEqual([]);
   await t.run((ctx) => ctx.db.patch(eventId, { judgingStatus: "closed" }));
   const confirmed = await details();
   expect(confirmed).toMatchObject({ resultsStatus: "confirmed", winners: [
@@ -130,6 +127,5 @@ test("overview shows only confirmed placements in final order, never draft score
     await ctx.db.patch(decisionId, { placementStatus: "submitted" });
     await ctx.db.patch(ids[2], { eventId: other.eventId });
   });
-  // Invalid first place cannot promote later places or expose a foreign team's details.
   expect(await details()).toMatchObject({ submissionCount: 2, resultsStatus: "needs_review", winners: [] });
 });

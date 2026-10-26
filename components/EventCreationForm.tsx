@@ -1,7 +1,7 @@
 "use client";
 
 import { useSiteOrigin } from "@/lib/use-site-origin";
-import { VISUAL_STYLE_LABELS } from "@/lib/visual-style";
+import { VISUAL_STYLES, VISUAL_STYLE_LABELS } from "@/lib/visual-style";
 
 import { FormEvent, useState } from "react";
 import { ConvexError } from "convex/values";
@@ -33,10 +33,11 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
   const selectedStyle = styleChoice === "default" ? styles.find((style) => style.isDefault) : styles.find((style) => style._id === styleChoice);
-  const visualStyle = selectedStyle?.preset ?? (styleChoice === "codex" || styleChoice === "outpost" ? styleChoice : "neutral");
+  const visualStyle = selectedStyle?.preset ?? VISUAL_STYLES.find((style) => style === styleChoice) ?? "neutral";
   const defaultStyle = styles.find((style) => style.isDefault);
   const defaultName = defaultStyle?.preset ? VISUAL_STYLE_LABELS[defaultStyle.preset] : defaultStyle?.name ?? VISUAL_STYLE_LABELS.neutral;
-  const items = [{ value: "default", label: `${defaultName} / Organization default` }, { value: "neutral", label: VISUAL_STYLE_LABELS.neutral }, ...styles.filter((style) => !style.preset).map((style) => ({ value: style._id, label: style.name })), { value: "codex", label: VISUAL_STYLE_LABELS.codex }, { value: "outpost", label: VISUAL_STYLE_LABELS.outpost }];
+  const presetItems = VISUAL_STYLES.map((style) => ({ value: style, label: VISUAL_STYLE_LABELS[style] }));
+  const items = [{ value: "default", label: `${defaultName} / Organization default` }, ...presetItems.filter((style) => style.value === "neutral"), ...styles.filter((style) => !style.preset).map((style) => ({ value: style._id, label: style.name })), ...presetItems.filter((style) => style.value !== "neutral")];
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -21,7 +21,6 @@ const cachedMemberships = unstable_cache(
   { revalidate: 60 },
 );
 
-// Call only with the ID from withAuth, never from user-supplied route arguments.
 export const getWorkspaceMemberships = cache(async (userId: string) => {
   return freshMemberships(
     () => cachedMemberships(membershipEnvironmentKey(process.env), userId),

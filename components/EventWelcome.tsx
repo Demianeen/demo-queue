@@ -1,7 +1,6 @@
 import { QRCodeSVG } from "qrcode.react";
 import { DEFAULT_EVENT_THEME, eventThemeProperties, type EventTheme } from "@/lib/event-theme";
 
-/** Shared by the creation preview and the real neutral presentation's join screen. */
 export function EventWelcome({ name, eventType, submissionUrl, closed = false, theme = DEFAULT_EVENT_THEME }: {
   name: string; eventType: "demo" | "hackathon"; submissionUrl: string; closed?: boolean; theme?: EventTheme;
 }) {

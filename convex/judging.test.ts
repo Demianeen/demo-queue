@@ -22,7 +22,6 @@ const modules = {
 };
 
 
-// These tests cover existing account-free events, including records without an organization.
 async function seedLegacyEvent(t: ReturnType<typeof convexTest>, input: {
   name: string; slug: string; eventType: "hackathon"; meetUrl: string;
   adminToken: string; visualStyle?: "outpost";

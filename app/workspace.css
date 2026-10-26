@@ -1,4 +1,3 @@
-/* Neutral management shell. Event brands remain scoped to public event views. */
 html:has(.admin-page), html:has(.workspace), html:has([data-event-style="neutral"]), html:has(.neutral-stage), html:has(.stage-neutral) { background: #fff; }
 body:has([data-event-style="neutral"]) > .page-bg, body:has(.neutral-stage) > .page-bg, body:has(.stage-neutral) > .page-bg { display: none; }
 .workspace { background: #fff; color: #101113; min-height: 100dvh; font-family: var(--font-geist-sans), sans-serif; --app-line: #d7d8dc; --app-muted: #62666e; --app-ink: #101113; --primary: #101113; --ring: #a1a1aa; }
@@ -214,7 +213,6 @@ body:has([data-event-style="neutral"]) > .page-bg, body:has(.neutral-stage) > .p
 @media (max-width: 760px) { .workspace .workspace-submit { margin-top: 4px; } }
 .workspace-style-select [data-slot="select-trigger"] svg { width: 20px; height: 20px; }
 
-/* Base tokens also reach admin menus rendered through portals. */
 body:has(.admin-page) { --app-line: #d7d8dc; --app-muted: #71717a; --app-ink: #101113; --app-accent: #101113; --app-accent-dark: #27272a; --app-soft-blue: #f4f4f5; --cx-indigo: #101113; --primary: #101113; }
 .admin-page .panel { background: #fff; border-color: #e4e4e7; border-radius: 10px; box-shadow: none; }
 .admin-page [data-slot="button"] { min-height: 36px; border-radius: 6px; font-size: 14px; }

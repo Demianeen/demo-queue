@@ -64,6 +64,20 @@ test("clients cannot choose organization ownership or admin capability", async (
   await expect(t.query(api.events.listOrganizationEvents, { ...page, organizationId: "org_test" } as typeof page)).rejects.toThrow();
 });
 
+test("legacy events retain their capability and absent ownership fields after reads and updates", async () => {
+  const t = convexTest(schema, modules);
+  const legacy = { name: "Legacy event", slug: "legacy-preserved", adminToken: "existing-capability", meetUrl: "https://meet.google.com/legacy", queuePublished: false, createdAt: 1, updatedAt: 1 };
+  const eventId = await t.run((ctx) => ctx.db.insert("events", legacy));
+  expect(await t.query(api.events.getEventMeta, { slug: legacy.slug })).toEqual({ name: legacy.name, slug: legacy.slug, eventType: "demo" });
+  expect((await t.query(api.events.getStage, { slug: legacy.slug })).event.name).toBe(legacy.name);
+  await t.mutation(api.events.updateEvent, { slug: legacy.slug, adminToken: legacy.adminToken, name: "Renamed legacy event", meetUrl: legacy.meetUrl });
+  const stored = await t.run((ctx) => ctx.db.get(eventId));
+  expect(stored).toMatchObject({ ...legacy, name: "Renamed legacy event", _id: eventId, updatedAt: expect.any(Number) });
+  expect(stored?.updatedAt).toBeGreaterThan(legacy.updatedAt);
+  for (const field of ["eventType", "visualStyle", "theme", "workosOrganizationId"]) expect(stored).not.toHaveProperty(field);
+  expect(await t.query(api.events.getAdminEventMeta, { slug: legacy.slug, adminToken: legacy.adminToken })).toMatchObject({ name: "Renamed legacy event" });
+});
+
 test("invalid creation inputs and duplicate slugs leave no partial events", async () => {
   const t = convexTest(schema, modules).withIdentity(identity("org_outpost"));
   await expect(t.mutation(api.events.createEvent, { ...input, name: " " })).rejects.toThrow("event name");

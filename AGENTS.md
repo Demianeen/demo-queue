@@ -50,6 +50,13 @@ selection, or create/select an anonymous deployment. If local setup is missing,
 unauthenticated, or points to another development deployment, stop and leave
 setup to the user.
 
+Use `pnpm convex:check` for fresh read-only readiness evidence and
+`pnpm convex:sync` for a one-time development sync. These commands verify the
+canonical target, shared machine login, and current project access. Only a
+`login_required` result supports requesting login. Do not treat generic access,
+network, configuration-prompt, or schema errors as authentication failures.
+Run the check again before repeating a blocker in a later status report.
+
 Agents may run, restart, and stop `convex dev` against `precious-elk-564`,
 including syncing schema/functions and running development checks, without
 asking for permission again.

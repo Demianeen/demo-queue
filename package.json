@@ -4,9 +4,11 @@
   "private": true,
   "packageManager": "pnpm@10.29.3",
   "scripts": {
-    "dev": "concurrently -k -n next,convex -c blue,magenta \"next dev\" \"convex dev\"",
+    "dev": "concurrently -k -n next,convex -c blue,magenta \"next dev\" \"pnpm dev:convex\"",
     "dev:next": "next dev",
-    "dev:convex": "convex dev",
+    "dev:convex": "node scripts/convex-dev.mjs check && convex dev",
+    "convex:check": "node scripts/convex-dev.mjs check",
+    "convex:sync": "node scripts/convex-dev.mjs sync",
     "build": "next build",
     "lint": "eslint",
     "test": "node --test test/*.test.mjs",
@@ -14,7 +16,7 @@
     "google:oauth-setup": "node scripts/google-oauth-setup.mjs",
     "queue": "node scripts/demo-queue-ops.mjs",
     "queue:prod": "node scripts/demo-queue-ops.mjs --prod",
-    "convex:dev": "convex dev",
+    "convex:dev": "pnpm dev:convex",
     "convex:deploy": "convex deploy"
   },
   "dependencies": {

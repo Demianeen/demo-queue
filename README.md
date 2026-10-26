@@ -20,17 +20,23 @@ Realtime demo-night picker for events.
    pnpm install
    ```
 
-2. Configure Convex:
+2. Use the existing development configuration:
 
-   - For a new local deployment, run `pnpm dev:convex` once and follow the
-     Convex CLI prompts. This writes `CONVEX_DEPLOYMENT`,
-     `NEXT_PUBLIC_CONVEX_URL`, and usually `NEXT_PUBLIC_CONVEX_SITE_URL` to
-     `.env.local`.
-   - For an existing deployment, create `.env.local` from `.env.example` and fill
-     in that deployment's values.
+   Development is `precious-elk-564`. Use the main checkout's existing
+   `.env.local` in a fresh worktree, with explicit permission for that copy.
+   Convex login is shared across worktrees through `~/.convex/config.json`.
+   Do not create or select a new deployment.
 
-   In a fresh worktree on this machine, use the existing `.env.local` from the
-   main `demo-queue` checkout.
+   Run `pnpm convex:check` for a read-only, timestamped configuration and
+   project-access check. A failed lookup retries once. Only missing credentials
+   or a definitive HTTP 401 reports `login_required`; a generic access error
+   does not establish that login is needed.
+
+   Run `pnpm convex:sync` for a guarded one-time development sync. It repeats
+   the preflight after a generic failure and reports schema errors separately,
+   without printing database records or credentials. Run it again before
+   reporting an old error as a current blocker. Development scripts also run
+   the preflight before starting the normal watcher.
 
 3. Start Next.js and Convex together:
 

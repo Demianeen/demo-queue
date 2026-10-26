@@ -1,7 +1,7 @@
 import { paginationOptsValidator } from "convex/server";
 import { requireOrganization } from "./organizationAuth";
 import { randomToken } from "../lib/tokens";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import {
   DatabaseReader,
   DatabaseWriter,
@@ -405,8 +405,7 @@ async function deleteSubmissionData(
   }
 }
 
-export const createEvent = mutation({
-  args: {
+export const createEventArgs = {
     expectedOrganizationId: v.string(),
     name: v.string(),
     slug: v.string(),
@@ -414,12 +413,26 @@ export const createEvent = mutation({
     visualStyle: v.optional(visualStyleValidator),
     styleId: v.optional(v.id("organizationStyles")),
     meetUrl: v.string(),
-  },
+  };
+
+const createEventInput = v.object(createEventArgs);
+
+export const createEvent = mutation({
+  args: createEventInput,
   handler: async (ctx, args) => {
     const { organizationId, actor } = await requireOrganization(ctx);
     if (args.expectedOrganizationId !== organizationId) {
       throw new ConvexError("Your organization changed. Reload events before creating an event.");
     }
+    return createOrganizationEvent(ctx, args, { organizationId, actor });
+  },
+});
+
+export async function createOrganizationEvent(
+  ctx: MutationCtx,
+  args: Infer<typeof createEventInput>,
+  { organizationId, actor }: { organizationId: string; actor: string },
+) {
     const name = args.name.trim();
     if (!name || name.length > 160) throw new ConvexError("Enter an event name of 1–160 characters.");
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(args.slug) || args.slug.length > 200) {
@@ -469,8 +482,7 @@ export const createEvent = mutation({
 
     await logAction(ctx, eventId, "event_created", actor);
     return { eventId, adminToken };
-  },
-});
+}
 
 export const listOrganizationEvents = query({
   args: { paginationOpts: paginationOptsValidator },

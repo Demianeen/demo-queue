@@ -1,8 +1,8 @@
 import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
 import { MAX_CUSTOM_STYLES, MAX_ORGANIZATION_STYLES, VISUAL_STYLE_LABELS } from "../lib/visual-style";
 import { visualStyleValidator } from "./visualStyle";
-import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { ConvexError, v, type Infer } from "convex/values";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { requireOrganization } from "./organizationAuth";
 import { eventThemeValidator, validateEventTheme } from "./eventTheme";
 
@@ -15,11 +15,18 @@ export const list = query({
   },
 });
 
+const saveArgs = { expectedOrganizationId: v.string(), id: v.optional(v.id("organizationStyles")), name: v.string(), theme: eventThemeValidator, isDefault: v.boolean() };
+const saveInput = v.object(saveArgs);
 export const save = mutation({
-  args: { expectedOrganizationId: v.string(), id: v.optional(v.id("organizationStyles")), name: v.string(), theme: eventThemeValidator, isDefault: v.boolean() },
+  args: saveInput,
   handler: async (ctx, args) => {
     const { organizationId } = await requireOrganization(ctx);
     if (organizationId !== args.expectedOrganizationId) throw new ConvexError("Your organization changed. Reload styles before saving.");
+    return saveOrganizationStyle(ctx, args, organizationId);
+  },
+});
+
+export async function saveOrganizationStyle(ctx: MutationCtx, args: Infer<typeof saveInput>, organizationId: string) {
     const name = args.name.trim();
     if (!name || name.length > 80) throw new ConvexError("Enter a style name of 1–80 characters.");
     validateEventTheme(args.theme);
@@ -34,15 +41,21 @@ export const save = mutation({
     const values = { name, theme: args.theme, isDefault: args.isDefault, updatedAt: Date.now() };
     if (existing) { await ctx.db.patch(existing._id, values); return existing._id; }
     return await ctx.db.insert("organizationStyles", { ...values, organizationId });
-  },
-});
+}
 
 
+const presetArgs = { expectedOrganizationId: v.string(), preset: visualStyleValidator };
+const presetInput = v.object(presetArgs);
 export const setPresetDefault = mutation({
-  args: { expectedOrganizationId: v.string(), preset: visualStyleValidator },
+  args: presetInput,
   handler: async (ctx, args) => {
     const { organizationId } = await requireOrganization(ctx);
     if (organizationId !== args.expectedOrganizationId) throw new ConvexError("Your organization changed. Reload styles before saving.");
+    return setOrganizationPresetDefault(ctx, args, organizationId);
+  },
+});
+
+export async function setOrganizationPresetDefault(ctx: MutationCtx, args: Infer<typeof presetInput>, organizationId: string) {
     const styles = await ctx.db.query("organizationStyles").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(MAX_ORGANIZATION_STYLES);
     const existing = styles.find((style) => style.preset === args.preset);
     for (const style of styles) if (style.isDefault && style._id !== existing?._id) await ctx.db.patch(style._id, { isDefault: false });
@@ -54,19 +67,24 @@ export const setPresetDefault = mutation({
       organizationId, name: VISUAL_STYLE_LABELS[args.preset], preset: args.preset,
       theme: DEFAULT_EVENT_THEME, isDefault: true, updatedAt: Date.now(),
     });
-  },
-});
+}
 
+const savedArgs = { expectedOrganizationId: v.string(), id: v.id("organizationStyles") };
+const savedInput = v.object(savedArgs);
 export const setSavedDefault = mutation({
-  args: { expectedOrganizationId: v.string(), id: v.id("organizationStyles") },
+  args: savedInput,
   handler: async (ctx, args) => {
     const { organizationId } = await requireOrganization(ctx);
     if (organizationId !== args.expectedOrganizationId) throw new ConvexError("Your organization changed. Reload styles before saving.");
+    return setOrganizationSavedDefault(ctx, args, organizationId);
+  },
+});
+
+export async function setOrganizationSavedDefault(ctx: MutationCtx, args: Infer<typeof savedInput>, organizationId: string) {
     const selected = await ctx.db.get(args.id);
     if (!selected || selected.organizationId !== organizationId) throw new ConvexError("Style not found.");
     const styles = await ctx.db.query("organizationStyles").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(MAX_ORGANIZATION_STYLES);
     for (const style of styles) if (style.isDefault && style._id !== selected._id) await ctx.db.patch(style._id, { isDefault: false });
     await ctx.db.patch(selected._id, { isDefault: true, updatedAt: Date.now() });
     return selected._id;
-  },
-});
+}

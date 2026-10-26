@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "concurrently -k -n next,convex -c blue,magenta \"next dev\" \"pnpm dev:convex\"",
     "dev:next": "next dev",
-    "dev:convex": "node scripts/convex-dev.mjs check && convex dev",
-    "convex:check": "node scripts/convex-dev.mjs check",
-    "convex:sync": "node scripts/convex-dev.mjs sync",
+    "dev:convex": "node -- scripts/convex-dev.mjs watch",
+    "convex:check": "node -- scripts/convex-dev.mjs check",
+    "convex:sync": "node -- scripts/convex-dev.mjs sync",
     "build": "next build",
     "lint": "eslint",
     "test": "node --test test/*.test.mjs",

@@ -50,7 +50,7 @@ async function fixture(t, options = {}) {
     if (key.startsWith("CONVEX_") || key.startsWith("NEXT_PUBLIC_CONVEX_")) delete env[key];
   }
   const run = async (command = "check", overrides = {}) => {
-    const result = spawnSync(process.execPath, ["--import", preload, script, command], {
+    const result = spawnSync(process.execPath, ["--import", preload, "--", script, ...(Array.isArray(command) ? command : [command])], {
       cwd: root, env: { ...env, ...overrides }, encoding: "utf8", timeout: 8_000,
     });
     assert.ifError(result.error);
@@ -201,4 +201,30 @@ test("invalid project response cannot permit writes", async (t) => {
   assert.equal(result.rows.at(-1).status, "access_unverified");
   assert.equal(result.rows.at(-1).reason, "invalid_project_response");
   assert.ok(result.calls.every((call) => call.args?.[0] !== "dev"));
+});
+
+test("watch uses only the existing canonical development command", async (t) => {
+  const { run } = await fixture(t, { syncOutput: "Convex functions ready! " + secret });
+  const result = await run("watch");
+  assert.equal(result.code, 0);
+  assert.deepEqual(result.rows.map((row) => row.status), ["ready", "watch_started", "watch_ready", "watch_stopped"]);
+  assert.deepEqual(result.calls.at(-1), { args: ["dev"], deployment: "dev:precious-elk-564" });
+});
+
+for (const command of [["check", "--prod"], ["sync", "--configure"], ["watch", "--prod"], ["watch", "--env-file", "other.env"]]) {
+  test(command.join(" ") + " cannot forward target or configuration arguments", async (t) => {
+    const { run } = await fixture(t);
+    const result = await run(command);
+    assert.equal(result.rows[0].status, "usage_error");
+    assert.deepEqual(result.calls, []);
+  });
+}
+
+test("development scripts reject Node options and never forward deployment flags", async () => {
+  const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.scripts["dev:convex"], "node -- scripts/convex-dev.mjs watch");
+  assert.equal(pkg.scripts["convex:check"], "node -- scripts/convex-dev.mjs check");
+  assert.equal(pkg.scripts["convex:sync"], "node -- scripts/convex-dev.mjs sync");
+  assert.equal(pkg.scripts["convex:dev"], "pnpm dev:convex");
+  assert.ok(pkg.scripts.dev.includes("pnpm dev:convex"));
 });

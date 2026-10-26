@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -153,10 +153,43 @@ function classifySyncFailure(output, timedOut) {
   return { status: "sync_failed", reason: timedOut ? "sync_timeout" : "cli_failed" };
 }
 
+async function watch() {
+  emit({ status: "watch_started", envLocalExists: true, deployment, publicUrl });
+  const child = spawn(process.execPath, [join(process.cwd(), "node_modules/convex/bin/main.js"), "dev"], {
+    env: { ...process.env, CONVEX_DEPLOYMENT: deployment, CI: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  let reported;
+  let interrupted = false;
+  const observe = (chunk) => {
+    output = (output + chunk).slice(-2 * 1024 * 1024);
+    const status = /Convex functions ready/.test(String(chunk)) ? "watch_ready"
+      : /Schema validation failed/i.test(String(chunk)) ? "schema_error" : undefined;
+    if (status && status !== reported) emit({ status, deployment });
+    if (status) reported = status;
+  };
+  child.stdout.on("data", observe);
+  child.stderr.on("data", observe);
+  const stop = () => { interrupted = true; child.kill("SIGINT"); };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  const ok = await new Promise((resolve) => {
+    child.once("error", () => resolve(false));
+    child.once("close", (code) => resolve(code === 0));
+  });
+  process.removeListener("SIGINT", stop);
+  process.removeListener("SIGTERM", stop);
+  if (interrupted || ok) return emit({ status: "watch_stopped", deployment });
+  const after = await preflight();
+  if (after.status === "ready") emit({ ...classifySyncFailure(output, false), deployment });
+  process.exitCode = 1;
+}
+
 async function main() {
   const args = process.argv.slice(2).filter((arg) => arg !== "--");
-  if (args.length !== 1 || !["check", "sync"].includes(args[0])) {
-    emit({ status: "usage_error", reason: "expected_check_or_sync" });
+  if (args.length !== 1 || !["check", "sync", "watch"].includes(args[0])) {
+    emit({ status: "usage_error", reason: "expected_check_sync_or_watch_without_flags" });
     process.exitCode = 1;
     return;
   }
@@ -166,6 +199,7 @@ async function main() {
     return;
   }
   if (args[0] === "check") return;
+  if (args[0] === "watch") return watch();
   const envBefore = await readFile(join(process.cwd(), ".env.local"), "utf8");
   emit({ status: "sync_started", envLocalExists: true, deployment, publicUrl });
   const sync = runCli([

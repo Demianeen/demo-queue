@@ -36,7 +36,9 @@ Realtime demo-night picker for events.
    the preflight after a generic failure and reports schema errors separately,
    without printing database records or credentials. Run it again before
    reporting an old error as a current blocker. Development scripts also run
-   the preflight before starting the normal watcher.
+   the preflight before starting the canonical watcher. Watcher output reports
+   readiness and schema failures without printing database records. Target and
+   configuration flags are rejected rather than forwarded to Convex.
 
 3. Start Next.js and Convex together:
 

@@ -10,6 +10,7 @@ const modules = {
   "./_generated/api.js": () => import("./_generated/api.js"),
   "./_generated/server.js": () => import("./_generated/server.js"),
   "./events.ts": () => import("./events"),
+  "./eventSlugs.ts": () => import("./eventSlugs"),
   "./organizationStyles.ts": () => import("./organizationStyles"),
   "./mcpData.ts": () => import("./mcpData"),
   "./http.ts": () => import("./http"),
@@ -198,7 +199,37 @@ test("MCP creates nondefault styles and unpublished events with isolated snapsho
   await expect(t.mutation(internal.mcpData.setDefaultStyle, { organizationId: "org_two", selection: { kind: "saved", id: style.id } })).rejects.toThrow("Style not found");
   const serialized = JSON.stringify(created);
   for (const field of ["adminToken", "participantToken", "judge", "phone", "email", "contact", "meetUrl"]) expect(serialized).not.toContain(field);
-  expect((await t.run((ctx) => ctx.db.get(created.id)))?.adminToken).toMatch(/^[a-f0-9]{64}$/);
+  expect(await t.run((ctx) => ctx.db.get(created.id))).not.toHaveProperty("adminToken");
+});
+
+test("MCP resolves renamed event aliases without changing organization authority or releasing old slugs", async () => {
+  provider();
+  const t = convexTest(schema, modules);
+  const bearer = await token();
+  const created = await t.mutation(internal.mcpData.createEvent, {
+    expectedOrganizationId: "org_one", actor: user.actor, name: "Daytona", slug: "old-test-name",
+    eventType: "hackathon", meetUrl: "https://meet.google.com/example",
+  });
+  await t.mutation(internal.eventSlugs.rename, {
+    eventId: created.id, expectedSlug: "old-test-name", expectedOrganizationId: "org_one",
+    newSlug: "daytona-hacksprint", dryRun: false,
+  });
+  const call = async (name: string, args: unknown) => (await request(t, bearer, "tools/call", { name, arguments: args })).json();
+  for (const slug of ["old-test-name", "daytona-hacksprint"]) {
+    const response = await call("get_event", { organizationId: "org_one", slug });
+    expect(JSON.parse(response.result.content[0].text)).toEqual({ ...created, slug: "daytona-hacksprint" });
+    expect(await t.query(internal.mcpData.getEvent, { organizationId: "org_two", slug })).toBeNull();
+  }
+  const foreign = await call("get_event", { organizationId: "org_two", slug: "old-test-name" });
+  expect(foreign.result.isError).toBe(true);
+  expect(JSON.parse(foreign.result.content[0].text)).toEqual({ error: "reauthorization_required" });
+  const duplicate = await call("create_event", {
+    organizationId: "org_one", name: "Collision", slug: "old-test-name",
+    eventType: "demo", meetUrl: "https://meet.google.com/example",
+  });
+  expect(duplicate.result.isError).toBe(true);
+  expect(JSON.parse(duplicate.result.content[0].text)).toEqual({ error: "operation_failed" });
+  expect(await t.run((ctx) => ctx.db.query("events").take(10))).toHaveLength(1);
 });
 
 test("style creation enforces structured tokens, limits, and leaves defaults unchanged", async () => {

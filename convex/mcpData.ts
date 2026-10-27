@@ -3,6 +3,7 @@ import { paginationOptsValidator } from "convex/server";
 import { internalMutation, internalQuery } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { createEventArgs, createOrganizationEvent } from "./events";
+import { findEventBySlug } from "./eventSlugs";
 import { saveOrganizationStyle, setOrganizationPresetDefault, setOrganizationSavedDefault } from "./organizationStyles";
 import { eventThemeValidator } from "./eventTheme";
 import { visualStyleValidator } from "./visualStyle";
@@ -33,7 +34,7 @@ export const listEvents = internalQuery({
 export const getEvent = internalQuery({
   args: { organizationId: v.string(), slug: v.string() },
   handler: async (ctx, { organizationId, slug }) => {
-    const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    const event = await findEventBySlug(ctx, slug);
     return event?.workosOrganizationId === organizationId ? eventDto(event) : null;
   },
 });

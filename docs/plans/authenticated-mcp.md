@@ -1,9 +1,9 @@
 ---
 title: Authenticated event and style MCP
-status: VERIFIED IN DEVELOPMENT
+status: FINAL VERIFICATION IN PROGRESS
 tier: Tier 2
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 ## Result
@@ -17,8 +17,8 @@ This PR depends on organization workspaces in PR #41.
 ## Grounding
 
 Browser AuthKit sessions and Connect OAuth access tokens use different issuers
-and audiences. Existing browser creation and overview functions return private
-admin capabilities. Connect tokens must not gain access to those functions.
+and audiences. PR #41 replaces event-admin capabilities with WorkOS organization
+authorization. Connect tokens must not gain access to browser functions.
 The existing style API validates colors, font, and radius and snapshots the
 selected style when an event is created. Reuse that domain behavior.
 
@@ -28,7 +28,9 @@ Use a stateless MCP HTTP action on the canonical Convex deployment. Verify
 WorkOS issuer, signature, exact resource audience, expiration, user subject,
 consent, and organization at this boundary. Resolve active membership for each
 tool call. Invoke only internal data functions with explicit safe projections.
-Leave browser JWT providers and capability routes unchanged.
+Leave browser JWT providers unchanged. Event-admin links contain no credentials.
+Legacy admin URLs only redirect to the signed-in workspace and grant no access.
+Participant, judge, submission, and presentation links remain account-free.
 
 Two independent design candidates and an independent comparison considered
 this direct gateway and a Next gateway with additional Convex token trust.
@@ -74,8 +76,9 @@ accepted as style content.
 
 Run protocol initialize, tool discovery, and calls through the maintained SDK.
 Test signature, issuer, audience, expiry, M2M, membership, and tenant denial.
-Test safe outputs, style limits, snapshot persistence, and original browser
-API rejection of Connect tokens. Use the existing domain tests too.
+Test safe outputs, style limits, snapshot persistence, old-slug aliases, and browser
+API rejection of Connect tokens. New events must not store or return admin tokens.
+Use the existing domain tests too.
 
 Development WorkOS needs CIMD or DCR and the exact canonical `/mcp` resource.
 Convex needs matching issuer/resource configuration and its existing WorkOS
@@ -124,8 +127,11 @@ With explicit authorization, matching Production Connect registration/resource,
 MCP issuer, Google-only provider, URLs, 60-second token policy, and initial
 Outpost/Test invitations are now configured. Invitations remain pending and
 Production runtime is not deployed or verified here. Google has only the
-owner's email in its Testing audience. No event backfill or real/test classification was
-performed. Classification must precede any separately authorized migration.
+owner's email in its Testing audience. The approved classification covers 25 events, with six in Outpost
+and 19 in Test. The reviewed manifest is
+`docs/reports/event-organization-proposed.json`. Ownership assignment is approved
+only after the required code is merged and deployed. No production events have
+been changed. The Daytona slug rename is a separate alias-preserving operation.
 
 Temporary Development Test membership deactivation denied native client
 initialization. Reactivation was independently read back Active, normal OAuth
@@ -135,6 +141,19 @@ positive-control update, then reported an authorization error and received no
 new value after an independent fresh-token write following expiry. Browser HTTP
 verification permits Convex's five-second clock tolerance, making the removal
 bound approximately 65 seconds. MCP checks active membership on every tool call.
+
+## October 27 parent integration
+
+The MCP event reader uses the shared slug resolver from PR #41. Both the old slug
+and the renamed slug return the same safe event metadata. The canonical slug is
+returned in either case. Organization checks still apply after alias resolution,
+and event creation cannot reuse an alias.
+
+Local verification passes all 52 Convex tests, including 11 MCP tests, plus
+TypeScript and focused ESLint checks. The alias regression test failed before the
+reader changed and passed afterward. New MCP-created events contain no stored
+admin token. This integration check does not replace the final native OAuth and
+hosted-browser checks.
 
 ## Sources
 

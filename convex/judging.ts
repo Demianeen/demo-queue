@@ -1,3 +1,4 @@
+import { requireEventOrganization } from "./organizationAuth";
 import { ConvexError, v } from "convex/values";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
@@ -27,10 +28,9 @@ function isJudgingSubmission(submission: Doc<"submissions">) {
   return submission.status === "candidate" || submission.status === "queued";
 }
 
-async function adminEvent(ctx: QueryCtx | MutationCtx, slug: string, adminToken: string) {
-  const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
-  if (!event || event.adminToken !== adminToken) throw new ConvexError("Unauthorized");
-  if (event.eventType !== "hackathon") throw new ConvexError("Judging is only available for hackathons.");
+async function adminEvent(ctx: QueryCtx | MutationCtx, slug: string) {
+  const { event } = await requireEventOrganization(ctx, slug);
+  if (event.eventType !== "hackathon") throw new ConvexError("Judging is only available for hackathon events.");
   return event;
 }
 
@@ -41,9 +41,9 @@ async function judgeAccess(ctx: QueryCtx | MutationCtx, eventId: Doc<"events">["
 }
 
 export const createJudgeAccess = mutation({
-  args: { slug: v.string(), adminToken: v.string(), judgeName: v.string(), capabilityToken: v.string() },
+  args: { slug: v.string(), judgeName: v.string(), capabilityToken: v.string() },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     const judgeName = args.judgeName.normalize("NFKC").trim().replace(/\s+/g, " ");
     if (!judgeName || !args.capabilityToken) throw new ConvexError("Judge name and capability token are required.");
     const judgeKey = normalizeJudgeKey(judgeName);
@@ -64,17 +64,17 @@ export const createJudgeAccess = mutation({
 });
 
 export const listJudgeAccess = query({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     return await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(100);
   },
 });
 
 export const deactivateJudgeAccess = mutation({
-  args: { slug: v.string(), adminToken: v.string(), judgeKey: v.string(), active: v.boolean() },
+  args: { slug: v.string(), judgeKey: v.string(), active: v.boolean() },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     const access = await ctx.db.query("judgeAccess").withIndex("by_event_and_judge_key", (q) => q.eq("eventId", event._id).eq("judgeKey", args.judgeKey)).unique();
     if (!access) throw new ConvexError("Judge not found.");
     const now = Date.now();
@@ -83,9 +83,9 @@ export const deactivateJudgeAccess = mutation({
 });
 
 export const closeSubmissions = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     if (event.submissionsClosedAt !== undefined) {
       return { judgingStatus: event.judgingStatus ?? "setup" };
     }
@@ -96,9 +96,9 @@ export const closeSubmissions = mutation({
 });
 
 export const startAssignmentPreparation = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     if (!event.submissionsClosedAt) throw new ConvexError("Close submissions first.");
     if ((event.judgingStatus ?? "setup") !== "setup") {
       throw new ConvexError("Assignments can only be prepared before judging starts.");
@@ -110,9 +110,9 @@ export const startAssignmentPreparation = mutation({
 });
 
 export const prepareAssignmentBatch = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     if (event.judgingStatus !== "preparing_assignments") throw new ConvexError("Assignment preparation is not active.");
     const result = await ctx.db
       .query("submissions")
@@ -164,12 +164,11 @@ function replacementJudge(
 export const previewRedistribution = query({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     unavailableJudgeKey: v.string(),
     overrides: v.optional(v.array(overrideValidator)),
   },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     const unavailable = await ctx.db
       .query("judgeAccess")
       .withIndex("by_event_and_judge_key", (q) =>
@@ -221,12 +220,11 @@ export const previewRedistribution = query({
 export const applyRedistribution = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     unavailableJudgeKey: v.string(),
     assignments: v.array(overrideValidator),
   },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     const unavailable = await ctx.db
       .query("judgeAccess")
       .withIndex("by_event_and_judge_key", (q) =>
@@ -403,9 +401,9 @@ export function scoreSubmissions(submissions: Doc<"submissions">[], reviews: Doc
 }
 
 export const getAdminProgress = query({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     const submissions = (await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000)).filter(isJudgingSubmission);
     const reviews = await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000);
     const access = await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(100);
@@ -436,24 +434,24 @@ export const getAdminProgress = query({
 });
 
 export const setJudgingTimer = mutation({
-  args: { slug: v.string(), adminToken: v.string(), durationMs: v.number() },
-  handler: async (ctx, args) => { const event = await adminEvent(ctx, args.slug, args.adminToken); const durationMs = Math.max(0, Math.min(MAX_TIMER_MS, Math.round(args.durationMs))); await ctx.db.patch(event._id, { judgingTimerDurationMs: durationMs || DEFAULT_TIMER_MS, judgingTimerRemainingMs: durationMs || DEFAULT_TIMER_MS, updatedAt: Date.now() }); },
+  args: { slug: v.string(), durationMs: v.number() },
+  handler: async (ctx, args) => { const event = await adminEvent(ctx, args.slug); const durationMs = Math.max(0, Math.min(MAX_TIMER_MS, Math.round(args.durationMs))); await ctx.db.patch(event._id, { judgingTimerDurationMs: durationMs || DEFAULT_TIMER_MS, judgingTimerRemainingMs: durationMs || DEFAULT_TIMER_MS, updatedAt: Date.now() }); },
 });
 
 export const startJudging = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
-    handler: async (ctx, args) => { const event = await adminEvent(ctx, args.slug, args.adminToken); if (event.judgingStatus !== "ready") throw new ConvexError("Assignments are not ready."); const now = Date.now(); const remaining = event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS; await ctx.db.patch(event._id, { judgingStatus: "open", judgingTimerStatus: "running", judgingTimerEndsAt: now + remaining, judgingTimerRemainingMs: remaining, updatedAt: now }); },
+  args: { slug: v.string(), },
+    handler: async (ctx, args) => { const event = await adminEvent(ctx, args.slug); if (event.judgingStatus !== "ready") throw new ConvexError("Assignments are not ready."); const now = Date.now(); const remaining = event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS; await ctx.db.patch(event._id, { judgingStatus: "open", judgingTimerStatus: "running", judgingTimerEndsAt: now + remaining, judgingTimerRemainingMs: remaining, updatedAt: now }); },
 });
 
 export const addJudgingTime = mutation({
-  args: { slug: v.string(), adminToken: v.string(), deltaMs: v.number() },
-  handler: async (ctx, args) => { const event = await adminEvent(ctx, args.slug, args.adminToken); const now = Date.now(); const current = event.judgingTimerStatus === "running" && event.judgingTimerEndsAt !== undefined ? event.judgingTimerEndsAt - now : event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS; await ctx.db.patch(event._id, { judgingTimerRemainingMs: current + args.deltaMs, judgingTimerEndsAt: event.judgingTimerStatus === "running" ? now + current + args.deltaMs : event.judgingTimerEndsAt, updatedAt: now }); },
+  args: { slug: v.string(), deltaMs: v.number() },
+  handler: async (ctx, args) => { const event = await adminEvent(ctx, args.slug); const now = Date.now(); const current = event.judgingTimerStatus === "running" && event.judgingTimerEndsAt !== undefined ? event.judgingTimerEndsAt - now : event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS; await ctx.db.patch(event._id, { judgingTimerRemainingMs: current + args.deltaMs, judgingTimerEndsAt: event.judgingTimerStatus === "running" ? now + current + args.deltaMs : event.judgingTimerEndsAt, updatedAt: now }); },
 });
 
 export const closeJudging = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     if (event.judgingStatus !== "open") throw new ConvexError("Judging is not open.");
     const now = Date.now();
     const remaining =
@@ -471,9 +469,9 @@ export const closeJudging = mutation({
 });
 
 export const reopenJudging = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     if (event.judgingStatus !== "closed") throw new ConvexError("Judging is not closed.");
     const now = Date.now();
     const remaining =
@@ -488,8 +486,8 @@ export const reopenJudging = mutation({
 });
 
 export const getJudgingTimer = query({
-  args: { slug: v.string(), adminToken: v.string() },
-  handler: async (ctx, args) => { const event = await adminEvent(ctx, args.slug, args.adminToken); const now = Date.now(); const remainingMs = event.judgingTimerStatus === "running" && event.judgingTimerEndsAt !== undefined ? event.judgingTimerEndsAt - now : event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS; return { status: event.judgingStatus ?? "setup", timerStatus: event.judgingTimerStatus ?? "idle", remainingMs, serverNow: now }; },
+  args: { slug: v.string(), },
+  handler: async (ctx, args) => { const event = await adminEvent(ctx, args.slug); const now = Date.now(); const remainingMs = event.judgingTimerStatus === "running" && event.judgingTimerEndsAt !== undefined ? event.judgingTimerEndsAt - now : event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS; return { status: event.judgingStatus ?? "setup", timerStatus: event.judgingTimerStatus ?? "idle", remainingMs, serverNow: now }; },
 });
 
 async function currentDecision(ctx: QueryCtx | MutationCtx, eventId: Doc<"events">["_id"]) {
@@ -618,9 +616,9 @@ function normalizationPreviewForJudge(
 }
 
 export const previewNormalization = query({
-  args: { slug: v.string(), adminToken: v.string(), judgeKey: v.string() },
+  args: { slug: v.string(), judgeKey: v.string() },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     const judgeName = (event.roundOneJudges ?? []).find(
       (judge) => normalizeJudgeKey(judge) === args.judgeKey,
     );
@@ -640,9 +638,9 @@ export const previewNormalization = query({
 });
 
 export const getNormalizationOverview = query({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     const [submissions, reviews, decisions] = await Promise.all([
       ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
       ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000),
@@ -666,9 +664,9 @@ export const getNormalizationOverview = query({
 });
 
 export const saveNormalizationDecision = mutation({
-  args: { slug: v.string(), adminToken: v.string(), judgeKey: v.string(), decision: v.union(v.literal("apply"), v.literal("raw")) },
+  args: { slug: v.string(), judgeKey: v.string(), decision: v.union(v.literal("apply"), v.literal("raw")) },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     if (event.judgingStatus !== "closed") throw new ConvexError("Close judging first.");
     const [submissions, reviews, decisions] = await Promise.all([
       ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
@@ -767,9 +765,9 @@ function scoreSubmissionsWithNormalization(
 }
 
 export const getFinalistDecision = query({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     const [submissions, reviews, decisions, decision] = await Promise.all([
       ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
       ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000),
@@ -861,9 +859,9 @@ async function validateIds(
 }
 
 export const saveFinalistDraft = mutation({
-  args: { slug: v.string(), adminToken: v.string(), finalistIds: idList },
+  args: { slug: v.string(), finalistIds: idList },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     await requireClosedScoreBasis(ctx, event);
     await validateIds(ctx, event, args.finalistIds, true);
     const current = await currentDecision(ctx, event._id);
@@ -882,9 +880,9 @@ export const saveFinalistDraft = mutation({
 });
 
 export const submitFinalists = mutation({
-  args: { slug: v.string(), adminToken: v.string(), finalistIds: idList },
+  args: { slug: v.string(), finalistIds: idList },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     await requireClosedScoreBasis(ctx, event);
     await validateIds(ctx, event, args.finalistIds, true);
     const all = await ctx.db
@@ -920,9 +918,9 @@ export const submitFinalists = mutation({
 });
 
 export const savePlacementDraft = mutation({
-  args: { slug: v.string(), adminToken: v.string(), placementIds: idList },
+  args: { slug: v.string(), placementIds: idList },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     await requireClosedScoreBasis(ctx, event);
     const current = await currentDecision(ctx, event._id);
     if (
@@ -944,9 +942,9 @@ export const savePlacementDraft = mutation({
 });
 
 export const submitPlacements = mutation({
-  args: { slug: v.string(), adminToken: v.string(), placementIds: idList },
+  args: { slug: v.string(), placementIds: idList },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug, args.adminToken);
+    const event = await adminEvent(ctx, args.slug);
     await requireClosedScoreBasis(ctx, event);
     const current = await currentDecision(ctx, event._id);
     if (

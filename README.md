@@ -222,10 +222,16 @@ overviews, and organization defaults are scoped to that organization. Membership
 lists are cached per user and environment for at most 60 seconds; organization
 switches check membership directly. Convex independently verifies access tokens.
 
-Existing account-free admin, participant, judge, submission, and presentation
-links remain valid. Events created before organization access was added remain
-available through those links; they are not automatically assigned to an
-organization. Device-saved event links are at `/saved`.
+Event administration requires WorkOS sign-in and matching organization ownership
+at `/events/<slug>/admin`. Old admin links redirect there but no longer grant
+access. New events have no admin capability token. `/saved` redirects to the
+authenticated event list. Participant, judge, submission, and presentation links
+remain account-free.
+
+Historical events need an explicit ownership assignment before organization
+members can administer them. Review the complete proposed classification in
+`docs/reports/event-organization-classification.md`. The migration helper defaults
+to a read-only plan and requires an approved manifest hash for execution.
 
 Styles provides existing-style previews, event selection, and organization
 defaults. Existing events keep their saved appearance. Style authoring is deferred
@@ -268,8 +274,8 @@ Preview deployments also need matching frontend/Convex WorkOS configuration and
 an allowed callback URL; production credentials do not supply this automatically.
 
 Before merging, verify that configuration and complete a hosted invited-user
-login, organization-scoped event creation, and access-denied smoke test. Keep
-admin capability links private. Production setup remains an explicit merge gate
+login, organization-scoped event creation, and access-denied smoke test.
+Production setup remains an explicit merge gate
 in `docs/plans/workos-development-setup.md` (P01).
 
 ## Queue ops
@@ -279,18 +285,15 @@ instead of asking an agent to rediscover the data model:
 
 ```bash
 pnpm queue -- model-context
-pnpm queue -- model-context --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"
 pnpm queue -- snapshot
-pnpm queue:prod -- model-context --admin-url "https://.../admin/<slug>/<token>"
-pnpm queue:prod -- snapshot --admin-url "https://.../admin/<slug>/<token>"
+pnpm queue:prod -- model-context --admin-url "https://demo-queue-tau.vercel.app/events/<slug>/admin"
+pnpm queue:prod -- snapshot --event-slug "<slug>"
 ```
 
-Full admin URLs are the authoritative production path. For `model-context` and
-`snapshot`, the helper infers the public Convex deployment URL only from the
-deployed app named by the full `https://.../admin/...` URL and queries Convex
-directly. It does not read `.env.local` for target selection in that mode, so a
-local dev `NEXT_PUBLIC_CONVEX_URL` cannot override the pasted production admin
-URL.
+Admin URLs identify an event, not an authorization credential or deployment.
+The helper uses the existing authenticated Convex CLI with an explicit canonical
+deployment selector. Use `pnpm queue:prod` for production. Legacy capability URLs
+and `--admin-token` are rejected before network access.
 
 The helper only fetches queue data for the model. It does not rank, score,
 choose, or update demos. For "best N demos" requests, run `model-context`, then

@@ -66,14 +66,13 @@ test.each(["neutral", "codex", "outpost", "astra", "devday"] as const)(
 
 test.each(["astra", "devday"] as const)("editing a %s event preserves its selected theme", async (visualStyle) => {
   const t = convexTest(schema, modules);
-  const { eventId, adminToken } = await t.withIdentity(identity).mutation(api.events.createEvent, {
+  const { eventId } = await t.withIdentity(identity).mutation(api.events.createEvent, {
     ...eventArgs,
     visualStyle,
   });
 
-  await t.mutation(api.events.updateEvent, {
+  await t.withIdentity(identity).mutation(api.events.updateEvent, {
     slug: eventArgs.slug,
-    adminToken,
     name: "Updated demo night",
     meetUrl: "https://meet.example/updated",
   });

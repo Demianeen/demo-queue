@@ -29,6 +29,7 @@ body:has([data-event-style="neutral"]) > .page-bg, body:has(.neutral-stage) > .p
 .workspace-account-check { margin-left: auto; }
 .workspace-account-organizations { width: 240px; }
 .workspace-content { width: min(1243px, calc(100% - 80px)); margin: 0 auto; padding: 66px 0 84px; }
+.workspace-content.workspace-admin-content { width: 100%; padding: 0; }
 .workspace-heading { margin-bottom: 34px; }
 .workspace-heading h1 { font-size: 44px; line-height: 1.2; font-weight: 600; letter-spacing: -1.6px; max-width: none; margin: 0 0 14px; }
 .workspace-heading p { font-size: 21px; line-height: 1.5; color: #62666e; margin: 0; }

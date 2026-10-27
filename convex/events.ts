@@ -1,6 +1,5 @@
 import { paginationOptsValidator } from "convex/server";
-import { requireOrganization } from "./organizationAuth";
-import { randomToken } from "../lib/tokens";
+import { requireOrganization, requireEventOrganization } from "./organizationAuth";
 import { ConvexError, v, type Infer } from "convex/values";
 import {
   DatabaseReader,
@@ -117,11 +116,6 @@ async function eventBySlug(ctx: { db: DatabaseReader }, slug: string) {
   return event;
 }
 
-function requireAdmin(event: Doc<"events">, adminToken: string) {
-  if (event.adminToken !== adminToken) {
-    throw new ConvexError("Unauthorized");
-  }
-}
 
 function sortQueue(a: Doc<"submissions">, b: Doc<"submissions">) {
   return (a.queueOrder ?? Number.MAX_SAFE_INTEGER) - (b.queueOrder ?? Number.MAX_SAFE_INTEGER);
@@ -441,7 +435,6 @@ export async function createOrganizationEvent(
     let meetUrl: URL;
     try { meetUrl = new URL(args.meetUrl); } catch { throw new ConvexError("Enter a valid meeting URL."); }
     if (!["https:", "http:"].includes(meetUrl.protocol)) throw new ConvexError("Enter an HTTP or HTTPS meeting URL.");
-    const adminToken = randomToken(32);
     const existing = await ctx.db
       .query("events")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
@@ -468,7 +461,6 @@ export async function createOrganizationEvent(
       visualStyle,
       theme,
       meetUrl: args.meetUrl.trim(),
-      adminToken,
       queuePublished: false,
       stageScreenMode: "qr",
       showSubmissionCountOnStage: false,
@@ -481,7 +473,7 @@ export async function createOrganizationEvent(
     });
 
     await logAction(ctx, eventId, "event_created", actor);
-    return { eventId, adminToken };
+    return { eventId };
 }
 
 export const listOrganizationEvents = query({
@@ -529,7 +521,7 @@ export const getOrganizationEventDetails = query({
     }
     return {
       organizationId, name: event.name, slug: event.slug, eventType: eventType(event),
-      adminToken: event.adminToken, createdAt: event.createdAt,
+      createdAt: event.createdAt,
       visualStyle: normalizeVisualStyle(event.visualStyle), theme: event.theme,
       submissionsClosed: event.submissionsClosedAt !== undefined, queuePublished: event.queuePublished,
       judgingStatus: isHackathon ? event.judgingStatus ?? "setup" : null,
@@ -560,10 +552,9 @@ export const getEventMeta = query({
 });
 
 export const getAdminEventMeta = query({
-  args: { slug: v.string(), adminToken: v.string() },
-  handler: async (ctx, { slug, adminToken }) => {
-    const event = await eventBySlug(ctx, slug);
-    requireAdmin(event, adminToken);
+  args: { slug: v.string(), },
+  handler: async (ctx, { slug }) => {
+    const { event } = await requireEventOrganization(ctx, slug);
 
     return {
       name: event.name,
@@ -647,10 +638,9 @@ export const getStage = query({
 });
 
 export const getAdmin = query({
-  args: { slug: v.string(), adminToken: v.string() },
-  handler: async (ctx, { slug, adminToken }) => {
-    const event = await eventBySlug(ctx, slug);
-    requireAdmin(event, adminToken);
+  args: { slug: v.string(), },
+  handler: async (ctx, { slug }) => {
+    const { event } = await requireEventOrganization(ctx, slug);
 
     const submissions = await ctx.db
       .query("submissions")
@@ -946,7 +936,6 @@ export const submitHackathon = mutation({
 export const adminAddSubmission = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     participantToken: v.string(),
     name: v.string(),
     demoTitle: v.string(),
@@ -960,8 +949,7 @@ export const adminAddSubmission = mutation({
     list: v.optional(v.union(v.literal("lineup"), v.literal("pool"))),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     if (eventType(event) !== "demo") {
       throw new ConvexError("Add hackathon teams through the public submission form.");
     }
@@ -979,7 +967,7 @@ export const adminAddSubmission = mutation({
       updatedAt: now,
     });
 
-    await logAction(ctx, event._id, "submission_admin_added", "admin", submissionId);
+    await logAction(ctx, event._id, "submission_admin_added", actor, submissionId);
     return { submissionId };
   },
 });
@@ -1003,12 +991,10 @@ const adminTestSubmissionValidator = v.object({
 export const adminAddTestSubmissions = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     submissions: v.array(adminTestSubmissionValidator),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     if (event.submissionsClosedAt !== undefined) {
       throw new ConvexError("Submissions are closed.");
     }
@@ -1054,7 +1040,7 @@ export const adminAddTestSubmissions = mutation({
         });
       }
 
-      await logAction(ctx, event._id, "test_submission_admin_added", "admin", submissionId);
+      await logAction(ctx, event._id, "test_submission_admin_added", actor, submissionId);
       submissionIds.push(submissionId);
     }
 
@@ -1115,13 +1101,11 @@ export const withdrawSubmission = mutation({
 export const updateEvent = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     name: v.string(),
     meetUrl: v.string(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event } = await requireEventOrganization(ctx, args.slug);
 
     await ctx.db.patch(event._id, {
       name: args.name.trim(),
@@ -1135,12 +1119,10 @@ export const updateEvent = mutation({
 export const saveRoundOneJudges = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     judges: v.array(v.string()),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     if (eventType(event) !== "hackathon") {
       throw new ConvexError("Judge assignments are only available for hackathons.");
     }
@@ -1214,7 +1196,7 @@ export const saveRoundOneJudges = mutation({
     }
 
     await ctx.db.patch(event._id, { roundOneJudges: roster, updatedAt: now });
-    await logAction(ctx, event._id, "round_one_judges_saved", "admin", String(roster.length));
+    await logAction(ctx, event._id, "round_one_judges_saved", actor, String(roster.length));
     await queueJudgingSheetSync(ctx, event, 0);
     return { judgeCount: roster.length, reassignedSubmissionCount };
   },
@@ -1223,13 +1205,11 @@ export const saveRoundOneJudges = mutation({
 export const changeEventType = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     eventType: v.union(v.literal("demo"), v.literal("hackathon")),
     confirmReset: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     if (event.judgingStatus !== undefined || event.submissionsClosedAt !== undefined) {
       throw new ConvexError("Event type cannot change after judging has started.");
     }
@@ -1259,7 +1239,7 @@ export const changeEventType = mutation({
       judgingSheetSyncError: undefined,
       roundOneJudges: undefined,
     });
-    await logAction(ctx, event._id, "event_type_changed", "admin", args.eventType);
+    await logAction(ctx, event._id, "event_type_changed", actor, args.eventType);
     return { deletedSubmissions: submissions.length };
   },
 });
@@ -1267,13 +1247,11 @@ export const changeEventType = mutation({
 export const saveJudgingSheet = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     spreadsheetId: v.string(),
     spreadsheetUrl: v.string(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     if (eventType(event) !== "hackathon") {
       throw new ConvexError("Judging sheets are only available for hackathon events.");
     }
@@ -1302,7 +1280,7 @@ export const saveJudgingSheet = mutation({
       eventId: event._id,
       revision,
     });
-    await logAction(ctx, event._id, "judging_sheet_created", "admin", args.spreadsheetId);
+    await logAction(ctx, event._id, "judging_sheet_created", actor, args.spreadsheetId);
     return {
       spreadsheetId: args.spreadsheetId,
       spreadsheetUrl: args.spreadsheetUrl,
@@ -1312,10 +1290,9 @@ export const saveJudgingSheet = mutation({
 });
 
 export const requestJudgingSheetSync = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event } = await requireEventOrganization(ctx, args.slug);
     if (eventType(event) !== "hackathon" || !event.judgingSheetId) {
       throw new ConvexError("Create the judging sheet before syncing it.");
     }
@@ -1327,7 +1304,6 @@ export const requestJudgingSheetSync = mutation({
 export const backfillHackathonVideoLinks = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     dryRun: v.boolean(),
     links: v.array(
       v.object({
@@ -1337,8 +1313,7 @@ export const backfillHackathonVideoLinks = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     if (eventType(event) !== "hackathon") {
       throw new ConvexError("Video-link backfills are only available for hackathon events.");
     }
@@ -1406,7 +1381,7 @@ export const backfillHackathonVideoLinks = mutation({
         ctx,
         event._id,
         "hackathon_video_links_backfilled",
-        "admin",
+        actor,
         `${legacySubmissions.length} Drive links backfilled`,
       );
     }
@@ -1423,14 +1398,12 @@ export const backfillHackathonVideoLinks = mutation({
 export const deleteBackfilledHackathonVideoUploads = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     dryRun: v.boolean(),
     submissionIds: v.array(v.id("submissions")),
     judgingSheetRevision: v.number(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     if (eventType(event) !== "hackathon") {
       throw new ConvexError("Video archival is only available for hackathon events.");
     }
@@ -1500,7 +1473,7 @@ export const deleteBackfilledHackathonVideoUploads = mutation({
         ctx,
         event._id,
         "hackathon_video_uploads_deleted",
-        "admin",
+        actor,
         `${storedSubmissions.length} backfilled stored copies deleted`,
       );
     }
@@ -1608,7 +1581,6 @@ export const completeJudgingSheetSync = internalMutation({
 export const updateSubmission = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     submissionId: v.id("submissions"),
     name: v.string(),
     demoTitle: v.string(),
@@ -1620,8 +1592,7 @@ export const updateSubmission = mutation({
     category: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event } = await requireEventOrganization(ctx, args.slug);
     const submission = await ctx.db.get(args.submissionId);
 
     if (!submission || submission.eventId !== event._id) {
@@ -1637,47 +1608,42 @@ export const updateSubmission = mutation({
 });
 
 export const publishQueue = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     await ctx.db.patch(event._id, {
       queuePublished: true,
       stageScreenMode: "demo",
       updatedAt: Date.now(),
     });
-    await logAction(ctx, event._id, "queue_published", "admin");
+    await logAction(ctx, event._id, "queue_published", actor);
   },
 });
 
 export const setStageScreenMode = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     mode: v.union(v.literal("qr"), v.literal("demo")),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     await ctx.db.patch(event._id, {
       stageScreenMode: args.mode,
       updatedAt: Date.now(),
     });
-    await logAction(ctx, event._id, `stage_screen_${args.mode}`, "admin");
+    await logAction(ctx, event._id, `stage_screen_${args.mode}`, actor);
   },
 });
 
 export const setSubmissionCountVisible = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     visible: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     await ctx.db.patch(event._id, {
       showSubmissionCountOnStage: args.visible,
@@ -1687,7 +1653,7 @@ export const setSubmissionCountVisible = mutation({
       ctx,
       event._id,
       args.visible ? "stage_submission_count_visible" : "stage_submission_count_hidden",
-      "admin",
+      actor,
     );
   },
 });
@@ -1695,12 +1661,10 @@ export const setSubmissionCountVisible = mutation({
 export const setStageMeetLinkVisible = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     visible: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     if (args.visible && !event.queuePublished) {
       throw new ConvexError("Publish the queue before showing the Meet link in the presentation view");
@@ -1714,7 +1678,7 @@ export const setStageMeetLinkVisible = mutation({
       ctx,
       event._id,
       args.visible ? "stage_meet_link_enabled" : "stage_meet_link_disabled",
-      "admin",
+      actor,
     );
   },
 });
@@ -1722,12 +1686,10 @@ export const setStageMeetLinkVisible = mutation({
 export const setStageTimerVisible = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     visible: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     await ctx.db.patch(event._id, {
       showStageTimerOnStage: args.visible,
@@ -1737,7 +1699,7 @@ export const setStageTimerVisible = mutation({
       ctx,
       event._id,
       args.visible ? "stage_timer_visible" : "stage_timer_hidden",
-      "admin",
+      actor,
     );
   },
 });
@@ -1745,12 +1707,10 @@ export const setStageTimerVisible = mutation({
 export const setStageTimerDuration = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     durationMs: v.number(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const now = Date.now();
     const previousDurationMs = stageTimerDuration(event);
@@ -1772,19 +1732,17 @@ export const setStageTimerDuration = mutation({
     }
 
     await ctx.db.patch(event._id, patch);
-    await logAction(ctx, event._id, "stage_timer_duration_set", "admin", String(durationMs));
+    await logAction(ctx, event._id, "stage_timer_duration_set", actor, String(durationMs));
   },
 });
 
 export const startStageTimer = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     durationMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const now = Date.now();
     const durationMs = clampTimerDurationMs(args.durationMs ?? stageTimerDuration(event));
@@ -1802,19 +1760,17 @@ export const startStageTimer = mutation({
       stageTimerEndsAt: now + remainingMs,
       updatedAt: now,
     });
-    await logAction(ctx, event._id, "stage_timer_started", "admin", String(remainingMs));
+    await logAction(ctx, event._id, "stage_timer_started", actor, String(remainingMs));
   },
 });
 
 export const setDemoTimerVisible = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     visible: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const now = Date.now();
     const patch: Partial<Doc<"events">> = {
@@ -1835,7 +1791,7 @@ export const setDemoTimerVisible = mutation({
       ctx,
       event._id,
       args.visible ? "demo_timer_visible" : "demo_timer_hidden",
-      "admin",
+      actor,
     );
   },
 });
@@ -1843,12 +1799,10 @@ export const setDemoTimerVisible = mutation({
 export const setDemoTimerDuration = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     durationMs: v.number(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const durationMs = clampTimerDurationMs(args.durationMs);
     const patch: Partial<Doc<"events">> = {
@@ -1862,18 +1816,16 @@ export const setDemoTimerDuration = mutation({
     }
 
     await ctx.db.patch(event._id, patch);
-    await logAction(ctx, event._id, "demo_timer_duration_set", "admin", String(durationMs));
+    await logAction(ctx, event._id, "demo_timer_duration_set", actor, String(durationMs));
   },
 });
 
 export const startDemoTimer = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
-  },
+    },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const now = Date.now();
     const durationMs = demoTimerDuration(event);
@@ -1889,18 +1841,16 @@ export const startDemoTimer = mutation({
       demoTimerEndsAt: now + remainingMs,
       updatedAt: now,
     });
-    await logAction(ctx, event._id, "demo_timer_started", "admin", String(remainingMs));
+    await logAction(ctx, event._id, "demo_timer_started", actor, String(remainingMs));
   },
 });
 
 export const pauseDemoTimer = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
-  },
+    },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const now = Date.now();
     const remainingMs = currentDemoTimerRemaining(event, now);
@@ -1911,19 +1861,17 @@ export const pauseDemoTimer = mutation({
       demoTimerEndsAt: undefined,
       updatedAt: now,
     });
-    await logAction(ctx, event._id, "demo_timer_paused", "admin", String(remainingMs));
+    await logAction(ctx, event._id, "demo_timer_paused", actor, String(remainingMs));
   },
 });
 
 export const adjustDemoTimer = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     deltaMs: v.number(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const now = Date.now();
     const isRunning = event.demoTimerStatus === "running";
@@ -1939,18 +1887,16 @@ export const adjustDemoTimer = mutation({
       demoTimerEndsAt: isRunning ? now + remainingMs : undefined,
       updatedAt: now,
     });
-    await logAction(ctx, event._id, "demo_timer_adjusted", "admin", String(args.deltaMs));
+    await logAction(ctx, event._id, "demo_timer_adjusted", actor, String(args.deltaMs));
   },
 });
 
 export const pauseStageTimer = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
-  },
+    },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const now = Date.now();
     const remainingMs = currentStageTimerRemaining(event, now);
@@ -1961,19 +1907,17 @@ export const pauseStageTimer = mutation({
       stageTimerEndsAt: undefined,
       updatedAt: now,
     });
-    await logAction(ctx, event._id, "stage_timer_paused", "admin", String(remainingMs));
+    await logAction(ctx, event._id, "stage_timer_paused", actor, String(remainingMs));
   },
 });
 
 export const resetStageTimer = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     durationMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const now = Date.now();
     const durationMs = clampTimerDurationMs(args.durationMs ?? stageTimerDuration(event));
@@ -1986,19 +1930,17 @@ export const resetStageTimer = mutation({
       stageTimerEndsAt: undefined,
       updatedAt: now,
     });
-    await logAction(ctx, event._id, "stage_timer_reset", "admin", String(durationMs));
+    await logAction(ctx, event._id, "stage_timer_reset", actor, String(durationMs));
   },
 });
 
 export const adjustStageTimer = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     deltaMs: v.number(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const now = Date.now();
     const isRunning = event.stageTimerStatus === "running";
@@ -2011,19 +1953,17 @@ export const adjustStageTimer = mutation({
       stageTimerEndsAt: isRunning ? now + remainingMs : undefined,
       updatedAt: now,
     });
-    await logAction(ctx, event._id, "stage_timer_adjusted", "admin", String(args.deltaMs));
+    await logAction(ctx, event._id, "stage_timer_adjusted", actor, String(args.deltaMs));
   },
 });
 
 export const hideSubmission = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     submissionId: v.id("submissions"),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     const submission = await ctx.db.get(args.submissionId);
 
     if (!submission || submission.eventId !== event._id) {
@@ -2037,7 +1977,7 @@ export const hideSubmission = mutation({
       updatedAt: now,
     });
     await clearAdvanceSnapshot(ctx, event, now);
-    await logAction(ctx, event._id, "submission_hidden", "admin", args.submissionId);
+    await logAction(ctx, event._id, "submission_hidden", actor, args.submissionId);
     await queueJudgingSheetSync(ctx, event);
   },
 });
@@ -2045,12 +1985,10 @@ export const hideSubmission = mutation({
 export const restoreSubmission = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     submissionId: v.id("submissions"),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     const submission = await ctx.db.get(args.submissionId);
 
     if (!submission || submission.eventId !== event._id) {
@@ -2066,7 +2004,7 @@ export const restoreSubmission = mutation({
       updatedAt: now,
     });
     await clearAdvanceSnapshot(ctx, event, now);
-    await logAction(ctx, event._id, "submission_restored", "admin", args.submissionId);
+    await logAction(ctx, event._id, "submission_restored", actor, args.submissionId);
     await queueJudgingSheetSync(ctx, event);
   },
 });
@@ -2077,12 +2015,10 @@ export const restoreSubmission = mutation({
 export const reorderLineup = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     orderedIds: v.array(v.id("submissions")),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     const now = Date.now();
     for (const [index, submissionId] of args.orderedIds.entries()) {
       const submission = await ctx.db.get(submissionId);
@@ -2101,7 +2037,7 @@ export const reorderLineup = mutation({
     }
 
     await clearAdvanceSnapshot(ctx, event, now);
-    await logAction(ctx, event._id, "lineup_reordered", "admin");
+    await logAction(ctx, event._id, "lineup_reordered", actor);
     await queueJudgingSheetSync(ctx, event);
   },
 });
@@ -2109,10 +2045,9 @@ export const reorderLineup = mutation({
 // Repopulate the lineup with a random draw from everyone currently in the lineup
 // or the pool, honoring the lineup target. Everyone not drawn goes to the pool.
 export const shuffleLineup = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const submissions = await ctx.db
       .query("submissions")
@@ -2145,7 +2080,7 @@ export const shuffleLineup = mutation({
     }
 
     await clearAdvanceSnapshot(ctx, event, now);
-    await logAction(ctx, event._id, "lineup_shuffled", "admin");
+    await logAction(ctx, event._id, "lineup_shuffled", actor);
     await queueJudgingSheetSync(ctx, event);
   },
 });
@@ -2155,12 +2090,10 @@ export const shuffleLineup = mutation({
 export const setLineupOrder = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     orderedIds: v.array(v.id("submissions")),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const submissions = await ctx.db
       .query("submissions")
@@ -2188,7 +2121,7 @@ export const setLineupOrder = mutation({
     }
 
     await clearAdvanceSnapshot(ctx, event, now);
-    await logAction(ctx, event._id, "lineup_ai_ordered", "admin");
+    await logAction(ctx, event._id, "lineup_ai_ordered", actor);
     await queueJudgingSheetSync(ctx, event);
   },
 });
@@ -2197,12 +2130,10 @@ export const setLineupOrder = mutation({
 export const moveToPool = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     submissionId: v.id("submissions"),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     const submission = await ctx.db.get(args.submissionId);
 
     if (!submission || submission.eventId !== event._id) {
@@ -2216,7 +2147,7 @@ export const moveToPool = mutation({
       updatedAt: now,
     });
     await clearAdvanceSnapshot(ctx, event, now);
-    await logAction(ctx, event._id, "submission_to_pool", "admin", args.submissionId);
+    await logAction(ctx, event._id, "submission_to_pool", actor, args.submissionId);
     await queueJudgingSheetSync(ctx, event);
   },
 });
@@ -2224,12 +2155,10 @@ export const moveToPool = mutation({
 export const setLineupTarget = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
     target: v.number(),
   },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event } = await requireEventOrganization(ctx, args.slug);
 
     const clamped = Math.max(0, Math.min(99, Math.round(args.target)));
     await ctx.db.patch(event._id, { lineupTarget: clamped, updatedAt: Date.now() });
@@ -2239,11 +2168,9 @@ export const setLineupTarget = mutation({
 export const markNoShow = mutation({
   args: {
     slug: v.string(),
-    adminToken: v.string(),
-  },
+    },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     if (!event.queuePublished) {
       return;
     }
@@ -2265,7 +2192,7 @@ export const markNoShow = mutation({
       updatedAt: now,
     });
     await clearAdvanceSnapshot(ctx, event, now);
-    await logAction(ctx, event._id, "submission_no_show", "admin", current._id);
+    await logAction(ctx, event._id, "submission_no_show", actor, current._id);
     await queueJudgingSheetSync(ctx, event);
   },
 });
@@ -2274,10 +2201,9 @@ export const markNoShow = mutation({
 // done, so the next person becomes position 0. Order is positional, so nothing
 // else needs to move.
 export const pickNext = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     if (!event.queuePublished) {
       return;
     }
@@ -2320,16 +2246,15 @@ export const pickNext = mutation({
       updatedAt: now,
     });
 
-    await logAction(ctx, event._id, "pick_next", "admin");
+    await logAction(ctx, event._id, "pick_next", actor);
     await queueJudgingSheetSync(ctx, event);
   },
 });
 
 export const restorePreviousPresenter = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     const snapshot = event.lastAdvanceSnapshot;
     if (!snapshot) {
       return;
@@ -2363,16 +2288,15 @@ export const restorePreviousPresenter = mutation({
       updatedAt: now,
     });
 
-    await logAction(ctx, event._id, "previous_presenter_restored", "admin", snapshot.currentSubmissionId);
+    await logAction(ctx, event._id, "previous_presenter_restored", actor, snapshot.currentSubmissionId);
     await queueJudgingSheetSync(ctx, event);
   },
 });
 
 export const skipCurrent = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
     if (!event.queuePublished) {
       return;
     }
@@ -2400,16 +2324,15 @@ export const skipCurrent = mutation({
     });
     await clearAdvanceSnapshot(ctx, event, now);
 
-    await logAction(ctx, event._id, "current_skipped", "admin", current._id);
+    await logAction(ctx, event._id, "current_skipped", actor, current._id);
     await queueJudgingSheetSync(ctx, event);
   },
 });
 
 export const clearQueue = mutation({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
-    requireAdmin(event, args.adminToken);
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
 
     const submissions = await ctx.db
       .query("submissions")
@@ -2430,7 +2353,7 @@ export const clearQueue = mutation({
       judgingSheetSyncedAt: undefined,
       judgingSheetSyncError: undefined,
     });
-    await logAction(ctx, event._id, "queue_cleared", "admin");
+    await logAction(ctx, event._id, "queue_cleared", actor);
   },
 });
 

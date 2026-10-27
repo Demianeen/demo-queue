@@ -83,6 +83,20 @@ a new deployment was created. Stop if the target cannot be verified as belonging
 to this project. Never substitute development credentials or deployments for
 Preview or Production.
 
+## Development authentication testing
+
+Development WorkOS configuration and OAuth/MCP access testing are authorized.
+This includes granting the development MCP clients access to any development
+organization and testing cross-organization consent, token refresh, and
+revocation. Do not ask again for this same development authorization.
+
+Verify that the WorkOS environment belongs to the canonical development
+deployment `precious-elk-564` before each configuration or access change.
+Save configuration before temporary experiments, restore it afterwards, and
+verify restoration. Keep credentials out of logs and committed artifacts.
+This authorization does not cover production, database resets, or deletion
+of user data. The Convex deployment-safety rules above remain in force.
+
 ## Commit authorship
 
 Never reveal or reference the AI assistant identity in anything committed to
@@ -107,27 +121,26 @@ context.
 
 ```bash
 pnpm queue -- model-context
-pnpm queue -- model-context --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"
 pnpm queue -- snapshot
-pnpm queue:prod -- model-context --admin-url "https://.../admin/<slug>/<token>"
-pnpm queue:prod -- snapshot --admin-url "https://.../admin/<slug>/<token>"
+pnpm queue:prod -- model-context --admin-url "https://demo-queue-tau.vercel.app/events/<slug>/admin"
+pnpm queue:prod -- snapshot --event-slug "<slug>"
 pnpm queue:prod -- snapshot --show-admin-url
 ```
 
 If no admin URL is available, the helper falls back to Convex table reads and
 chooses the latest real user-facing event. Normal output intentionally omits
-phone numbers, emails, participant tokens, and admin tokens. Pass
+phone numbers, emails, and participant tokens. Pass
 `--show-admin-url` only when the user explicitly asks for the admin URL. The
 helper prints a full URL using `--site-url`, `DEMO_QUEUE_SITE_URL`, Vercel URL
 env vars, localhost for non-production, or the stable production default
 `https://demo-queue-tau.vercel.app`.
 
-A full `https://.../admin/<slug>/<token>` admin URL is the authoritative
-production path. For `model-context` and `snapshot`, the helper infers the
-public Convex deployment URL only from the deployed app named by that URL and
-queries Convex directly, so do not copy `.env.local` first when a full admin URL
-is already available. In this mode, local env cannot override the pasted
-production admin URL.
+Event administration uses `/events/<slug>/admin` and requires WorkOS sign-in
+with the event's organization. Admin URLs do not grant access or select a
+deployment. The read-only helper uses the existing authenticated Convex CLI;
+select production explicitly with `pnpm queue:prod`. It rejects legacy
+capability URLs and tokens. Never recreate legacy admin authorization or use
+browser-saved capability tokens as a fallback.
 When reporting helper results with IDs, paste the helper rows exactly or omit
 IDs if they are not needed. Do not manually retype submission IDs from memory.
 

@@ -45,8 +45,8 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
     setIsCreating(true); setError("");
     try {
       const slug = slugify(name);
-      const result = await createEvent({ name, slug, eventType, visualStyle, styleId: selectedStyle?._id, meetUrl, expectedOrganizationId: organizationId });
-      window.location.assign(adminPath(slug, result.adminToken));
+      await createEvent({ name, slug, eventType, visualStyle, styleId: selectedStyle?._id, meetUrl, expectedOrganizationId: organizationId });
+      window.location.assign(adminPath(slug));
     } catch (error) {
       setError(error instanceof ConvexError && typeof error.data === "string" ? error.data : "Could not create the event. Please try again.");
       setIsCreating(false);

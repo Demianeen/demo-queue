@@ -14,16 +14,6 @@ export async function eventTitle(slug: string) {
   }
 }
 
-export async function adminEventTitle(slug: string, adminToken: string) {
-  try {
-    const event = await client.query(api.events.getAdminEventMeta, { slug, adminToken });
-    return event.name;
-  } catch (error) {
-    if (isNotFound(error) || isUnauthorized(error)) return null;
-    throw error;
-  }
-}
-
 export async function participantTitle(slug: string, participantToken: string) {
   try {
     const participant = await client.query(api.events.getParticipantMeta, { slug, participantToken });
@@ -39,10 +29,6 @@ export async function participantTitle(slug: string, participantToken: string) {
 
 function isNotFound(error: unknown) {
   return errorMessage(error).includes("Event not found");
-}
-
-function isUnauthorized(error: unknown) {
-  return errorMessage(error).includes("Unauthorized");
 }
 
 function isSubmissionNotFound(error: unknown) {

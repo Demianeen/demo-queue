@@ -7,10 +7,37 @@ const modules = {
   "./_generated/api.js": () => import("./_generated/api.js"),
   "./_generated/server.js": () => import("./_generated/server.js"),
   "./events.ts": () => import("./events"),
+  "./judging.ts": () => import("./judging"),
+  "./ai.ts": () => import("./ai"),
+  "./googleSheets.ts": () => import("./googleSheets"),
 };
 const input = { expectedOrganizationId: "org_outpost", name: "Demo night", slug: "demo-night", eventType: "demo" as const, meetUrl: "https://meet.google.com/example" };
 const page = { paginationOpts: { numItems: 2, cursor: null } };
 const identity = (org: string) => ({ subject: "user_operator", issuer: "https://api.workos.com/user_management/client_test", org_id: org });
+
+test("every admin boundary rejects anonymous and foreign callers, including action delegates", async () => {
+  const t = convexTest(schema, modules);
+  const owner = t.withIdentity(identity("org_outpost"));
+  const { eventId } = await owner.mutation(api.events.createEvent, { ...input, eventType: "hackathon" });
+  await t.run((ctx) => ctx.db.patch(eventId, { adminToken: "leaked-historical-token", roundOneJudges: ["Alex"] }));
+  for (const [caller, reason] of [[t, "Sign in"], [t.withIdentity(identity("org_foreign")), "Unauthorized"]] as const) {
+    await expect(caller.query(api.events.getAdmin, { slug: input.slug })).rejects.toThrow(reason);
+    await expect(caller.mutation(api.events.updateEvent, { slug: input.slug, name: "Changed", meetUrl: input.meetUrl })).rejects.toThrow(reason);
+    await expect(caller.query(api.judging.getAdminProgress, { slug: input.slug })).rejects.toThrow(reason);
+    await expect(caller.mutation(api.judging.closeSubmissions, { slug: input.slug })).rejects.toThrow(reason);
+    await expect(caller.action(api.ai.aiShuffle, { slug: input.slug, prompt: "Choose demos" })).rejects.toThrow(reason);
+    await expect(caller.action(api.googleSheets.createJudgingSheet, { slug: input.slug })).rejects.toThrow(reason);
+    const leaked = { slug: input.slug, adminToken: "leaked-historical-token" };
+    await expect(caller.query(api.events.getAdmin, leaked)).rejects.toThrow();
+    await expect(caller.query(api.judging.getAdminProgress, leaked)).rejects.toThrow();
+  }
+  await owner.mutation(api.judging.createJudgeAccess, { slug: input.slug, judgeName: "Alex", capabilityToken: "judge-only-token" });
+  expect(await t.query(api.judging.getMyAssignments, { slug: input.slug, capabilityToken: "judge-only-token" })).toMatchObject({ eventName: input.name, judgeName: "Alex", judgingStatus: "setup", assignments: [] });
+  expect(await owner.action(api.ai.aiShuffle, { slug: input.slug, prompt: "Choose demos" })).toEqual({ count: 0 });
+  expect((await t.query(api.events.getStage, { slug: input.slug })).event.name).toBe(input.name);
+  expect(await owner.query(api.events.getAdminEventMeta, { slug: input.slug })).toEqual({ name: input.name, slug: input.slug, eventType: "hackathon" });
+  expect(await t.run((ctx) => ctx.db.get(eventId))).toMatchObject({ name: input.name, adminToken: "leaked-historical-token" });
+});
 
 test("anonymous and organization-less users cannot create or list events", async () => {
   const t = convexTest(schema, modules);
@@ -21,15 +48,17 @@ test("anonymous and organization-less users cannot create or list events", async
   await expect(user.query(api.events.listOrganizationEvents, page)).rejects.toThrow("Choose an organization");
 });
 
-test("creation derives ownership and generates a capability; public projections stay private", async () => {
+test("creation derives ownership and never creates or returns an admin capability", async () => {
   const t = convexTest(schema, modules);
   const user = t.withIdentity(identity("org_outpost"));
   const created = await user.mutation(api.events.createEvent, input);
-  expect(created.adminToken).toMatch(/^[0-9a-f]{64}$/);
+  expect(created).not.toHaveProperty("adminToken");
   const document = await t.run((ctx) => ctx.db.get(created.eventId));
-  expect(document).toMatchObject({ workosOrganizationId: "org_outpost", adminToken: created.adminToken });
-  await expect(t.query(api.events.getAdminEventMeta, { slug: input.slug, adminToken: created.adminToken })).resolves.toMatchObject({ name: input.name });
-  await expect(t.query(api.events.getAdminEventMeta, { slug: input.slug, adminToken: "wrong" })).rejects.toThrow("Unauthorized");
+  expect(document).toMatchObject({ workosOrganizationId: "org_outpost" });
+  expect(document).not.toHaveProperty("adminToken");
+  await expect(user.query(api.events.getAdminEventMeta, { slug: input.slug })).resolves.toEqual({ name: input.name, slug: input.slug, eventType: "demo" });
+  await expect(t.query(api.events.getAdminEventMeta, { slug: input.slug })).rejects.toThrow("Sign in");
+  await expect(t.withIdentity(identity("org_foreign")).query(api.events.getAdminEventMeta, { slug: input.slug })).rejects.toThrow("Unauthorized");
   const publicEvent = await t.query(api.events.getEventMeta, { slug: input.slug });
   expect(publicEvent).not.toHaveProperty("adminToken");
   expect(publicEvent).not.toHaveProperty("workosOrganizationId");
@@ -54,7 +83,7 @@ test("organization listing is paginated and excludes other organizations and leg
   expect([...first.page, ...next.page].every((event) => event.organizationId === "org_outpost" && event.slug.startsWith("outpost-"))).toBe(true);
   const other = await testOrg.query(api.events.listOrganizationEvents, page);
   expect(other.page.map((event) => event.slug)).toEqual(["test-event"]);
-  await expect(t.query(api.events.getAdminEventMeta, { slug: "legacy", adminToken: "old-capability" })).resolves.toMatchObject({ slug: "legacy" });
+  await expect(outpost.query(api.events.getAdminEventMeta, { slug: "legacy" })).rejects.toThrow("Unauthorized");
 });
 
 test("clients cannot choose organization ownership or admin capability", async () => {
@@ -64,18 +93,18 @@ test("clients cannot choose organization ownership or admin capability", async (
   await expect(t.query(api.events.listOrganizationEvents, { ...page, organizationId: "org_test" } as typeof page)).rejects.toThrow();
 });
 
-test("legacy events retain their capability and absent ownership fields after reads and updates", async () => {
+test("legacy capabilities cannot read or update unowned events while public pages keep working", async () => {
   const t = convexTest(schema, modules);
   const legacy = { name: "Legacy event", slug: "legacy-preserved", adminToken: "existing-capability", meetUrl: "https://meet.google.com/legacy", queuePublished: false, createdAt: 1, updatedAt: 1 };
   const eventId = await t.run((ctx) => ctx.db.insert("events", legacy));
   expect(await t.query(api.events.getEventMeta, { slug: legacy.slug })).toEqual({ name: legacy.name, slug: legacy.slug, eventType: "demo" });
   expect((await t.query(api.events.getStage, { slug: legacy.slug })).event.name).toBe(legacy.name);
-  await t.mutation(api.events.updateEvent, { slug: legacy.slug, adminToken: legacy.adminToken, name: "Renamed legacy event", meetUrl: legacy.meetUrl });
+  await expect(t.withIdentity(identity("org_outpost")).mutation(api.events.updateEvent, { slug: legacy.slug, name: "Renamed legacy event", meetUrl: legacy.meetUrl })).rejects.toThrow("Unauthorized");
+  await expect(t.query(api.events.getAdmin, { slug: legacy.slug, adminToken: legacy.adminToken } as { slug: string })).rejects.toThrow();
   const stored = await t.run((ctx) => ctx.db.get(eventId));
-  expect(stored).toMatchObject({ ...legacy, name: "Renamed legacy event", _id: eventId, updatedAt: expect.any(Number) });
-  expect(stored?.updatedAt).toBeGreaterThan(legacy.updatedAt);
+  expect(stored).toMatchObject({ ...legacy, _id: eventId });
   for (const field of ["eventType", "visualStyle", "theme", "workosOrganizationId"]) expect(stored).not.toHaveProperty(field);
-  expect(await t.query(api.events.getAdminEventMeta, { slug: legacy.slug, adminToken: legacy.adminToken })).toMatchObject({ name: "Renamed legacy event" });
+  await expect(t.query(api.events.getAdminEventMeta, { slug: legacy.slug })).rejects.toThrow("Sign in");
 });
 
 test("invalid creation inputs and duplicate slugs leave no partial events", async () => {

@@ -24,7 +24,7 @@ export function WorkspaceEventDetails({ slug, organizationId, initial }: { slug:
   const event = live === undefined ? initial : live;
   if (workspaceOrganizationId !== organizationId) return <section className="workspace-heading"><title>Workspace changed | Demo Queue</title><h1>Your workspace changed</h1><p>Reload to continue with your current organization.</p><a href="/events">Reload events</a></section>;
   if (!event || event.organizationId !== organizationId || event.slug !== slug) return <section className="workspace-heading"><title>Event unavailable | Demo Queue</title><h1>Event unavailable</h1><p>This event may have been removed or belong to another organization.</p><Link className="workspace-back-link" href="/events"><ArrowLeft aria-hidden />Back to events</Link></section>;
-  const managePath = adminPath(event.slug, event.adminToken);
+  const managePath = adminPath(event.slug);
   const customTheme = event.theme && (Object.keys(DEFAULT_EVENT_THEME) as (keyof typeof DEFAULT_EVENT_THEME)[]).some((key) => event.theme?.[key] !== DEFAULT_EVENT_THEME[key]);
   return <section className="workspace-event-details">
     <title>{`${event.name} | Demo Queue`}</title>
@@ -43,7 +43,7 @@ export function WorkspaceEventDetails({ slug, organizationId, initial }: { slug:
         <div className="workspace-panel-heading"><h2 id="event-links-title">Event links</h2><p>Everything you need to run and share your event.</p></div>
         <EventAccessLink name="Presentation" description="Open on the big screen or share with viewers." path={stagePath(event.slug)} icon={<Monitor />} />
         <EventAccessLink name="Submission form" description="Invite people to submit their demos." path={submissionPath(event.slug)} icon={<ClipboardList />} />
-        <EventAccessLink name="Admin" description="Private. Anyone with this link can manage the event." path={managePath} icon={<Shield />} />
+        <EventAccessLink name="Admin" description="Sign in with this event's organization to manage it." path={managePath} icon={<Shield />} />
       </section>
       {event.eventType === "hackathon" ? <section className="workspace-detail-panel" aria-labelledby="event-results-title">
         <div className="workspace-panel-heading"><h2 id="event-results-title">Winners</h2><p>Confirmed final placements.</p></div>

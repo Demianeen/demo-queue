@@ -10,3 +10,10 @@ export async function requireOrganization(ctx: Pick<QueryCtx, "auth">) {
   }
   return { organizationId, actor: identity.tokenIdentifier };
 }
+
+export async function requireEventOrganization(ctx: Pick<QueryCtx, "auth" | "db">, slug: string) {
+  const { organizationId, actor } = await requireOrganization(ctx);
+  const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+  if (!event || event.workosOrganizationId !== organizationId) throw new ConvexError("Unauthorized");
+  return { event, actor };
+}

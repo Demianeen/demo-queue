@@ -13,8 +13,8 @@ export function stagePath(slug: string) {
   return `/stage/${slug}`;
 }
 
-export function adminPath(slug: string, token: string) {
-  return `/admin/${slug}/${token}`;
+export function adminPath(slug: string) {
+  return `/events/${encodeURIComponent(slug)}/admin`;
 }
 
 export function participantPath(slug: string, token: string) {

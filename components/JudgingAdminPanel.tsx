@@ -174,22 +174,20 @@ function SubmissionScore({ score, rawScore, normalized }: { score: number | null
 
 export function JudgingAdminPanel({
   slug,
-  adminToken,
   judges,
   lineupSubmissionIds,
   onAddToLineup,
   onRemoveFromLineup,
 }: {
   slug: string;
-  adminToken: string;
   judges: string[];
   lineupSubmissionIds: Id<"submissions">[];
   onAddToLineup: (submissionId: Id<"submissions">) => Promise<void>;
   onRemoveFromLineup: (submissionId: Id<"submissions">) => Promise<void>;
 }) {
-  const progress = useQuery(api.judging.getAdminProgress, { slug, adminToken });
-  const access = useQuery(api.judging.listJudgeAccess, { slug, adminToken });
-  const timer = useQuery(api.judging.getJudgingTimer, { slug, adminToken });
+  const progress = useQuery(api.judging.getAdminProgress, { slug });
+  const access = useQuery(api.judging.listJudgeAccess, { slug });
+  const timer = useQuery(api.judging.getJudgingTimer, { slug });
   const createAccess = useMutation(api.judging.createJudgeAccess);
   const closeSubmissions = useMutation(api.judging.closeSubmissions);
   const startPreparation = useMutation(api.judging.startAssignmentPreparation);
@@ -200,8 +198,8 @@ export function JudgingAdminPanel({
   const closeJudging = useMutation(api.judging.closeJudging);
   const reopenJudging = useMutation(api.judging.reopenJudging);
   const applyRedistribution = useMutation(api.judging.applyRedistribution);
-  const normalization = useQuery(api.judging.getNormalizationOverview, { slug, adminToken });
-  const decision = useQuery(api.judging.getFinalistDecision, SHOW_FINALIST_TOOLS ? { slug, adminToken } : "skip");
+  const normalization = useQuery(api.judging.getNormalizationOverview, { slug });
+  const decision = useQuery(api.judging.getFinalistDecision, SHOW_FINALIST_TOOLS ? { slug } : "skip");
   const saveNormalization = useMutation(api.judging.saveNormalizationDecision);
   const saveFinalistDraft = useMutation(api.judging.saveFinalistDraft);
   const submitFinalists = useMutation(api.judging.submitFinalists);
@@ -216,7 +214,7 @@ export function JudgingAdminPanel({
   const [now, setNow] = useState(() => Date.now());
   const redistribution = useQuery(
     api.judging.previewRedistribution,
-    unavailableJudge ? { slug, adminToken, unavailableJudgeKey: unavailableJudge } : "skip",
+    unavailableJudge ? { slug, unavailableJudgeKey: unavailableJudge } : "skip",
   );
   useEffect(() => {
     if (timer?.remainingMs === undefined) return;
@@ -286,13 +284,13 @@ export function JudgingAdminPanel({
   }
   async function prepare() {
     await run("Submissions assigned. You can now open judging.", async () => {
-      await startPreparation({ slug, adminToken });
+      await startPreparation({ slug });
       let done = false;
-      while (!done) { const result = await prepareBatch({ slug, adminToken }); done = result.done; }
+      while (!done) { const result = await prepareBatch({ slug }); done = result.done; }
     });
   }
   async function makeLink(judgeName: string) {
-    await run(`Private link ready for ${judgeName}.`, () => createAccess({ slug, adminToken, judgeName, capabilityToken: randomToken(32) }));
+    await run(`Private link ready for ${judgeName}.`, () => createAccess({ slug, judgeName, capabilityToken: randomToken(32) }));
   }
   async function copyLink(judgeKey: string, token: string) {
     await navigator.clipboard.writeText(absoluteUrl(`/judge/${slug}/${token}`));
@@ -303,15 +301,15 @@ export function JudgingAdminPanel({
     <section className={`panel ${styles.panel}`} aria-labelledby="judging-admin-title">
       <div className={styles.heading}><div><h2 id="judging-admin-title">Hackathon judging</h2><p>Private judge links, progress, and results.</p></div><span className={styles.status}>{progress?.eventStatus ?? "Loading…"}</span></div>
       <div className={styles.actions}>
-        <Button variant="outline" disabled={busy || Boolean(progress?.submissionsClosedAt)} onClick={() => void run("Submissions closed.", () => closeSubmissions({ slug, adminToken }))}>{progress?.submissionsClosedAt ? "Submissions closed" : "Close submissions"}</Button>
+        <Button variant="outline" disabled={busy || Boolean(progress?.submissionsClosedAt)} onClick={() => void run("Submissions closed.", () => closeSubmissions({ slug }))}>{progress?.submissionsClosedAt ? "Submissions closed" : "Close submissions"}</Button>
         {progress?.eventStatus === "setup" || progress?.eventStatus === "preparing_assignments" ? <Button variant="outline" disabled={busy || !progress?.submissionsClosedAt || progress?.eventStatus !== "setup"} onClick={() => void prepare()}>{busy ? "Assigning..." : "Assign submissions"}</Button> : null}
-        {progress?.eventStatus === "ready" ? <Button disabled={busy} onClick={() => void run("Judging opened.", () => startJudging({ slug, adminToken }))}>Open judging</Button> : null}
-        {progress?.eventStatus === "open" ? <Button variant="outline" disabled={busy} onClick={() => void run("Judging closed.", () => closeJudging({ slug, adminToken }))}>Close judging</Button> : null}
-        {progress?.eventStatus === "closed" ? <Button variant="outline" disabled={busy} onClick={() => void run("Judging reopened.", () => reopenJudging({ slug, adminToken }))}>Reopen judging</Button> : null}
+        {progress?.eventStatus === "ready" ? <Button disabled={busy} onClick={() => void run("Judging opened.", () => startJudging({ slug }))}>Open judging</Button> : null}
+        {progress?.eventStatus === "open" ? <Button variant="outline" disabled={busy} onClick={() => void run("Judging closed.", () => closeJudging({ slug }))}>Close judging</Button> : null}
+        {progress?.eventStatus === "closed" ? <Button variant="outline" disabled={busy} onClick={() => void run("Judging reopened.", () => reopenJudging({ slug }))}>Reopen judging</Button> : null}
       </div>
       <div className={styles.grid}>
         <div className={styles.card}><h3>Judge links</h3><p className={styles.help}>Create one private link per roster judge.</p>{judges.map((judge) => { const item = links.get(judgeKey(judge)); return <div className={styles.row} key={judge}><span>{judge}</span>{item ? <Button size="sm" variant="outline" onClick={() => void copyLink(item.judgeKey, item.token)}>Copy link</Button> : <Button size="sm" variant="outline" disabled={busy} onClick={() => void makeLink(judge)}>Create link</Button>}</div>; })}</div>
-        <div className={styles.card}><h3>Timer</h3><div className={remaining < 0 ? `${styles.timer} ${styles.overtime}` : styles.timer}>{formatTimer(remaining)}</div><div className={styles.timerActions}><input aria-label="Judging minutes" inputMode="numeric" value={minutes} onChange={(event) => setMinutes(event.target.value.replace(/\D/g, "").slice(0, 3))} /><Button size="sm" variant="outline" disabled={busy} onClick={() => void run("Timer saved.", () => setTimer({ slug, adminToken, durationMs: Math.max(1, Number(minutes)) * 60_000 }))}>Set minutes</Button><Button size="sm" variant="outline" disabled={busy || progress?.eventStatus !== "open"} onClick={() => void run("Added 5 minutes.", () => addTime({ slug, adminToken, deltaMs: 5 * 60_000 }))}>+5 min</Button></div></div>
+        <div className={styles.card}><h3>Timer</h3><div className={remaining < 0 ? `${styles.timer} ${styles.overtime}` : styles.timer}>{formatTimer(remaining)}</div><div className={styles.timerActions}><input aria-label="Judging minutes" inputMode="numeric" value={minutes} onChange={(event) => setMinutes(event.target.value.replace(/\D/g, "").slice(0, 3))} /><Button size="sm" variant="outline" disabled={busy} onClick={() => void run("Timer saved.", () => setTimer({ slug, durationMs: Math.max(1, Number(minutes)) * 60_000 }))}>Set minutes</Button><Button size="sm" variant="outline" disabled={busy || progress?.eventStatus !== "open"} onClick={() => void run("Added 5 minutes.", () => addTime({ slug, deltaMs: 5 * 60_000 }))}>+5 min</Button></div></div>
       </div>
       <div className={styles.card}>
         <h3>Judging progress</h3>
@@ -350,7 +348,6 @@ export function JudgingAdminPanel({
                                   : `${judgeName} now uses normalized scores.`,
                                 () => saveNormalization({
                                   slug,
-                                  adminToken,
                                   judgeKey: judgeKey(judgeName),
                                   decision: normalized?.effectiveDecision === "apply" ? "raw" : "apply",
                                 }),
@@ -418,7 +415,6 @@ export function JudgingAdminPanel({
             onClick={() => void run("Assignments redistributed.", async () => {
               await applyRedistribution({
                 slug,
-                adminToken,
                 unavailableJudgeKey: unavailableJudge,
                 assignments: (redistribution ?? []).map((item) => ({
                   submissionId: item.submissionId,
@@ -478,8 +474,7 @@ export function JudgingAdminPanel({
       {SHOW_FINALIST_TOOLS ? (
         <DecisionSection
           slug={slug}
-          adminToken={adminToken}
-          decision={decision}
+                    decision={decision}
           saveFinalistDraft={saveFinalistDraft}
           submitFinalists={submitFinalists}
           savePlacementDraft={savePlacementDraft}
@@ -508,7 +503,7 @@ function DecisionDropZone({ id, children }: { id: string; children: ReactNode })
   return <div ref={droppable.setNodeRef}>{children}</div>;
 }
 
-function DecisionSection({ slug, adminToken, decision, saveFinalistDraft, submitFinalists, savePlacementDraft, submitPlacements }: { slug: string; adminToken: string; decision: any; saveFinalistDraft: (args: any) => Promise<unknown>; submitFinalists: (args: any) => Promise<unknown>; savePlacementDraft: (args: any) => Promise<unknown>; submitPlacements: (args: any) => Promise<unknown> }) {
+function DecisionSection({ slug, decision, saveFinalistDraft, submitFinalists, savePlacementDraft, submitPlacements }: { slug: string; decision: any; saveFinalistDraft: (args: any) => Promise<unknown>; submitFinalists: (args: any) => Promise<unknown>; savePlacementDraft: (args: any) => Promise<unknown>; submitPlacements: (args: any) => Promise<unknown> }) {
   const [finalists, setFinalists] = useState<Id<"submissions">[]>([]);
   const [placements, setPlacements] = useState<Id<"submissions">[]>([]);
   const [mode, setMode] = useState<"finalists" | "placements">("finalists");
@@ -541,10 +536,10 @@ function DecisionSection({ slug, adminToken, decision, saveFinalistDraft, submit
   function setActive(next: Id<"submissions">[]) {
     if (mode === "finalists") {
       setFinalists(next);
-      void saveFinalistDraft({ slug, adminToken, finalistIds: next });
+      void saveFinalistDraft({ slug, finalistIds: next });
     } else {
       setPlacements(next);
-      void savePlacementDraft({ slug, adminToken, placementIds: next });
+      void savePlacementDraft({ slug, placementIds: next });
     }
   }
 
@@ -626,7 +621,7 @@ function DecisionSection({ slug, adminToken, decision, saveFinalistDraft, submit
       </div>
     </DndContext>
     <div className={styles.actions}>
-      {mode === "finalists" ? <Button onClick={() => void submitFinalists({ slug, adminToken, finalistIds: finalists })}>{decision.finalistVersion > 0 ? "Amend finalists" : "Submit finalists"}</Button> : <Button disabled={placements.length === 0} onClick={() => void submitPlacements({ slug, adminToken, placementIds: placements })}>{decision.placementVersion > 0 ? "Amend placements" : "Submit placements"}</Button>}
+      {mode === "finalists" ? <Button onClick={() => void submitFinalists({ slug, finalistIds: finalists })}>{decision.finalistVersion > 0 ? "Amend finalists" : "Submit finalists"}</Button> : <Button disabled={placements.length === 0} onClick={() => void submitPlacements({ slug, placementIds: placements })}>{decision.placementVersion > 0 ? "Amend placements" : "Submit placements"}</Button>}
     </div>
   </div>;
 }

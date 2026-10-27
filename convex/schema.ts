@@ -17,7 +17,7 @@ export default defineSchema({
     visualStyle: v.optional(visualStyleValidator),
     theme: v.optional(eventThemeValidator),
     meetUrl: v.string(),
-    adminToken: v.string(),
+    adminToken: v.optional(v.string()),
     judgingSheetId: v.optional(v.string()),
     judgingSheetUrl: v.optional(v.string()),
     judgingSheetCreatedAt: v.optional(v.number()),

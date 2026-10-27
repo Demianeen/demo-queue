@@ -54,7 +54,7 @@ test("one default per organization, validated style tokens, legacy events retain
 test("built-in defaults share the custom default slot and new events retain the selected preset", async () => {
   const t = convexTest(schema, modules).withIdentity(identity("org_one"));
   const customId = await t.mutation(api.organizationStyles.save, styleInput);
-  for (const preset of ["codex", "outpost", "neutral"] as const) {
+  for (const preset of ["codex", "outpost", "astra", "devday", "neutral"] as const) {
     const id = await t.mutation(api.organizationStyles.setPresetDefault, { expectedOrganizationId: "org_one", preset });
     const state = await t.query(api.organizationStyles.list);
     expect(state.styles.filter((style) => style.isDefault).map((style) => style._id)).toEqual([id]);

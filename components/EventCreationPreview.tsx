@@ -1,14 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import Image from "next/image";
-import { api } from "../convex/_generated/api";
-import { absoluteUrl, adminPath, stagePath, submissionPath } from "@/lib/routes";
-import { randomToken, slugify } from "@/lib/tokens";
+import { absoluteUrl, submissionPath } from "@/lib/routes";
 import { Brand } from "@/app/Brand";
 import { DevDayBrand } from "@/components/DevDayBrand";
 import { DevDayCharacter } from "@/components/DevDayCharacter";
-import type { FunctionArgs } from "convex/server";
 import { AstraBrand } from "@/components/AstraBrand";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { StagePresentationPreview } from "@/components/StagePresentationPreview";
@@ -16,88 +13,35 @@ import { buildStagePreviewFixture } from "@/lib/stage-preview-fixture";
 import {
   VISUAL_STYLES,
   VISUAL_STYLE_LABELS,
-  normalizeVisualStyle,
   type VisualStyle,
 } from "@/lib/visual-style";
 
-type SavedEvent = {
+type PreviewEventInput = Pick<Parameters<typeof buildStagePreviewFixture>[0], "eventType" | "visualStyle" | "meetUrl"> & {
   name: string;
-  slug: string;
-  adminToken: string;
-  eventType?: "demo" | "hackathon";
-  visualStyle?: VisualStyle;
-  createdAt: number;
 };
 
-const STORAGE_KEY = "demo-queue:events";
-
-function loadSavedEvents(): SavedEvent[] {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as SavedEvent[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-export function EventCreator({ createEvent, initialStyle = "codex", preview = false }: {
-  createEvent: (args: FunctionArgs<typeof api.events.createEvent>) => Promise<unknown>;
+export function EventCreationPreview({ onCreate, initialStyle = "codex" }: {
+  onCreate: (args: PreviewEventInput) => Promise<unknown>;
   initialStyle?: VisualStyle;
-  preview?: boolean;
 }) {
   const [name, setName] = useState("");
   const [eventType, setEventType] = useState<"demo" | "hackathon">("demo");
   const [visualStyle, setVisualStyle] = useState<VisualStyle>(initialStyle);
   const [meetUrl, setMeetUrl] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [savedEvents, setSavedEvents] = useState<SavedEvent[]>([]);
   const previewStage = useMemo(
     () => buildStagePreviewFixture({ eventName: name, eventType, visualStyle, meetUrl }),
     [eventType, meetUrl, name, visualStyle],
   );
 
-  // Read localStorage only after mount so server and client HTML match.
-  useEffect(() => {
-    if (!preview) setSavedEvents(loadSavedEvents());
-  }, [preview]);
-
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsCreating(true);
-    const slug = slugify(name);
-    const adminToken = randomToken(32);
-
     try {
-      await createEvent({ name, slug, eventType, visualStyle, meetUrl, adminToken });
-      if (preview) return;
-      // Only persist after the mutation succeeds, so a failed create (e.g.
-      // duplicate slug) never leaves a phantom event in localStorage.
-      const entry: SavedEvent = {
-        name,
-        slug,
-        adminToken,
-        eventType,
-        visualStyle,
-        createdAt: Date.now(),
-      };
-      setSavedEvents((prev) => {
-        const next = [entry, ...prev.filter((e) => e.slug !== slug)].slice(0, 10);
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        return next;
-      });
+      await onCreate({ name, eventType, visualStyle, meetUrl });
     } finally {
       setIsCreating(false);
     }
-  }
-
-  function forgetEvent(slug: string) {
-    setSavedEvents((prev) => {
-      const next = prev.filter((e) => e.slug !== slug);
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
   }
 
   return (
@@ -119,8 +63,8 @@ export function EventCreator({ createEvent, initialStyle = "codex", preview = fa
             <DevDayCharacter variant="orange" className="devday-creator-dot" />
           </div> : <h1>Run a fair demo queue without exposing private details.</h1>}
           <p className="lead">
-            Create an event, share the QR code in the presentation view, and control the live queue
-            from a private admin link.
+            Preview the event branding, submission form, and presentation view.
+            This sample does not create or save an event.
           </p>
         </header>
 
@@ -213,67 +157,7 @@ export function EventCreator({ createEvent, initialStyle = "codex", preview = fa
           </aside>
         </form>
 
-        {savedEvents.length > 0 ? (
-          <div className="link-stack">
-            <h2>Your events</h2>
-            <p className="muted saved-events-note">
-              Saved on this device only. Keep these links private; the admin link controls the event.
-            </p>
-            {savedEvents.map((event) => (
-              <div key={event.slug} className="event-item">
-                <div className="event-item-head">
-                  <span className="event-item-title">
-                    {event.name}
-                    <span className="pill">{event.eventType === "hackathon" ? "Hackathon" : "Demo"}</span>
-                    <span className="pill">
-                      {VISUAL_STYLE_LABELS[normalizeVisualStyle(event.visualStyle)]}
-                    </span>
-                  </span>
-                  <button
-                    className="button ghost event-remove"
-                    type="button"
-                    onClick={() => forgetEvent(event.slug)}
-                    aria-label={`Remove saved link for ${event.name}`}
-                  >
-                    Remove
-                  </button>
-                </div>
-                <EventLink label="Admin" href={absoluteUrl(adminPath(event.slug, event.adminToken))} />
-                <EventLink label="Presentation view" href={absoluteUrl(stagePath(event.slug))} />
-                <EventLink label="Submission form" href={absoluteUrl(submissionPath(event.slug))} />
-              </div>
-            ))}
-          </div>
-        ) : null}
       </section>
     </main>
-  );
-}
-
-function EventLink({ label, href }: { label: string; href: string }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(href);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard unavailable - the link is still openable
-    }
-  }
-
-  return (
-    <div className="event-link">
-      <div className="event-link-text">
-        <span className="event-link-label">{label}</span>
-        <a className="event-link-url" href={href} target="_blank" rel="noreferrer">
-          {href}
-        </a>
-      </div>
-      <button type="button" className="event-copy" onClick={copy}>
-        {copied ? "Copied" : "Copy"}
-      </button>
-    </div>
   );
 }

@@ -3,7 +3,7 @@
 import { ReactNode, useCallback, useState, type ComponentProps } from "react";
 import { AuthKitProvider, useAccessToken, useAuth } from "@workos-inc/authkit-nextjs/components";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
-import { env } from "../env";
+import { getEnv } from "../env";
 
 function useWorkOSAuth() {
   const { user, loading } = useAuth();
@@ -26,8 +26,9 @@ let browserClient: ConvexReactClient | undefined;
 function workspaceClient() {
   // Browser ownership lasts for this document. Full org switches reset it.
   // Never share authenticated client instances across server requests.
-  if (typeof window === "undefined") return new ConvexReactClient(env.NEXT_PUBLIC_CONVEX_URL);
-  return browserClient ??= new ConvexReactClient(env.NEXT_PUBLIC_CONVEX_URL);
+  const url = getEnv().NEXT_PUBLIC_CONVEX_URL;
+  if (typeof window === "undefined") return new ConvexReactClient(url);
+  return browserClient ??= new ConvexReactClient(url);
 }
 
 function AuthenticatedConvex({ children }: { children: ReactNode }) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { EventCreator } from "@/components/EventCreator";
+import { EventCreationPreview } from "@/components/EventCreationPreview";
 import { SubmissionPage, type SubmissionPageProps } from "@/app/e/[slug]/ClientPage";
 import { ParticipantPage } from "@/app/s/[slug]/[token]/ClientPage";
 import { EventTypeSelect, type EventType } from "@/components/EventTypeSelect";
@@ -185,10 +185,9 @@ export function DevDayPreview() {
       ) : null}
       {view === "stage" || view === "qr" ? <StagePresentation stage={stage} submissionUrl={previewUrl} /> : null}
       {view === "create" ? (
-        <EventCreator
+        <EventCreationPreview
           initialStyle="devday"
-          preview
-          createEvent={async (args) => {
+          onCreate={async (args) => {
             setEventName(args.name);
             setEventType(args.eventType ?? "demo");
             setVisualStyle(args.visualStyle ?? "devday");

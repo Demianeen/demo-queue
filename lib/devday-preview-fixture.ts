@@ -21,6 +21,7 @@ export function buildDevDayParticipantFixture(eventType: "demo" | "hackathon"): 
       slug: "preview",
       eventType,
       visualStyle: "devday",
+      theme: stage.event.theme,
       submissionsClosed: false,
     },
     submission: {

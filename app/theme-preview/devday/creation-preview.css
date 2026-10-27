@@ -1,0 +1,324 @@
+:where(.devday-preview) .creator-shell {
+  width: min(1240px, 100%);
+}
+
+:where(.devday-preview) .creator-intro {
+  max-width: 760px;
+}
+
+:where(.devday-preview) .creator-layout {
+  gap: clamp(28px, 4vw, 58px);
+  margin-top: 24px;
+}
+
+:where(.devday-preview) .creator-controls {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+:where(.devday-preview) .creator-preview-column {
+  align-self: start;
+  min-width: 0;
+}
+
+:where(.devday-preview) .creator-preview-heading {
+  display: grid;
+  font-size: 12px;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+:where(.devday-preview) .creator-preview-heading strong {
+  color: var(--app-ink);
+}
+
+:where(.devday-preview) .creator-preview-heading span,
+:where(.devday-preview) .creator-action-note {
+  color: var(--app-muted);
+}
+
+:where(.devday-preview) .creator-controls .actions {
+  align-items: center;
+}
+
+:where(.devday-preview) .creator-action-note {
+  font-size: 12px;
+}
+
+:where(.devday-preview) .creator-outpost-lockup {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+:where(.devday-preview) .creator-outpost-lockup img {
+  background: #0a0b0b;
+  height: 48px;
+  object-fit: contain;
+  object-position: left center;
+  padding: 8px 12px;
+  width: auto;
+}
+
+:where(.devday-preview) .creator-outpost-lockup span {
+  border-left: 1px solid currentColor;
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  padding-left: 16px;
+  text-transform: uppercase;
+}
+
+@media (min-width: 1024px) {
+  :where(.devday-preview) .creator-layout {
+    align-items: start;
+    grid-template-columns: minmax(330px, 0.8fr) minmax(500px, 1.2fr);
+  }
+
+  :where(.devday-preview) .creator-preview-column {
+    position: sticky;
+    top: 24px;
+  }
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] {
+  background-color: #080a0b;
+  background-image: linear-gradient(rgba(3, 4, 4, 0.7), rgba(3, 4, 4, 0.7)), url(/outpost/wide-black.webp);
+  background-position: center;
+  background-size: cover;
+  color: #111212;
+  font-family: var(--font-outpost-body), Inter, ui-sans-serif, sans-serif;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .creator-shell {
+  --app-ink: #111212;
+  --app-muted: #65635f;
+  --app-line: #aaa69f;
+  background: #f4f1e9;
+  border: 0;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] :is(h1, h2, legend) {
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-weight: 400;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] h1 {
+  font-size: clamp(42px, 5vw, 68px);
+  line-height: 0.96;
+  text-transform: uppercase;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] :is(input, select) {
+  background: rgba(248, 246, 240, 0.7);
+  border-color: #aaa69f;
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] :is(input, select):focus {
+  border-color: #111212;
+  box-shadow: 0 0 0 2px rgba(17, 18, 18, 0.12);
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .visual-style-option {
+  background: #f8f5ed;
+  border-color: #aaa69f;
+  border-radius: 4px;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .visual-style-option.is-selected {
+  border-color: #111212;
+  box-shadow: inset 0 0 0 1px #111212;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .visual-style-option:focus-within {
+  box-shadow: 0 0 0 2px rgba(17, 18, 18, 0.14);
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .visual-style-preview {
+  border-radius: 3px;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .creator-controls > .actions .button {
+  background: #111212;
+  border-radius: 4px;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .creator-controls > .actions .button:disabled {
+  background: #c8c3ba;
+  color: #65635f;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .creator-preview-column {
+  background-color: #070808;
+  background-image: linear-gradient(rgba(3, 4, 4, 0.55), rgba(3, 4, 4, 0.55)), url(/outpost/wide-black.webp);
+  background-position: center;
+  background-size: cover;
+  color: #f4f1e9;
+  padding: clamp(18px, 2.6vw, 30px);
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .creator-preview-heading strong,
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .creator-preview-heading span {
+  color: #f4f1e9;
+}
+
+:where(.devday-preview) .creator-page[data-visual-style="outpost"] .creator-preview-heading span {
+  opacity: 0.62;
+}
+:where(.devday-preview) .visual-style-fieldset {
+  border: 0;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+:where(.devday-preview) .visual-style-fieldset legend {
+  color: #304238;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 5px;
+  padding: 0;
+}
+
+:where(.devday-preview) .visual-style-fieldset > p {
+  margin-bottom: 10px;
+}
+
+:where(.devday-preview) .visual-style-options {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+:where(.devday-preview) .visual-style-option {
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  color: var(--app-ink);
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  position: relative;
+  text-align: left;
+}
+
+:where(.devday-preview) .visual-style-option:hover {
+  border-color: rgba(79, 70, 229, 0.48);
+}
+
+:where(.devday-preview) .visual-style-option:focus-within {
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+}
+
+:where(.devday-preview) .visual-style-option.is-selected {
+  border-color: var(--cx-indigo);
+  box-shadow: inset 0 0 0 1px var(--cx-indigo);
+}
+
+:where(.devday-preview) .visual-style-option > input {
+  height: 1px;
+  margin: -1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  width: 1px;
+}
+
+:where(.devday-preview) .visual-style-preview {
+  align-content: space-between;
+  background: var(--cx-gradient);
+  border-radius: 7px;
+  color: white;
+  display: grid;
+  min-height: 78px;
+  overflow: hidden;
+  padding: 10px;
+  position: relative;
+}
+
+:where(.devday-preview) .visual-style-option-outpost .visual-style-preview {
+  background-image: linear-gradient(rgba(4, 5, 5, 0.35), rgba(4, 5, 5, 0.35)), url(/outpost/wide-black.webp);
+  background-position: center;
+  background-size: cover;
+  color: #f5f1e8;
+  font-family: var(--font-outpost-body), Inter, ui-sans-serif, sans-serif;
+}
+
+:where(.devday-preview) .visual-style-option-outpost .visual-style-preview-brand {
+  font-family: var(--font-outpost-display), Impact, sans-serif;
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+
+:where(.devday-preview) .visual-style-preview-brand {
+  font-size: 13px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  position: relative;
+  z-index: 1;
+}
+
+:where(.devday-preview) .visual-style-preview-lines {
+  background: currentColor;
+  height: 2px;
+  opacity: 0.7;
+  width: 42%;
+}
+
+:where(.devday-preview) .visual-style-option-label {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+:where(.devday-preview) .visual-style-check {
+  align-items: center;
+  background: #fff;
+  border: 1px solid rgba(11, 12, 16, 0.22);
+  border-radius: 999px;
+  display: flex;
+  font-size: 10px;
+  font-weight: 900;
+  height: 20px;
+  justify-content: center;
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  width: 20px;
+  z-index: 2;
+}
+@media (max-width: 640px) {
+
+  :where(.devday-preview) .visual-style-options {
+    grid-template-columns: 1fr;
+  }
+
+  :where(.devday-preview) .creator-page > .creator-shell {
+    padding: 24px 18px calc(24px + env(safe-area-inset-bottom));
+  }
+
+  :where(.devday-preview) .creator-outpost-lockup img {
+    height: 42px;
+  }
+
+  :where(.devday-preview) .creator-page[data-visual-style="outpost"] .creator-shell {
+    border-radius: 0;
+  }
+
+  :where(.devday-preview) .creator-page[data-visual-style="outpost"] h1 {
+    font-size: 42px;
+  }
+
+  :where(.devday-preview) .creator-page[data-visual-style="outpost"] .creator-preview-column {
+    margin-inline: -18px;
+    padding: 22px 18px;
+  }
+}

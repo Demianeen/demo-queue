@@ -29,6 +29,7 @@ import { makeSampleHackathonTeam, makeSamplePerson, pickSampleTracks } from "@/l
 import { TrackPicker, TrackPills, type TrackOption } from "@/components/TrackPicker";
 import { TracksAdminPanel } from "@/components/TracksAdminPanel";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
+import { LumaEventSetting } from "@/components/LumaEventSetting";
 import { JudgingAdminPanel } from "@/components/JudgingAdminPanel";
 import { SubmissionPreviewTrigger, type SubmissionPreview } from "@/components/SubmissionPreviewCard";
 import { SubmissionRowActions } from "@/components/SubmissionRowActions";
@@ -1475,6 +1476,7 @@ export default function AdminPage() {
                 presentation view unless you enable it after publishing.
               </span>
             </div>
+            <LumaEventSetting lumaEvent={admin.event.lumaEvent} slug={params.slug} />
             </div>
 
             <div className="admin-section-label">Presentation timer</div>

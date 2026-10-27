@@ -91,6 +91,7 @@ export function buildStagePreviewFixture({
       showStageTimerOnStage: false,
       showDemoTimerOnStage: false,
       tracks: [],
+      lumaLinked: false,
     },
     stageTimer: {
       status: "idle",

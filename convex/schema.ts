@@ -83,6 +83,10 @@ export default defineSchema({
         demoTimerRemainingMs: v.number(),
       }),
     ),
+    // The Luma event whose registrations prefill socials on the submit form.
+    lumaEventId: v.optional(v.string()),
+    lumaEventName: v.optional(v.string()),
+    lumaEventUrl: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"])
@@ -234,4 +238,18 @@ export default defineSchema({
     placementStatus: v.union(v.literal("draft"), v.literal("submitted"), v.literal("needs_review")),
     updatedAt: v.number(),
   }).index("by_event", ["eventId"]),
+
+  // Short-lived cache of Luma social lookups, keyed by a hash of the email.
+  // Each row is deleted when it expires.
+  lumaGuestLookups: defineTable({
+    eventId: v.id("events"),
+    lumaEventId: v.string(),
+    emailHash: v.string(),
+    socials: v.object({
+      twitter: v.optional(v.string()),
+      linkedin: v.optional(v.string()),
+      githubProfile: v.optional(v.string()),
+    }),
+    expiresAt: v.number(),
+  }).index("by_event_and_email", ["eventId", "emailHash"]),
 });

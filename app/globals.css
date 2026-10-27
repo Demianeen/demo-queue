@@ -349,6 +349,50 @@ h3 {
   }
 }
 
+/* The Luma link takes a whole row of the settings grid. */
+.admin-luma-setting {
+  grid-column: 1 / -1;
+  max-width: 774px;
+}
+
+.admin-luma-form,
+.admin-luma-linked {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-luma-form input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.admin-luma-linked a {
+  align-items: center;
+  display: inline-flex;
+  font-weight: 650;
+  gap: 3px;
+}
+
+.admin-luma-linked a svg {
+  height: 12px;
+  width: 12px;
+}
+
+.admin-luma-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Socials filled in from the person's Luma registration. */
+.person-socials-note {
+  color: var(--app-muted);
+  font-size: 12px;
+  grid-column: 1 / -1;
+}
+
 .event-item-title .pill {
   margin-left: 8px;
   vertical-align: middle;

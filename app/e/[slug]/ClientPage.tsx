@@ -82,11 +82,30 @@ function focusFirstInvalidField(form: HTMLFormElement, invalidFieldNames: Set<st
   requestAnimationFrame(() => field.focus());
 }
 
-function SocialFields({ rowId, label, error }: { rowId: number; label: string; error?: string }) {
+const SOCIAL_FIELDS = ["twitter", "linkedin", "githubProfile"] as const;
+
+function SocialFields({ rowId, label, error, prefill }: { rowId: number; label: string; error?: string; prefill?: Socials }) {
   const errorId = `socials-${rowId}-error`;
+  const noteId = `socials-${rowId}-luma`;
   const describedBy = error ? errorId : undefined;
+  const group = useRef<HTMLDivElement>(null);
+  const [filledFromLuma, setFilledFromLuma] = useState(false);
+  // Fill only empty fields, so nothing the person typed is replaced. They stay editable.
+  useEffect(() => {
+    if (!prefill || !group.current) return;
+    let filled = false;
+    for (const field of SOCIAL_FIELDS) {
+      const value = prefill[field];
+      const input = group.current.querySelector<HTMLInputElement>(`input[name="${field}-${rowId}"]`);
+      if (value && input && !input.value.trim()) {
+        input.value = value;
+        filled = true;
+      }
+    }
+    if (filled) setFilledFromLuma(true);
+  }, [prefill, rowId]);
   return (
-    <div className="person-socials" role="group" aria-label={`${label} socials`}>
+    <div className="person-socials" ref={group} role="group" aria-label={`${label} socials`}>
       <input
         aria-describedby={describedBy}
         aria-invalid={Boolean(error) || undefined}
@@ -111,6 +130,9 @@ function SocialFields({ rowId, label, error }: { rowId: number; label: string; e
         name={`githubProfile-${rowId}`}
         placeholder="GitHub username"
       />
+      {filledFromLuma ? (
+        <span className="person-socials-note" id={noteId} role="status">Filled in from your Luma registration. You can change it.</span>
+      ) : null}
       {error ? <span className="form-error person-socials-error" id={errorId}>{error}</span> : null}
     </div>
   );
@@ -178,6 +200,17 @@ export function SubmissionPage({
       return next;
     });
   }, []);
+  // Socials found in the event's Luma registrations, per person row.
+  const [lumaSocials, setLumaSocials] = useState<Record<number, Socials>>({});
+  const lumaHandlers = useRef(new Map<number, (socials: Socials) => void>());
+  const lumaHandler = (rowId: number) => {
+    let handler = lumaHandlers.current.get(rowId);
+    if (!handler) {
+      handler = (socials: Socials) => setLumaSocials((current) => ({ ...current, [rowId]: socials }));
+      lumaHandlers.current.set(rowId, handler);
+    }
+    return handler;
+  };
   const takenHandlers = useRef(new Map<number, (taken: boolean) => void>());
   const takenHandler = (rowId: number) => {
     let handler = takenHandlers.current.get(rowId);
@@ -411,6 +444,8 @@ export function SubmissionPage({
       name={`email-${rowId}`}
       onChange={(value) => setEmails((current) => ({ ...current, [rowId]: value }))}
       onTakenChange={takenHandler(rowId)}
+      lumaLinked={stage?.event.lumaLinked === true}
+      onLumaSocials={lumaHandler(rowId)}
       placeholder="you@example.com"
       slug={slug}
       value={emails[rowId] ?? ""}
@@ -639,7 +674,7 @@ export function SubmissionPage({
               <div className="form-row">
                 <div className="field">
                   <span className="field-label" id="demoer-socials-label">Socials</span>
-                  <SocialFields error={personErrors[DEMOER_ROW]?.socials} label="Your" rowId={DEMOER_ROW} />
+                  <SocialFields error={personErrors[DEMOER_ROW]?.socials} label="Your" prefill={lumaSocials[DEMOER_ROW]} rowId={DEMOER_ROW} />
                   <span className="muted form-help">Add at least one so the event team can connect with you after.</span>
                 </div>
               </div>
@@ -708,7 +743,7 @@ export function SubmissionPage({
                           {errors.whatsappPhone ? <span id={`whatsapp-${rowId}-error`} className="form-error">{errors.whatsappPhone}</span> : null}
                         </div>
                       </div>
-                      <SocialFields error={errors.socials} label={label} rowId={rowId} />
+                      <SocialFields error={errors.socials} label={label} prefill={lumaSocials[rowId]} rowId={rowId} />
                     </div>
                   );
                 })}

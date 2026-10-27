@@ -13,6 +13,8 @@ const app = defineApp({
     GOOGLE_OAUTH_REFRESH_TOKEN: v.optional(v.string()),
     OPENAI_API_KEY: v.optional(v.string()),
     OPENAI_MODEL: v.optional(v.string()),
+    // Read-only Luma API key: links events and prefills socials. Without it, both are off.
+    LUMA_API_KEY: v.optional(v.string()),
     // Submission emails. Without all three, sending is skipped and logged.
     RESEND_API_KEY: v.optional(v.string()),
     RESEND_FROM_EMAIL: v.optional(v.string()),

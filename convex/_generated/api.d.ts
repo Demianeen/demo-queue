@@ -22,6 +22,7 @@ import type * as googleSheets from "../googleSheets.js";
 import type * as http from "../http.js";
 import type * as judging from "../judging.js";
 import type * as judgingSheetSync from "../judgingSheetSync.js";
+import type * as luma from "../luma.js";
 import type * as mcp from "../mcp.js";
 import type * as mcpAdmin from "../mcpAdmin.js";
 import type * as mcpAuth from "../mcpAuth.js";
@@ -59,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   judging: typeof judging;
   judgingSheetSync: typeof judgingSheetSync;
+  luma: typeof luma;
   mcp: typeof mcp;
   mcpAdmin: typeof mcpAdmin;
   mcpAuth: typeof mcpAuth;

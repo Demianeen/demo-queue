@@ -796,6 +796,8 @@ export const getStage = query({
         showStageTimerOnStage: event.showStageTimerOnStage ?? false,
         showDemoTimerOnStage: event.showDemoTimerOnStage ?? false,
         tracks: tracks.map(publicTrack),
+        // Whether the submit form can prefill socials from Luma. Never the Luma id.
+        lumaLinked: Boolean(event.lumaEventId),
       },
       stageTimer: publicStageTimer(event, now),
       demoTimer: publicDemoTimer(event, now),
@@ -884,6 +886,9 @@ export async function getAdminForOrganization(
         demoTimer: publicDemoTimer(event),
         canRestorePrevious: event.lastAdvanceSnapshot !== undefined,
         submissionSurgeAt: event.submissionSurgeAt,
+        lumaEvent: event.lumaEventId
+          ? { id: event.lumaEventId, name: event.lumaEventName ?? event.lumaEventId, url: event.lumaEventUrl ?? null }
+          : null,
       },
       tracks: tracks.map((track) => ({ ...publicTrack(track), submissionCount: trackCounts.get(track._id) ?? 0 })),
       noTrackCount,

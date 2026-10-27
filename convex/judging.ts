@@ -7,7 +7,8 @@ import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAss
 import { isCompleteReview, isJudgingScore } from "../lib/judging-rubric";
 import { TableHistory } from "@convex-dev/table-history";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
+import { aiSummariesConfigured, publicAiSummary } from "./aiSummaries";
 import type { DataModel } from "./_generated/dataModel";
 import {
   adjusted,
@@ -123,6 +124,12 @@ export async function closeSubmissionsForOrganization(
   }
   const now = Date.now();
   await ctx.db.patch(event._id, { submissionsClosedAt: now, judgingStatus: "setup", updatedAt: now });
+  // Judges get a short AI summary of each project, written once submissions are final.
+  if (aiSummariesConfigured()) {
+    await ctx.scheduler.runAfter(0, internal.aiSummaries.queueEventSummaries, { eventId: event._id });
+  } else {
+    console.log(JSON.stringify({ event: "ai-summary", status: "skipped", reason: "not_configured" }));
+  }
   return { judgingStatus: "setup" };
 }
 
@@ -423,6 +430,7 @@ async function judgeSubmissionViews(
     tracks: trackNamesFor(submission, byId),
     githubUrl: submission.githubUrl ?? null,
     videoUrl: submission.videoUrl ?? null,
+    aiSummary: publicAiSummary(submission),
   }));
 }
 

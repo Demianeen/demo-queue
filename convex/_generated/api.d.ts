@@ -10,6 +10,8 @@
 
 import type * as adminActionArgs from "../adminActionArgs.js";
 import type * as ai from "../ai.js";
+import type * as aiSummaries from "../aiSummaries.js";
+import type * as aiSummaryAction from "../aiSummaryAction.js";
 import type * as crons from "../crons.js";
 import type * as emails from "../emails.js";
 import type * as eventOwnership from "../eventOwnership.js";
@@ -45,6 +47,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   adminActionArgs: typeof adminActionArgs;
   ai: typeof ai;
+  aiSummaries: typeof aiSummaries;
+  aiSummaryAction: typeof aiSummaryAction;
   crons: typeof crons;
   emails: typeof emails;
   eventOwnership: typeof eventOwnership;

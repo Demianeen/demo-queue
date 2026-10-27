@@ -110,6 +110,19 @@ export default defineSchema({
     trackIds: v.optional(v.array(v.id("eventTracks"))),
     teamName: v.optional(v.string()),
     githubUrl: v.optional(v.string()),
+    // Three lines written by AI from the description and README, for judges and admins.
+    // sourceKey says which description and repository it was written from.
+    aiSummary: v.optional(
+      v.object({
+        whatItDoes: v.string(),
+        howItWorks: v.string(),
+        demoFocus: v.string(),
+        sourceKey: v.string(),
+        model: v.string(),
+        usedReadme: v.boolean(),
+        generatedAt: v.number(),
+      }),
+    ),
     rulesAcceptedAt: v.optional(v.number()),
     roundOneAssignedJudges: v.optional(v.array(v.string())),
     finalist: v.optional(v.boolean()),

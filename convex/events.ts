@@ -65,6 +65,7 @@ import {
   tracksById,
 } from "./tracks";
 import { emailConfig } from "./emails";
+import { queueAiSummaryIfStale } from "./aiSummaries";
 import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -2104,6 +2105,9 @@ export async function updateSubmissionForOrganization(
       ...(await trackSelection(ctx, event, args.trackIds)),
       updatedAt: Date.now(),
     });
+    // A changed description gets a new AI summary once submissions are closed.
+    const updated = await ctx.db.get(args.submissionId);
+    if (updated) await queueAiSummaryIfStale(ctx, event, updated);
     await queueJudgingSheetSync(ctx, event);
 }
 

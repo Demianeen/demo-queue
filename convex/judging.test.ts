@@ -630,7 +630,7 @@ test("judges can read every submission in judging but score only their own", asy
   const team = [...mine.assignments, ...others].find((item) => item.id === ids[0])!;
   expect(team).toMatchObject({ teamName: "Night Owls", memberCount: 3, demoTitle: "Demo 0", name: "Person 0" });
   for (const item of others) {
-    expect(Object.keys(item).sort()).toEqual(["demoTitle", "description", "githubUrl", "id", "memberCount", "name", "teamName", "tracks", "videoUrl"]);
+    expect(Object.keys(item).sort()).toEqual(["aiSummary", "demoTitle", "description", "githubUrl", "id", "memberCount", "name", "teamName", "tracks", "videoUrl"]);
   }
   expect(JSON.stringify(others)).not.toMatch(/\+44|@example\.com|participant-/);
 

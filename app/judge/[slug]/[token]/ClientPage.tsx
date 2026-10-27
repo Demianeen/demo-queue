@@ -13,6 +13,7 @@ import {
   GitForkIcon,
   LockKeyholeIcon,
   SearchIcon,
+  SparklesIcon,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -142,10 +143,37 @@ type JudgeEntry = {
   tracks: string[];
   githubUrl: string | null;
   videoUrl: string | null;
+  aiSummary: AiSummary | null;
   review: { completed: boolean } | null;
   assigned: boolean;
   number: number;
 };
+
+type AiSummary = {
+  whatItDoes: string;
+  howItWorks: string;
+  demoFocus: string;
+  usedReadme: boolean;
+  stale: boolean;
+};
+
+function AiSummaryPanel({ summary }: { summary: AiSummary }) {
+  return (
+    <section aria-labelledby="ai-summary-heading" className={styles.aiSummary}>
+      <h2 className={styles.aiSummaryHeading} id="ai-summary-heading"><SparklesIcon aria-hidden="true" /> AI summary</h2>
+      <ul>
+        <li><strong>What it does:</strong> {summary.whatItDoes}</li>
+        <li><strong>How it works:</strong> {summary.howItWorks}</li>
+        <li><strong>What to look for in the demo:</strong> {summary.demoFocus}</li>
+      </ul>
+      <p className={styles.aiSummaryNote}>
+        {summary.stale
+          ? "Written by AI before the latest edit to this project. A new summary is on its way."
+          : `Written by AI from the description${summary.usedReadme ? " and README" : ""}. Check it against the demo before scoring.`}
+      </p>
+    </section>
+  );
+}
 
 function matchesSearch(entry: JudgeEntry, search: string) {
   if (!search) return true;
@@ -397,6 +425,7 @@ export default function JudgeClientPage() {
                   {selected.tracks.map((track) => <span className={styles.trackPill} key={track}>{track}</span>)}
                   <span className={styles.assignmentPill}>{selected.assigned ? "Assigned to you" : "Not assigned to you"}</span>
                 </div>
+                {selected.aiSummary ? <AiSummaryPanel summary={selected.aiSummary} /> : null}
                 <p className={styles.description}>{selected.description}</p>
                 <div className={styles.projectLinks}>
                   {selected.githubUrl ? <a href={selected.githubUrl} target="_blank" rel="noreferrer"><GitForkIcon /> GitHub repository <ExternalLinkIcon /></a> : null}

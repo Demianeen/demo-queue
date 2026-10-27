@@ -129,6 +129,9 @@ pnpm exec convex env set OPENAI_MODEL <fast-model-name>
 
 `OPENAI_API_KEY` is optional for deploys so previews and non-AI changes do not
 fail to ship, but AI shuffle throws a clear runtime error if it is missing.
+The same key writes the three-line AI summary judges see for each hackathon
+project, once submissions close and again when a project's description or
+repository changes. Without the key, summaries are skipped and logged.
 `OPENAI_MODEL` is optional, but setting it lets event operators pick a faster
 model without changing code.
 

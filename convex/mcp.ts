@@ -4,8 +4,10 @@ import { internal } from "./_generated/api";
 import { httpAction, type ActionCtx } from "./_generated/server";
 import { activeMemberships, listActiveMemberships, membershipCursor, mcpConfig, McpFailure, requireSelectedOrganization, verifyConnectUser, type ConnectUser, type McpConfig } from "./mcpAuth";
 import { VISUAL_STYLES } from "../lib/visual-style";
+import { registerAdminTools } from "./mcpTools";
+import { ConvexError } from "convex/values";
 
-const MAX_BODY = 32768;
+const MAX_BODY = 262144;
 const organizationId = z.string().regex(/^org_[A-Za-z0-9]+$/);
 const styleSelection = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("preset"), preset: z.enum(VISUAL_STYLES) }).strict(),
@@ -18,17 +20,44 @@ const theme = z.object({
 
 function result(value: unknown) { return { content: [{ type: "text" as const, text: JSON.stringify(value) }] }; }
 
-async function toolCall(user: ConnectUser, config: McpConfig, expectedOrganizationId: string, operation: () => Promise<unknown>) {
+const adminMessages = new Set([
+  "Submissions are closed.", "Judging is only available for hackathon events.",
+  "Judging sheets are only available for hackathon events.", "Close submissions first.",
+  "Assignments can only be prepared before judging starts.", "Add at least 2 judges first.",
+  "Assignment preparation is not active.", "Assignments are not ready.",
+  "Judging is not open.", "Judging is not closed.", "Close judging first.",
+  "Add another available judge before redistributing reviews.", "Invalid judge assignment.",
+  "Redistribution must include every unfinished assignment in the preview.",
+  "Redistribution must keep the other assigned judge.",
+  "This judge has no complete reviews to normalize.",
+  "Add this judge to the event before creating their link.", "Judge not found.",
+  "Create the judging sheet before syncing it.", "Submission not found",
+  "Submission does not belong to this event.", "Add between 1 and 25 test submissions at a time.",
+  "Event type cannot change after judging has started.",
+  "Confirmation must match the event.", "Confirmation must match the event and type.",
+  "Add hackathon teams through the public submission form.",
+  "Publish the queue before showing the Meet link in the presentation view",
+]);
+
+async function toolCall(user: ConnectUser, config: McpConfig, expectedOrganizationId: string, operation: () => Promise<unknown>, adminOperation = false) {
   try {
     requireSelectedOrganization(user, expectedOrganizationId);
     await activeMemberships(user, config);
     return result(await operation());
   } catch (error) {
+    if (adminOperation && error instanceof ConvexError) {
+      const matches = (message: string) => error.data === message || error.data === JSON.stringify(message);
+      if (matches("Unauthorized")) return { ...result({ error: "access_denied" }), isError: true };
+      const message = [...adminMessages].find(matches);
+      if (message) {
+        return { ...result({ error: "invalid_operation", message }), isError: true };
+      }
+    }
     return { ...result({ error: error instanceof McpFailure ? error.code : "operation_failed" }), isError: true };
   }
 }
 
-export function createToolServer(ctx: Pick<ActionCtx, "runQuery" | "runMutation">, user: ConnectUser, config: McpConfig) {
+export function createToolServer(ctx: Pick<ActionCtx, "runQuery" | "runMutation" | "runAction">, user: ConnectUser, config: McpConfig) {
   const server = new McpServer({ name: "demo-queue", version: "1.0.0" });
   server.registerTool("list_organizations", {
     description: "List active memberships. Acting in another organization requires OAuth reauthorization.",
@@ -64,6 +93,7 @@ export function createToolServer(ctx: Pick<ActionCtx, "runQuery" | "runMutation"
     description: "Explicitly change the organization default. Existing event snapshots remain unchanged.",
     inputSchema: z.object({ organizationId, selection: styleSelection }).strict(), annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runMutation(internal.mcpData.setDefaultStyle, args)));
+  registerAdminTools(server, ctx, user, (organizationId, operation) => toolCall(user, config, organizationId, operation, true));
   return server;
 }
 

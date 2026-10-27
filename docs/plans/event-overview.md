@@ -6,6 +6,10 @@ created: 2026-09-06
 updated: 2026-09-06
 ---
 
+Authentication scope below is historical and superseded by
+[WorkOS-only event administration](workos-only-administration.md). Overview links
+now lead to organization-authenticated administration and contain no capability.
+
 ## Outcome and scope
 
 User asked for a nicer Events UI and suggested event details with winners/useful information. Replace raw link cards with a compact neutral list: event name, type, creation date and chevron leading to /events/[slug]/overview. Detail has breadcrumb, name, metadata, Manage event button, links for presentation/submission with open/copy controls, and results for hackathons. All content remains private to current organization. Keep existing live admin tools at existing capability URL. No settings/editor features, invented dates/statuses or fabricated results.

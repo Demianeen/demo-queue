@@ -2,7 +2,19 @@
 
 Updated: October 26, 2026. PR: https://github.com/Demianeen/demo-queue/pull/41
 
-## Current review status
+## Current review status, 27 October 2026
+
+The October 26 record below is historical. WorkOS organization membership now
+authorizes all event administration; old capability links grant no access.
+The complete 25-event ownership classification is approved, with six Outpost
+and nineteen Test events. Assignment remains pending merge and deployment.
+Both PR Preview frontends use canonical development `precious-elk-564` and its
+matching WorkOS application, not Staging or a separate Convex Preview deployment.
+Hosted Google login, workspace loading, administration and organization switching
+pass. See [the current completion plan](../plans/workos-only-administration.md)
+and [the product review](auth-and-mcp-review.html) for final evidence.
+
+## Historical review status, 26 October 2026
 
 The code is rebased onto the Astra theme change in `main`. The event form now
 derives every built-in choice from the shared registry, including Astra.

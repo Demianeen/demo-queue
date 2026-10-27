@@ -1,6 +1,6 @@
 ---
 title: WorkOS-only event administration
-status: CODE VERIFIED; HOSTED PREVIEW GATE OPEN
+status: COMPLETE
 tier: 3
 created: 2026-10-27
 updated: 2026-10-27
@@ -64,23 +64,23 @@ Record only allowlisted failure phases and status codes.
   six-Outpost, nineteen-Test manifest is approved. Apply only that manifest
   after merge and deployment. Until then historical administration remains a rollout
   gate, not completed migration evidence.
-- Personal Vercel access is restored. Current hosted logs show
-  `convex-provider-mismatch` after successful session and membership checks.
-  Preview now has a separate build path for canonical development and matching
-  WorkOS credentials. It does not provision or deploy Convex. The Production
-  command remains unchanged. Branch configuration and hosted verification remain
-  open until the corrected Preview completes sign-in and workspace loading.
+- Hosted `convex-provider-mismatch` was traced to mismatched Preview providers.
+  Both PR branches now use canonical development and matching WorkOS credentials.
+  Preview builds only Next.js, without provisioning or deploying Convex.
+  Production retains its existing command. Real hosted Google sign-in, Test
+  workspace loading, event administration, and Outpost switching pass.
 
 ## Verified on 27 October 2026
 
-113 Node tests, 52 integrated Convex tests, TypeScript, lint, frozen installation,
+118 Node tests, 52 integrated Convex tests, TypeScript, lint, frozen installation,
 and the optimized build pass. Independent callback, alias, and integrated code
 reviews pass after fixes. Real Google login reaches Outpost and Test in canonical
 development. Native OAuth creates and reads back an unpublished Test event and
 nondefault style, and denies an Outpost request with the same grant.
 
-The hosted gate remains open. No production deployment or ownership mutation
-has run. The Daytona alias-backed rename is prepared separately and not applied.
+The hosted organization Preview gate passes. No production deployment or ownership
+mutation has run. The Daytona alias-backed rename is prepared separately and not
+applied. The final two-PR review artifact records current-head hosting evidence.
 
 The earlier plan's capability-link fallback is superseded. Judging, scoring,
 normalization, timers, spreadsheet fallback, and finalist behavior are unchanged

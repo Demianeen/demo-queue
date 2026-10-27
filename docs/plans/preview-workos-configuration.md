@@ -1,12 +1,18 @@
 ---
 title: Configure WorkOS for preview and production predeploys
-status: BLOCKED
+status: SUPERSEDED
 tier: Tier 1
 created: 2026-09-06
 updated: 2026-09-06
 ---
 
 PR: https://github.com/Demianeen/demo-queue/pull/41
+
+The configuration below is historical and superseded by
+[WorkOS-only event administration](workos-only-administration.md). Both PR Preview
+frontends share canonical development `precious-elk-564` and its matching WorkOS
+application. Preview builds no longer provision or deploy Convex. Production's
+existing deployment command remains unchanged.
 
 The user authorized Preview and Production environment configuration and Preview
 CI/CD deployment. Production code deployment is excluded. Local development

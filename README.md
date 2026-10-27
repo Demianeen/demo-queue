@@ -242,7 +242,7 @@ authenticated event list. Participant, judge, submission, and presentation links
 remain account-free.
 
 Historical events need an explicit ownership assignment before organization
-members can administer them. Review the complete proposed classification in
+members can administer them. Review the complete approved classification in
 `docs/reports/event-organization-classification.md`. The migration helper defaults
 to a read-only plan and requires an approved manifest hash for execution.
 

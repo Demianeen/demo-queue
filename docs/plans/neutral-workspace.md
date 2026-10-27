@@ -9,6 +9,10 @@ updated: 2026-09-05
 Style-editor work below is historical and superseded by [Defer style editor](defer-style-editor.md). The current Styles page supports selecting, previewing, and setting defaults for existing styles; authoring is deferred to the next MCP PR.
 
 
+Authentication scope below is historical and superseded by
+[WorkOS-only event administration](workos-only-administration.md). Saved event-admin
+capabilities are removed and no longer authorize access.
+
 ## Accepted target
 
 The user's final attachment `codex-clipboard-81867fdd-eed5-4595-bf5d-8ba305937a67.png` is authoritative. White canvas, plain text Demo Queue header, membership switcher, Events / Styles navigation, profile menu. At 1487px: 1243px content width, 483px form, 670px preview, 89px gap. Heading at y164; controls start y325. Small bordered corners and black primary action. Preview shows the initial join screen, not a sample live lineup.

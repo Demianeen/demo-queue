@@ -6,6 +6,10 @@ created: 2026-09-06
 updated: 2026-10-26
 ---
 
+The environment and legacy-admin scope below is historical and superseded by
+[WorkOS-only event administration](workos-only-administration.md). Preview now
+shares canonical development; all event administration requires WorkOS.
+
 The original target was membership revocation bounded to 60 seconds. Hosted
 verification found a five-second platform tolerance. The corrected HTTP bound
 is approximately 65 seconds with a 60-second WorkOS token. WorkOS remains authoritative; Convex remains the verifier

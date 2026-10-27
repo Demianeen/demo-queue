@@ -91,6 +91,11 @@ a new deployment was created. Stop if the Convex target is not one of the two
 canonical deployments. Never substitute development credentials or deployments
 for Production.
 
+Do not use `vercel curl` without an explicitly supplied existing Preview-scoped
+bypass: it can automatically create a project-wide automation bypass token.
+Inspect deployment metadata and use the existing authorized browser session
+instead. Never create a project-wide bypass as a Preview troubleshooting step.
+
 ## Development authentication testing
 
 Development WorkOS configuration and OAuth/MCP access testing are authorized.

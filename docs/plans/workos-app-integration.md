@@ -6,6 +6,10 @@ created: 2026-09-05
 updated: 2026-09-05
 ---
 
+Authentication scope below is historical and superseded by
+[WorkOS-only event administration](workos-only-administration.md). Old event-admin
+capabilities grant no access; public participant and judge links remain account-free.
+
 Implement the agreed development integration in this worktree. Demian approved
 implementation on September 5 after development WorkOS configuration.
 

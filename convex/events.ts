@@ -63,6 +63,7 @@ import {
   trackNamesFor,
   tracksById,
 } from "./tracks";
+import { emailConfig } from "./emails";
 import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -411,6 +412,12 @@ async function patchSubmissionStatus(
     }
   }
   await ctx.db.patch(submission._id, patch);
+}
+
+/** Emails the team their status link once the submission is saved. */
+async function queueSubmittedEmail(ctx: MutationCtx, submissionId: Id<"submissions">, now: number) {
+  await ctx.db.patch(submissionId, { statusLinkEmailedAt: now });
+  await ctx.scheduler.runAfter(0, internal.emails.sendStatusLinkEmail, { submissionId, reason: "submitted" });
 }
 
 function assertSocialLinks(links: { twitter?: string; linkedin?: string; githubProfile?: string }) {
@@ -975,6 +982,59 @@ export const getParticipant = query({
 });
 
 /**
+ * What a participant sent, for the submit page when it is reopened in the
+ * browser that submitted. The participant token is the capability, as on the
+ * status page. Answers null instead of throwing for a stale token.
+ */
+export const getSubmittedView = query({
+  args: { slug: v.string(), participantToken: v.string() },
+  handler: async (ctx, { slug, participantToken }) => {
+    const event = await findEventBySlug(ctx, slug);
+    if (!event) return null;
+    const submission = await ctx.db
+      .query("submissions")
+      .withIndex("by_participant_token", (q) => q.eq("participantToken", participantToken))
+      .unique();
+    if (!submission || submission.eventId !== event._id) return null;
+    const members = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
+      .take(MAX_ADDITIONAL_TEAM_MEMBERS + 1);
+    const byId = tracksById(await listEventTracks(ctx, event._id));
+
+    return {
+      eventType: eventType(event),
+      emailConfigured: emailConfig().ok,
+      submittedAt: submission.createdAt,
+      withdrawn: submission.status === "withdrawn",
+      email: submission.email,
+      teamName: submission.teamName,
+      demoTitle: submission.demoTitle,
+      description: submission.description,
+      tracks: trackNamesFor(submission, byId),
+      githubUrl: submission.githubUrl,
+      videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
+      people: [
+        {
+          name: submission.name,
+          presenter: true,
+          twitter: submission.twitter,
+          linkedin: submission.linkedin,
+          githubProfile: submission.githubProfile,
+        },
+        ...members.map((member) => ({
+          name: member.name,
+          presenter: false,
+          twitter: member.twitter,
+          linkedin: member.linkedin,
+          githubProfile: member.githubProfile,
+        })),
+      ],
+    };
+  },
+});
+
+/**
  * Whether someone in this event already submitted with this email, as a
  * presenter or a team member. Never says which submission.
  */
@@ -1065,6 +1125,7 @@ export const submitDemo = mutation({
 
     await ctx.db.patch(event._id, { updatedAt: now });
     await logAction(ctx, event._id, "submission_created", "participant", submissionId);
+    await queueSubmittedEmail(ctx, submissionId, now);
     return { submissionId };
   },
 });
@@ -1182,6 +1243,7 @@ export const submitHackathon = mutation({
     await ctx.db.patch(event._id, { updatedAt: now });
     await logAction(ctx, event._id, "hackathon_submission_created", "participant", submissionId);
     await queueJudgingSheetSync(ctx, event);
+    await queueSubmittedEmail(ctx, submissionId, now);
     return { submissionId };
   },
 });

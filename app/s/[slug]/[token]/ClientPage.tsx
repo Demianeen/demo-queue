@@ -265,7 +265,7 @@ export function ParticipantPage({
           </div>
         ) : null}
 
-        <h2 style={{ marginTop: 24 }}>Contact info</h2>
+        <h2 id="contact" style={{ marginTop: 24 }}>Contact info</h2>
         <form className="form" onSubmit={saveContact}>
           <div className="field">
             <label htmlFor="phone">Phone</label>

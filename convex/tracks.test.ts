@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
@@ -8,12 +8,21 @@ const modules = {
   "./_generated/api.js": () => import("./_generated/api.js"),
   "./_generated/server.js": () => import("./_generated/server.js"),
   "./events.ts": () => import("./events"),
+  "./emails.ts": () => import("./emails"),
   "./judging.ts": () => import("./judging"),
   "./tracks.ts": () => import("./tracks"),
   "./migrations.ts": () => import("./migrations"),
   "./judgingSheetSync.ts": () => import("./judgingSheetSync"),
   "./googleSheets.ts": () => import("./googleSheets"),
 };
+
+// Submitting queues an email; keep it queued so it never runs after a test ends.
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const organizationId = "org_outpost";
 const identity = (org: string) => ({ subject: "user_operator", issuer: "https://api.workos.com/user_management/client_test", org_id: org });

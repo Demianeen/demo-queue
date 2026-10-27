@@ -3509,3 +3509,133 @@ h3 {
 .contact-socials a {
   font-weight: 600;
 }
+
+/* Submit page reopened in the browser that submitted: what was sent, locked. */
+.submitted-view {
+  display: grid;
+  gap: 18px;
+}
+
+.submitted-view-header {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.submitted-view-header h1,
+.submitted-view-header .lead {
+  margin: 0;
+}
+
+.submitted-badge {
+  align-items: center;
+  background: var(--app-soft-green);
+  border-radius: 999px;
+  color: var(--app-good);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 10px;
+}
+
+.submitted-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.submitted-details {
+  background: color-mix(in srgb, var(--app-paper, #fff) 40%, #fff);
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  display: grid;
+  margin: 0;
+  min-width: 0;
+}
+
+.submitted-row {
+  border-bottom: 1px solid color-mix(in srgb, var(--app-line), transparent 40%);
+  display: grid;
+  gap: 4px 16px;
+  grid-template-columns: 150px minmax(0, 1fr);
+  padding: 10px 14px;
+}
+
+.submitted-row:last-child {
+  border-bottom: 0;
+}
+
+.submitted-row dt {
+  color: var(--app-muted);
+  font-size: 13px;
+}
+
+.submitted-row dd {
+  color: var(--app-ink);
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.submitted-row dd a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+.submitted-people {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.submitted-people li {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 14px;
+  gap: 4px 12px;
+}
+
+.submitted-people .muted,
+.submitted-people a {
+  font-size: 13px;
+}
+
+.submitted-note {
+  font-size: 13px;
+  margin: 0;
+}
+
+.submitted-start-over {
+  background: transparent;
+  border: 0;
+  color: var(--app-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.outpost-content .submitted-details,
+.outpost-content .submitted-badge {
+  border-radius: 4px;
+}
+
+.outpost-content .submitted-view-header h1 {
+  text-transform: uppercase;
+}
+
+.astra-content .submitted-details {
+  background: #fbfaf7;
+}
+
+@media (max-width: 560px) {
+  .submitted-row {
+    grid-template-columns: 1fr;
+  }
+}

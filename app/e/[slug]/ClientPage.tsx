@@ -1,12 +1,13 @@
 "use client";
 
 import { eventThemeProperties } from "@/lib/event-theme";
-import { FormEvent, useCallback, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { TrackPicker } from "@/components/TrackPicker";
 import { SubmissionEmailField } from "@/components/SubmissionEmailField";
+import { SubmittedView, forgetSubmission, readRememberedSubmission, rememberSubmission } from "./SubmittedView";
 import { LockKeyholeIcon, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -185,7 +186,22 @@ export function SubmissionPage({
     return handler;
   };
 
-  if (!stage) {
+  // The participant token this browser submitted with: undefined until read.
+  const [remembered, setRemembered] = useState<string | null | undefined>(undefined);
+  useEffect(() => setRemembered(readRememberedSubmission(slug)), [slug]);
+  const submittedView = useQuery(
+    api.events.getSubmittedView,
+    remembered ? { slug: slug, participantToken: remembered } : "skip",
+  );
+  const staleRemembered = Boolean(remembered) && (submittedView === null || submittedView?.withdrawn === true);
+  useEffect(() => {
+    if (!staleRemembered) return;
+    forgetSubmission(slug);
+    setRemembered(null);
+  }, [staleRemembered, slug]);
+  const lockedView = remembered && submittedView && !submittedView.withdrawn ? submittedView : null;
+
+  if (!stage || remembered === undefined || (remembered && submittedView === undefined)) {
     return (
       <main className="narrow-page">
         <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
@@ -370,6 +386,7 @@ export function SubmissionPage({
       } else {
         await submitDemo({ ...sharedFields, queueOrder: randomQueueOrder() });
       }
+      rememberSubmission(slug, participantToken);
       onSubmitted(participantToken);
     } catch (error) {
       setIsSubmitting(false);
@@ -418,6 +435,18 @@ export function SubmissionPage({
         {isDevDay ? (
           <p className="devday-eyebrow">{isHackathon ? "Community hackathon" : "Demo queue"} / Submission</p>
         ) : null}
+        {lockedView && remembered ? (
+          <SubmittedView
+            onStartOver={() => {
+              forgetSubmission(slug);
+              setRemembered(null);
+            }}
+            participantToken={remembered}
+            slug={slug}
+            view={lockedView}
+          />
+        ) : (
+        <>
         <div>
           {isOutpost ? (
             <p className="outpost-event-kicker">
@@ -434,8 +463,8 @@ export function SubmissionPage({
         </div>
         <p className="lead">
           {isHackathon
-            ? "Submit once for your team. You will get a private status link, and the Meet link will appear there if you are scheduled to present."
-            : "You will get a private status link after submitting. The Meet link appears there once you are listed as a demoer."}
+            ? "Submit once for your team. We email you a copy and your private status link."
+            : "We email you a copy and your private status link. The Meet link appears there once you are listed as a demoer."}
         </p>
 
         {stage.event.submissionsClosed ? (
@@ -726,6 +755,8 @@ export function SubmissionPage({
             </button>
           </div>
         </form>
+        )}
+        </>
         )}
       </section>
     </main>

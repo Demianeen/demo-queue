@@ -30,12 +30,15 @@ import type { DataModel } from "./dataModel.js";
 type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
+  readonly DEMO_QUEUE_SITE_URL: string | undefined;
   readonly GOOGLE_DRIVE_FOLDER_ID: string | undefined;
   readonly GOOGLE_OAUTH_CLIENT_ID: string | undefined;
   readonly GOOGLE_OAUTH_CLIENT_SECRET: string | undefined;
   readonly GOOGLE_OAUTH_REFRESH_TOKEN: string | undefined;
   readonly OPENAI_API_KEY: string | undefined;
   readonly OPENAI_MODEL: string | undefined;
+  readonly RESEND_API_KEY: string | undefined;
+  readonly RESEND_FROM_EMAIL: string | undefined;
 };
 
 /**

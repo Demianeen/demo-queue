@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { rename } from "./eventSlugs";
 import schema from "./schema";
@@ -8,9 +8,18 @@ const modules = {
   "./_generated/api.js": () => import("./_generated/api.js"),
   "./_generated/server.js": () => import("./_generated/server.js"),
   "./events.ts": () => import("./events"),
+  "./emails.ts": () => import("./emails"),
   "./judging.ts": () => import("./judging"),
   "./eventSlugs.ts": () => import("./eventSlugs"),
 };
+// Submitting queues an email; keep it queued so it never runs after a test ends.
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const oldSlug = "test-hack-5-1db202";
 const newSlug = "daytona-hacksprint-london-august-2026-1db202";
 const organizationId = "org_outpost";

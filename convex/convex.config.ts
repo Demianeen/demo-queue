@@ -1,6 +1,7 @@
 import mcp from "@convex-dev/mcp/convex.config.js";
 import { defineApp } from "convex/server";
 import { v } from "convex/values";
+import resend from "@convex-dev/resend/convex.config";
 import tableHistory from "@convex-dev/table-history/convex.config";
 
 const app = defineApp({
@@ -11,9 +12,14 @@ const app = defineApp({
     GOOGLE_OAUTH_REFRESH_TOKEN: v.optional(v.string()),
     OPENAI_API_KEY: v.optional(v.string()),
     OPENAI_MODEL: v.optional(v.string()),
+    // Submission emails. Without all three, sending is skipped and logged.
+    RESEND_API_KEY: v.optional(v.string()),
+    RESEND_FROM_EMAIL: v.optional(v.string()),
+    DEMO_QUEUE_SITE_URL: v.optional(v.string()),
   },
 });
 
 app.use(mcp);
 app.use(tableHistory, { name: "judgingDecisionHistory" });
+app.use(resend);
 export default app;

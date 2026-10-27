@@ -17,6 +17,7 @@ export const UI_EXCLUSIONS = [
   ...["createApiKey", "revokeConnection", "listConnections"].map((name) => ({ file: "components/McpConnectionClient.tsx", browser: `mcpConsent.${name}`, reason: "Human credential management. Connection credentials and their lifecycle stay in the signed-in browser." })),
   ...["addTrack", "updateTrack", "reorderTracks", "removeTrack"].map((name) => ({ file: "components/TracksAdminPanel.tsx", browser: `tracks.${name}`, reason: "Proposed: track editing stays in the admin page for now; MCP track tools can follow." })),
   ...["checkSubmissionEmail", "requestStatusLinkEmail"].map((name) => ({ file: "components/SubmissionEmailField.tsx", browser: `events.${name}`, reason: "Participant submit page email check and status link resend, not organization administration." })),
+  { file: "app/e/[slug]/ClientPage.tsx", browser: "events.getSubmittedView", reason: "Participant capability view of their own submission, not organization administration." },
   ...finalistFunctions.map((name) => ({ file: finalistPath, browser: `judging.${name}`, reason: "Dormant finalist and placement controls require SHOW_FINALIST_TOOLS to remain false.", dormant: true })),
 ];
 

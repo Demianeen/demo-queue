@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 
@@ -13,6 +13,14 @@ const modules = {
   "./judgingSheetSync.ts": () => import("./judgingSheetSync"),
   "./googleSheets.ts": () => import("./googleSheets"),
 };
+
+// Scheduled emails stay queued unless a test runs them.
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const organizationId = "org_outpost";
 const identity = { subject: "user_operator", issuer: "https://api.workos.com/user_management/client_test", org_id: organizationId };
@@ -187,20 +195,31 @@ test("the status page cannot change its email to one another submission uses", a
 test("emailing the link again answers the same for unknown emails and is throttled", async () => {
   const { t, slug } = await fixture("demo");
   const { submissionId } = await submitDemo(t, slug, "ada@example.com");
-  const scheduled = () =>
-    t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => job.name.startsWith("emails")));
+  const jobs = (reason: string) =>
+    t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name.startsWith("emails") && job.args[0].reason === reason,
+      ),
+    );
+  const sendAgain = (email: string) => t.mutation(api.events.requestStatusLinkEmail, { slug, email });
+  const twoMinutesAgo = () => t.run((ctx) => ctx.db.patch(submissionId, { statusLinkEmailedAt: Date.now() - 3 * 60 * 1000 }));
 
-  expect(await t.mutation(api.events.requestStatusLinkEmail, { slug, email: "nobody@example.com" })).toEqual({ ok: true });
-  expect(await scheduled()).toHaveLength(0);
+  // Submitting queued the first email, so asking again straight away waits.
+  expect(await jobs("submitted")).toHaveLength(1);
+  expect(await sendAgain("ada@example.com")).toEqual({ ok: true });
+  expect(await jobs("resend")).toHaveLength(0);
 
-  expect(await t.mutation(api.events.requestStatusLinkEmail, { slug, email: "ADA@example.com" })).toEqual({ ok: true });
-  expect(await t.mutation(api.events.requestStatusLinkEmail, { slug, email: "ada@example.com" })).toEqual({ ok: true });
-  const jobs = await scheduled();
-  expect(jobs).toHaveLength(1);
-  expect(jobs[0].args[0]).toMatchObject({ submissionId, reason: "resend", to: "ada@example.com" });
+  await twoMinutesAgo();
+  expect(await sendAgain("nobody@example.com")).toEqual({ ok: true });
+  expect(await jobs("resend")).toHaveLength(0);
+  expect(await sendAgain("ADA@example.com")).toEqual({ ok: true });
+  expect(await sendAgain("ada@example.com")).toEqual({ ok: true });
+  const resent = await jobs("resend");
+  expect(resent).toHaveLength(1);
+  expect(resent[0].args[0]).toMatchObject({ submissionId, reason: "resend", to: "ada@example.com" });
 
   // After the wait, another send goes out.
-  await t.run((ctx) => ctx.db.patch(submissionId, { statusLinkEmailedAt: Date.now() - 3 * 60 * 1000 }));
-  await t.mutation(api.events.requestStatusLinkEmail, { slug, email: "ada@example.com" });
-  expect(await scheduled()).toHaveLength(2);
+  await twoMinutesAgo();
+  await sendAgain("ada@example.com");
+  expect(await jobs("resend")).toHaveLength(2);
 });

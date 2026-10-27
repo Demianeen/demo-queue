@@ -4,6 +4,8 @@ export function workspaceFailureDiagnostic(phase: WorkspaceLoadPhase, error: unk
   const status = error !== null && typeof error === "object" && "status" in error && typeof error.status === "number" && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599 ? error.status : undefined;
   const message = error instanceof Error ? error.message : "";
   const reason = phase === "organization-check" ? "organization-mismatch"
+    : /NoAuthProvider|No auth provider|no configured auth provider/i.test(message) ? "convex-provider-mismatch"
+    : /(?:JWT|token).*(?:expired|expiration)|ExpiredToken/i.test(message) ? "convex-token-expired"
     : /No auth provider|InvalidAuthHeader|Invalid authentication|JWT|token.*(?:expired|invalid)|could not verify.*token/i.test(message) ? "convex-authentication-rejected"
     : /Could not find (?:public )?function|Function not found/i.test(message) ? "convex-function-unavailable"
     : /ArgumentValidationError|does not match the validator|extra field/i.test(message) ? "convex-arguments-rejected"

@@ -27,7 +27,9 @@ test('workspace diagnostics omit non-HTTP status values and raw errors', () => {
 
 test('workspace diagnostics classify provider failures without echoing error details', () => {
   for (const [message, reason] of [
-    ['No auth provider found matching the given token private-credential', 'convex-authentication-rejected'],
+    ['No auth provider found matching the given token private-credential', 'convex-provider-mismatch'],
+    ['NoAuthProvider: private-credential', 'convex-provider-mismatch'],
+    ['JWT token expired private-credential', 'convex-token-expired'],
     ['Could not find public function events:listOrganizationEvents private-url', 'convex-function-unavailable'],
     ['ArgumentValidationError: Object contains extra field private-field', 'convex-arguments-rejected'],
     ['Sign in to manage events. private-user', 'organization-access-rejected'],

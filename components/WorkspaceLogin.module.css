@@ -103,6 +103,34 @@
   flex: none;
 }
 
+.organizationChoices {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.organizationButton {
+  width: 100%;
+  min-height: 3.9rem;
+  height: auto;
+  padding: 1rem 1.5rem;
+  border-radius: 0.5rem;
+  background: #24272e;
+  color: #fff;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 1.2rem;
+}
+
+.organizationButton:hover {
+  background: #101216;
+}
+
+.startAgain {
+  margin-top: 0.7rem;
+  color: #606773;
+  text-decoration: underline;
+}
+
 .invitation {
   margin: 1.75rem 0 0;
   color: #69717d;

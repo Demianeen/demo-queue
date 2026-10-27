@@ -1,5 +1,10 @@
 import { paginationOptsValidator } from "convex/server";
-import { requireOrganization, requireEventOrganization } from "./organizationAuth";
+import {
+  requireOrganization,
+  requireEventOrganization,
+  requireOwnedEvent,
+  type OrganizationPrincipal,
+} from "./organizationAuth";
 import { findEventBySlug } from "./eventSlugs";
 import { ConvexError, v, type Infer } from "convex/values";
 import {
@@ -495,10 +500,15 @@ export const listOrganizationEvents = query({
   },
 });
 
-export const getOrganizationEventDetails = query({
-  args: { slug: v.string() },
-  handler: async (ctx, { slug }) => {
-    const { organizationId } = await requireOrganization(ctx);
+export const getOrganizationEventDetailsArgs = v.object({ slug: v.string() });
+
+export async function getOrganizationEventDetailsForOrganization(
+  ctx: QueryCtx,
+  args: Infer<typeof getOrganizationEventDetailsArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { slug } = args;
+    const { organizationId } = principal;
     const event = await findEventBySlug(ctx, slug);
     if (!event || event.workosOrganizationId !== organizationId) return null;
     const [submissions, decision] = await Promise.all([
@@ -524,7 +534,12 @@ export const getOrganizationEventDetails = query({
       submissionCount: Math.min(submissions.length, 1000), submissionCountCapped: submissions.length > 1000,
       resultsStatus, winners,
     };
-  },
+}
+
+export const getOrganizationEventDetails = query({
+  args: getOrganizationEventDetailsArgs,
+  handler: async (ctx, args) =>
+    getOrganizationEventDetailsForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 export const generateUploadUrl = mutation({
@@ -547,17 +562,27 @@ export const getEventMeta = query({
   },
 });
 
-export const getAdminEventMeta = query({
-  args: { slug: v.string(), },
-  handler: async (ctx, { slug }) => {
-    const { event } = await requireEventOrganization(ctx, slug);
+export const getAdminEventMetaArgs = v.object({ slug: v.string(), });
+
+export async function getAdminEventMetaForOrganization(
+  ctx: QueryCtx,
+  args: Infer<typeof getAdminEventMetaArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { slug } = args;
+    const { event } = await requireOwnedEvent(ctx, slug, principal);
 
     return {
       name: event.name,
       slug: event.slug,
       eventType: eventType(event),
     };
-  },
+}
+
+export const getAdminEventMeta = query({
+  args: getAdminEventMetaArgs,
+  handler: async (ctx, args) =>
+    getAdminEventMetaForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 export const getParticipantMeta = query({
@@ -633,10 +658,15 @@ export const getStage = query({
   },
 });
 
-export const getAdmin = query({
-  args: { slug: v.string(), },
-  handler: async (ctx, { slug }) => {
-    const { event } = await requireEventOrganization(ctx, slug);
+export const getAdminArgs = v.object({ slug: v.string(), });
+
+export async function getAdminForOrganization(
+  ctx: QueryCtx,
+  args: Infer<typeof getAdminArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { slug } = args;
+    const { event } = await requireOwnedEvent(ctx, slug, principal);
 
     const submissions = await ctx.db
       .query("submissions")
@@ -715,7 +745,12 @@ export const getAdmin = query({
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .map(mapAdminSubmission),
     };
-  },
+}
+
+export const getAdmin = query({
+  args: getAdminArgs,
+  handler: async (ctx, args) =>
+    getAdminForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 export const getParticipant = query({
@@ -929,23 +964,27 @@ export const submitHackathon = mutation({
   },
 });
 
-export const adminAddSubmission = mutation({
-  args: {
-    slug: v.string(),
-    participantToken: v.string(),
-    name: v.string(),
-    demoTitle: v.string(),
-    description: v.string(),
-    phone: v.string(),
-    email: v.optional(v.string()),
-    twitter: v.optional(v.string()),
-    linkedin: v.optional(v.string()),
-    category: v.optional(v.string()),
-    queueOrder: v.number(),
-    list: v.optional(v.union(v.literal("lineup"), v.literal("pool"))),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const adminAddSubmissionArgs = v.object({
+  slug: v.string(),
+  participantToken: v.string(),
+  name: v.string(),
+  demoTitle: v.string(),
+  description: v.string(),
+  phone: v.string(),
+  email: v.optional(v.string()),
+  twitter: v.optional(v.string()),
+  linkedin: v.optional(v.string()),
+  category: v.optional(v.string()),
+  queueOrder: v.number(),
+  list: v.optional(v.union(v.literal("lineup"), v.literal("pool"))),
+});
+
+export async function adminAddSubmissionForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof adminAddSubmissionArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     if (eventType(event) !== "demo") {
       throw new ConvexError("Add hackathon teams through the public submission form.");
     }
@@ -965,7 +1004,12 @@ export const adminAddSubmission = mutation({
 
     await logAction(ctx, event._id, "submission_admin_added", actor, submissionId);
     return { submissionId };
-  },
+}
+
+export const adminAddSubmission = mutation({
+  args: adminAddSubmissionArgs,
+  handler: async (ctx, args) =>
+    adminAddSubmissionForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 const adminTestSubmissionValidator = v.object({
@@ -984,13 +1028,17 @@ const adminTestSubmissionValidator = v.object({
   videoUrl: v.optional(v.string()),
 });
 
-export const adminAddTestSubmissions = mutation({
-  args: {
-    slug: v.string(),
-    submissions: v.array(adminTestSubmissionValidator),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const adminAddTestSubmissionsArgs = v.object({
+  slug: v.string(),
+  submissions: v.array(adminTestSubmissionValidator),
+});
+
+export async function adminAddTestSubmissionsForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof adminAddTestSubmissionsArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     if (event.submissionsClosedAt !== undefined) {
       throw new ConvexError("Submissions are closed.");
     }
@@ -1043,7 +1091,12 @@ export const adminAddTestSubmissions = mutation({
     await ctx.db.patch(event._id, { updatedAt: now });
     await queueJudgingSheetSync(ctx, event);
     return { submissionIds };
-  },
+}
+
+export const adminAddTestSubmissions = mutation({
+  args: adminAddTestSubmissionsArgs,
+  handler: async (ctx, args) =>
+    adminAddTestSubmissionsForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 export const editParticipantContact = mutation({
@@ -1112,13 +1165,17 @@ export const updateEvent = mutation({
   },
 });
 
-export const saveRoundOneJudges = mutation({
-  args: {
-    slug: v.string(),
-    judges: v.array(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const saveRoundOneJudgesArgs = v.object({
+  slug: v.string(),
+  judges: v.array(v.string()),
+});
+
+export async function saveRoundOneJudgesForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof saveRoundOneJudgesArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     if (eventType(event) !== "hackathon") {
       throw new ConvexError("Judge assignments are only available for hackathons.");
     }
@@ -1195,17 +1252,26 @@ export const saveRoundOneJudges = mutation({
     await logAction(ctx, event._id, "round_one_judges_saved", actor, String(roster.length));
     await queueJudgingSheetSync(ctx, event, 0);
     return { judgeCount: roster.length, reassignedSubmissionCount };
-  },
+}
+
+export const saveRoundOneJudges = mutation({
+  args: saveRoundOneJudgesArgs,
+  handler: async (ctx, args) =>
+    saveRoundOneJudgesForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const changeEventType = mutation({
-  args: {
-    slug: v.string(),
-    eventType: v.union(v.literal("demo"), v.literal("hackathon")),
-    confirmReset: v.boolean(),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const changeEventTypeArgs = v.object({
+  slug: v.string(),
+  eventType: v.union(v.literal("demo"), v.literal("hackathon")),
+  confirmReset: v.boolean(),
+});
+
+export async function changeEventTypeForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof changeEventTypeArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     if (event.judgingStatus !== undefined || event.submissionsClosedAt !== undefined) {
       throw new ConvexError("Event type cannot change after judging has started.");
     }
@@ -1237,17 +1303,26 @@ export const changeEventType = mutation({
     });
     await logAction(ctx, event._id, "event_type_changed", actor, args.eventType);
     return { deletedSubmissions: submissions.length };
-  },
+}
+
+export const changeEventType = mutation({
+  args: changeEventTypeArgs,
+  handler: async (ctx, args) =>
+    changeEventTypeForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const saveJudgingSheet = mutation({
-  args: {
-    slug: v.string(),
-    spreadsheetId: v.string(),
-    spreadsheetUrl: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const saveJudgingSheetArgs = v.object({
+  slug: v.string(),
+  spreadsheetId: v.string(),
+  spreadsheetUrl: v.string(),
+});
+
+export async function saveJudgingSheetForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof saveJudgingSheetArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     if (eventType(event) !== "hackathon") {
       throw new ConvexError("Judging sheets are only available for hackathon events.");
     }
@@ -1282,19 +1357,33 @@ export const saveJudgingSheet = mutation({
       spreadsheetUrl: args.spreadsheetUrl,
       created: true,
     };
-  },
+}
+
+export const saveJudgingSheet = mutation({
+  args: saveJudgingSheetArgs,
+  handler: async (ctx, args) =>
+    saveJudgingSheetForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const requestJudgingSheetSync = mutation({
-  args: { slug: v.string(), },
-  handler: async (ctx, args) => {
-    const { event } = await requireEventOrganization(ctx, args.slug);
+export const requestJudgingSheetSyncArgs = v.object({ slug: v.string(), });
+
+export async function requestJudgingSheetSyncForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof requestJudgingSheetSyncArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event } = await requireOwnedEvent(ctx, args.slug, principal);
     if (eventType(event) !== "hackathon" || !event.judgingSheetId) {
       throw new ConvexError("Create the judging sheet before syncing it.");
     }
 
     await queueJudgingSheetSync(ctx, event, 0);
-  },
+}
+
+export const requestJudgingSheetSync = mutation({
+  args: requestJudgingSheetSyncArgs,
+  handler: async (ctx, args) =>
+    requestJudgingSheetSyncForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 export const backfillHackathonVideoLinks = mutation({
@@ -1574,21 +1663,25 @@ export const completeJudgingSheetSync = internalMutation({
   },
 });
 
-export const updateSubmission = mutation({
-  args: {
-    slug: v.string(),
-    submissionId: v.id("submissions"),
-    name: v.string(),
-    demoTitle: v.string(),
-    description: v.string(),
-    phone: v.string(),
-    email: v.optional(v.string()),
-    twitter: v.optional(v.string()),
-    linkedin: v.optional(v.string()),
-    category: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const { event } = await requireEventOrganization(ctx, args.slug);
+export const updateSubmissionArgs = v.object({
+  slug: v.string(),
+  submissionId: v.id("submissions"),
+  name: v.string(),
+  demoTitle: v.string(),
+  description: v.string(),
+  phone: v.string(),
+  email: v.optional(v.string()),
+  twitter: v.optional(v.string()),
+  linkedin: v.optional(v.string()),
+  category: v.optional(v.string()),
+});
+
+export async function updateSubmissionForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof updateSubmissionArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event } = await requireOwnedEvent(ctx, args.slug, principal);
     const submission = await ctx.db.get(args.submissionId);
 
     if (!submission || submission.eventId !== event._id) {
@@ -1600,13 +1693,22 @@ export const updateSubmission = mutation({
       updatedAt: Date.now(),
     });
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const updateSubmission = mutation({
+  args: updateSubmissionArgs,
+  handler: async (ctx, args) =>
+    updateSubmissionForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const publishQueue = mutation({
-  args: { slug: v.string(), },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const publishQueueArgs = v.object({ slug: v.string(), });
+
+export async function publishQueueForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof publishQueueArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     await ctx.db.patch(event._id, {
       queuePublished: true,
@@ -1614,32 +1716,50 @@ export const publishQueue = mutation({
       updatedAt: Date.now(),
     });
     await logAction(ctx, event._id, "queue_published", actor);
-  },
+}
+
+export const publishQueue = mutation({
+  args: publishQueueArgs,
+  handler: async (ctx, args) =>
+    publishQueueForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const setStageScreenMode = mutation({
-  args: {
-    slug: v.string(),
-    mode: v.union(v.literal("qr"), v.literal("demo")),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const setStageScreenModeArgs = v.object({
+  slug: v.string(),
+  mode: v.union(v.literal("qr"), v.literal("demo")),
+});
+
+export async function setStageScreenModeForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setStageScreenModeArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     await ctx.db.patch(event._id, {
       stageScreenMode: args.mode,
       updatedAt: Date.now(),
     });
     await logAction(ctx, event._id, `stage_screen_${args.mode}`, actor);
-  },
+}
+
+export const setStageScreenMode = mutation({
+  args: setStageScreenModeArgs,
+  handler: async (ctx, args) =>
+    setStageScreenModeForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const setSubmissionCountVisible = mutation({
-  args: {
-    slug: v.string(),
-    visible: v.boolean(),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const setSubmissionCountVisibleArgs = v.object({
+  slug: v.string(),
+  visible: v.boolean(),
+});
+
+export async function setSubmissionCountVisibleForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setSubmissionCountVisibleArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     await ctx.db.patch(event._id, {
       showSubmissionCountOnStage: args.visible,
@@ -1651,16 +1771,25 @@ export const setSubmissionCountVisible = mutation({
       args.visible ? "stage_submission_count_visible" : "stage_submission_count_hidden",
       actor,
     );
-  },
+}
+
+export const setSubmissionCountVisible = mutation({
+  args: setSubmissionCountVisibleArgs,
+  handler: async (ctx, args) =>
+    setSubmissionCountVisibleForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const setStageMeetLinkVisible = mutation({
-  args: {
-    slug: v.string(),
-    visible: v.boolean(),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const setStageMeetLinkVisibleArgs = v.object({
+  slug: v.string(),
+  visible: v.boolean(),
+});
+
+export async function setStageMeetLinkVisibleForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setStageMeetLinkVisibleArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     if (args.visible && !event.queuePublished) {
       throw new ConvexError("Publish the queue before showing the Meet link in the presentation view");
@@ -1676,16 +1805,25 @@ export const setStageMeetLinkVisible = mutation({
       args.visible ? "stage_meet_link_enabled" : "stage_meet_link_disabled",
       actor,
     );
-  },
+}
+
+export const setStageMeetLinkVisible = mutation({
+  args: setStageMeetLinkVisibleArgs,
+  handler: async (ctx, args) =>
+    setStageMeetLinkVisibleForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const setStageTimerVisible = mutation({
-  args: {
-    slug: v.string(),
-    visible: v.boolean(),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const setStageTimerVisibleArgs = v.object({
+  slug: v.string(),
+  visible: v.boolean(),
+});
+
+export async function setStageTimerVisibleForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setStageTimerVisibleArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     await ctx.db.patch(event._id, {
       showStageTimerOnStage: args.visible,
@@ -1697,16 +1835,25 @@ export const setStageTimerVisible = mutation({
       args.visible ? "stage_timer_visible" : "stage_timer_hidden",
       actor,
     );
-  },
+}
+
+export const setStageTimerVisible = mutation({
+  args: setStageTimerVisibleArgs,
+  handler: async (ctx, args) =>
+    setStageTimerVisibleForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const setStageTimerDuration = mutation({
-  args: {
-    slug: v.string(),
-    durationMs: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const setStageTimerDurationArgs = v.object({
+  slug: v.string(),
+  durationMs: v.number(),
+});
+
+export async function setStageTimerDurationForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setStageTimerDurationArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const now = Date.now();
     const previousDurationMs = stageTimerDuration(event);
@@ -1729,16 +1876,25 @@ export const setStageTimerDuration = mutation({
 
     await ctx.db.patch(event._id, patch);
     await logAction(ctx, event._id, "stage_timer_duration_set", actor, String(durationMs));
-  },
+}
+
+export const setStageTimerDuration = mutation({
+  args: setStageTimerDurationArgs,
+  handler: async (ctx, args) =>
+    setStageTimerDurationForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const startStageTimer = mutation({
-  args: {
-    slug: v.string(),
-    durationMs: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const startStageTimerArgs = v.object({
+  slug: v.string(),
+  durationMs: v.optional(v.number()),
+});
+
+export async function startStageTimerForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof startStageTimerArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const now = Date.now();
     const durationMs = clampTimerDurationMs(args.durationMs ?? stageTimerDuration(event));
@@ -1757,16 +1913,25 @@ export const startStageTimer = mutation({
       updatedAt: now,
     });
     await logAction(ctx, event._id, "stage_timer_started", actor, String(remainingMs));
-  },
+}
+
+export const startStageTimer = mutation({
+  args: startStageTimerArgs,
+  handler: async (ctx, args) =>
+    startStageTimerForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const setDemoTimerVisible = mutation({
-  args: {
-    slug: v.string(),
-    visible: v.boolean(),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const setDemoTimerVisibleArgs = v.object({
+  slug: v.string(),
+  visible: v.boolean(),
+});
+
+export async function setDemoTimerVisibleForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setDemoTimerVisibleArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const now = Date.now();
     const patch: Partial<Doc<"events">> = {
@@ -1789,16 +1954,25 @@ export const setDemoTimerVisible = mutation({
       args.visible ? "demo_timer_visible" : "demo_timer_hidden",
       actor,
     );
-  },
+}
+
+export const setDemoTimerVisible = mutation({
+  args: setDemoTimerVisibleArgs,
+  handler: async (ctx, args) =>
+    setDemoTimerVisibleForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const setDemoTimerDuration = mutation({
-  args: {
-    slug: v.string(),
-    durationMs: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const setDemoTimerDurationArgs = v.object({
+  slug: v.string(),
+  durationMs: v.number(),
+});
+
+export async function setDemoTimerDurationForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setDemoTimerDurationArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const durationMs = clampTimerDurationMs(args.durationMs);
     const patch: Partial<Doc<"events">> = {
@@ -1813,15 +1987,24 @@ export const setDemoTimerDuration = mutation({
 
     await ctx.db.patch(event._id, patch);
     await logAction(ctx, event._id, "demo_timer_duration_set", actor, String(durationMs));
-  },
+}
+
+export const setDemoTimerDuration = mutation({
+  args: setDemoTimerDurationArgs,
+  handler: async (ctx, args) =>
+    setDemoTimerDurationForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const startDemoTimer = mutation({
-  args: {
-    slug: v.string(),
-    },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const startDemoTimerArgs = v.object({
+  slug: v.string(),
+  });
+
+export async function startDemoTimerForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof startDemoTimerArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const now = Date.now();
     const durationMs = demoTimerDuration(event);
@@ -1838,15 +2021,24 @@ export const startDemoTimer = mutation({
       updatedAt: now,
     });
     await logAction(ctx, event._id, "demo_timer_started", actor, String(remainingMs));
-  },
+}
+
+export const startDemoTimer = mutation({
+  args: startDemoTimerArgs,
+  handler: async (ctx, args) =>
+    startDemoTimerForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const pauseDemoTimer = mutation({
-  args: {
-    slug: v.string(),
-    },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const pauseDemoTimerArgs = v.object({
+  slug: v.string(),
+  });
+
+export async function pauseDemoTimerForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof pauseDemoTimerArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const now = Date.now();
     const remainingMs = currentDemoTimerRemaining(event, now);
@@ -1858,16 +2050,25 @@ export const pauseDemoTimer = mutation({
       updatedAt: now,
     });
     await logAction(ctx, event._id, "demo_timer_paused", actor, String(remainingMs));
-  },
+}
+
+export const pauseDemoTimer = mutation({
+  args: pauseDemoTimerArgs,
+  handler: async (ctx, args) =>
+    pauseDemoTimerForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const adjustDemoTimer = mutation({
-  args: {
-    slug: v.string(),
-    deltaMs: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const adjustDemoTimerArgs = v.object({
+  slug: v.string(),
+  deltaMs: v.number(),
+});
+
+export async function adjustDemoTimerForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof adjustDemoTimerArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const now = Date.now();
     const isRunning = event.demoTimerStatus === "running";
@@ -1884,15 +2085,24 @@ export const adjustDemoTimer = mutation({
       updatedAt: now,
     });
     await logAction(ctx, event._id, "demo_timer_adjusted", actor, String(args.deltaMs));
-  },
+}
+
+export const adjustDemoTimer = mutation({
+  args: adjustDemoTimerArgs,
+  handler: async (ctx, args) =>
+    adjustDemoTimerForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const pauseStageTimer = mutation({
-  args: {
-    slug: v.string(),
-    },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const pauseStageTimerArgs = v.object({
+  slug: v.string(),
+  });
+
+export async function pauseStageTimerForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof pauseStageTimerArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const now = Date.now();
     const remainingMs = currentStageTimerRemaining(event, now);
@@ -1904,16 +2114,25 @@ export const pauseStageTimer = mutation({
       updatedAt: now,
     });
     await logAction(ctx, event._id, "stage_timer_paused", actor, String(remainingMs));
-  },
+}
+
+export const pauseStageTimer = mutation({
+  args: pauseStageTimerArgs,
+  handler: async (ctx, args) =>
+    pauseStageTimerForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const resetStageTimer = mutation({
-  args: {
-    slug: v.string(),
-    durationMs: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const resetStageTimerArgs = v.object({
+  slug: v.string(),
+  durationMs: v.optional(v.number()),
+});
+
+export async function resetStageTimerForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof resetStageTimerArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const now = Date.now();
     const durationMs = clampTimerDurationMs(args.durationMs ?? stageTimerDuration(event));
@@ -1927,16 +2146,25 @@ export const resetStageTimer = mutation({
       updatedAt: now,
     });
     await logAction(ctx, event._id, "stage_timer_reset", actor, String(durationMs));
-  },
+}
+
+export const resetStageTimer = mutation({
+  args: resetStageTimerArgs,
+  handler: async (ctx, args) =>
+    resetStageTimerForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const adjustStageTimer = mutation({
-  args: {
-    slug: v.string(),
-    deltaMs: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const adjustStageTimerArgs = v.object({
+  slug: v.string(),
+  deltaMs: v.number(),
+});
+
+export async function adjustStageTimerForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof adjustStageTimerArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const now = Date.now();
     const isRunning = event.stageTimerStatus === "running";
@@ -1950,16 +2178,25 @@ export const adjustStageTimer = mutation({
       updatedAt: now,
     });
     await logAction(ctx, event._id, "stage_timer_adjusted", actor, String(args.deltaMs));
-  },
+}
+
+export const adjustStageTimer = mutation({
+  args: adjustStageTimerArgs,
+  handler: async (ctx, args) =>
+    adjustStageTimerForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const hideSubmission = mutation({
-  args: {
-    slug: v.string(),
-    submissionId: v.id("submissions"),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const hideSubmissionArgs = v.object({
+  slug: v.string(),
+  submissionId: v.id("submissions"),
+});
+
+export async function hideSubmissionForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof hideSubmissionArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     const submission = await ctx.db.get(args.submissionId);
 
     if (!submission || submission.eventId !== event._id) {
@@ -1975,16 +2212,25 @@ export const hideSubmission = mutation({
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_hidden", actor, args.submissionId);
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const hideSubmission = mutation({
+  args: hideSubmissionArgs,
+  handler: async (ctx, args) =>
+    hideSubmissionForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const restoreSubmission = mutation({
-  args: {
-    slug: v.string(),
-    submissionId: v.id("submissions"),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const restoreSubmissionArgs = v.object({
+  slug: v.string(),
+  submissionId: v.id("submissions"),
+});
+
+export async function restoreSubmissionForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof restoreSubmissionArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     const submission = await ctx.db.get(args.submissionId);
 
     if (!submission || submission.eventId !== event._id) {
@@ -2002,19 +2248,28 @@ export const restoreSubmission = mutation({
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_restored", actor, args.submissionId);
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const restoreSubmission = mutation({
+  args: restoreSubmissionArgs,
+  handler: async (ctx, args) =>
+    restoreSubmissionForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 // Reorders the lineup AND pulls in any pool/hidden person whose id appears in
 // orderedIds (used for both intra-lineup drag and pool -> lineup drops). Every
 // listed id becomes "queued" with queueOrder set to its position.
-export const reorderLineup = mutation({
-  args: {
-    slug: v.string(),
-    orderedIds: v.array(v.id("submissions")),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const reorderLineupArgs = v.object({
+  slug: v.string(),
+  orderedIds: v.array(v.id("submissions")),
+});
+
+export async function reorderLineupForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof reorderLineupArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     const now = Date.now();
     for (const [index, submissionId] of args.orderedIds.entries()) {
       const submission = await ctx.db.get(submissionId);
@@ -2035,15 +2290,24 @@ export const reorderLineup = mutation({
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_reordered", actor);
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const reorderLineup = mutation({
+  args: reorderLineupArgs,
+  handler: async (ctx, args) =>
+    reorderLineupForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 // Repopulate the lineup with a random draw from everyone currently in the lineup
 // or the pool, honoring the lineup target. Everyone not drawn goes to the pool.
-export const shuffleLineup = mutation({
-  args: { slug: v.string(), },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const shuffleLineupArgs = v.object({ slug: v.string(), });
+
+export async function shuffleLineupForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof shuffleLineupArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const submissions = await ctx.db
       .query("submissions")
@@ -2078,18 +2342,27 @@ export const shuffleLineup = mutation({
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_shuffled", actor);
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const shuffleLineup = mutation({
+  args: shuffleLineupArgs,
+  handler: async (ctx, args) =>
+    shuffleLineupForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 // Apply an explicit lineup order (e.g. from the AI shuffle): the given ids
 // become the lineup in that order; every other eligible person goes to the pool.
-export const setLineupOrder = mutation({
-  args: {
-    slug: v.string(),
-    orderedIds: v.array(v.id("submissions")),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const setLineupOrderArgs = v.object({
+  slug: v.string(),
+  orderedIds: v.array(v.id("submissions")),
+});
+
+export async function setLineupOrderForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setLineupOrderArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const submissions = await ctx.db
       .query("submissions")
@@ -2119,17 +2392,26 @@ export const setLineupOrder = mutation({
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_ai_ordered", actor);
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const setLineupOrder = mutation({
+  args: setLineupOrderArgs,
+  handler: async (ctx, args) =>
+    setLineupOrderForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 // Pulls a person out of the lineup back into the pool ("all people").
-export const moveToPool = mutation({
-  args: {
-    slug: v.string(),
-    submissionId: v.id("submissions"),
-  },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const moveToPoolArgs = v.object({
+  slug: v.string(),
+  submissionId: v.id("submissions"),
+});
+
+export async function moveToPoolForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof moveToPoolArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     const submission = await ctx.db.get(args.submissionId);
 
     if (!submission || submission.eventId !== event._id) {
@@ -2145,28 +2427,46 @@ export const moveToPool = mutation({
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_to_pool", actor, args.submissionId);
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const moveToPool = mutation({
+  args: moveToPoolArgs,
+  handler: async (ctx, args) =>
+    moveToPoolForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const setLineupTarget = mutation({
-  args: {
-    slug: v.string(),
-    target: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const { event } = await requireEventOrganization(ctx, args.slug);
+export const setLineupTargetArgs = v.object({
+  slug: v.string(),
+  target: v.number(),
+});
+
+export async function setLineupTargetForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setLineupTargetArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const clamped = Math.max(0, Math.min(99, Math.round(args.target)));
     await ctx.db.patch(event._id, { lineupTarget: clamped, updatedAt: Date.now() });
-  },
+}
+
+export const setLineupTarget = mutation({
+  args: setLineupTargetArgs,
+  handler: async (ctx, args) =>
+    setLineupTargetForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const markNoShow = mutation({
-  args: {
-    slug: v.string(),
-    },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const markNoShowArgs = v.object({
+  slug: v.string(),
+  });
+
+export async function markNoShowForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof markNoShowArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     if (!event.queuePublished) {
       return;
     }
@@ -2190,16 +2490,25 @@ export const markNoShow = mutation({
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_no_show", actor, current._id);
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const markNoShow = mutation({
+  args: markNoShowArgs,
+  handler: async (ctx, args) =>
+    markNoShowForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 // Advance the show: the person at the top of the lineup (current) is marked
 // done, so the next person becomes position 0. Order is positional, so nothing
 // else needs to move.
-export const pickNext = mutation({
-  args: { slug: v.string(), },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const pickNextArgs = v.object({ slug: v.string(), });
+
+export async function pickNextForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof pickNextArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     if (!event.queuePublished) {
       return;
     }
@@ -2244,13 +2553,22 @@ export const pickNext = mutation({
 
     await logAction(ctx, event._id, "pick_next", actor);
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const pickNext = mutation({
+  args: pickNextArgs,
+  handler: async (ctx, args) =>
+    pickNextForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const restorePreviousPresenter = mutation({
-  args: { slug: v.string(), },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const restorePreviousPresenterArgs = v.object({ slug: v.string(), });
+
+export async function restorePreviousPresenterForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof restorePreviousPresenterArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     const snapshot = event.lastAdvanceSnapshot;
     if (!snapshot) {
       return;
@@ -2286,13 +2604,22 @@ export const restorePreviousPresenter = mutation({
 
     await logAction(ctx, event._id, "previous_presenter_restored", actor, snapshot.currentSubmissionId);
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const restorePreviousPresenter = mutation({
+  args: restorePreviousPresenterArgs,
+  handler: async (ctx, args) =>
+    restorePreviousPresenterForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const skipCurrent = mutation({
-  args: { slug: v.string(), },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const skipCurrentArgs = v.object({ slug: v.string(), });
+
+export async function skipCurrentForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof skipCurrentArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
     if (!event.queuePublished) {
       return;
     }
@@ -2322,13 +2649,22 @@ export const skipCurrent = mutation({
 
     await logAction(ctx, event._id, "current_skipped", actor, current._id);
     await queueJudgingSheetSync(ctx, event);
-  },
+}
+
+export const skipCurrent = mutation({
+  args: skipCurrentArgs,
+  handler: async (ctx, args) =>
+    skipCurrentForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const clearQueue = mutation({
-  args: { slug: v.string(), },
-  handler: async (ctx, args) => {
-    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+export const clearQueueArgs = v.object({ slug: v.string(), });
+
+export async function clearQueueForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof clearQueueArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
 
     const submissions = await ctx.db
       .query("submissions")
@@ -2350,7 +2686,12 @@ export const clearQueue = mutation({
       judgingSheetSyncError: undefined,
     });
     await logAction(ctx, event._id, "queue_cleared", actor);
-  },
+}
+
+export const clearQueue = mutation({
+  args: clearQueueArgs,
+  handler: async (ctx, args) =>
+    clearQueueForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 export const deleteExpiredHackathonVideos = internalMutation({

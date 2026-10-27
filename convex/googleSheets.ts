@@ -1,10 +1,16 @@
 "use node";
 
-import { ConvexError, v } from "convex/values";
-import { action, internalAction } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { ConvexError, v, type Infer } from "convex/values";
+import { action, internalAction, type ActionCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { google, type sheets_v4 } from "googleapis";
 import { randomUUID } from "node:crypto";
+import { createJudgingSheetArgs } from "./adminActionArgs";
+import {
+  organizationPrincipalValidator,
+  requireOrganization,
+  type OrganizationPrincipal,
+} from "./organizationAuth";
 import {
   googleApiFailure,
   googleApiReason,
@@ -712,109 +718,124 @@ export const syncJudgingSheet = internalAction({
   },
 });
 
-export const createJudgingSheet = action({
-  args: { slug: v.string(), },
-  handler: async (ctx, args): Promise<{ spreadsheetUrl: string; created: boolean }> => {
-    const admin = await ctx.runQuery(api.events.getAdmin, args);
-    if (admin.event.eventType !== "hackathon") {
-      throw new ConvexError("Judging sheets are only available for hackathon events.");
-    }
-    if (admin.event.judgingSheetUrl) {
-      return { spreadsheetUrl: admin.event.judgingSheetUrl, created: false };
-    }
+export async function createJudgingSheetForOrganization(
+  ctx: ActionCtx,
+  args: Infer<typeof createJudgingSheetArgs>,
+  principal: OrganizationPrincipal,
+): Promise<{ spreadsheetUrl: string; created: boolean }> {
+  const admin = await ctx.runQuery(internal.mcpAdmin.getAdminForAction, {
+    principal,
+    input: args,
+  });
+  if (admin.event.eventType !== "hackathon") {
+    throw new ConvexError("Judging sheets are only available for hackathon events.");
+  }
+  if (admin.event.judgingSheetUrl) {
+    return { spreadsheetUrl: admin.event.judgingSheetUrl, created: false };
+  }
 
-    const folderId = requiredEnvironment("GOOGLE_DRIVE_FOLDER_ID");
-    const auth = googleAuth();
-    const drive = google.drive({ version: "v3", auth });
-    const sheets = google.sheets({ version: "v4", auth });
-    const title = `${admin.event.name} judging`;
-    let spreadsheetId: string | undefined;
-    let createdFileThisRun = false;
+  const folderId = requiredEnvironment("GOOGLE_DRIVE_FOLDER_ID");
+  const auth = googleAuth();
+  const drive = google.drive({ version: "v3", auth });
+  const sheets = google.sheets({ version: "v4", auth });
+  const title = `${admin.event.name} judging`;
+  let spreadsheetId: string | undefined;
+  let createdFileThisRun = false;
 
+  try {
+    let folder;
     try {
-      let folder;
-      try {
-        folder = await drive.files.get({
-          fileId: folderId,
-          fields: "mimeType,trashed,capabilities(canAddChildren)",
-        });
-      } catch (error) {
-        if (googleApiStatus(error) === 404) {
-          throw new ConvexError(
-            "The configured Google Drive folder is not accessible to the connected Google account.",
-          );
-        }
-        throw error;
-      }
-      if (folder.data.trashed || folder.data.mimeType !== GOOGLE_DRIVE_FOLDER_MIME_TYPE) {
-        throw new ConvexError("GOOGLE_DRIVE_FOLDER_ID must point to a Google Drive folder.");
-      }
-      if (!folder.data.capabilities?.canAddChildren) {
+      folder = await drive.files.get({
+        fileId: folderId,
+        fields: "mimeType,trashed,capabilities(canAddChildren)",
+      });
+    } catch (error) {
+      if (googleApiStatus(error) === 404) {
         throw new ConvexError(
-          "The connected Google account needs permission to add files to the configured Drive folder.",
+          "The configured Google Drive folder is not accessible to the connected Google account.",
         );
       }
+      throw error;
+    }
+    if (folder.data.trashed || folder.data.mimeType !== GOOGLE_DRIVE_FOLDER_MIME_TYPE) {
+      throw new ConvexError("GOOGLE_DRIVE_FOLDER_ID must point to a Google Drive folder.");
+    }
+    if (!folder.data.capabilities?.canAddChildren) {
+      throw new ConvexError(
+        "The connected Google account needs permission to add files to the configured Drive folder.",
+      );
+    }
 
-      const createdFile = await drive.files.create({
-        requestBody: {
-          name: title,
-          mimeType: GOOGLE_SHEETS_MIME_TYPE,
-          parents: [folderId],
-        },
-        fields: "id",
-      });
-      spreadsheetId = createdFile.data.id ?? undefined;
-      createdFileThisRun = true;
-      if (!spreadsheetId) throw new ConvexError("Google did not return a spreadsheet ID.");
+    const createdFile = await drive.files.create({
+      requestBody: {
+        name: title,
+        mimeType: GOOGLE_SHEETS_MIME_TYPE,
+        parents: [folderId],
+      },
+      fields: "id",
+    });
+    spreadsheetId = createdFile.data.id ?? undefined;
+    createdFileThisRun = true;
+    if (!spreadsheetId) throw new ConvexError("Google did not return a spreadsheet ID.");
 
-      const allSubmissions = [
-        ...admin.lineup,
-        ...admin.pool,
-        ...admin.hidden,
-        ...admin.completed,
-        ...admin.noShows,
-        ...admin.withdrawn,
-      ];
-      const uniqueSubmissions = [
-        ...new Map(allSubmissions.map((submission) => [submission.id, submission])).values(),
-      ].sort((a, b) => a.createdAt - b.createdAt) as JudgingSheetSubmission[];
-      const values = buildJudgingSheetValues({
-        eventName: admin.event.name,
-        meetUrl: admin.event.meetUrl,
-        submissions: uniqueSubmissions,
-      });
+    const allSubmissions = [
+      ...admin.lineup,
+      ...admin.pool,
+      ...admin.hidden,
+      ...admin.completed,
+      ...admin.noShows,
+      ...admin.withdrawn,
+    ];
+    const uniqueSubmissions = [
+      ...new Map(allSubmissions.map((submission) => [submission.id, submission])).values(),
+    ].sort((a, b) => a.createdAt - b.createdAt) as JudgingSheetSubmission[];
+    const values = buildJudgingSheetValues({
+      eventName: admin.event.name,
+      meetUrl: admin.event.meetUrl,
+      submissions: uniqueSubmissions,
+    });
 
-      await replaceJudgingTab({
-        sheets,
-        spreadsheetId,
-        values,
-        replaceDefaultSheet: createdFileThisRun,
-      });
+    await replaceJudgingTab({
+      sheets,
+      spreadsheetId,
+      values,
+      replaceDefaultSheet: createdFileThisRun,
+    });
 
-      const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
-      const saved = await ctx.runMutation(api.events.saveJudgingSheet, {
-        ...args,
-        spreadsheetId,
-        spreadsheetUrl,
+    const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+    const saved = await ctx.runMutation(internal.mcpAdmin.saveJudgingSheet, {
+      principal,
+      input: { ...args, spreadsheetId, spreadsheetUrl },
+    });
+    if (!saved.created && saved.spreadsheetId !== spreadsheetId) {
+      await drive.files.update({
+        fileId: spreadsheetId,
+        requestBody: { trashed: true },
       });
-      if (!saved.created && saved.spreadsheetId !== spreadsheetId) {
-        await drive.files.update({
+    }
+    return { spreadsheetUrl: saved.spreadsheetUrl, created: saved.created };
+  } catch (error) {
+    if (spreadsheetId && createdFileThisRun) {
+      await drive.files
+        .update({
           fileId: spreadsheetId,
           requestBody: { trashed: true },
-        });
-      }
-      return { spreadsheetUrl: saved.spreadsheetUrl, created: saved.created };
-    } catch (error) {
-      if (spreadsheetId && createdFileThisRun) {
-        await drive.files
-          .update({
-            fileId: spreadsheetId,
-            requestBody: { trashed: true },
-          })
-          .catch(() => undefined);
-      }
-      if (error instanceof ConvexError) throw error;
-      throw new ConvexError(`Could not update the judging sheet: ${googleApiFailure(error)}`);
+        })
+        .catch(() => undefined);
     }
-  },
+    if (error instanceof ConvexError) throw error;
+    throw new ConvexError(`Could not update the judging sheet: ${googleApiFailure(error)}`);
+  }
+}
+
+export const createJudgingSheet = action({
+  args: createJudgingSheetArgs,
+  handler: async (ctx, args): Promise<{ spreadsheetUrl: string; created: boolean }> =>
+    createJudgingSheetForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const createJudgingSheetMcp = internalAction({
+  args: { principal: organizationPrincipalValidator, input: createJudgingSheetArgs },
+  handler: async (ctx, args): Promise<{ spreadsheetUrl: string; created: boolean }> =>
+    createJudgingSheetForOrganization(ctx, args.input, args.principal),
 });

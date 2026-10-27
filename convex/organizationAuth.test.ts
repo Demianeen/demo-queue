@@ -10,6 +10,7 @@ const modules = {
   "./judging.ts": () => import("./judging"),
   "./ai.ts": () => import("./ai"),
   "./googleSheets.ts": () => import("./googleSheets"),
+  "./mcpAdmin.ts": () => import("./mcpAdmin"),
 };
 const input = { expectedOrganizationId: "org_outpost", name: "Demo night", slug: "demo-night", eventType: "demo" as const, meetUrl: "https://meet.google.com/example" };
 const page = { paginationOpts: { numItems: 2, cursor: null } };

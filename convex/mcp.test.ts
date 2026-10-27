@@ -5,6 +5,8 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { activeMemberships, mcpConfig, verifyConnectUser } from "./mcpAuth";
 import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
+import { ADMIN_TOOLS } from "./mcpTools";
+import { z } from "zod";
 
 const modules = {
   "./_generated/api.js": () => import("./_generated/api.js"),
@@ -13,6 +15,10 @@ const modules = {
   "./eventSlugs.ts": () => import("./eventSlugs"),
   "./organizationStyles.ts": () => import("./organizationStyles"),
   "./mcpData.ts": () => import("./mcpData"),
+  "./mcpAdmin.ts": () => import("./mcpAdmin"),
+  "./judging.ts": () => import("./judging"),
+  "./ai.ts": () => import("./ai"),
+  "./googleSheets.ts": () => import("./googleSheets"),
   "./http.ts": () => import("./http"),
 };
 const config = { issuer: "https://login.example.com", resource: "https://some.convex.site/mcp", apiKey: "private-provider-key" };
@@ -26,6 +32,25 @@ beforeAll(async () => {
   publicJwk = { ...await exportJWK(pair.publicKey), kid: "test-key", alg: "RS256", use: "sig" };
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+
+function requiredExample(value: unknown): unknown {
+  const schema = z.object({
+    type: z.string().optional(), const: z.unknown().optional(),
+    anyOf: z.array(z.unknown()).optional(),
+    properties: z.record(z.string(), z.unknown()).optional(), required: z.array(z.string()).optional(),
+  }).passthrough().parse(value);
+  if ("const" in schema) return schema.const;
+  if (schema.anyOf?.[0]) return requiredExample(schema.anyOf[0]);
+  switch (schema.type) {
+    case "object": return Object.fromEntries((schema.required ?? []).map((name) => [name, requiredExample(schema.properties?.[name])]));
+    case "array": return [];
+    case "boolean": return false;
+    case "number": return 1;
+    case "null": return null;
+    case "string": return "example";
+    default: throw new Error("Unsupported test schema");
+  }
+}
 
 async function token(overrides: Record<string, unknown> = {}) {
   return new SignJWT({ iss: config.issuer, aud: config.resource, sub: user.userId, sid: "documented-consent-id", org_id: "org_one", client_id: "client_test", scope: "openid profile email offline_access", iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 600, ...overrides })
@@ -63,7 +88,7 @@ test("official SDK serves initialize, discovery, and safe calls as stateless JSO
   const discovered = await request(t, bearer, "tools/list", {});
   const discovery = await discovered.json();
   expect(JSON.stringify(discovery)).toContain('"result"');
-  expect(discovery.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["list_organizations", "list_events", "get_event", "create_event", "list_styles", "create_style", "set_default_style"]);
+  expect(discovery.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["list_organizations","list_events","get_event","create_event","list_styles","create_style","set_default_style","get_event_overview","get_event_admin","get_submission_contacts","add_submission","add_test_submissions","save_judges","change_event_type","request_judging_sheet_sync","update_submission","publish_queue","set_stage_screen_mode","set_submission_count_visible","set_stage_meet_link_visible","set_stage_timer_visible","set_stage_timer_duration","start_stage_timer","set_demo_timer_visible","set_demo_timer_duration","start_demo_timer","pause_demo_timer","adjust_demo_timer","pause_stage_timer","reset_stage_timer","adjust_stage_timer","hide_submission","restore_submission","reorder_lineup","shuffle_lineup","move_to_pool","set_lineup_target","mark_no_show","advance_presenter","restore_previous_presenter","skip_current_presenter","clear_queue","list_judge_links","create_judge_link","close_submissions","start_assignment_preparation","prepare_assignment_batch","preview_redistribution","apply_redistribution","get_judging_progress","set_judging_timer","start_judging","add_judging_time","close_judging","reopen_judging","get_judging_timer","get_normalization_overview","save_normalization_decision","ai_shuffle","create_judging_sheet"]);
   const called = await request(t, bearer, "tools/call", { name: "list_events", arguments: { organizationId: "org_one" } });
   expect(JSON.parse((await called.json()).result.content[0].text)).toEqual({ page: [], isDone: true, continueCursor: "_end_cursor" });
   const modern = await request(t, bearer, "tools/list", { _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} } }, { "MCP-Protocol-Version": "2026-07-28", "Mcp-Method": "tools/list" });
@@ -71,6 +96,67 @@ test("official SDK serves initialize, discovery, and safe calls as stateless JSO
   const modernBody = await modern.json();
   expect(JSON.stringify(modernBody)).toContain('"result"');
   expect(modernBody.result.tools.map((tool: { name: string }) => tool.name)).toContain("create_style");
+});
+
+test("all 53 added tools deny foreign organization selection and revoked membership before domain effects", async () => {
+  let active = true;
+  provider(() => ({ data: active ? [membership] : [], list_metadata: { after: null } }));
+  const t = convexTest(schema, modules);
+  const bearer = await token();
+  const discovery = await (await request(t, bearer, "tools/list", {})).json();
+  const tools = z.array(z.object({ name: z.string(), inputSchema: z.unknown() })).parse(discovery.result.tools);
+  const names = new Set(ADMIN_TOOLS.map((tool) => tool.name));
+  expect(names.size).toBe(53);
+  for (const tool of tools.filter((tool) => names.has(tool.name))) {
+    const example = z.record(z.string(), z.unknown()).parse(requiredExample(tool.inputSchema));
+    const foreign = await (await request(t, bearer, "tools/call", { name: tool.name, arguments: { ...example, organizationId: "org_two" } })).json();
+    expect(JSON.parse(foreign.result.content[0].text), tool.name).toEqual({ error: "reauthorization_required" });
+    active = false;
+    const revoked = await (await request(t, bearer, "tools/call", { name: tool.name, arguments: { ...example, organizationId: "org_one" } })).json();
+    expect(JSON.parse(revoked.result.content[0].text), tool.name).toEqual({ error: "membership_required" });
+    active = true;
+  }
+  expect(await t.run((ctx) => ctx.db.query("events").collect())).toEqual([]);
+  expect(await t.run((ctx) => ctx.db.query("submissions").collect())).toEqual([]);
+});
+
+test("signed HTTP tools persist a complete organizer workflow without exposing participant authority", async () => {
+  provider();
+  const t = convexTest(schema, modules);
+  const bearer = await token();
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const response = await request(t, bearer, "tools/call", { name, arguments: { organizationId: "org_one", ...args } });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.result.isError, JSON.stringify(body)).not.toBe(true);
+    return JSON.parse(body.result.content[0].text);
+  };
+  const event = await call("create_event", { name: "HTTP operator", slug: "http-operator", eventType: "demo", meetUrl: "https://meet.example.com" });
+  const added = await call("add_submission", { slug: event.slug, name: "Sam", demoTitle: "HTTP demo", description: "Live control", phone: "+447700900000", email: "private@example.com", queueOrder: 0 });
+  await call("set_lineup_target", { slug: event.slug, target: 4 });
+  await call("publish_queue", { slug: event.slug });
+  await call("start_stage_timer", { slug: event.slug, durationMs: 180000 });
+  await call("pause_stage_timer", { slug: event.slug });
+  await call("start_demo_timer", { slug: event.slug });
+  await call("pause_demo_timer", { slug: event.slug });
+  const admin = await call("get_event_admin", { slug: event.slug });
+  expect(admin.event).toMatchObject({ queuePublished: true, lineupTarget: 4 });
+  expect(admin.lineup).toMatchObject([{ id: added.submissionId, demoTitle: "HTTP demo" }]);
+  expect(JSON.stringify(admin)).not.toContain("private@example.com");
+  expect(JSON.stringify(admin)).not.toContain("participantToken");
+  const contacts = await call("get_submission_contacts", { slug: event.slug, submissionId: added.submissionId });
+  expect(contacts.email).toBe("private@example.com");
+  await call("advance_presenter", { slug: event.slug });
+  expect((await call("get_event_admin", { slug: event.slug })).completed).toHaveLength(1);
+  await call("restore_previous_presenter", { slug: event.slug });
+  expect((await call("get_event_admin", { slug: event.slug })).lineup).toHaveLength(1);
+  const saved = await t.run((ctx) => ctx.db.query("submissions").first());
+  expect(saved?.participantToken).toMatch(/^[0-9a-f-]{36}$/);
+  const audit = await t.run((ctx) => ctx.db.query("auditLog").collect());
+  expect(audit.length).toBeGreaterThan(4);
+  expect(audit.every((row) => row.actor === user.actor)).toBe(true);
+  const denied = await (await request(t, bearer, "tools/call", { name: "get_event_admin", arguments: { organizationId: "org_one", slug: "does-not-exist" } })).json();
+  expect(JSON.parse(denied.result.content[0].text)).toEqual({ error: "access_denied" });
 });
 
 test("JWT verification rejects issuer, audience, expiry, missing consent, machine identity, missing organization, and invalid signatures", async () => {
@@ -96,7 +182,7 @@ test("HTTP boundary supplies OAuth discovery and rejects unauthorized, expired, 
   expect((await request(t, await token(), "tools/list", {}, { Origin: "https://attacker.example" })).status).toBe(403);
   expect((await request(t, await token(), "tools/list", {}, { Host: "attacker.example" })).status).toBe(403);
   expect((await t.fetch("/mcp?access_token=secret", { method: "POST" })).status).toBe(403);
-  const oversized = await request(t, await token(), "tools/call", { name: "create_style", arguments: { name: "x".repeat(40000) } });
+  const oversized = await request(t, await token(), "tools/call", { name: "create_style", arguments: { name: "x".repeat(300000) } });
   expect([400, 413]).toContain(oversized.status);
 });
 

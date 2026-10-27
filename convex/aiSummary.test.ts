@@ -89,7 +89,7 @@ async function setup() {
         ...extra,
       }),
     );
-  return { t, eventId, add };
+  return { root, t, eventId, add };
 }
 
 const runAll = (t: Awaited<ReturnType<typeof setup>>["t"]) => t.finishAllScheduledFunctions(vi.runAllTimers);
@@ -166,6 +166,26 @@ test("judges see the summary, labelled fields only", async () => {
     generatedAt: expect.any(Number),
     stale: false,
   });
+});
+
+test("organisers see the summary on the admin board; other organisations cannot read it", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  const { root, t, add } = await setup();
+  const id = await add(0);
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  const admin = await t.query(api.events.getAdmin, { slug: "hack" });
+  const item = [...admin.lineup, ...admin.pool].find((submission) => submission.id === id);
+  expect(item?.aiSummary).toEqual({
+    whatItDoes: "Checks agent tool calls against a policy before they run.",
+    howItWorks: "A TypeScript proxy between the agent and its tools.",
+    demoFocus: "Watch a blocked call and the reason it gives.",
+    usedReadme: true,
+    generatedAt: expect.any(Number),
+    stale: false,
+  });
+  await expect(root.withIdentity({ subject: "outsider", org_id: "org_other" }).query(api.events.getAdmin, { slug: "hack" })).rejects.toThrow();
 });
 
 test("a changed description is summarised again; an unchanged edit is not", async () => {

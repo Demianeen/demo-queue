@@ -30,6 +30,7 @@ import { TrackPicker, TrackPills, type TrackOption } from "@/components/TrackPic
 import { TracksAdminPanel } from "@/components/TracksAdminPanel";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { JudgingAdminPanel } from "@/components/JudgingAdminPanel";
+import { SubmissionPreviewTrigger, type SubmissionPreview } from "@/components/SubmissionPreviewCard";
 import { SubmissionRowActions } from "@/components/SubmissionRowActions";
 import { Skeleton } from "@/app/Skeleton";
 import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError, socialLinksError } from "@/lib/validation";
@@ -97,9 +98,33 @@ type AdminSubmission = {
   videoDeletedAt?: number;
   githubUrl?: string;
   roundOneAssignedJudges?: string[];
+  aiSummary?: SubmissionPreview["aiSummary"];
   status: string;
   queueOrder?: number;
 };
+
+/** What the project hover card shows: no phones or emails. */
+function previewFor(item: AdminSubmission): SubmissionPreview & { tracks: string[] } {
+  return {
+    demoTitle: item.demoTitle,
+    description: item.description,
+    teamName: item.teamName,
+    githubUrl: item.githubUrl,
+    videoUrl: item.videoUrl,
+    tracks: item.tracks,
+    aiSummary: item.aiSummary ?? null,
+    people: [
+      { name: item.name, presenter: true, twitter: item.twitter, linkedin: item.linkedin, githubProfile: item.githubProfile },
+      ...item.teamMemberContacts.map((member) => ({
+        name: member.name,
+        presenter: false,
+        twitter: member.twitter,
+        linkedin: member.linkedin,
+        githubProfile: member.githubProfile,
+      })),
+    ],
+  };
+}
 
 type SubmissionFields = {
   name: string;
@@ -390,6 +415,10 @@ export default function AdminPage() {
     admin?.withdrawn.forEach((item) => map.set(item.id, item));
     return map;
   }, [admin?.lineup, admin?.pool, admin?.hidden, admin?.completed, admin?.noShows, admin?.withdrawn]);
+  const submissionPreviews = useMemo(
+    () => new Map([...itemsById].map(([id, item]) => [String(id), previewFor(item)])),
+    [itemsById],
+  );
 
   // Mirror the server lists into local board state for drag previews, but never
   // while a drag is in flight (that would yank a card out from under the cursor).
@@ -1643,6 +1672,8 @@ export default function AdminPage() {
 
         {isHackathonEvent ? (
           <JudgingAdminPanel
+            previews={submissionPreviews}
+            trackNames={admin.tracks.map((track) => track.name)}
             slug={params.slug}
                         judges={admin.event.roundOneJudges}
             lineupSubmissionIds={board.lineup}
@@ -2144,7 +2175,7 @@ function PersonCell({ item }: { item: AdminSubmission }) {
 function DemoCell({ item }: { item: AdminSubmission }) {
   return (
     <>
-      <span className="admin-demo-title">{item.demoTitle}</span>
+      <SubmissionPreviewTrigger className="admin-demo-title" preview={previewFor(item)} />
       {item.description ? <span className="muted">{item.description}</span> : null}
       {item.videoUrl ? (
         <a className="admin-project-link" href={item.videoUrl} target="_blank" rel="noreferrer">

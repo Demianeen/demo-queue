@@ -65,7 +65,7 @@ import {
   tracksById,
 } from "./tracks";
 import { emailConfig } from "./emails";
-import { queueAiSummaryIfStale } from "./aiSummaries";
+import { publicAiSummary, queueAiSummaryIfStale } from "./aiSummaries";
 import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -134,6 +134,7 @@ const adminSubmissionFields = (
   videoDeletedAt: submission.videoDeletedAt,
   rulesAcceptedAt: submission.rulesAcceptedAt,
   roundOneAssignedJudges: submission.roundOneAssignedJudges,
+  aiSummary: publicAiSummary(submission),
   createdAt: submission.createdAt,
   updatedAt: submission.updatedAt,
 });

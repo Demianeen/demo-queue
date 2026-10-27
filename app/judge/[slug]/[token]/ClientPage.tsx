@@ -26,6 +26,7 @@ import {
   JUDGING_CRITERION_LABELS,
 } from "@/lib/judging-rubric";
 import { Id } from "../../../../convex/_generated/dataModel";
+import { youtubeEmbedUrl } from "@/lib/video-embed";
 import styles from "./judge.module.css";
 
 type Criterion = (typeof JUDGING_CRITERIA)[number];
@@ -56,25 +57,6 @@ function useSignedTimer(timer: { remainingMs: number; serverNow: number; running
   }, [timer?.running, timer?.serverNow, timer?.remainingMs]);
   if (!timer) return 0;
   return timer.running ? timer.remainingMs - (now - timer.serverNow) : timer.remainingMs;
-}
-
-function youtubeEmbedUrl(value: string | null) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    const host = url.hostname.replace(/^www\./, "").toLowerCase();
-    let id = "";
-    if (host === "youtu.be") id = url.pathname.split("/").filter(Boolean)[0] ?? "";
-    if (host === "youtube.com" || host === "m.youtube.com") {
-      if (url.pathname === "/watch") id = url.searchParams.get("v") ?? "";
-      else id = url.pathname.match(/^\/(?:embed|shorts)\/([^/]+)/)?.[1] ?? "";
-    }
-    return /^[A-Za-z0-9_-]{6,}$/.test(id)
-      ? `https://www.youtube-nocookie.com/embed/${id}`
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 function genericVideoEmbedUrl(value: string | null) {

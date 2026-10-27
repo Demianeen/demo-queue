@@ -45,3 +45,33 @@ test("first invalid field follows rendered form order instead of validation orde
   );
   assert.equal(firstInvalidFieldName(["name", "email"], invalidFields), null);
 });
+
+test("GitHub profiles accept a username or a github.com profile link", async () => {
+  const { isValidGithubProfile } = await import("../lib/validation.ts");
+  for (const value of ["octocat", "@octo-cat", "github.com/octocat", "https://github.com/octocat/", "https://www.github.com/octocat"]) {
+    assert.equal(isValidGithubProfile(value), true, value);
+  }
+  for (const value of ["-octocat", "octo cat", "https://github.com/octocat/repo", "https://gitlab.com/octocat", "a".repeat(41)]) {
+    assert.equal(isValidGithubProfile(value), false, value);
+  }
+});
+
+test("social link errors name the first bad link", async () => {
+  const { socialLinksError } = await import("../lib/validation.ts");
+  assert.equal(socialLinksError({}), "");
+  assert.equal(socialLinksError({ twitter: "@ada", linkedin: "linkedin.com/in/ada", githubProfile: "ada" }), "");
+  assert.match(socialLinksError({ githubProfile: "not valid!" }), /GitHub/);
+  assert.match(socialLinksError({ linkedin: "example.com/ada" }), /linkedin/);
+});
+
+test("email keys ignore case, spaces and compatibility forms", async () => {
+  const { emailKey } = await import("../lib/validation.ts");
+  assert.equal(emailKey("  Ada@Example.COM "), "ada@example.com");
+  assert.equal(emailKey("ａｄａ@example.com"), "ada@example.com");
+});
+
+test("GitHub social links point at the profile", async () => {
+  const { socialUrl } = await import("../lib/social.ts");
+  assert.equal(socialUrl("github", "@octocat"), "https://github.com/octocat");
+  assert.equal(socialUrl("github", "github.com/octocat"), "https://github.com/octocat");
+});

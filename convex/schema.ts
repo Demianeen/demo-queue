@@ -96,6 +96,10 @@ export default defineSchema({
     email: v.optional(v.string()),
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
+    // The presenter's GitHub username or profile link (not the project repo).
+    githubProfile: v.optional(v.string()),
+    // When the status link was last emailed, to throttle "email me the link again".
+    statusLinkEmailedAt: v.optional(v.number()),
     // Legacy free-text category. Kept for existing data; tracks replace it.
     category: v.optional(v.string()),
     // Ordered by the event's track order. Undefined means tracks were never set.
@@ -148,6 +152,9 @@ export default defineSchema({
     name: v.string(),
     email: v.optional(v.string()),
     whatsappPhone: v.optional(v.string()),
+    twitter: v.optional(v.string()),
+    linkedin: v.optional(v.string()),
+    githubProfile: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_event", ["eventId"])

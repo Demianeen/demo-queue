@@ -31,7 +31,7 @@ import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { JudgingAdminPanel } from "@/components/JudgingAdminPanel";
 import { SubmissionRowActions } from "@/components/SubmissionRowActions";
 import { Skeleton } from "@/app/Skeleton";
-import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError } from "@/lib/validation";
+import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError, socialLinksError } from "@/lib/validation";
 import { parseRoundOneJudges } from "@/lib/judging-assignment";
 import {
   DndContext,
@@ -78,6 +78,7 @@ type AdminSubmission = {
   email?: string;
   twitter?: string;
   linkedin?: string;
+  githubProfile?: string;
   tracks: string[];
   trackIds: Id<"eventTracks">[];
   teamName?: string;
@@ -86,6 +87,9 @@ type AdminSubmission = {
     name: string;
     email?: string;
     whatsappPhone?: string;
+    twitter?: string;
+    linkedin?: string;
+    githubProfile?: string;
   }>;
   videoUrl?: string | null;
   videoDeleteAt?: number;
@@ -104,6 +108,7 @@ type SubmissionFields = {
   email: string;
   twitter: string;
   linkedin: string;
+  githubProfile: string;
   trackIds: Id<"eventTracks">[];
 };
 
@@ -893,6 +898,7 @@ export default function AdminPage() {
       email: values.email || undefined,
       twitter: values.twitter || undefined,
       linkedin: values.linkedin || undefined,
+      githubProfile: values.githubProfile || undefined,
       trackIds: values.trackIds,
       queueOrder: Date.now(),
       list: "lineup",
@@ -1055,6 +1061,7 @@ export default function AdminPage() {
       email: values.email || undefined,
       twitter: values.twitter || undefined,
       linkedin: values.linkedin || undefined,
+      githubProfile: values.githubProfile || undefined,
       trackIds: values.trackIds,
     });
     setEditingId(null);
@@ -2251,8 +2258,9 @@ function SubmissionForm({
       email: read("email"),
       twitter: read("twitter"),
       linkedin: read("linkedin"),
+      githubProfile: read("githubProfile"),
     };
-    const lengthError = firstFieldLimitError(values);
+    const lengthError = firstFieldLimitError(values) || socialLinksError(values);
 
     if (lengthError) {
       setError(lengthError);
@@ -2336,6 +2344,16 @@ function SubmissionForm({
           maxLength={SUBMISSION_FIELD_LIMITS.linkedin}
         />
       </div>
+      <div className="field">
+        <label htmlFor={`${fieldId}-githubProfile`}>GitHub</label>
+        <input
+          id={`${fieldId}-githubProfile`}
+          name="githubProfile"
+          placeholder="Username or github.com link"
+          defaultValue={initial?.githubProfile ?? ""}
+          maxLength={SUBMISSION_FIELD_LIMITS.githubProfile}
+        />
+      </div>
       <TrackPicker tracks={eventTracks} value={trackIds} onChange={setTrackIds} disabled={saving} hint="none, one or several" />
       {error ? (
         <p style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600, margin: 0 }}>
@@ -2354,18 +2372,33 @@ function SubmissionForm({
   );
 }
 
+type ContactPerson = {
+  name: string;
+  email?: string;
+  phone?: string;
+  whatsappPhone?: string;
+  twitter?: string;
+  linkedin?: string;
+  githubProfile?: string;
+};
+
 function Contact({ item }: { item: AdminSubmission }) {
-  const contacts = [
+  const contacts: ContactPerson[] = [
     {
       name: item.name,
       email: item.email,
       phone: item.teamName ? undefined : item.phone,
       whatsappPhone: item.teamName ? item.phone : undefined,
+      twitter: item.twitter,
+      linkedin: item.linkedin,
+      githubProfile: item.githubProfile,
     },
-    ...item.teamMemberContacts.map((contact) => ({ ...contact, phone: undefined })),
-  ].filter((contact) => contact.email || contact.phone || contact.whatsappPhone);
-  const hasContact = contacts.length > 0 || item.twitter || item.linkedin;
-  if (!hasContact) return null;
+    ...item.teamMemberContacts,
+  ].filter(
+    (contact: ContactPerson) =>
+      contact.email || contact.phone || contact.whatsappPhone || contact.twitter || contact.linkedin || contact.githubProfile,
+  );
+  if (contacts.length === 0) return null;
 
   return (
     <div className="contact-list">
@@ -2383,18 +2416,34 @@ function Contact({ item }: { item: AdminSubmission }) {
             </a>
           ) : null}
           {contact.email ? <a href={`mailto:${contact.email}`}>{contact.email}</a> : null}
+          <ContactSocials person={contact} />
         </div>
       ))}
-      {item.twitter ? (
-        <a href={socialUrl("twitter", item.twitter)} rel="noreferrer" target="_blank">
-          {item.twitter}
-        </a>
-      ) : null}
-      {item.linkedin ? (
-        <a href={socialUrl("linkedin", item.linkedin)} rel="noreferrer" target="_blank">
-          {item.linkedin}
-        </a>
-      ) : null}
     </div>
+  );
+}
+
+function ContactSocials({ person }: { person: ContactPerson }) {
+  const links = [
+    person.twitter ? { kind: "twitter" as const, label: "X", value: person.twitter } : null,
+    person.linkedin ? { kind: "linkedin" as const, label: "LinkedIn", value: person.linkedin } : null,
+    person.githubProfile ? { kind: "github" as const, label: "GitHub", value: person.githubProfile } : null,
+  ].filter((link) => link !== null);
+  if (links.length === 0) return null;
+  return (
+    <span className="contact-socials">
+      {links.map((link) => (
+        <a
+          aria-label={`${person.name} on ${link.label}`}
+          href={socialUrl(link.kind, link.value)}
+          key={link.kind}
+          rel="noreferrer"
+          target="_blank"
+          title={link.value}
+        >
+          {link.label}
+        </a>
+      ))}
+    </span>
   );
 }

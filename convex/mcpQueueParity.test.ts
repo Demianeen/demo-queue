@@ -283,7 +283,7 @@ test("private admin reads preserve all six groups and explicitly separate contac
   const admin = await f.t.query(internal.mcpAdmin.getEventAdmin, { principal, input: { slug: "old-parity" } });
   expect(admin.event).toEqual(browser.event);
   for (const group of ["lineup", "pool", "hidden", "completed", "noShows", "withdrawn"] satisfies (keyof Omit<typeof admin, "event">)[]) {
-    const privateKeys = ["phone", "email", "twitter", "linkedin", "teamMemberContacts", "participantToken"];
+    const privateKeys = ["phone", "email", "twitter", "linkedin", "githubProfile", "teamMemberContacts", "participantToken"];
     expect(admin[group]).toEqual(browser[group].map((submission) => Object.fromEntries(Object.entries(submission).filter(([key]) => !privateKeys.includes(key)))));
     for (const submission of admin[group]) {
       for (const key of privateKeys) expect(submission).not.toHaveProperty(key);

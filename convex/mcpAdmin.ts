@@ -71,7 +71,7 @@ export const getSubmissionContacts = internalQuery({
     if (!submission) throw new ConvexError("Submission not found");
     return {
       id: submission.id, name: submission.name, phone: submission.phone,
-      email: submission.email, twitter: submission.twitter, linkedin: submission.linkedin,
+      email: submission.email, twitter: submission.twitter, linkedin: submission.linkedin, githubProfile: submission.githubProfile,
       teamMemberContacts: submission.teamMemberContacts,
     };
   },

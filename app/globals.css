@@ -261,78 +261,6 @@ h3 {
   font-weight: 600;
 }
 
-.team-members-grid {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-
-.team-member-row {
-  background: rgba(255, 255, 255, 0.52);
-  border: 1px solid var(--app-line);
-  border-radius: 14px;
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  padding: 14px;
-}
-
-.team-member-row-header,
-.team-members-footer {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-}
-
-.team-member-row-header strong {
-  color: var(--app-ink);
-  font-size: 13px;
-}
-
-.team-member-inputs {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.team-member-cell {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.team-member-cell label {
-  color: var(--app-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.team-member-cell .form-error {
-  line-height: 1.35;
-}
-
-.outpost-content .form-section > .team-members-field > .team-members-grid {
-  grid-column: 2;
-}
-
-.outpost-content .team-member-row {
-  background: rgba(248, 246, 240, 0.38);
-  border-color: #aaa69f;
-  border-radius: 4px;
-}
-
-.outpost-content .team-member-cell input {
-  background: rgba(248, 246, 240, 0.68);
-  border-color: #aaa69f;
-  border-radius: 4px;
-  box-shadow: none;
-}
-
-.outpost-content .team-member-cell input:focus {
-  border-color: #111212;
-  box-shadow: 0 0 0 2px rgba(17, 18, 18, 0.12);
-}
-
 .submission-confirmation {
   align-items: start;
   background: rgba(255, 255, 255, 0.62);
@@ -650,13 +578,6 @@ h3 {
 .outpost-content .field-label-group > label {
   color: #141515;
   line-height: 1.35;
-}
-
-.outpost-field-hint {
-  color: #65635f;
-  font-size: 12px;
-  line-height: 1.4;
-  padding-right: 8px;
 }
 
 .outpost-content .form-section > .field > input,
@@ -2990,10 +2911,6 @@ h3 {
     grid-template-columns: minmax(145px, 30%) minmax(0, 1fr);
   }
 
-  .team-member-inputs {
-    grid-template-columns: 1fr;
-  }
-
 }
 
 /* Phone-first: the form/status cards go full-bleed instead of floating in a
@@ -3065,16 +2982,8 @@ h3 {
     grid-column: 1;
   }
 
-  .outpost-content .form-section > .team-members-field > .team-members-grid {
-    grid-column: 1;
-  }
-
   .outpost-content .form-section > .field > .field-label-group {
     padding-top: 0;
-  }
-
-  .outpost-field-hint {
-    padding: 0 0 2px;
   }
 
   .outpost-content .actions .button {
@@ -3292,22 +3201,6 @@ h3 {
   line-height: 1.4;
 }
 
-.outpost-content .form-section > .track-picker > .field-label-group {
-  display: grid;
-  gap: 6px;
-}
-
-.outpost-content .form-section > .track-picker > .track-picker-chips {
-  grid-column: 2;
-  padding-top: 4px;
-}
-
-@media (max-width: 640px) {
-  .outpost-content .form-section > .track-picker > .track-picker-chips {
-    grid-column: 1;
-  }
-}
-
 .track-picker-chips {
   display: flex;
   flex-wrap: wrap;
@@ -3391,4 +3284,228 @@ h3 {
   font-size: clamp(13px, calc(var(--stage-vw) * 1.1), 18px);
   font-weight: 650;
   padding: 4px 12px;
+}
+
+/* Compact submit form: rows of fields, one card per person. */
+.form-compact {
+  gap: 18px;
+}
+
+.form-compact .form-section {
+  gap: 12px;
+}
+
+.form-compact .field {
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.form-compact .field label,
+.form-compact .field-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.form-compact .field input,
+.form-compact .field textarea,
+.form-compact .person-socials input {
+  min-height: 38px;
+  padding: 8px 11px;
+  font-size: 14px;
+  border-radius: 9px;
+}
+
+.form-compact .field textarea {
+  min-height: 0;
+  resize: vertical;
+}
+
+.form-compact .form-help {
+  color: var(--app-muted);
+}
+
+.form-row {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.form-row-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-row-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+
+.form-section-heading h2 {
+  font-size: 18px;
+}
+
+.person-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.person-card {
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px 14px;
+}
+
+.person-card-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  min-height: 28px;
+}
+
+.person-card-header strong {
+  color: var(--app-ink);
+  font-size: 13px;
+}
+
+.person-socials {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.person-socials input {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--app-line);
+  color: var(--app-ink);
+  width: 100%;
+  min-width: 0;
+}
+
+.person-socials input:focus {
+  border-color: var(--cx-indigo);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+  outline: none;
+}
+
+.person-socials-error {
+  grid-column: 1 / -1;
+}
+
+.person-list-footer {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.email-taken {
+  background: color-mix(in srgb, var(--app-bad) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-bad) 35%, transparent);
+  border-radius: 9px;
+  color: var(--app-ink);
+  display: grid;
+  font-size: 13px;
+  gap: 6px;
+  justify-items: start;
+  line-height: 1.4;
+  padding: 9px 11px;
+}
+
+.email-taken-button {
+  background: transparent;
+  border: 0;
+  color: var(--app-ink);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.email-taken-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.email-taken-sent {
+  color: var(--app-muted);
+  font-weight: 600;
+}
+
+.outpost-content .form-compact .field input,
+.outpost-content .form-compact .field textarea,
+.outpost-content .form-compact .person-socials input {
+  background: rgba(248, 246, 240, 0.68);
+  border-color: #aaa69f;
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+.outpost-content .form-compact .field input:focus,
+.outpost-content .form-compact .field textarea:focus,
+.outpost-content .form-compact .person-socials input:focus {
+  border-color: #111212;
+  box-shadow: 0 0 0 2px rgba(17, 18, 18, 0.12);
+}
+
+.outpost-content .form-compact .field label,
+.outpost-content .form-compact .field-label {
+  color: #141515;
+}
+
+.outpost-content .person-card {
+  background: rgba(248, 246, 240, 0.38);
+  border-color: #aaa69f;
+  border-radius: 4px;
+}
+
+.outpost-content .email-taken {
+  border-radius: 4px;
+}
+
+.astra-content .form-compact .field input,
+.astra-content .form-compact .field textarea,
+.astra-content .form-compact .person-socials input {
+  background: #fbfaf7;
+}
+
+.astra-content .person-card {
+  background: #fbfaf7;
+}
+
+@media (max-width: 720px) {
+  .form-row-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .form-row-2,
+  .person-socials {
+    grid-template-columns: 1fr;
+  }
+}
+
+.contact-socials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+
+.contact-socials a {
+  font-weight: 600;
 }

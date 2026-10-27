@@ -11,6 +11,7 @@
 import type * as adminActionArgs from "../adminActionArgs.js";
 import type * as ai from "../ai.js";
 import type * as crons from "../crons.js";
+import type * as emails from "../emails.js";
 import type * as eventOwnership from "../eventOwnership.js";
 import type * as eventSlugs from "../eventSlugs.js";
 import type * as eventTheme from "../eventTheme.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   adminActionArgs: typeof adminActionArgs;
   ai: typeof ai;
   crons: typeof crons;
+  emails: typeof emails;
   eventOwnership: typeof eventOwnership;
   eventSlugs: typeof eventSlugs;
   eventTheme: typeof eventTheme;

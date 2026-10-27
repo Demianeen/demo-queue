@@ -20,8 +20,10 @@ import {
 import { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import {
+  emailKey,
   parseContactTextFields,
   parseSubmissionTextFields,
+  socialLinksError,
   type ContactTextInput,
   type SubmissionTextInput,
 } from "../lib/validation";
@@ -100,7 +102,9 @@ const publicSubmissionFields = (submission: Doc<"submissions">, byId: TracksById
 const adminSubmissionFields = (
   submission: Doc<"submissions">,
   byId: TracksById,
-  teamMemberContacts: Array<Pick<Doc<"teamMembers">, "name" | "email" | "whatsappPhone">> = [],
+  teamMemberContacts: Array<
+    Pick<Doc<"teamMembers">, "name" | "email" | "whatsappPhone" | "twitter" | "linkedin" | "githubProfile">
+  > = [],
   videoUrl: string | null = null,
 ) => ({
   ...publicSubmissionFields(submission, byId),
@@ -109,10 +113,18 @@ const adminSubmissionFields = (
   email: submission.email,
   twitter: submission.twitter,
   linkedin: submission.linkedin,
+  githubProfile: submission.githubProfile,
   participantToken: submission.participantToken,
   screenshotId: submission.screenshotId,
   teamMembers: teamMemberContacts.map((member) => member.name),
-  teamMemberContacts,
+  teamMemberContacts: teamMemberContacts.map((member) => ({
+    name: member.name,
+    email: member.email,
+    whatsappPhone: member.whatsappPhone,
+    twitter: member.twitter,
+    linkedin: member.linkedin,
+    githubProfile: member.githubProfile,
+  })),
   videoUrl: submission.videoUrl ?? videoUrl,
   videoDeleteAt: submission.videoDeleteAt,
   videoDeletedAt: submission.videoDeletedAt,
@@ -284,6 +296,65 @@ async function trackSelection(
 ): Promise<{ trackIds?: Id<"eventTracks">[] }> {
   if (trackIds === undefined) return {};
   return { trackIds: await normalizeTrackSelection(ctx, event._id, trackIds) };
+}
+
+export const EMAIL_TAKEN_MESSAGE =
+  "You already submitted with this email. Check your inbox for your status link.";
+// Wait this long before emailing the same status link again.
+const STATUS_LINK_RESEND_MS = 2 * 60 * 1000;
+const MAX_EVENT_SUBMISSIONS = 1000;
+const MAX_EVENT_TEAM_MEMBERS = MAX_EVENT_SUBMISSIONS * (MAX_ADDITIONAL_TEAM_MEMBERS + 1);
+
+type EmailOwner = { submissionId: Id<"submissions">; email: string };
+
+/**
+ * Every email already used in this event, by presenters and team members of
+ * submissions that have not been withdrawn, keyed without case.
+ */
+async function eventEmailOwners(ctx: Pick<QueryCtx, "db">, eventId: Id<"events">) {
+  const submissions = await ctx.db
+    .query("submissions")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .take(MAX_EVENT_SUBMISSIONS);
+  const active = new Map(
+    submissions.filter((submission) => submission.status !== "withdrawn").map((submission) => [submission._id, submission]),
+  );
+  const owners = new Map<string, EmailOwner>();
+  for (const submission of active.values()) {
+    if (submission.email) owners.set(emailKey(submission.email), { submissionId: submission._id, email: submission.email });
+  }
+  const members = await ctx.db
+    .query("teamMembers")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .take(MAX_EVENT_TEAM_MEMBERS);
+  for (const member of members) {
+    const key = member.email ? emailKey(member.email) : "";
+    if (key && active.has(member.submissionId) && !owners.has(key)) {
+      owners.set(key, { submissionId: member.submissionId, email: member.email! });
+    }
+  }
+  return { owners, submissions: active };
+}
+
+/** Rejects emails that repeat within one submission or that another submission already uses. */
+async function assertEmailsAvailable(
+  ctx: Pick<QueryCtx, "db">,
+  eventId: Id<"events">,
+  emails: Array<string | undefined>,
+  ownSubmissionId?: Id<"submissions">,
+) {
+  const keys = emails.filter((email): email is string => Boolean(email?.trim())).map(emailKey);
+  if (new Set(keys).size !== keys.length) throw new ConvexError("Each person needs a different email.");
+  const { owners } = await eventEmailOwners(ctx, eventId);
+  for (const key of keys) {
+    const owner = owners.get(key);
+    if (owner && owner.submissionId !== ownSubmissionId) throw new ConvexError(EMAIL_TAKEN_MESSAGE);
+  }
+}
+
+function assertSocialLinks(links: { twitter?: string; linkedin?: string; githubProfile?: string }) {
+  const message = socialLinksError(links);
+  if (message) throw new ConvexError(message);
 }
 
 function normalizeTeamName(value: string) {
@@ -842,6 +913,49 @@ export const getParticipant = query({
   },
 });
 
+/**
+ * Whether someone in this event already submitted with this email, as a
+ * presenter or a team member. Never says which submission.
+ */
+export const checkSubmissionEmail = query({
+  args: { slug: v.string(), email: v.string() },
+  handler: async (ctx, args) => {
+    const key = emailKey(args.email);
+    if (!key || key.length > 254 || !key.includes("@")) return { taken: false };
+    const event = await findEventBySlug(ctx, args.slug);
+    if (!event) return { taken: false };
+    const { owners } = await eventEmailOwners(ctx, event._id);
+    return { taken: owners.has(key) };
+  },
+});
+
+/**
+ * Emails the private status link again to an address already in this event.
+ * Answers the same way whether or not the address is known, and sends at
+ * most once every two minutes per submission.
+ */
+export const requestStatusLinkEmail = mutation({
+  args: { slug: v.string(), email: v.string() },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    const { owners, submissions } = await eventEmailOwners(ctx, event._id);
+    const owner = owners.get(emailKey(args.email));
+    if (!owner) return { ok: true };
+    const submission = submissions.get(owner.submissionId)!;
+    const now = Date.now();
+    if (submission.statusLinkEmailedAt !== undefined && now - submission.statusLinkEmailedAt < STATUS_LINK_RESEND_MS) {
+      return { ok: true };
+    }
+    await ctx.db.patch(submission._id, { statusLinkEmailedAt: now });
+    await ctx.scheduler.runAfter(0, internal.emails.sendStatusLinkEmail, {
+      submissionId: submission._id,
+      to: owner.email,
+      reason: "resend",
+    });
+    return { ok: true };
+  },
+});
+
 export const submitDemo = mutation({
   args: {
     slug: v.string(),
@@ -853,6 +967,7 @@ export const submitDemo = mutation({
     email: v.optional(v.string()),
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
+    githubProfile: v.optional(v.string()),
     category: v.optional(v.string()),
     trackIds: v.optional(v.array(v.id("eventTracks"))),
     screenshotId: v.optional(v.id("_storage")),
@@ -865,6 +980,8 @@ export const submitDemo = mutation({
     }
     const now = Date.now();
     const fields = normalizeSubmissionTextFields(args);
+    assertSocialLinks(fields);
+    await assertEmailsAvailable(ctx, event._id, [fields.email]);
     const tracks = await trackSelection(ctx, event, args.trackIds);
     if (args.screenshotId) await requireUnattachedSubmissionFile(ctx, args.screenshotId);
 
@@ -901,6 +1018,9 @@ export const submitHackathon = mutation({
           name: v.string(),
           email: v.string(),
           whatsappPhone: v.string(),
+          twitter: v.optional(v.string()),
+          linkedin: v.optional(v.string()),
+          githubProfile: v.optional(v.string()),
         }),
       ),
     ),
@@ -910,6 +1030,7 @@ export const submitHackathon = mutation({
     email: v.optional(v.string()),
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
+    githubProfile: v.optional(v.string()),
     category: v.optional(v.string()),
     trackIds: v.optional(v.array(v.id("eventTracks"))),
     githubUrl: v.string(),
@@ -955,6 +1076,11 @@ export const submitHackathon = mutation({
     if (!args.rulesAccepted) {
       throw new ConvexError("Confirm that your submission meets the event rules.");
     }
+    assertSocialLinks(fields);
+    await assertEmailsAvailable(ctx, event._id, [
+      presenter?.email ?? fields.email,
+      ...teamMemberContacts.map((member) => member.email),
+    ]);
     const tracks = await trackSelection(ctx, event, args.trackIds);
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
@@ -982,6 +1108,9 @@ export const submitHackathon = mutation({
         name: memberName,
         email: contact?.email,
         whatsappPhone: contact?.whatsappPhone,
+        twitter: contact?.twitter,
+        linkedin: contact?.linkedin,
+        githubProfile: contact?.githubProfile,
         createdAt: now,
       });
     }
@@ -1003,6 +1132,7 @@ export const adminAddSubmissionArgs = v.object({
   email: v.optional(v.string()),
   twitter: v.optional(v.string()),
   linkedin: v.optional(v.string()),
+  githubProfile: v.optional(v.string()),
   category: v.optional(v.string()),
   trackIds: v.optional(v.array(v.id("eventTracks"))),
   queueOrder: v.number(),
@@ -1154,8 +1284,10 @@ export const editParticipantContact = mutation({
       throw new ConvexError("Submission not found");
     }
 
+    const contact = normalizeContactTextFields(args);
+    await assertEmailsAvailable(ctx, event._id, [contact.email], submission._id);
     await ctx.db.patch(submission._id, {
-      ...normalizeContactTextFields(args),
+      ...contact,
       updatedAt: Date.now(),
     });
     await queueJudgingSheetSync(ctx, event);
@@ -1709,6 +1841,7 @@ export const updateSubmissionArgs = v.object({
   email: v.optional(v.string()),
   twitter: v.optional(v.string()),
   linkedin: v.optional(v.string()),
+  githubProfile: v.optional(v.string()),
   category: v.optional(v.string()),
   trackIds: v.optional(v.array(v.id("eventTracks"))),
 });
@@ -1725,9 +1858,10 @@ export async function updateSubmissionForOrganization(
       throw new ConvexError("Submission not found");
     }
 
-    const { category, ...fields } = normalizeSubmissionTextFields(args);
+    const { category, githubProfile, ...fields } = normalizeSubmissionTextFields(args);
     await ctx.db.patch(args.submissionId, {
       ...fields,
+      ...(args.githubProfile !== undefined ? { githubProfile } : {}),
       // Legacy clients still send a category; newer ones send tracks instead.
       ...(args.category !== undefined ? { category } : {}),
       ...(await trackSelection(ctx, event, args.trackIds)),

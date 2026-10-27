@@ -1,5 +1,6 @@
 import { requireEventOrganization } from "./organizationAuth";
 import { ConvexError, v } from "convex/values";
+import { findEventBySlug } from "./eventSlugs";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
 import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment, sameJudge } from "../lib/judging-assignment";
@@ -314,7 +315,7 @@ export const applyRedistribution = mutation({
 export const getMyAssignments = query({
   args: { slug: v.string(), capabilityToken: v.string() },
   handler: async (ctx, args) => {
-    const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
+    const event = await findEventBySlug(ctx, args.slug);
     if (!event || event.eventType !== "hackathon") throw new ConvexError("Event not found.");
     const access = await judgeAccess(ctx, event._id, args.capabilityToken);
     const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
@@ -362,7 +363,7 @@ export const getMyAssignments = query({
 export const saveReview = mutation({
   args: { slug: v.string(), capabilityToken: v.string(), submissionId: v.id("submissions"), innovation: v.optional(v.number()), execution: v.optional(v.number()), demoClarity: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
+    const event = await findEventBySlug(ctx, args.slug);
     if (!event || event.judgingStatus !== "open") throw new ConvexError("Judging is not open.");
     const access = await judgeAccess(ctx, event._id, args.capabilityToken);
     const submission = await ctx.db.get(args.submissionId);

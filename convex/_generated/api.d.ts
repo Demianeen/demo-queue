@@ -11,6 +11,7 @@
 import type * as ai from "../ai.js";
 import type * as crons from "../crons.js";
 import type * as eventOwnership from "../eventOwnership.js";
+import type * as eventSlugs from "../eventSlugs.js";
 import type * as eventTheme from "../eventTheme.js";
 import type * as events from "../events.js";
 import type * as googleSheets from "../googleSheets.js";
@@ -29,6 +30,7 @@ declare const fullApi: ApiFromModules<{
   ai: typeof ai;
   crons: typeof crons;
   eventOwnership: typeof eventOwnership;
+  eventSlugs: typeof eventSlugs;
   eventTheme: typeof eventTheme;
   events: typeof events;
   googleSheets: typeof googleSheets;

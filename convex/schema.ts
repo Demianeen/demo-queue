@@ -4,6 +4,10 @@ import { eventThemeValidator } from "./eventTheme";
 import { visualStyleValidator } from "./visualStyle";
 
 export default defineSchema({
+  eventSlugAliases: defineTable({
+    slug: v.string(),
+    eventId: v.id("events"),
+  }).index("by_slug", ["slug"]),
   organizationStyles: defineTable({
     organizationId: v.string(), name: v.string(), theme: eventThemeValidator,
     preset: v.optional(visualStyleValidator),

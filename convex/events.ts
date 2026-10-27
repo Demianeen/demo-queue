@@ -1,5 +1,6 @@
 import { paginationOptsValidator } from "convex/server";
 import { requireOrganization, requireEventOrganization } from "./organizationAuth";
+import { findEventBySlug } from "./eventSlugs";
 import { ConvexError, v, type Infer } from "convex/values";
 import {
   DatabaseReader,
@@ -104,10 +105,7 @@ const adminSubmissionFields = (
 });
 
 async function eventBySlug(ctx: { db: DatabaseReader }, slug: string) {
-  const event = await ctx.db
-    .query("events")
-    .withIndex("by_slug", (q) => q.eq("slug", slug))
-    .unique();
+  const event = await findEventBySlug(ctx, slug);
 
   if (!event) {
     throw new ConvexError("Event not found");
@@ -435,12 +433,10 @@ export async function createOrganizationEvent(
     let meetUrl: URL;
     try { meetUrl = new URL(args.meetUrl); } catch { throw new ConvexError("Enter a valid meeting URL."); }
     if (!["https:", "http:"].includes(meetUrl.protocol)) throw new ConvexError("Enter an HTTP or HTTPS meeting URL.");
-    const existing = await ctx.db
-      .query("events")
-      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .unique();
+    const existing = await findEventBySlug(ctx, args.slug);
+    const alias = await ctx.db.query("eventSlugAliases").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
 
-    if (existing) {
+    if (existing || alias) {
       throw new ConvexError("That event slug already exists");
     }
 
@@ -503,7 +499,7 @@ export const getOrganizationEventDetails = query({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {
     const { organizationId } = await requireOrganization(ctx);
-    const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    const event = await findEventBySlug(ctx, slug);
     if (!event || event.workosOrganizationId !== organizationId) return null;
     const [submissions, decision] = await Promise.all([
       ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1001),

@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { emailKey, isValidEmail } from "@/lib/validation";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CHECK_DELAY_MS = 350;
 
 export const EMAIL_TAKEN_MESSAGE = "You already submitted with this email. Check your inbox for your status link.";
@@ -25,7 +25,8 @@ function useDebounced<T>(value: T, delayMs: number) {
 export function useEmailTaken(slug: string, email: string) {
   const trimmed = email.trim();
   const debounced = useDebounced(trimmed, CHECK_DELAY_MS);
-  const ready = debounced === trimmed && EMAIL_PATTERN.test(trimmed);
+  // The server refuses malformed emails, so only well-formed ones are checked.
+  const ready = debounced === trimmed && isValidEmail(emailKey(trimmed));
   const result = useQuery(api.events.checkSubmissionEmail, ready ? { slug, email: debounced } : "skip");
   return ready && result?.taken === true;
 }

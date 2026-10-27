@@ -21,6 +21,7 @@ import { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import {
   emailKey,
+  isValidEmail,
   parseContactTextFields,
   parseSubmissionTextFields,
   socialLinksError,
@@ -921,7 +922,7 @@ export const checkSubmissionEmail = query({
   args: { slug: v.string(), email: v.string() },
   handler: async (ctx, args) => {
     const key = emailKey(args.email);
-    if (!key || key.length > 254 || !key.includes("@")) return { taken: false };
+    if (!isValidEmail(key)) throw new ConvexError("Enter a valid email address.");
     const event = await findEventBySlug(ctx, args.slug);
     if (!event) return { taken: false };
     const { owners } = await eventEmailOwners(ctx, event._id);
@@ -937,9 +938,11 @@ export const checkSubmissionEmail = query({
 export const requestStatusLinkEmail = mutation({
   args: { slug: v.string(), email: v.string() },
   handler: async (ctx, args) => {
+    const key = emailKey(args.email);
+    if (!isValidEmail(key)) throw new ConvexError("Enter a valid email address.");
     const event = await eventBySlug(ctx, args.slug);
     const { owners, submissions } = await eventEmailOwners(ctx, event._id);
-    const owner = owners.get(emailKey(args.email));
+    const owner = owners.get(key);
     if (!owner) return { ok: true };
     const submission = submissions.get(owner.submissionId)!;
     const now = Date.now();
@@ -1285,6 +1288,7 @@ export const editParticipantContact = mutation({
     }
 
     const contact = normalizeContactTextFields(args);
+    assertSocialLinks(contact);
     await assertEmailsAvailable(ctx, event._id, [contact.email], submission._id);
     await ctx.db.patch(submission._id, {
       ...contact,

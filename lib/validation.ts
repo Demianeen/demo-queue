@@ -149,6 +149,13 @@ export function socialLinksError(links: { twitter?: string; linkedin?: string; g
   return "";
 }
 
+const emailFormat = z.email();
+
+/** A well-formed email address of at most 254 characters. */
+export function isValidEmail(value: string) {
+  return value.length <= SUBMISSION_FIELD_LIMITS.email && emailFormat.safeParse(value).success;
+}
+
 /** Emails compare without case or surrounding spaces. */
 export function emailKey(email: string) {
   return email.normalize("NFKC").trim().toLowerCase();

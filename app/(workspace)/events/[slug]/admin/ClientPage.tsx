@@ -2432,18 +2432,23 @@ function ContactSocials({ person }: { person: ContactPerson }) {
   if (links.length === 0) return null;
   return (
     <span className="contact-socials">
-      {links.map((link) => (
-        <a
-          aria-label={`${person.name} on ${link.label}`}
-          href={socialUrl(link.kind, link.value)}
-          key={link.kind}
-          rel="noreferrer"
-          target="_blank"
-          title={link.value}
-        >
-          {link.label}
-        </a>
-      ))}
+      {links.map((link) => {
+        const href = socialUrl(link.kind, link.value);
+        // Never link to a site other than the platform's own.
+        if (!href) return <span key={link.kind} title={link.value}>{link.label}</span>;
+        return (
+          <a
+            aria-label={`${person.name} on ${link.label}`}
+            href={href}
+            key={link.kind}
+            rel="noreferrer"
+            target="_blank"
+            title={link.value}
+          >
+            {link.label}
+          </a>
+        );
+      })}
     </span>
   );
 }

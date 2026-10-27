@@ -154,6 +154,26 @@ test("socials are saved per person and checked on the server", async () => {
   ).rejects.toThrow("linkedin.com");
 });
 
+test("the status page checks social links like the submit form", async () => {
+  const { t, slug } = await fixture("demo");
+  const { submissionId, participantToken } = await submitDemo(t, slug, "ada@example.com");
+  const edit = (links: { twitter?: string; linkedin?: string }) =>
+    t.mutation(api.events.editParticipantContact, { slug, participantToken, phone: "+447911123456", email: "ada@example.com", ...links });
+  await expect(edit({ twitter: "https://evil.example/ada" })).rejects.toThrow("Enter an X @handle or an x.com link.");
+  await expect(edit({ linkedin: "javascript:alert(1)" })).rejects.toThrow("linkedin.com");
+  expect((await t.run((ctx) => ctx.db.get(submissionId)))?.twitter).toBeUndefined();
+  await expect(edit({ twitter: "@ada", linkedin: "linkedin.com/in/ada" })).resolves.toBeNull();
+  expect(await t.run((ctx) => ctx.db.get(submissionId))).toMatchObject({ twitter: "@ada", linkedin: "linkedin.com/in/ada" });
+});
+
+test("malformed emails are refused before anything is read", async () => {
+  const { t, slug } = await fixture("demo");
+  for (const email of ["", "ada", "ada@example", "x".repeat(300) + "@example.com"]) {
+    await expect(t.query(api.events.checkSubmissionEmail, { slug, email })).rejects.toThrow("Enter a valid email address.");
+    await expect(t.mutation(api.events.requestStatusLinkEmail, { slug, email })).rejects.toThrow("Enter a valid email address.");
+  }
+});
+
 test("the status page cannot change its email to one another submission uses", async () => {
   const { t, slug } = await fixture("demo");
   await submitDemo(t, slug, "first@example.com");

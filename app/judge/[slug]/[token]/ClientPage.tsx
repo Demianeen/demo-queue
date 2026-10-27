@@ -285,7 +285,7 @@ export default function JudgeClientPage() {
             <>
               <div className={styles.projectIntro}>
                 <h1>{selected.demoTitle}</h1>
-                <p className={styles.projectMeta}>{selected.name}{selected.category ? ` · ${selected.category}` : ""}</p>
+                <p className={styles.projectMeta}>{[selected.name, ...selected.tracks].join(" · ")}</p>
                 <p className={styles.description}>{selected.description}</p>
                 <div className={styles.projectLinks}>
                   {selected.githubUrl ? <a href={selected.githubUrl} target="_blank" rel="noreferrer"><GitForkIcon /> GitHub repository <ExternalLinkIcon /></a> : null}

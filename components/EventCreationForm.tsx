@@ -20,6 +20,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EventWelcome } from "./EventWelcome";
+import { EventTracksFields, type DraftTrack } from "./EventTracksFields";
 
 export function EventCreationForm({ organizationId, organizationName, firstEvent, styles, onManageStyles, onCancel }: {
   organizationId: string; organizationName: string; firstEvent: boolean; styles: Doc<"organizationStyles">[]; onManageStyles: () => void; onCancel?: () => void;
@@ -30,6 +31,7 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
   const [eventType, setEventType] = useState<"demo" | "hackathon">("demo");
   const [styleChoice, setStyleChoice] = useState("default");
   const [meetUrl, setMeetUrl] = useState("");
+  const [tracks, setTracks] = useState<DraftTrack[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
   const selectedStyle = styleChoice === "default" ? styles.find((style) => style.isDefault) : styles.find((style) => style._id === styleChoice);
@@ -45,7 +47,10 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
     setIsCreating(true); setError("");
     try {
       const slug = slugify(name);
-      await createEvent({ name, slug, eventType, visualStyle, styleId: selectedStyle?._id, meetUrl, expectedOrganizationId: organizationId });
+      const trackInputs = tracks
+        .filter((track) => track.name.trim())
+        .map((track) => ({ name: track.name, description: track.description.trim() || undefined }));
+      await createEvent({ name, slug, eventType, visualStyle, styleId: selectedStyle?._id, meetUrl, expectedOrganizationId: organizationId, tracks: trackInputs });
       window.location.assign(adminPath(slug));
     } catch (error) {
       setError(error instanceof ConvexError && typeof error.data === "string" ? error.data : "Could not create the event. Please try again.");
@@ -65,6 +70,7 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
               <label className="workspace-event-type"><RadioGroupItem value="hackathon" />Hackathon<CodeXml aria-hidden /></label>
             </RadioGroup>
           </div>
+          <EventTracksFields tracks={tracks} onChange={setTracks} />
           <div className="workspace-field"><label htmlFor="meetUrl">Google Meet link</label><div className="workspace-input-icon"><LinkIcon aria-hidden /><Input id="meetUrl" type="url" placeholder="https://meet.google.com/..." value={meetUrl} onChange={(e) => setMeetUrl(e.target.value)} required /></div></div>
           <Button className="workspace-submit" disabled={isCreating} type="submit">{isCreating ? "Creating…" : "Create event"}</Button>
           {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}

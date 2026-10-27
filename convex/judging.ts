@@ -6,6 +6,7 @@ import { Doc } from "./_generated/dataModel";
 import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment, sameJudge } from "../lib/judging-assignment";
 import { isCompleteReview, isJudgingScore } from "../lib/judging-rubric";
 import { TableHistory } from "@convex-dev/table-history";
+import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import {
@@ -399,6 +400,7 @@ export const getMyAssignments = query({
     );
     const reviews = await ctx.db.query("reviews").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", access.judgeKey)).take(1000);
     const reviewBySubmission = new Map(reviews.map((r: Doc<"reviews">) => [r.submissionId, r]));
+    const byId = tracksById(await listEventTracks(ctx, event._id));
     const now = Date.now();
     const remainingMs =
       event.judgingTimerStatus === "running" && event.judgingTimerEndsAt !== undefined
@@ -421,7 +423,7 @@ export const getMyAssignments = query({
               demoTitle: submission.demoTitle,
               description: submission.description,
               name: submission.name,
-              category: submission.category,
+              tracks: trackNamesFor(submission, byId),
               githubUrl: submission.githubUrl ?? null,
               videoUrl: submission.videoUrl ?? null,
               review: reviewBySubmission.get(submission._id) ?? null,

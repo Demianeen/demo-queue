@@ -16,7 +16,7 @@ import {
 
 // AI shuffle: pick + order the lineup from the pool based on the organizer's
 // prompt. Runs server-side (organization gated via getAdmin), and only PUBLIC
-// fields (name, demo title, category) are ever sent to the model.
+// fields (name, demo title, tracks) are ever sent to the model.
 export async function aiShuffleForOrganization(
   ctx: ActionCtx,
   args: Infer<typeof aiShuffleArgs>,
@@ -35,7 +35,7 @@ export async function aiShuffleForOrganization(
     id: p.id,
     name: p.name,
     demoTitle: p.demoTitle,
-    category: p.category ?? "",
+    tracks: p.tracks.join(", "),
   }));
   if (people.length === 0) {
     return { count: 0 };

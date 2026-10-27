@@ -1,0 +1,43 @@
+.panel { display: grid; gap: 12px; margin: 18px 0; padding: 18px; }
+.heading { align-items: baseline; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.heading h2 { margin: 0; }
+.heading p, .note { color: var(--app-muted); font-size: 13px; margin: 0; }
+.list { border: 1px solid var(--app-line); border-radius: 10px; display: grid; }
+.item { border-bottom: 1px solid var(--app-line); display: grid; }
+.row { align-items: center; display: flex; gap: 10px; min-height: 48px; padding: 6px 8px 6px 12px; }
+.name { display: grid; flex: 1; min-width: 0; }
+.name strong { font-weight: 650; overflow-wrap: anywhere; }
+.name span { color: var(--app-muted); font-size: 12px; overflow-wrap: anywhere; }
+.count { color: var(--app-muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rowActions { align-items: center; display: flex; flex-wrap: wrap; gap: 2px; }
+.confirm {
+  align-items: center;
+  background: color-mix(in srgb, var(--app-bad) 9%, transparent);
+  border-radius: 8px;
+  color: var(--app-bad);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 13px;
+  gap: 8px 12px;
+  margin: 0 12px 10px;
+  padding: 8px 10px;
+}
+.confirm > span { flex: 1 1 260px; }
+.addRow, .editRow { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+.editRow { border-bottom: 1px solid var(--app-line); }
+.addRow input, .editRow input {
+  background: transparent;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  color: var(--app-ink);
+  flex: 1 1 200px;
+  font: inherit;
+  height: 34px;
+  min-width: 0;
+  padding: 0 10px;
+}
+.error { color: var(--app-bad); font-size: 13px; font-weight: 650; margin: 0; }
+@media (max-width: 640px) {
+  .row { flex-wrap: wrap; }
+  .name { flex-basis: 100%; }
+}

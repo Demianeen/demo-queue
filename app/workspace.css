@@ -232,3 +232,18 @@ body:has(.admin-page) { --app-line: #d7d8dc; --app-muted: #71717a; --app-ink: #1
 .admin-page .admin-stage-preview-heading .muted { font-size: 13px; font-weight: 500; text-transform: none; }
 .admin-page .admin-modal-heading h2, .admin-page .admin-modal-field :is(span,input) { font-weight: 500; text-transform: none; }
 .admin-page .admin-modal :is(input,textarea):focus { border-color: #a1a1aa; box-shadow: 0 0 0 3px #18181b12; }
+
+/* Tracks on the create event form. */
+.workspace-tracks { border: 0; margin: 0; padding: 0; }
+.workspace-tracks > legend { margin-bottom: 12px; padding: 0; }
+.workspace-tracks-optional { color: #777c85; font-weight: 400; }
+.workspace-track-row { display: flex; align-items: flex-start; gap: 8px; }
+.workspace-track-inputs { display: flex; flex: 1; flex-direction: column; gap: 6px; min-width: 0; }
+.workspace .workspace-track-inputs [data-slot="input"] { min-height: 46px; height: 46px; font-size: 17px; }
+.workspace .workspace-track-inputs [data-slot="input"].workspace-track-description { min-height: 38px; height: 38px; font-size: 15px; color: #52565e; border-color: #e4e4e7 !important; }
+.workspace-track-actions { display: flex; align-items: center; gap: 2px; min-height: 46px; }
+.workspace .workspace-track-add { border-style: dashed; min-height: 40px; font-size: 15px; gap: 6px; }
+@media (max-width: 640px) {
+  .workspace-track-row { flex-wrap: wrap; }
+  .workspace-track-actions { min-height: 0; margin-left: auto; }
+}

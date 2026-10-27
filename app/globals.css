@@ -1841,13 +1841,6 @@ h3 {
   -webkit-line-clamp: 2;
 }
 
-.admin-category-text {
-  color: var(--app-muted);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
 .admin-table .contact-list {
   color: rgba(19, 21, 38, 0.72);
   font-size: 11px;
@@ -3278,4 +3271,124 @@ h3 {
   html {
     @apply font-sans;
   }
+}
+
+/* Tracks: chips on the submit and admin forms, pills in lists, a row on stage. */
+.track-picker .field-label-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+
+.track-picker-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.track-picker-hint {
+  color: var(--app-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.outpost-content .form-section > .track-picker > .field-label-group {
+  display: grid;
+  gap: 6px;
+}
+
+.outpost-content .form-section > .track-picker > .track-picker-chips {
+  grid-column: 2;
+  padding-top: 4px;
+}
+
+@media (max-width: 640px) {
+  .outpost-content .form-section > .track-picker > .track-picker-chips {
+    grid-column: 1;
+  }
+}
+
+.track-picker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.track-chip {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--app-line);
+  border-radius: 999px;
+  color: var(--app-ink);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.track-chip:hover {
+  border-color: var(--app-ink);
+}
+
+.track-chip[aria-pressed="true"] {
+  background: var(--app-ink);
+  border-color: var(--app-ink);
+  color: #fff;
+}
+
+.track-chip:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--app-accent) 30%, transparent);
+  outline-offset: 2px;
+}
+
+.track-chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.track-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.track-pill {
+  border: 1px solid var(--app-line);
+  border-radius: 999px;
+  color: var(--app-ink);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 2px 7px;
+}
+
+.track-pill-empty {
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.stage-tracks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+}
+
+.stage-tracks li {
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+  color: var(--stage-subtitle-color);
+  font-size: clamp(13px, calc(var(--stage-vw) * 1.1), 18px);
+  font-weight: 650;
+  padding: 4px 12px;
 }

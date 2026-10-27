@@ -18,6 +18,7 @@ import type * as events from "../events.js";
 import type * as googleSheets from "../googleSheets.js";
 import type * as http from "../http.js";
 import type * as judging from "../judging.js";
+import type * as judgingSheetSync from "../judgingSheetSync.js";
 import type * as mcp from "../mcp.js";
 import type * as mcpAdmin from "../mcpAdmin.js";
 import type * as mcpAuth from "../mcpAuth.js";
@@ -28,8 +29,10 @@ import type * as mcpRuntime from "../mcpRuntime.js";
 import type * as mcpSchema from "../mcpSchema.js";
 import type * as mcpTools from "../mcpTools.js";
 import type * as mcpWorkos from "../mcpWorkos.js";
+import type * as migrations from "../migrations.js";
 import type * as organizationAuth from "../organizationAuth.js";
 import type * as organizationStyles from "../organizationStyles.js";
+import type * as tracks from "../tracks.js";
 import type * as visualStyle from "../visualStyle.js";
 
 import type {
@@ -49,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   googleSheets: typeof googleSheets;
   http: typeof http;
   judging: typeof judging;
+  judgingSheetSync: typeof judgingSheetSync;
   mcp: typeof mcp;
   mcpAdmin: typeof mcpAdmin;
   mcpAuth: typeof mcpAuth;
@@ -59,8 +63,10 @@ declare const fullApi: ApiFromModules<{
   mcpSchema: typeof mcpSchema;
   mcpTools: typeof mcpTools;
   mcpWorkos: typeof mcpWorkos;
+  migrations: typeof migrations;
   organizationAuth: typeof organizationAuth;
   organizationStyles: typeof organizationStyles;
+  tracks: typeof tracks;
   visualStyle: typeof visualStyle;
 }>;
 

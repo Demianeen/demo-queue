@@ -25,7 +25,6 @@ const PRODUCT_NOUNS = [
   "voice assistant", "knowledge base", "API gateway", "feature-flag platform",
 ];
 
-const CATEGORIES = ["AI", "Devtools", "Consumer", "Hardware", "Fintech", "Health", "Climate", "Robotics"];
 
 const TEAM_PREFIXES = [
   "Orbit", "Signal", "Copper", "Northstar", "Mosaic", "Lantern", "Pixel", "Atlas",
@@ -71,7 +70,6 @@ export type SamplePerson = {
   email: string;
   twitter: string;
   linkedin: string;
-  category: string;
 };
 
 export type SampleHackathonTeam = SamplePerson & {
@@ -90,6 +88,14 @@ function makeSampleIdentity() {
   };
 }
 
+/** Picks none, one or two of the given track ids, in their original order. */
+export function pickSampleTracks<T>(trackIds: T[]): T[] {
+  const count = Math.min(trackIds.length, Math.floor(Math.random() * 3));
+  const chosen = new Set<T>();
+  while (chosen.size < count) chosen.add(pick(trackIds));
+  return trackIds.filter((id) => chosen.has(id));
+}
+
 export function makeSamplePerson(): SamplePerson {
   const identity = makeSampleIdentity();
   const product = `${pick(PRODUCT_ADJECTIVES)} ${pick(PRODUCT_NOUNS)}`;
@@ -104,7 +110,6 @@ export function makeSamplePerson(): SamplePerson {
     email: `${identity.handle}${suffix}@example.com`,
     twitter: `@${identity.handle}`,
     linkedin: `in/${identity.handle}-${suffix}`,
-    category: pick(CATEGORIES),
   };
 }
 

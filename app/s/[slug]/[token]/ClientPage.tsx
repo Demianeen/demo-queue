@@ -207,9 +207,9 @@ export function ParticipantPage({
           {participant.submission.teamName ? (
             <span className="pill">{participant.submission.teamName}</span>
           ) : null}
-          {participant.submission.category ? (
-            <span className="pill">{participant.submission.category}</span>
-          ) : null}
+          {participant.submission.tracks.map((track) => (
+            <span className="pill" key={track}>{track}</span>
+          ))}
         </div>
 
         <p className="lead">{participant.submission.description}</p>

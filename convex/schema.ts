@@ -96,7 +96,10 @@ export default defineSchema({
     email: v.optional(v.string()),
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
+    // Legacy free-text category. Kept for existing data; tracks replace it.
     category: v.optional(v.string()),
+    // Ordered by the event's track order. Undefined means tracks were never set.
+    trackIds: v.optional(v.array(v.id("eventTracks"))),
     teamName: v.optional(v.string()),
     githubUrl: v.optional(v.string()),
     rulesAcceptedAt: v.optional(v.number()),
@@ -129,6 +132,15 @@ export default defineSchema({
     .index("by_screenshot_id", ["screenshotId"])
     .index("by_video_delete_at", ["videoDeleteAt"])
     .index("by_video_storage_id", ["videoStorageId"]),
+
+  eventTracks: defineTable({
+    eventId: v.id("events"),
+    name: v.string(),
+    description: v.optional(v.string()),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_event_and_order", ["eventId", "order"]),
 
   teamMembers: defineTable({
     eventId: v.id("events"),

@@ -6,7 +6,7 @@ import {
   type OrganizationPrincipal,
 } from "./organizationAuth";
 import { findEventBySlug } from "./eventSlugs";
-import { ConvexError, v, type Infer } from "convex/values";
+import { ConvexError, v, type Infer, type ObjectType } from "convex/values";
 import {
   DatabaseReader,
   DatabaseWriter,
@@ -50,6 +50,16 @@ import {
   type TeamContactInput,
 } from "../lib/team-contacts";
 import { visualStyleValidator } from "./visualStyle";
+import { queueJudgingSheetSync } from "./judgingSheetSync";
+import {
+  insertEventTracks,
+  listEventTracks,
+  normalizeTrackSelection,
+  publicTrack,
+  trackInputValidator,
+  trackNamesFor,
+  tracksById,
+} from "./tracks";
 import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -61,7 +71,6 @@ const MIN_STAGE_TIMER_MS = 0;
 const MIN_OVERTIME_TIMER_MS = -MAX_STAGE_TIMER_MS;
 const ORPHAN_UPLOAD_GRACE_MS = 24 * 60 * 60 * 1000;
 const ORPHAN_UPLOAD_BATCH_SIZE = 50;
-const JUDGING_SHEET_SYNC_DEBOUNCE_MS = 2_000;
 type PublicStageTimerStatus = "idle" | "running" | "paused";
 type StageScreenMode = "qr" | "demo";
 type EventType = "demo" | "hackathon";
@@ -74,12 +83,14 @@ function stageScreenMode(event: Doc<"events">): StageScreenMode {
   return event.stageScreenMode ?? (event.queuePublished ? "demo" : "qr");
 }
 
-const publicSubmissionFields = (submission: Doc<"submissions">) => ({
+type TracksById = ReadonlyMap<Id<"eventTracks">, Doc<"eventTracks">>;
+
+const publicSubmissionFields = (submission: Doc<"submissions">, byId: TracksById) => ({
   id: submission._id,
   name: submission.name,
   demoTitle: submission.demoTitle,
   description: submission.description,
-  category: submission.category,
+  tracks: trackNamesFor(submission, byId),
   teamName: submission.teamName,
   githubUrl: submission.githubUrl,
   status: submission.status,
@@ -88,10 +99,12 @@ const publicSubmissionFields = (submission: Doc<"submissions">) => ({
 
 const adminSubmissionFields = (
   submission: Doc<"submissions">,
+  byId: TracksById,
   teamMemberContacts: Array<Pick<Doc<"teamMembers">, "name" | "email" | "whatsappPhone">> = [],
   videoUrl: string | null = null,
 ) => ({
-  ...publicSubmissionFields(submission),
+  ...publicSubmissionFields(submission, byId),
+  trackIds: submission.trackIds ?? [],
   phone: submission.phone,
   email: submission.email,
   twitter: submission.twitter,
@@ -233,25 +246,6 @@ async function logAction(
   });
 }
 
-async function queueJudgingSheetSync(
-  ctx: MutationCtx,
-  event: Doc<"events">,
-  delayMs = JUDGING_SHEET_SYNC_DEBOUNCE_MS,
-) {
-  if (eventType(event) !== "hackathon" || !event.judgingSheetId) return null;
-
-  const revision = (event.judgingSheetSyncRevision ?? 0) + 1;
-  await ctx.db.patch(event._id, {
-    judgingSheetSyncRevision: revision,
-    judgingSheetSyncError: undefined,
-  });
-  await ctx.scheduler.runAfter(delayMs, internal.googleSheets.syncJudgingSheet, {
-    eventId: event._id,
-    revision,
-  });
-  return revision;
-}
-
 function zodToConvexError(error: unknown): never {
   if (error instanceof ZodError) {
     throw new ConvexError(error.issues[0]?.message ?? "Invalid submission.");
@@ -281,6 +275,15 @@ function normalizeContactTextFields(args: ContactTextInput): ReturnType<typeof p
   } catch (error) {
     zodToConvexError(error);
   }
+}
+
+async function trackSelection(
+  ctx: Pick<QueryCtx, "db">,
+  event: Doc<"events">,
+  trackIds: Id<"eventTracks">[] | undefined,
+): Promise<{ trackIds?: Id<"eventTracks">[] }> {
+  if (trackIds === undefined) return {};
+  return { trackIds: await normalizeTrackSelection(ctx, event._id, trackIds) };
 }
 
 function normalizeTeamName(value: string) {
@@ -412,23 +415,24 @@ export const createEventArgs = {
     meetUrl: v.string(),
   };
 
-const createEventInput = v.object(createEventArgs);
+type CreateEventInput = ObjectType<typeof createEventArgs>;
 
 export const createEvent = mutation({
-  args: createEventInput,
-  handler: async (ctx, args) => {
+  args: { ...createEventArgs, tracks: v.optional(v.array(trackInputValidator)) },
+  handler: async (ctx, { tracks, ...args }) => {
     const { organizationId, actor } = await requireOrganization(ctx);
     if (args.expectedOrganizationId !== organizationId) {
       throw new ConvexError("Your organization changed. Reload events before creating an event.");
     }
-    return createOrganizationEvent(ctx, args, { organizationId, actor });
+    return createOrganizationEvent(ctx, args, { organizationId, actor }, tracks);
   },
 });
 
 export async function createOrganizationEvent(
   ctx: MutationCtx,
-  args: Infer<typeof createEventInput>,
+  args: CreateEventInput,
   { organizationId, actor }: { organizationId: string; actor: string },
+  tracks: Infer<typeof trackInputValidator>[] = [],
 ) {
     const name = args.name.trim();
     if (!name || name.length > 160) throw new ConvexError("Enter an event name of 1–160 characters.");
@@ -473,6 +477,7 @@ export async function createOrganizationEvent(
       updatedAt: now,
     });
 
+    await insertEventTracks(ctx, eventId, tracks);
     await logAction(ctx, eventId, "event_created", actor);
     return { eventId };
 }
@@ -621,6 +626,9 @@ export const getStage = query({
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
+    const tracks = await listEventTracks(ctx, event._id);
+    const byId = tracksById(tracks);
+    const stageFields = (submission: Doc<"submissions">) => publicSubmissionFields(submission, byId);
 
     const lineup = lineupSorted(submissions);
     const activeSubmissionCount = submissions.filter(
@@ -645,12 +653,13 @@ export const getStage = query({
         showMeetLinkOnStage,
         showStageTimerOnStage: event.showStageTimerOnStage ?? false,
         showDemoTimerOnStage: event.showDemoTimerOnStage ?? false,
+        tracks: tracks.map(publicTrack),
       },
       stageTimer: publicStageTimer(event, now),
       demoTimer: publicDemoTimer(event, now),
-      current: current ? publicSubmissionFields(current) : null,
-      upNext: upNext ? publicSubmissionFields(upNext) : null,
-      lineup: stageLineup.map(publicSubmissionFields),
+      current: current ? stageFields(current) : null,
+      upNext: upNext ? stageFields(upNext) : null,
+      lineup: stageLineup.map(stageFields),
       remainingCount: lineup.length,
       waitingCount: activeSubmissionCount,
       meetUrl: event.queuePublished && showMeetLinkOnStage ? event.meetUrl : null,
@@ -683,10 +692,20 @@ export async function getAdminForOrganization(
       members.push(member);
       membersBySubmission.set(member.submissionId, members);
     }
+    const tracks = await listEventTracks(ctx, event._id);
+    const byId = tracksById(tracks);
+    const trackCounts = new Map<Id<"eventTracks">, number>();
+    let noTrackCount = 0;
+    for (const submission of submissions) {
+      const ids = submission.trackIds ?? [];
+      if (ids.length === 0 && !(submission.trackIds === undefined && submission.category)) noTrackCount += 1;
+      for (const id of ids) trackCounts.set(id, (trackCounts.get(id) ?? 0) + 1);
+    }
     const adminSubmissions = await Promise.all(
       submissions.map(async (submission) =>
         adminSubmissionFields(
           submission,
+          byId,
           membersBySubmission.get(submission._id) ?? [],
           await resolveSubmissionVideoUrl(ctx, submission),
         ),
@@ -723,6 +742,9 @@ export async function getAdminForOrganization(
         demoTimer: publicDemoTimer(event),
         canRestorePrevious: event.lastAdvanceSnapshot !== undefined,
       },
+      tracks: tracks.map((track) => ({ ...publicTrack(track), submissionCount: trackCounts.get(track._id) ?? 0 })),
+      noTrackCount,
+      legacyCategoryCount: submissions.filter((submission) => submission.trackIds === undefined && submission.category).length,
       lineup: lineupSorted(submissions).map(mapAdminSubmission),
       pool: submissions
         .filter((submission) => submission.status === "candidate")
@@ -788,6 +810,7 @@ export const getParticipant = query({
       .query("teamMembers")
       .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
       .collect();
+    const byId = tracksById(await listEventTracks(ctx, event._id));
 
     return {
       event: {
@@ -799,7 +822,7 @@ export const getParticipant = query({
         submissionsClosed: event.submissionsClosedAt !== undefined,
       },
       submission: {
-        ...publicSubmissionFields(submission),
+        ...publicSubmissionFields(submission, byId),
         status: liveStatus,
         phone: submission.phone,
         email: submission.email,
@@ -831,6 +854,7 @@ export const submitDemo = mutation({
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
     category: v.optional(v.string()),
+    trackIds: v.optional(v.array(v.id("eventTracks"))),
     screenshotId: v.optional(v.id("_storage")),
     queueOrder: v.number(),
   },
@@ -841,12 +865,14 @@ export const submitDemo = mutation({
     }
     const now = Date.now();
     const fields = normalizeSubmissionTextFields(args);
+    const tracks = await trackSelection(ctx, event, args.trackIds);
     if (args.screenshotId) await requireUnattachedSubmissionFile(ctx, args.screenshotId);
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,
       ...fields,
+      ...tracks,
       screenshotId: args.screenshotId,
       // New submissions land in the pool ("all people"); the admin drags chosen
       // people into the lineup.
@@ -885,6 +911,7 @@ export const submitHackathon = mutation({
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
     category: v.optional(v.string()),
+    trackIds: v.optional(v.array(v.id("eventTracks"))),
     githubUrl: v.string(),
     rulesAccepted: v.boolean(),
     videoUrl: v.string(),
@@ -928,10 +955,12 @@ export const submitHackathon = mutation({
     if (!args.rulesAccepted) {
       throw new ConvexError("Confirm that your submission meets the event rules.");
     }
+    const tracks = await trackSelection(ctx, event, args.trackIds);
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,
       ...fields,
+      ...tracks,
       name: presenter?.name ?? fields.name,
       phone: presenter?.whatsappPhone ?? fields.phone,
       email: presenter?.email ?? fields.email,
@@ -975,6 +1004,7 @@ export const adminAddSubmissionArgs = v.object({
   twitter: v.optional(v.string()),
   linkedin: v.optional(v.string()),
   category: v.optional(v.string()),
+  trackIds: v.optional(v.array(v.id("eventTracks"))),
   queueOrder: v.number(),
   list: v.optional(v.union(v.literal("lineup"), v.literal("pool"))),
 });
@@ -991,11 +1021,13 @@ export async function adminAddSubmissionForOrganization(
     const now = Date.now();
     const toPool = args.list === "pool";
     const fields = normalizeSubmissionTextFields(args);
+    const tracks = await trackSelection(ctx, event, args.trackIds);
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,
       ...fields,
+      ...tracks,
       status: toPool ? "candidate" : "queued",
       queueOrder: toPool ? undefined : args.queueOrder,
       createdAt: now,
@@ -1022,6 +1054,7 @@ const adminTestSubmissionValidator = v.object({
   twitter: v.optional(v.string()),
   linkedin: v.optional(v.string()),
   category: v.optional(v.string()),
+  trackIds: v.optional(v.array(v.id("eventTracks"))),
   teamName: v.optional(v.string()),
   teamMembers: v.optional(v.array(v.string())),
   githubUrl: v.optional(v.string()),
@@ -1061,10 +1094,12 @@ export async function adminAddTestSubmissionsForOrganization(
       const videoUrl = isHackathon && submission.videoUrl
         ? normalizeHackathonVideoUrl(submission.videoUrl) ?? undefined
         : undefined;
+      const tracks = await trackSelection(ctx, event, submission.trackIds);
       const submissionId = await ctx.db.insert("submissions", {
         eventId: event._id,
         participantToken: submission.participantToken,
         ...fields,
+        ...tracks,
         teamName,
         githubUrl,
         videoUrl,
@@ -1590,6 +1625,7 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
         .withIndex("by_event", (q) => q.eq("eventId", event._id))
         .collect(),
     ]);
+    const byId = tracksById(await listEventTracks(ctx, event._id));
     const membersBySubmission = new Map<string, string[]>();
     for (const member of teamMembers) {
       const members = membersBySubmission.get(member.submissionId) ?? [];
@@ -1607,7 +1643,7 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
           name: submission.name,
           demoTitle: submission.demoTitle,
           description: submission.description,
-          category: submission.category,
+          tracks: trackNamesFor(submission, byId),
           githubUrl: submission.githubUrl,
           roundOneAssignedJudges: submission.roundOneAssignedJudges,
           videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
@@ -1674,6 +1710,7 @@ export const updateSubmissionArgs = v.object({
   twitter: v.optional(v.string()),
   linkedin: v.optional(v.string()),
   category: v.optional(v.string()),
+  trackIds: v.optional(v.array(v.id("eventTracks"))),
 });
 
 export async function updateSubmissionForOrganization(
@@ -1688,8 +1725,12 @@ export async function updateSubmissionForOrganization(
       throw new ConvexError("Submission not found");
     }
 
+    const { category, ...fields } = normalizeSubmissionTextFields(args);
     await ctx.db.patch(args.submissionId, {
-      ...normalizeSubmissionTextFields(args),
+      ...fields,
+      // Legacy clients still send a category; newer ones send tracks instead.
+      ...(args.category !== undefined ? { category } : {}),
+      ...(await trackSelection(ctx, event, args.trackIds)),
       updatedAt: Date.now(),
     });
     await queueJudgingSheetSync(ctx, event);

@@ -14,10 +14,19 @@ function submissionId(ctx: Pick<QueryCtx, "db">, value: string) {
   return id;
 }
 
+/** MCP takes track ids as strings; the operation still checks they belong to the event. */
+function trackIds(ctx: Pick<QueryCtx, "db">, values: string[] | undefined) {
+  return values?.map((value) => {
+    const id = ctx.db.normalizeId("eventTracks", value);
+    if (!id) throw new ConvexError("Track not found");
+    return id;
+  });
+}
+
 function submissionDto(s: Submission) {
   return {
     id: s.id, name: s.name, demoTitle: s.demoTitle, description: s.description,
-    category: s.category, teamName: s.teamName, githubUrl: s.githubUrl,
+    tracks: s.tracks, trackIds: s.trackIds, teamName: s.teamName, githubUrl: s.githubUrl,
     status: s.status, queueOrder: s.queueOrder, teamMembers: s.teamMembers,
     videoUrl: s.videoUrl, videoDeleteAt: s.videoDeleteAt, videoDeletedAt: s.videoDeletedAt,
     rulesAcceptedAt: s.rulesAcceptedAt, roundOneAssignedJudges: s.roundOneAssignedJudges,
@@ -66,19 +75,22 @@ export const getSubmissionContacts = internalQuery({
   },
 });
 
-export const addSubmissionInput = events.adminAddSubmissionArgs.omit("participantToken");
+export const addSubmissionInput = v.object({ ...events.adminAddSubmissionArgs.omit("participantToken").fields, trackIds: v.optional(v.array(v.string())) });
 export const addSubmission = internalMutation({
   args: { principal: organizationPrincipalValidator, input: addSubmissionInput },
-  handler: (ctx, { principal, input }) => events.adminAddSubmissionForOrganization(ctx, { ...input, participantToken: crypto.randomUUID() }, principal),
+  handler: (ctx, { principal, input }) => events.adminAddSubmissionForOrganization(ctx, { ...input, trackIds: trackIds(ctx, input.trackIds), participantToken: crypto.randomUUID() }, principal),
 });
 export const addTestSubmissionsInput = v.object({
   ...events.adminAddTestSubmissionsArgs.fields,
-  submissions: v.array(events.adminAddTestSubmissionsArgs.fields.submissions.element.omit("participantToken")),
+  submissions: v.array(v.object({
+    ...events.adminAddTestSubmissionsArgs.fields.submissions.element.omit("participantToken").fields,
+    trackIds: v.optional(v.array(v.string())),
+  })),
 });
 export const addTestSubmissions = internalMutation({
   args: { principal: organizationPrincipalValidator, input: addTestSubmissionsInput },
   handler: (ctx, { principal, input }) => events.adminAddTestSubmissionsForOrganization(ctx, {
-    ...input, submissions: input.submissions.map((s) => ({ ...s, participantToken: crypto.randomUUID() })),
+    ...input, submissions: input.submissions.map((s) => ({ ...s, trackIds: trackIds(ctx, s.trackIds), participantToken: crypto.randomUUID() })),
   }, principal),
 });
 export const listJudgeLinksInput = judging.listJudgeAccessArgs;
@@ -137,10 +149,10 @@ export const requestJudgingSheetSync = internalMutation({
   handler: (ctx, { principal, input }) => events.requestJudgingSheetSyncForOrganization(ctx, input, principal),
 });
 
-export const updateSubmissionInput = v.object({ ...events.updateSubmissionArgs.fields, submissionId: v.string() });
+export const updateSubmissionInput = v.object({ ...events.updateSubmissionArgs.fields, submissionId: v.string(), trackIds: v.optional(v.array(v.string())) });
 export const updateSubmission = internalMutation({
   args: { principal: organizationPrincipalValidator, input: updateSubmissionInput },
-  handler: (ctx, { principal, input }) => events.updateSubmissionForOrganization(ctx, { ...input, submissionId: submissionId(ctx, input.submissionId) }, principal),
+  handler: (ctx, { principal, input }) => events.updateSubmissionForOrganization(ctx, { ...input, submissionId: submissionId(ctx, input.submissionId), trackIds: trackIds(ctx, input.trackIds) }, principal),
 });
 
 export const publishQueueInput = events.publishQueueArgs;

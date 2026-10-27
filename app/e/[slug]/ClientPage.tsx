@@ -4,6 +4,8 @@ import { eventThemeProperties } from "@/lib/event-theme";
 import { FormEvent, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import type { Id } from "@/convex/_generated/dataModel";
+import { TrackPicker } from "@/components/TrackPicker";
 import { InfoIcon, LockKeyholeIcon, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -128,6 +130,7 @@ export function SubmissionPage({
   const [rulesError, setRulesError] = useState("");
   const [fieldLimitIssue, setFieldLimitIssue] = useState<FieldLimitIssue | null>(null);
   const [submissionError, setSubmissionError] = useState("");
+  const [trackIds, setTrackIds] = useState<Id<"eventTracks">[]>([]);
   const isHackathon = stage?.event.eventType === "hackathon";
   const visualStyle = normalizeVisualStyle(stage?.event.visualStyle);
   const isOutpost = isOutpostStyle(visualStyle);
@@ -174,7 +177,6 @@ export function SubmissionPage({
       ...(isHackathon ? {} : { name: read("name"), phone, email: read("email") }),
       demoTitle: read("demoTitle"),
       description: read("description"),
-      category: read("category"),
       twitter,
       linkedin,
     });
@@ -291,7 +293,7 @@ export function SubmissionPage({
         description: read("description"),
         phone: presenter?.whatsappPhone ?? read("phone"),
         email: presenter?.email ?? (read("email") || undefined),
-        category: read("category") || undefined,
+        trackIds,
         twitter: twitter || undefined,
         linkedin: linkedin || undefined,
       };
@@ -634,23 +636,7 @@ export function SubmissionPage({
               <FieldLimitError field="email" issue={fieldLimitIssue} />
             </div> : null}
 
-            <div className="field">
-              <div className="field-label-group">
-                <label htmlFor="category">Category, optional</label>
-                <OutpostFieldHint id="category-hint" show={isOutpost}>
-                  Choose the category that best fits your {isHackathon ? "project" : "demo"}.
-                </OutpostFieldHint>
-              </div>
-              <input
-                id="category"
-                name="category"
-                placeholder="AI, devtools, consumer, hardware..."
-                maxLength={SUBMISSION_FIELD_LIMITS.category}
-                aria-invalid={fieldLimitIssue?.field === "category" || undefined}
-                aria-describedby={describedBy(isOutpost && "category-hint", fieldLimitIssue?.field === "category" && "category-limit-error")}
-              />
-              <FieldLimitError field="category" issue={fieldLimitIssue} />
-            </div>
+            <TrackPicker tracks={stage.event.tracks} value={trackIds} onChange={setTrackIds} disabled={isSubmitting} />
 
             {isHackathon ? (
               <div className="field">

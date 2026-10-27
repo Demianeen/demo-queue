@@ -1,6 +1,6 @@
 "use client";
 
-import React, { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { FormEvent, createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
@@ -24,7 +24,9 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { makeSampleHackathonTeam, makeSamplePerson } from "@/lib/sampleData";
+import { makeSampleHackathonTeam, makeSamplePerson, pickSampleTracks } from "@/lib/sampleData";
+import { TrackPicker, TrackPills, type TrackOption } from "@/components/TrackPicker";
+import { TracksAdminPanel } from "@/components/TracksAdminPanel";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { JudgingAdminPanel } from "@/components/JudgingAdminPanel";
 import { SubmissionRowActions } from "@/components/SubmissionRowActions";
@@ -76,7 +78,8 @@ type AdminSubmission = {
   email?: string;
   twitter?: string;
   linkedin?: string;
-  category?: string;
+  tracks: string[];
+  trackIds: Id<"eventTracks">[];
   teamName?: string;
   teamMembers: string[];
   teamMemberContacts: Array<{
@@ -101,8 +104,11 @@ type SubmissionFields = {
   email: string;
   twitter: string;
   linkedin: string;
-  category: string;
+  trackIds: Id<"eventTracks">[];
 };
+
+// The event's tracks, for the admin add and edit forms deep in the tables.
+const EventTracksContext = createContext<TrackOption[]>([]);
 
 type ColumnId = "lineup" | "pool";
 type AdminTab = "all" | "lineup";
@@ -887,7 +893,7 @@ export default function AdminPage() {
       email: values.email || undefined,
       twitter: values.twitter || undefined,
       linkedin: values.linkedin || undefined,
-      category: values.category || undefined,
+      trackIds: values.trackIds,
       queueOrder: Date.now(),
       list: "lineup",
     });
@@ -903,6 +909,7 @@ export default function AdminPage() {
     }
 
     const safeCount = Math.min(count, 1000);
+    const sampleTrackIds = admin?.tracks.map((track) => track.id) ?? [];
     const batchSize = 25;
     const subject = isHackathonEvent ? "submissions" : "people";
     setTestPeopleBusy(true);
@@ -916,6 +923,7 @@ export default function AdminPage() {
           return {
             participantToken: randomToken(32),
             ...sample,
+            trackIds: pickSampleTracks(sampleTrackIds),
           };
         });
         await adminAddTestSubmissions({
@@ -1047,7 +1055,7 @@ export default function AdminPage() {
       email: values.email || undefined,
       twitter: values.twitter || undefined,
       linkedin: values.linkedin || undefined,
-      category: values.category || undefined,
+      trackIds: values.trackIds,
     });
     setEditingId(null);
   }
@@ -1112,6 +1120,7 @@ export default function AdminPage() {
   const livePrimaryLabel = shouldStartDemoFromPrimary ? "Start timer" : "Advance";
 
   return (
+    <EventTracksContext.Provider value={admin.tracks}>
     <section className="page admin-page">
       <div className="shell admin-shell">
         <section className="admin-control-grid">
@@ -1615,6 +1624,13 @@ export default function AdminPage() {
           />
         </section>
 
+        <TracksAdminPanel
+          slug={params.slug}
+          tracks={admin.tracks}
+          noTrackCount={admin.noTrackCount}
+          legacyCategoryCount={admin.legacyCategoryCount}
+        />
+
         {isHackathonEvent ? (
           <JudgingAdminPanel
             slug={params.slug}
@@ -1673,7 +1689,7 @@ export default function AdminPage() {
                       <th>Status</th>
                       <th>{admin.event.eventType === "hackathon" ? "Team / presenter" : "Person"}</th>
                       <th>{admin.event.eventType === "hackathon" ? "Project" : "Demo"}</th>
-                      <th>Category</th>
+                      <th>Tracks</th>
                       <th>Contact</th>
                       <th>Action</th>
                     </tr>
@@ -1763,7 +1779,7 @@ export default function AdminPage() {
                         <th>Position</th>
                         <th>{admin.event.eventType === "hackathon" ? "Team / presenter" : "Person"}</th>
                         <th>{admin.event.eventType === "hackathon" ? "Project" : "Demo"}</th>
-                        <th>Category</th>
+                        <th>Tracks</th>
                         <th>Contact</th>
                         <th>Action</th>
                       </tr>
@@ -1820,6 +1836,7 @@ export default function AdminPage() {
 
       </div>
     </section>
+    </EventTracksContext.Provider>
   );
 }
 
@@ -1999,7 +2016,7 @@ function LineupRow({
         <DemoCell item={item} />
       </td>
       <td>
-        <CategoryCell category={item.category} />
+        <TrackPills tracks={item.tracks} empty="None" />
       </td>
       <td>
         <Contact item={item} />
@@ -2070,7 +2087,7 @@ function AllPeopleRow({
         <DemoCell item={item} />
       </td>
       <td>
-        <CategoryCell category={item.category} />
+        <TrackPills tracks={item.tracks} empty="None" />
       </td>
       <td>
         <Contact item={item} />
@@ -2132,16 +2149,6 @@ function DemoCell({ item }: { item: AdminSubmission }) {
         </a>
       ) : null}
     </>
-  );
-}
-
-function CategoryCell({ category }: { category?: string }) {
-  const fullCategory = category || "demo";
-  const visibleCategory = fullCategory.slice(0, SUBMISSION_FIELD_LIMITS.category);
-  return (
-    <span className="admin-category-text" aria-label={fullCategory} title={fullCategory}>
-      {visibleCategory}
-    </span>
   );
 }
 
@@ -2227,6 +2234,8 @@ function SubmissionForm({
   onCancel: () => void;
 }) {
   const fieldId = useId();
+  const eventTracks = useContext(EventTracksContext);
+  const [trackIds, setTrackIds] = useState<Id<"eventTracks">[]>(initial?.trackIds ?? []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -2242,7 +2251,6 @@ function SubmissionForm({
       email: read("email"),
       twitter: read("twitter"),
       linkedin: read("linkedin"),
-      category: read("category"),
     };
     const lengthError = firstFieldLimitError(values);
 
@@ -2254,7 +2262,7 @@ function SubmissionForm({
     setSaving(true);
     setError("");
     try {
-      await onSave(values);
+      await onSave({ ...values, trackIds });
     } finally {
       setSaving(false);
     }
@@ -2328,16 +2336,7 @@ function SubmissionForm({
           maxLength={SUBMISSION_FIELD_LIMITS.linkedin}
         />
       </div>
-      <div className="field">
-        <label htmlFor={`${fieldId}-category`}>Category</label>
-        <input
-          id={`${fieldId}-category`}
-          name="category"
-          defaultValue={initial?.category ?? ""}
-          placeholder="AI, devtools, consumer, hardware..."
-          maxLength={SUBMISSION_FIELD_LIMITS.category}
-        />
-      </div>
+      <TrackPicker tracks={eventTracks} value={trackIds} onChange={setTrackIds} disabled={saving} hint="none, one or several" />
       {error ? (
         <p style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600, margin: 0 }}>
           {error}

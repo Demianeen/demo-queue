@@ -291,3 +291,26 @@ test("a neutral summary may name a track such as Best use of Daytona", async () 
   expect(await save("The best entry for reproducing bugs.")).toEqual({ saved: false, reason: "evaluative_language:superlative" });
   expect(await save("Scores pull requests by risk.")).toEqual({ saved: false, reason: "evaluative_language:score" });
 });
+
+test("a team's free-text category is never exempt from the check", async () => {
+  const { t, add } = await setup();
+  // Legacy category, typed by the team, with no organizer-defined track.
+  const id = await add(0, { category: "Best project ever" });
+  const sourceKey = summarySourceKey({ description: "Description 0", githubUrl: "https://github.com/example/guardrail" });
+  expect(await t.mutation(internal.aiSummaries.saveSummary, {
+    submissionId: id, sourceKey, whatItDoes: "A Best project ever entry.", howItWorks: "b", demoFocus: "c", model: "m", usedReadme: false,
+  })).toEqual({ saved: false, reason: "evaluative_language:superlative" });
+});
+
+test("the saved summary is the normalised text the check looked at", async () => {
+  const { t, add } = await setup();
+  const id = await add(0);
+  const sourceKey = summarySourceKey({ description: "Description 0", githubUrl: "https://github.com/example/guardrail" });
+  expect(await t.mutation(internal.aiSummaries.saveSummary, {
+    submissionId: id, sourceKey, whatItDoes: "The b\u200Best project.", howItWorks: "b", demoFocus: "c", model: "m", usedReadme: false,
+  })).toEqual({ saved: false, reason: "evaluative_language:superlative" });
+  expect(await t.mutation(internal.aiSummaries.saveSummary, {
+    submissionId: id, sourceKey, whatItDoes: "\uFF21 policy\u200B layer\u00AD for agent tool calls.", howItWorks: "b", demoFocus: "c", model: "m", usedReadme: false,
+  })).toEqual({ saved: true, reason: "ok" });
+  expect((await summaryOf(t, id))?.whatItDoes).toBe("A policy layer for agent tool calls.");
+});

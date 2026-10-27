@@ -104,8 +104,10 @@ export const saveSummary = internalMutation({
       demoFocus: cleanSummaryLine(args.demoFocus),
     });
     if (!output.success) return { saved: false, reason: "invalid_output" };
+    // Only tracks the organizer defined may be named; never the team's free-text category.
     const byId = tracksById(await listEventTracks(ctx, submission.eventId));
-    const evaluative = findEvaluativeLanguage(output.data, trackNamesFor(submission, byId));
+    const adminTracks = (submission.trackIds ?? []).flatMap((id) => byId.get(id)?.name ?? []);
+    const evaluative = findEvaluativeLanguage(output.data, adminTracks);
     if (evaluative) return { saved: false, reason: `evaluative_language:${evaluative}` };
     await ctx.db.patch(submission._id, {
       aiSummary: {

@@ -47,8 +47,17 @@ export function githubReadmeApiUrl(githubUrl: string | null | undefined) {
   return `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/readme`;
 }
 
+/**
+ * NFKC plus no format characters (soft hyphen, zero-width characters, bidi
+ * marks, BOM), so "b\u00ADest" or fullwidth "ｂｅｓｔ" read as "best". The
+ * filter checks, and judges see, this form.
+ */
+export function normalizeSummaryText(value: string) {
+  return value.normalize("NFKC").replace(/\p{Cf}/gu, "");
+}
+
 export function cleanSummaryLine(value: string) {
-  const line = value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  const line = normalizeSummaryText(value).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
   return line.length > SUMMARY_LINE_LIMIT ? `${line.slice(0, SUMMARY_LINE_LIMIT - 1).trimEnd()}…` : line;
 }
 
@@ -56,7 +65,7 @@ type BlockName = "TITLE" | "TRACKS" | "DESCRIPTION" | "README";
 
 /** Keeps participant text from closing or opening a data block of its own. */
 function neutralizeMarkers(value: string) {
-  return value.replace(/<{2,}\s*\/?\s*(BEGIN|END)[^>]*>{2,}/gi, "[removed marker]");
+  return normalizeSummaryText(value).replace(/<{2,}\s*\/?\s*(BEGIN|END)[^>]*>{2,}/gi, "[removed marker]");
 }
 
 function dataBlock(name: BlockName, value: string) {
@@ -100,27 +109,47 @@ export function buildSummaryPrompt(input: {
  * any of them is rejected, since a judge must form that view themselves.
  */
 const EVALUATIVE_PATTERNS: [string, RegExp][] = [
-  ["score", /\bscor(e|es|ed|ing)\b/i],
-  ["out of ten", /\b\d{1,3}\s*(\/|out of)\s*(10|100)\b/i],
-  ["winner", /\b(winners?|winning|(should|will|must|could|deserves to) win)\b/i],
-  ["prize", /\b(prize|award|first place|top pick)\b/i],
-  ["recommend", /\b(recommend\w*|deserv\w*|must see)\b/i],
-  ["superlative", /\b(best|greatest|finest|strongest|most impressive)\b/i],
-  ["praise", /\b(outstanding|exceptional|brilliant|amazing|incredible|impressive|excellent|perfect|flawless|groundbreaking|revolutionary|world[- ]class)\b/i],
-  ["judges", /\bjudges?\s+(should|must|will|need)\b/i],
+  ["score", /\bscor(e|es|ed|ing)\b/gi],
+  ["out of ten", /\b\d{1,3}\s*(\/|out of)\s*(10|100)\b/gi],
+  ["winner", /\b(winners?|winning|(should|will|must|could|deserves to) win)\b/gi],
+  ["prize", /\b(prize|award|first place|top pick)\b/gi],
+  ["recommend", /\b(recommend\w*|deserv\w*|must see)\b/gi],
+  ["superlative", /\b(best|greatest|finest|strongest|most impressive)\b/gi],
+  ["praise", /\b(outstanding|exceptional|brilliant|amazing|incredible|impressive|excellent|perfect|flawless|groundbreaking|revolutionary|world[- ]class)\b/gi],
+  ["judges", /\bjudges?\s+(should|must|will|need)\b/gi],
 ];
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Where each track name appears as whole words, as [start, end) spans. */
+function trackSpans(text: string, trackNames: string[]) {
+  const spans: [number, number][] = [];
+  for (const raw of trackNames) {
+    const name = normalizeSummaryText(raw).trim();
+    if (!name) continue;
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, "giu");
+    for (const match of text.matchAll(pattern)) spans.push([match.index, match.index + match[0].length]);
+  }
+  return spans;
+}
+
 /**
- * The first evaluative term found in the lines, or null. Track names are
- * removed first, so a track such as "Best use of Daytona" can be mentioned.
+ * The first evaluative term found in the lines, or null. The patterns run on
+ * the whole normalized text. A match is let through only when it lies inside
+ * a whole-word mention of one of the event's own tracks (pass only tracks the
+ * organizer defined), so "Best use of Daytona" can be named but "the best" or
+ * "Best use of Daytonas" cannot.
  */
 export function findEvaluativeLanguage(lines: AiSummaryLines, trackNames: string[] = []) {
-  let text = `${lines.whatItDoes}\n${lines.howItWorks}\n${lines.demoFocus}`;
-  for (const track of [...trackNames].sort((a, b) => b.length - a.length)) {
-    if (track.trim()) text = text.split(track).join(" ");
-  }
+  const text = normalizeSummaryText(`${lines.whatItDoes}\n${lines.howItWorks}\n${lines.demoFocus}`);
+  const spans = trackSpans(text, trackNames);
+  const exempt = (start: number, end: number) => spans.some(([from, to]) => from <= start && end <= to);
   for (const [name, pattern] of EVALUATIVE_PATTERNS) {
-    if (pattern.test(text)) return name;
+    for (const match of text.matchAll(pattern)) {
+      if (!exempt(match.index, match.index + match[0].length)) return name;
+    }
   }
   return null;
 }

@@ -120,6 +120,8 @@ export default defineSchema({
         sourceKey: v.string(),
         model: v.string(),
         usedReadme: v.boolean(),
+        // SHA-256 of the README text the summary was written from, when there was one.
+        readmeHash: v.optional(v.string()),
         generatedAt: v.number(),
       }),
     ),

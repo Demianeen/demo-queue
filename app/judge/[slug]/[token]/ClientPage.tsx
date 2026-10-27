@@ -167,9 +167,8 @@ function AiSummaryPanel({ summary }: { summary: AiSummary }) {
         <li><strong>What to look for in the demo:</strong> {summary.demoFocus}</li>
       </ul>
       <p className={styles.aiSummaryNote}>
-        {summary.stale
-          ? "Written by AI before the latest edit to this project. A new summary is on its way."
-          : `Written by AI from the description${summary.usedReadme ? " and README" : ""}. Check it against the demo before scoring.`}
+        {`Written by AI from the team's description${summary.usedReadme ? " and README" : ""}. Check it against the demo.`}
+        {summary.stale ? " The project changed since; a new summary is on its way." : null}
       </p>
     </section>
   );

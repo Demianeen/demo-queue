@@ -3,10 +3,15 @@
 import { v } from "convex/values";
 import { generateText, Output } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { z } from "zod";
+import { createHash } from "node:crypto";
 import { internal } from "./_generated/api";
 import { env, internalAction } from "./_generated/server";
-import { buildSummaryPrompt, githubReadmeApiUrl, SUMMARY_README_LIMIT } from "../lib/ai-summary";
+import {
+  buildSummaryPrompt,
+  githubReadmeApiUrl,
+  SUMMARY_README_LIMIT,
+  summaryOutputSchema,
+} from "../lib/ai-summary";
 
 const README_TIMEOUT_MS = 8_000;
 
@@ -53,27 +58,25 @@ export const generateSubmissionSummary = internalAction({
     const { system, prompt } = buildSummaryPrompt({ ...input, readme });
     const model = env.OPENAI_MODEL ?? "gpt-5.4";
     try {
+      // Exactly three capped strings; anything else fails here and is logged.
       const { output } = await generateText({
         model: createOpenAI({ apiKey })(model),
-        output: Output.object({
-          schema: z.object({
-            whatItDoes: z.string().describe("What the project does and for whom, one sentence"),
-            howItWorks: z.string().describe("The approach and main technology, one sentence"),
-            demoFocus: z.string().describe("What a judge should look for in the demo, one sentence"),
-          }),
-        }),
+        output: Output.object({ schema: summaryOutputSchema }),
         system,
         prompt,
       });
       const result = await ctx.runMutation(internal.aiSummaries.saveSummary, {
         submissionId: args.submissionId,
         sourceKey: input.sourceKey,
-        ...output,
+        whatItDoes: output.whatItDoes,
+        howItWorks: output.howItWorks,
+        demoFocus: output.demoFocus,
         model,
         usedReadme: readme !== null,
+        readmeHash: readme === null ? undefined : createHash("sha256").update(readme).digest("hex"),
       });
-      log(result.saved ? "saved" : "skipped", result.saved ? "ok" : "source_changed_or_empty");
-      return result;
+      log(result.saved ? "saved" : "rejected", result.reason);
+      return { saved: result.saved };
     } catch (error) {
       log("failed", error instanceof Error ? error.name : "unknown");
       return { saved: false };

@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { env, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
-import { cleanSummaryLine, summarySourceKey } from "../lib/ai-summary";
+import { cleanSummaryLine, findEvaluativeLanguage, summaryOutputSchema, summarySourceKey } from "../lib/ai-summary";
 
 /** Gap between summaries when a whole event is queued, so the model is not hit all at once. */
 export const SUMMARY_STAGGER_MS = 1_000;
@@ -80,7 +80,9 @@ export const summaryInput = internalQuery({
 
 /**
  * Saves a summary only if the submission still has the description and
- * repository it was written from. A newer queued summary covers any change.
+ * repository it was written from (a newer queued summary covers any change),
+ * the output is exactly three lines within the length cap, and none of them
+ * judges the project. Rejected output leaves the submission as it was.
  */
 export const saveSummary = internalMutation({
   args: {
@@ -91,26 +93,31 @@ export const saveSummary = internalMutation({
     demoFocus: v.string(),
     model: v.string(),
     usedReadme: v.boolean(),
+    readmeHash: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<{ saved: boolean }> => {
+  handler: async (ctx, args): Promise<{ saved: boolean; reason: string }> => {
     const submission = await ctx.db.get(args.submissionId as Id<"submissions">);
-    if (!submission || summarySourceKey(submission) !== args.sourceKey) return { saved: false };
-    const lines = {
+    if (!submission || summarySourceKey(submission) !== args.sourceKey) return { saved: false, reason: "source_changed" };
+    const output = summaryOutputSchema.safeParse({
       whatItDoes: cleanSummaryLine(args.whatItDoes),
       howItWorks: cleanSummaryLine(args.howItWorks),
       demoFocus: cleanSummaryLine(args.demoFocus),
-    };
-    if (!lines.whatItDoes || !lines.howItWorks || !lines.demoFocus) return { saved: false };
+    });
+    if (!output.success) return { saved: false, reason: "invalid_output" };
+    const byId = tracksById(await listEventTracks(ctx, submission.eventId));
+    const evaluative = findEvaluativeLanguage(output.data, trackNamesFor(submission, byId));
+    if (evaluative) return { saved: false, reason: `evaluative_language:${evaluative}` };
     await ctx.db.patch(submission._id, {
       aiSummary: {
-        ...lines,
+        ...output.data,
         sourceKey: args.sourceKey,
         model: args.model,
         usedReadme: args.usedReadme,
+        readmeHash: args.readmeHash,
         generatedAt: Date.now(),
       },
     });
-    return { saved: true };
+    return { saved: true, reason: "ok" };
   },
 });
 

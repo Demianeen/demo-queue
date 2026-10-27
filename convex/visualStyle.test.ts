@@ -38,7 +38,7 @@ async function addParticipant(
   });
 }
 
-test.each(["codex", "outpost", "astra"] as const)(
+test.each(["codex", "outpost", "astra", "devday"] as const)(
   "%s persists and reaches the stage and private participant page",
   async (visualStyle) => {
     const t = convexTest(schema, modules);
@@ -58,11 +58,11 @@ test.each(["codex", "outpost", "astra"] as const)(
   },
 );
 
-test("editing an Astra event preserves its selected theme", async () => {
+test.each(["astra", "devday"] as const)("editing a %s event preserves its selected theme", async (visualStyle) => {
   const t = convexTest(schema, modules);
   const { eventId } = await t.mutation(api.events.createEvent, {
     ...eventArgs,
-    visualStyle: "astra",
+    visualStyle,
   });
 
   await t.mutation(api.events.updateEvent, {
@@ -75,7 +75,7 @@ test("editing an Astra event preserves its selected theme", async () => {
   expect(await t.run((ctx) => ctx.db.get(eventId))).toMatchObject({
     name: "Updated demo night",
     meetUrl: "https://meet.example/updated",
-    visualStyle: "astra",
+    visualStyle,
   });
 });
 

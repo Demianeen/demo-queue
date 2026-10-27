@@ -783,7 +783,7 @@ h3 {
   width: 1440px;
 }
 
-.shared-stage-preview-canvas > .stage:not(.stage-outpost):not(.stage-astra) {
+.shared-stage-preview-canvas > .stage:not(.stage-outpost):not(.stage-astra):not(.stage-devday) {
   background-color: #eef1ff;
   background-image:
     linear-gradient(rgba(247, 248, 255, 0.36), rgba(247, 248, 255, 0.3)),

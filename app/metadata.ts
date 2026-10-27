@@ -1,8 +1,8 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
-import { env } from "./env";
+import { getEnv } from "./env";
 
-const client = new ConvexHttpClient(env.NEXT_PUBLIC_CONVEX_URL);
+const client = new ConvexHttpClient(getEnv().NEXT_PUBLIC_CONVEX_URL);
 
 export async function eventTitle(slug: string) {
   try {

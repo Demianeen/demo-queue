@@ -31,3 +31,9 @@ test("only the explicit Outpost style selects Outpost rendering", () => {
     assert.equal(isOutpostStyle(style), style === "outpost");
   }
 });
+
+test("DevDay is an independent style with a readable label", () => {
+  assert.equal(normalizeVisualStyle("devday"), "devday");
+  assert.equal(VISUAL_STYLE_LABELS.devday, "DevDay Exchange Community Hackathon");
+  assert.equal(isOutpostStyle("devday"), false);
+});

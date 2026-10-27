@@ -2,6 +2,7 @@
 
 import { FormEvent, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { InfoIcon, LockKeyholeIcon, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -22,6 +23,7 @@ import {
 import { Brand } from "@/app/Brand";
 import { Skeleton } from "@/app/Skeleton";
 import { AstraHero } from "@/components/AstraHero";
+import { DevDayHero } from "@/components/DevDayHero";
 import { OutpostHero } from "@/components/OutpostHero";
 import { cn } from "@/lib/utils";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
@@ -78,12 +80,39 @@ function focusFirstInvalidField(form: HTMLFormElement, invalidFieldNames: Set<st
   requestAnimationFrame(() => field.focus());
 }
 
-export default function SubmissionPage() {
+export type SubmissionPageProps = {
+  slug: string;
+  stage: FunctionReturnType<typeof api.events.getStage> | undefined;
+  submitDemo: (args: FunctionArgs<typeof api.events.submitDemo>) => Promise<unknown>;
+  submitHackathon: (args: FunctionArgs<typeof api.events.submitHackathon>) => Promise<unknown>;
+  onSubmitted: (participantToken: string) => void;
+};
+
+export default function ConnectedSubmissionPage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
   const stage = useQuery(api.events.getStage, { slug: params.slug });
   const submitDemo = useMutation(api.events.submitDemo);
   const submitHackathon = useMutation(api.events.submitHackathon);
+
+  return (
+    <SubmissionPage
+      slug={params.slug}
+      stage={stage}
+      submitDemo={submitDemo}
+      submitHackathon={submitHackathon}
+      onSubmitted={(participantToken) => router.push(participantPath(params.slug, participantToken))}
+    />
+  );
+}
+
+export function SubmissionPage({
+  slug,
+  stage,
+  submitDemo,
+  submitHackathon,
+  onSubmitted,
+}: SubmissionPageProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [socialError, setSocialError] = useState("");
   const [twitterError, setTwitterError] = useState("");
@@ -102,6 +131,7 @@ export default function SubmissionPage() {
   const visualStyle = normalizeVisualStyle(stage?.event.visualStyle);
   const isOutpost = isOutpostStyle(visualStyle);
   const isAstra = visualStyle === "astra";
+  const isDevDay = visualStyle === "devday";
 
   if (!stage) {
     return (
@@ -253,7 +283,7 @@ export default function SubmissionPage() {
         ? (parsedTeamContacts.slice(1) as TeamContact[])
         : [];
       const sharedFields = {
-        slug: params.slug,
+        slug,
         participantToken,
         name: presenter?.name ?? read("name"),
         demoTitle: read("demoTitle"),
@@ -278,7 +308,7 @@ export default function SubmissionPage() {
       } else {
         await submitDemo({ ...sharedFields, queueOrder: randomQueueOrder() });
       }
-      router.push(participantPath(params.slug, participantToken));
+      onSubmitted(participantToken);
     } catch (error) {
       setIsSubmitting(false);
       const message = error instanceof Error ? error.message : "Something went wrong submitting.";
@@ -287,7 +317,10 @@ export default function SubmissionPage() {
   }
 
   return (
-    <main className={isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
+    <main className={isDevDay ? "devday-public-page" : isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
+      {isDevDay ? (
+        <DevDayHero eventName={stage.event.name} eventType={stage.event.eventType} mode="submission" />
+      ) : null}
       {isAstra ? (
         <AstraHero eventName={stage.event.name} eventType={stage.event.eventType} mode="submission" />
       ) : null}
@@ -299,11 +332,14 @@ export default function SubmissionPage() {
         />
       ) : null}
       <section
-        className={cn("panel panel-pad", isOutpost && "outpost-content", isAstra && "astra-content")}
-        style={isOutpost || isAstra ? undefined : { width: "min(760px, 100%)" }}
+        className={cn("panel panel-pad", isOutpost && "outpost-content", isAstra && "astra-content", isDevDay && "devday-content")}
+        style={isOutpost || isAstra || isDevDay ? undefined : { width: "min(760px, 100%)" }}
       >
-        {isOutpost || isAstra ? null : <Brand label={stage.event.name} />}
+        {isOutpost || isAstra || isDevDay ? null : <Brand label={stage.event.name} />}
         {isAstra ? <p className="astra-eyebrow">{stage.event.name}</p> : null}
+        {isDevDay ? (
+          <p className="devday-eyebrow">{isHackathon ? "Community hackathon" : "Demo queue"} / Submission</p>
+        ) : null}
         <div>
           {isOutpost ? (
             <p className="outpost-event-kicker">

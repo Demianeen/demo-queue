@@ -14,15 +14,17 @@ const DATA_COMMANDS = new Set(["model-context", "context", "snapshot"]);
 function usage(exitCode = 1) {
   const stream = exitCode === 0 ? process.stdout : process.stderr;
   stream.write(`Usage:
-  pnpm queue:prod -- model-context [--admin-url URL | --slug SLUG --admin-token TOKEN]
-  pnpm queue:prod -- snapshot [--admin-url URL | --slug SLUG --admin-token TOKEN]
+  pnpm queue:prod -- model-context [--admin-url URL | --slug SLUG]
+  pnpm queue:prod -- snapshot [--admin-url URL | --slug SLUG]
   pnpm queue -- model-context
   pnpm queue -- snapshot
-  pnpm queue -- model-context --deployment PREVIEW_REFERENCE --site-url https://preview-url.vercel.app
+  pnpm queue -- model-context --deployment precious-elk-564
 
 Notes:
   --prod is added by the package script.
-  --deployment is passed through to Convex for dev, preview, staging, local, or named deployments.
+  --deployment accepts only precious-elk-564 or giant-egret-456.
+  Remote admin URLs require --prod or an explicit canonical --deployment.
+  Admin URLs locate events. Access uses the existing authenticated Convex CLI.
   --show-admin-url prints a full URL using --site-url, DEMO_QUEUE_SITE_URL, Vercel URL env vars, or a deployment-specific default.
   This helper is read-only. It fetches queue data for the model; it does not rank, choose, or mutate demos.
   Normal output omits phone numbers, emails, participant tokens, and admin tokens.
@@ -58,7 +60,7 @@ function parseArgs(argv) {
     } else if (arg === "--slug") {
       args.slug = argv[++i];
     } else if (arg === "--admin-token") {
-      args.adminToken = argv[++i];
+      throw new Error("Legacy admin tokens are no longer supported. Use authenticated Convex CLI reads with --slug.");
     } else if (arg === "--site-url") {
       args.siteUrl = argv[++i];
     } else if (arg === "--ids") {
@@ -109,162 +111,42 @@ function parseAdminUrl(value) {
     pathname = parsed.pathname;
     adminSiteUrl = parsed.origin;
   } catch {
-    // Accept a raw /admin/:slug/:token path too.
+    // Accept a workspace admin path too.
   }
-  const match = pathname.match(/\/admin\/([^/]+)\/([^/]+)/);
-  if (!match) {
-    throw new Error("Admin URL must include /admin/:slug/:token");
-  }
+  const match = pathname.match(/^\/events\/([^/]+)\/admin\/?$/);
+  if (!match) throw new Error("Legacy admin capability URLs are no longer supported. Use /events/:slug/admin and authenticated Convex CLI reads.");
   return {
     slug: decodeURIComponent(match[1]),
-    adminToken: decodeURIComponent(match[2]),
     adminSiteUrl,
   };
 }
 
-function runConvex(args, { json = true } = {}) {
+function runConvex(args, { run = spawnSync, env = localProcessEnv(), envLocalExists = existsSync(".env.local"), diagnostic = (line) => process.stderr.write(line) } = {}) {
+  const selector = args[args.indexOf("--deployment-name") + 1];
+  if (!args.includes("--deployment-name") || !["precious-elk-564", "giant-egret-456"].includes(selector)) throw new Error("Queue command requires an explicit canonical deployment selector.");
+  trustedDeploymentFlags({ deployment: selector }, env, envLocalExists);
+  diagnostic(`${JSON.stringify({ envLocalExists, selector: `--deployment-name ${selector}` })}\n`);
   const fullArgs = ["exec", "convex", ...args];
-  const result = spawnSync("pnpm", fullArgs, {
+  let result;
+  try { result = run("pnpm", fullArgs, {
     encoding: "utf8",
-    env: localProcessEnv(),
+    env: { ...env, CI: "1" },
     stdio: ["ignore", "pipe", "pipe"],
-  });
+  }); } catch { throw new Error("Convex queue read failed: process_start_failed."); }
 
   if (result.status !== 0) {
-    const detail = [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
-    if (detail.includes("No CONVEX_DEPLOYMENT set")) {
-      throw new Error(
-        "CONVEX_DEPLOYMENT is not configured. Copy/create .env.local with CONVEX_DEPLOYMENT or choose a deployment with --prod/--deployment.",
-      );
-    }
-    throw new Error(
-      `pnpm ${redactSensitiveArgs(fullArgs).join(" ")} failed\n${redactSensitiveText(detail)}`,
-    );
+    const exit = Number.isInteger(result.status) ? result.status : "unavailable";
+    throw new Error(`Convex queue read failed: cli_failed, exit=${exit}.`);
   }
 
   const stdout = result.stdout.trim();
-  if (!json) return stdout;
   if (!stdout) return null;
 
   try {
     return JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`Could not parse Convex JSON output: ${error.message}\n${stdout}`);
-  }
-}
-
-async function runAppQuery(args, functionName, payload) {
-  const convexUrl = await convexUrlForArgs(args);
-  if (convexUrl) {
-    return await runConvexHttpQuery(convexUrl, functionName, payload);
-  }
-
-  return runConvex([
-    "run",
-    functionName,
-    JSON.stringify(payload),
-    ...deploymentFlags(args),
-  ]);
-}
-
-async function runConvexHttpQuery(convexUrl, functionName, payload) {
-  const response = await fetch(`${convexUrl}/api/query`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Convex-Client": "demo-queue-helper",
-    },
-    body: JSON.stringify({
-      path: functionName,
-      format: "convex_encoded_json",
-      args: [payload],
-    }),
-  });
-  const body = await response.text();
-  let result;
-  try {
-    result = JSON.parse(body);
   } catch {
-    throw new Error(`Could not parse Convex HTTP query response: ${redactSensitiveText(body)}`);
+    throw new Error("Convex queue read failed: invalid_json.");
   }
-
-  if (!response.ok && response.status !== 560) {
-    throw new Error(`Convex HTTP query failed: ${redactSensitiveText(body)}`);
-  }
-  if (result.status === "success") return result.value;
-  if (result.status === "error") {
-    throw new Error(result.errorMessage ?? "Convex HTTP query failed");
-  }
-  throw new Error(`Invalid Convex HTTP response: ${redactSensitiveText(body)}`);
-}
-
-async function convexUrlForArgs(args) {
-  if (args.adminSiteUrl) {
-    const inferred = await inferConvexUrlFromSite(normalizeSiteUrl(args.adminSiteUrl), args);
-    if (!inferred) {
-      throw new Error(
-        "Could not infer Convex URL from --admin-url. Check that the URL points at a deployed demo-queue app.",
-      );
-    }
-    return inferred;
-  }
-
-  const env = localProcessEnv();
-  if (env.NEXT_PUBLIC_CONVEX_URL) return env.NEXT_PUBLIC_CONVEX_URL;
-
-  const siteUrl = normalizeSiteUrl(args.siteUrl ?? args.adminSiteUrl ?? env.DEMO_QUEUE_SITE_URL ?? defaultSiteUrl(args, env));
-  if (!siteUrl) return null;
-  return await inferConvexUrlFromSite(siteUrl, args);
-}
-
-async function inferConvexUrlFromSite(siteUrl, args) {
-  const pageUrl = args.slug && args.adminToken
-    ? `${siteUrl}/admin/${encodeURIComponent(args.slug)}/${encodeURIComponent(args.adminToken)}`
-    : siteUrl;
-
-  try {
-    const html = await fetchText(pageUrl);
-    const scriptUrls = extractScriptSrcs(html, siteUrl);
-    const scriptTexts = await Promise.all(scriptUrls.map((url) => fetchText(url).catch(() => "")));
-    const runtimeMatch = scriptTexts.map(findRuntimeConvexUrl).find(Boolean);
-    if (runtimeMatch) return runtimeMatch;
-
-    const candidates = new Set(scriptTexts.flatMap(findConvexUrlCandidates));
-    if (candidates.size === 1) return [...candidates][0];
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-async function fetchText(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Fetch failed with ${response.status}`);
-  return await response.text();
-}
-
-function extractScriptSrcs(html, siteUrl) {
-  return [...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((match) => new URL(match[1], siteUrl).href);
-}
-
-function findRuntimeConvexUrl(text) {
-  return text.match(/NEXT_PUBLIC_CONVEX_URL:"(https:\/\/[^"\\]+\.convex\.cloud)"/)?.[1] ?? null;
-}
-
-function findConvexUrlCandidates(text) {
-  return [...text.matchAll(/https:\/\/[^"'`\\\s<>]+\.convex\.cloud/g)]
-    .map((match) => match[0])
-    .filter((url) => !url.includes("happy-otter-123"));
-}
-
-function redactSensitiveArgs(args) {
-  return args.map((arg) => redactSensitiveText(arg));
-}
-
-function redactSensitiveText(text) {
-  return text
-    .replace(/"adminToken"\s*:\s*"[^"]+"/g, '"adminToken":"<redacted>"')
-    .replace(/\/admin\/([^/\s"]+)\/([^/\s"]+)/g, "/admin/$1/<redacted>");
 }
 
 function readLocalEnv() {
@@ -272,20 +154,50 @@ function readLocalEnv() {
   for (const file of [".env", ".env.local"]) {
     const path = join(process.cwd(), file);
     if (!existsSync(path)) continue;
-    Object.assign(values, parseEnv(readFileSync(path, "utf8")));
+    let parsed;
+    try { parsed = parseEnv(readFileSync(path, "utf8")); } catch { throw new Error("Queue reads stopped: environment_unreadable."); }
+    validateConvexEnvironment(parsed);
+    Object.assign(values, parsed);
   }
   return values;
 }
 
 function localProcessEnv(processEnv = process.env) {
-  return { ...readLocalEnv(), ...processEnv };
+  const local = readLocalEnv();
+  validateConvexEnvironment(processEnv);
+  for (const key of ["CONVEX_DEPLOYMENT", "NEXT_PUBLIC_CONVEX_URL", "CONVEX_URL"]) {
+    if (local[key] && processEnv[key] && local[key] !== processEnv[key]) throw new Error("Queue reads stopped because of a conflicting Convex override.");
+  }
+  return { ...local, ...processEnv };
 }
 
-function deploymentFlags(args) {
-  const flags = [];
-  if (args.prod) flags.push("--prod");
-  if (args.deployment) flags.push("--deployment", args.deployment);
-  return flags;
+function validateConvexEnvironment(env) {
+  const forbidden = ["CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT_TOKEN", "CONVEX_OVERRIDE_ACCESS_TOKEN", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY", "CONVEX_PROVISION_HOST", "CONVEX_AGENT_MODE"];
+  if (forbidden.some((key) => env[key])) throw new Error("Queue reads stopped because of a conflicting Convex override.");
+  if (env.CONVEX_DEPLOYMENT && !["dev:precious-elk-564", "prod:giant-egret-456"].includes(env.CONVEX_DEPLOYMENT)) {
+    throw new Error("The configured Convex deployment is not canonical. Queue reads stopped.");
+  }
+  const canonicalUrls = ["https://precious-elk-564.convex.cloud", "https://giant-egret-456.convex.cloud"];
+  for (const key of ["NEXT_PUBLIC_CONVEX_URL", "CONVEX_URL"]) {
+    if (env[key] && !canonicalUrls.includes(env[key])) throw new Error("The configured Convex URL is not canonical. Queue reads stopped.");
+    if (env[key] && env.CONVEX_DEPLOYMENT && env[key] !== `https://${env.CONVEX_DEPLOYMENT.split(":")[1]}.convex.cloud`) throw new Error("Conflicting Convex deployment and URL. Queue reads stopped.");
+  }
+}
+
+function trustedDeploymentFlags(args, env = localProcessEnv(), envLocalExists = existsSync(".env.local")) {
+  validateDeploymentSelector(args);
+  validateConvexEnvironment(env);
+  if (args.deployment && !["precious-elk-564", "giant-egret-456"].includes(args.deployment)) throw new Error("Queue reads require a canonical Convex deployment.");
+  if (!args.prod && !args.deployment && (!envLocalExists || env.CONVEX_DEPLOYMENT !== "dev:precious-elk-564")) throw new Error("The canonical development deployment is not configured. Configure it yourself or select production explicitly with --prod.");
+  const deployment = args.prod ? "giant-egret-456" : args.deployment ?? "precious-elk-564";
+  if (args.adminSiteUrl) {
+    const hostname = new URL(args.adminSiteUrl).hostname;
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
+    if (!local && !args.prod && !args.deployment) throw new Error("Remote admin URLs require an explicit canonical deployment selector.");
+    const productionHosts = [new URL(DEFAULT_SITE_URL).hostname, env.VERCEL_PROJECT_PRODUCTION_URL];
+    if (productionHosts.includes(hostname) && deployment !== "giant-egret-456") throw new Error("Production admin URL conflicts with the selected deployment.");
+  }
+  return ["--deployment-name", deployment];
 }
 
 function toAdminShape(event, submissions) {
@@ -297,7 +209,6 @@ function toAdminShape(event, submissions) {
       slug: event.slug,
       lineupTarget: event.lineupTarget,
       queuePublished: event.queuePublished,
-      adminToken: event.adminToken,
     },
     lineup: eventSubmissions
       .filter((submission) => submission.status === "queued")
@@ -352,23 +263,9 @@ function pickEvent(events, slug) {
   return event;
 }
 
-async function loadAdmin(args) {
-  if (args.slug && args.adminToken) {
-    const admin = await runAppQuery(
-      args,
-      "events:getAdmin",
-      { slug: args.slug, adminToken: args.adminToken },
-    );
-    return {
-      ...admin,
-      event: {
-        ...admin.event,
-        adminToken: args.adminToken,
-      },
-    };
-  }
-
-  const events = runConvex(["data", "events", "--format", "json", ...deploymentFlags(args)]);
+async function loadAdmin(args, options = {}) {
+  const flags = trustedDeploymentFlags(args, options.env, options.envLocalExists);
+  const events = runConvex(["data", "events", "--format", "json", ...flags], options);
   const event = pickEvent(events, args.slug);
   const submissions = runConvex([
     "data",
@@ -377,8 +274,8 @@ async function loadAdmin(args) {
     "1000",
     "--format",
     "json",
-    ...deploymentFlags(args),
-  ]);
+    ...flags,
+  ], options);
   return toAdminShape(event, submissions);
 }
 
@@ -390,7 +287,7 @@ function printSnapshot(admin, args) {
   printList(admin.lineup);
   console.log(`Pool: ${admin.pool.length}`);
   printList(admin.pool);
-  if (args.showAdminUrl && admin.event.adminToken) {
+  if (args.showAdminUrl) {
     console.log(`Admin URL: ${adminUrl(admin, args)}`);
   }
 }
@@ -446,16 +343,17 @@ function redactPublicText(text) {
 function adminUrl(admin, args) {
   const env = localProcessEnv();
   const siteUrl = normalizeSiteUrl(args.siteUrl ?? args.adminSiteUrl ?? env.DEMO_QUEUE_SITE_URL ?? defaultSiteUrl(args, env));
-  return `${siteUrl}/admin/${admin.event.slug}/${admin.event.adminToken}`;
+  return `${siteUrl}/events/${encodeURIComponent(admin.event.slug)}/admin`;
 }
 
 function defaultSiteUrl(args, env) {
-  if (args.prod && env.VERCEL_PROJECT_PRODUCTION_URL) {
+  const production = args.prod || args.deployment === "giant-egret-456";
+  if (production && env.VERCEL_PROJECT_PRODUCTION_URL) {
     return `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`;
   }
   if (env.VERCEL_BRANCH_URL) return `https://${env.VERCEL_BRANCH_URL}`;
   if (env.VERCEL_URL) return `https://${env.VERCEL_URL}`;
-  if (args.prod) return DEFAULT_SITE_URL;
+  if (production) return DEFAULT_SITE_URL;
   return DEFAULT_LOCAL_SITE_URL;
 }
 
@@ -494,13 +392,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 export {
-  extractScriptSrcs,
-  findConvexUrlCandidates,
-  findRuntimeConvexUrl,
-  convexUrlForArgs,
   localProcessEnv,
   parseArgs,
   parseAdminUrl,
   readLocalEnv,
   toModelContext,
+  trustedDeploymentFlags,
+  runConvex,
+  loadAdmin,
 };

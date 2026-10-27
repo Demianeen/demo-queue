@@ -1,24 +1,14 @@
 import type { Metadata } from "next";
-import ClientPage from "./ClientPage";
-import { adminEventTitle } from "@/app/metadata";
+import { redirect } from "next/navigation";
+import { adminPath } from "@/lib/routes";
 
 type PageProps = {
   params: Promise<{ slug: string; token: string }>;
 };
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { slug, token } = await params;
-  const title = await adminEventTitle(slug, token);
+export const metadata: Metadata = { title: "Admin", robots: { index: false, follow: false } };
 
-  return {
-    title: title ? `Admin - ${title}` : "Admin",
-    robots: {
-      index: false,
-      follow: false,
-    },
-  };
-}
-
-export default function AdminPage() {
-  return <ClientPage />;
+export default async function AdminPage({ params }: PageProps) {
+  const { slug } = await params;
+  redirect(adminPath(slug));
 }

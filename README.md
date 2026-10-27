@@ -6,6 +6,7 @@ Realtime demo-night picker for events.
 
 - Next.js
 - Convex
+- WorkOS AuthKit sign-in and organization membership for event creation
 - Secret-link access for admins and participants
 - Manual Google Meet link for v1
 - Hosted video links for hackathon submissions
@@ -19,17 +20,25 @@ Realtime demo-night picker for events.
    pnpm install
    ```
 
-2. Configure Convex:
+2. Use the existing development configuration:
 
-   - For a new local deployment, run `pnpm dev:convex` once and follow the
-     Convex CLI prompts. This writes `CONVEX_DEPLOYMENT`,
-     `NEXT_PUBLIC_CONVEX_URL`, and usually `NEXT_PUBLIC_CONVEX_SITE_URL` to
-     `.env.local`.
-   - For an existing deployment, create `.env.local` from `.env.example` and fill
-     in that deployment's values.
+   Development is `precious-elk-564`. Use the main checkout's existing
+   `.env.local` in a fresh worktree, with explicit permission for that copy.
+   Convex login is shared across worktrees through `~/.convex/config.json`.
+   Do not create or select a new deployment.
 
-   In a fresh worktree on this machine, use the existing `.env.local` from the
-   main `demo-queue` checkout.
+   Run `pnpm convex:check` for a read-only, timestamped configuration and
+   project-access check. A failed lookup retries once. Only missing credentials
+   or a definitive HTTP 401 reports `login_required`; a generic access error
+   does not establish that login is needed.
+
+   Run `pnpm convex:sync` for a guarded one-time development sync. It repeats
+   the preflight after a generic failure and reports schema errors separately,
+   without printing database records or credentials. Run it again before
+   reporting an old error as a current blocker. Development scripts also run
+   the preflight before starting the canonical watcher. Watcher output reports
+   readiness and schema failures without printing database records. Target and
+   configuration flags are rejected rather than forwarded to Convex.
 
 3. Start Next.js and Convex together:
 
@@ -53,32 +62,43 @@ The app validates its Next.js environment with T3 Env during `next build`.
 URL ending in `.convex.cloud` for hosted deployments, or a local Convex URL for
 local deployments. Do not use the HTTP actions URL ending in `.convex.site`.
 
-The official Convex Vercel deployment flow is to run:
+Production keeps the official Convex Vercel deployment command:
 
 ```bash
 pnpm exec convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'pnpm run build'
 ```
 
-That is the command in `vercel.json`. Convex documents that `convex deploy`
+`vercel.json` uses `scripts/vercel-build.mjs`, which runs this exact command only
+when `VERCEL_ENV=production`. Convex documents that `convex deploy`
 reads `CONVEX_DEPLOY_KEY`, sets the frontend Convex URL env var for the build
 command, then deploys Convex functions:
 https://docs.convex.dev/production/hosting/vercel
 
-Production Vercel should manually set only:
+Production Vercel requires its deploy key plus the WorkOS variables listed below:
 
 ```bash
 CONVEX_DEPLOY_KEY=<production deploy key>
 ```
 
-Preview Vercel should manually set only:
+Preview builds use the existing canonical development backend. Set these
+branch-scoped Vercel Preview variables for each review branch:
 
 ```bash
-CONVEX_DEPLOY_KEY=<preview deploy key>
+NEXT_PUBLIC_CONVEX_URL=https://precious-elk-564.convex.cloud
+WORKOS_CLIENT_ID=client_01M1RPKQD8S6KM3Q61N0N2FE4D
+WORKOS_API_KEY=<matching development API key>
+WORKOS_COOKIE_PASSWORD=<independent secret of at least 32 characters>
+NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://<stable branch host>/callback
 ```
 
-Do not manually maintain `NEXT_PUBLIC_CONVEX_URL` in Vercel production or
-preview when using the `convex deploy --cmd` flow above. Convex injects it for
-the build. Local development still needs it in `.env.local`.
+Preview runs only `pnpm run build`. It does not invoke the Convex CLI or provision
+a deployment. The build rejects a different Convex URL, WorkOS client, missing
+credentials, or a callback that differs from this project's stable branch host.
+It removes inherited Convex credentials from the Next.js build environment.
+
+Do not manually maintain `NEXT_PUBLIC_CONVEX_URL` in Vercel Production. Convex
+injects it for the production build. Local development still needs it in
+`.env.local`.
 
 Convex function environment variables are separate from Vercel build variables.
 They are set per Convex deployment, not in `.env.local`, and can be declared in
@@ -174,7 +194,7 @@ downloaded service-account JSON.
 
 Production app build:
 
-- Required in Vercel: `CONVEX_DEPLOY_KEY`.
+- Required in Vercel: `CONVEX_DEPLOY_KEY` and the WorkOS variables above.
 - Not manually required in Vercel: `NEXT_PUBLIC_CONVEX_URL`, because
   `convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd ...`
   sets it for `pnpm run build`.
@@ -185,25 +205,92 @@ Production app build:
 
 Preview app build:
 
-- Required in Vercel Preview: preview `CONVEX_DEPLOY_KEY`.
-- Not manually required in Vercel Preview: `NEXT_PUBLIC_CONVEX_URL`, because
-  Convex creates a preview deployment and injects its URL for the build.
-- If you need a full admin link for a preview from the local CLI, pass the
-  Convex preview deployment reference with `--deployment` and the Vercel preview
-  URL with `--site-url`.
+- `scripts/vercel-build.mjs` builds Next.js against `precious-elk-564` and the
+  matching development WorkOS client. Preview does not deploy Convex functions.
+- The required branch-scoped variables appear in the Environment section above.
+  The callback must match `https://${VERCEL_BRANCH_URL}/callback`.
+- Preview shares development data. Use the Test organization for review events.
+  Sync reviewed backend changes to canonical development separately.
+- Production retains its existing Convex deployment command and credentials.
 
 Local development:
 
 - Required in `.env.local`: `CONVEX_DEPLOYMENT` and `NEXT_PUBLIC_CONVEX_URL`.
 - Optional: `DEMO_QUEUE_SITE_URL`. The helper defaults to
   `http://localhost:3000` for non-production commands.
-- To create these values for a new checkout, run `pnpm dev:convex` once or copy
-  `.env.local` from the main checkout.
+- An absent `.env.local` is an unconfigured checkout. The project owner must
+  configure it, or explicitly authorize copying it from a named checkout.
+  `pnpm dev:convex` requires existing canonical configuration and CLI access.
 
 Vercel can expose generated app URL variables such as `VERCEL_URL`,
 `VERCEL_BRANCH_URL`, and `VERCEL_PROJECT_PRODUCTION_URL` when system env vars
 are enabled:
 https://vercel.com/docs/environment-variables/system-environment-variables
+
+## Organization access and styles
+
+`/events` and `/styles` require a WorkOS session and active organization membership.
+New events belong to the organization in the verified access token. Event lists,
+overviews, and organization defaults are scoped to that organization. Membership
+lists are cached per user and environment for at most 60 seconds; organization
+switches check membership directly. Convex independently verifies access tokens.
+
+Event administration requires WorkOS sign-in and matching organization ownership
+at `/events/<slug>/admin`. Old admin links redirect there but no longer grant
+access. New events have no admin capability token. `/saved` redirects to the
+authenticated event list. Participant, judge, submission, and presentation links
+remain account-free.
+
+Historical events need an explicit ownership assignment before organization
+members can administer them. Review the complete approved classification in
+`docs/reports/event-organization-classification.md`. The migration helper defaults
+to a read-only plan and requires an approved manifest hash for execution.
+
+Styles provides existing-style previews, event selection, and organization
+defaults. Existing events keep their saved appearance. Style authoring is deferred
+to a separate MCP change. The admin interface always uses Base; public pages use
+the event's selected style.
+
+### WorkOS configuration before merging or deploying
+
+Local development is configured for `precious-elk-564`. Production uses
+`giant-egret-456` and must have a separate production WorkOS environment.
+Development WorkOS credentials must not be reused in production.
+
+Set these variables in the matching frontend hosting environment:
+
+- `WORKOS_CLIENT_ID`
+- `WORKOS_API_KEY`
+- `WORKOS_COOKIE_PASSWORD` (an independent random secret of at least 32 characters)
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI` for local development and Production
+  (the app's origin plus `/callback`)
+
+Set Preview variables per branch using the WorkOS environment attached to
+`precious-elk-564`. Preview callbacks derive from Vercel's trusted
+`VERCEL_BRANCH_URL`; the explicit redirect variable must match that branch.
+Do not set one branch's redirect URL for all previews. Workspace routes opened
+on a unique deployment URL redirect to the stable branch host before sign-in so
+the authentication cookie and callback share a host. Production uses its separate
+Production WorkOS environment and explicit callback URL.
+
+Set matching `WORKOS_CLIENT_ID` and `WORKOS_API_KEY` on the corresponding Convex
+deployment before its functions deploy. Missing the client ID causes auth
+configuration validation to fail; installed Convex 1.40.0 also reads the API key
+from the backend when applying AuthKit settings. `convex.json` provisions local
+development and registers preview/production callbacks and CORS origins using
+existing credentials. It does not supply hosting credentials.
+
+In the matching WorkOS environment, configure the callback URI, homepage and CORS
+origin for the actual frontend URL, enable the intended Google sign-in method,
+and provision invitation-only organizations and memberships. Configure production
+Google OAuth credentials rather than relying on development demo credentials.
+Preview deployments also need matching frontend/Convex WorkOS configuration and
+an allowed callback URL; production credentials do not supply this automatically.
+
+Before merging, verify that configuration and complete a hosted invited-user
+login, organization-scoped event creation, and access-denied smoke test.
+Production setup remains an explicit merge gate
+in `docs/plans/workos-development-setup.md` (P01).
 
 ## Queue ops
 
@@ -212,18 +299,15 @@ instead of asking an agent to rediscover the data model:
 
 ```bash
 pnpm queue -- model-context
-pnpm queue -- model-context --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"
 pnpm queue -- snapshot
-pnpm queue:prod -- model-context --admin-url "https://.../admin/<slug>/<token>"
-pnpm queue:prod -- snapshot --admin-url "https://.../admin/<slug>/<token>"
+pnpm queue:prod -- model-context --admin-url "https://demo-queue-tau.vercel.app/events/<slug>/admin"
+pnpm queue:prod -- snapshot --event-slug "<slug>"
 ```
 
-Full admin URLs are the authoritative production path. For `model-context` and
-`snapshot`, the helper infers the public Convex deployment URL only from the
-deployed app named by the full `https://.../admin/...` URL and queries Convex
-directly. It does not read `.env.local` for target selection in that mode, so a
-local dev `NEXT_PUBLIC_CONVEX_URL` cannot override the pasted production admin
-URL.
+Admin URLs identify an event, not an authorization credential or deployment.
+The helper uses the existing authenticated Convex CLI with an explicit canonical
+deployment selector. Use `pnpm queue:prod` for production. Legacy capability URLs
+and `--admin-token` are rejected before network access.
 
 The helper only fetches queue data for the model. It does not rank, score,
 choose, or update demos. For "best N demos" requests, run `model-context`, then
@@ -256,7 +340,7 @@ an admin URL only when explicitly requested.
 
 ## Manual test cases
 
-1. Create an event from `/`, paste a fake Meet link, and open the generated admin and presentation view links.
+1. Sign in with an invited account at `/events`, select your organization, create an event with a test Meet link, and open its overview, admin, and presentation links.
 2. Submit two demos from the QR/form link and confirm they appear in the admin queue without showing contact info in the presentation view.
 3. Hide one queued demo from admin and confirm another eligible demo fills the queue gap when available.
 4. Publish the queue, click `Advance`, and confirm the presentation view updates, the participant page reveals the Meet link for everyone in the published lineup, and the presentation view shows the Meet link only after `Show in presentation view` is enabled.

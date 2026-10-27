@@ -1,15 +1,27 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { eventThemeValidator } from "./eventTheme";
 import { visualStyleValidator } from "./visualStyle";
 
 export default defineSchema({
+  eventSlugAliases: defineTable({
+    slug: v.string(),
+    eventId: v.id("events"),
+  }).index("by_slug", ["slug"]),
+  organizationStyles: defineTable({
+    organizationId: v.string(), name: v.string(), theme: eventThemeValidator,
+    preset: v.optional(visualStyleValidator),
+    isDefault: v.boolean(), updatedAt: v.number(),
+  }).index("by_organization", ["organizationId"]),
   events: defineTable({
     name: v.string(),
+    workosOrganizationId: v.optional(v.string()),
     slug: v.string(),
     eventType: v.optional(v.union(v.literal("demo"), v.literal("hackathon"))),
     visualStyle: v.optional(visualStyleValidator),
+    theme: v.optional(eventThemeValidator),
     meetUrl: v.string(),
-    adminToken: v.string(),
+    adminToken: v.optional(v.string()),
     judgingSheetId: v.optional(v.string()),
     judgingSheetUrl: v.optional(v.string()),
     judgingSheetCreatedAt: v.optional(v.number()),
@@ -60,7 +72,8 @@ export default defineSchema({
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_slug", ["slug"]),
+  }).index("by_slug", ["slug"])
+    .index("by_workosOrganizationId", ["workosOrganizationId"]),
 
   submissions: defineTable({
     eventId: v.id("events"),

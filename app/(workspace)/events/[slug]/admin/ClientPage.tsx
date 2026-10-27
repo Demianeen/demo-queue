@@ -1,11 +1,11 @@
 "use client";
 
 import React, { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
-import { api } from "../../../../convex/_generated/api";
-import { Id } from "../../../../convex/_generated/dataModel";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
 import {
   completedQueueLabel,
@@ -261,11 +261,9 @@ function useTimerView(timer: StageTimer | undefined) {
 }
 
 export default function AdminPage() {
-  const params = useParams<{ slug: string; token: string }>();
-  const admin = useQuery(api.events.getAdmin, {
-    slug: params.slug,
-    adminToken: params.token,
-  });
+  const params = useParams<{ slug: string }>();
+  const { isAuthenticated } = useConvexAuth();
+  const admin = useQuery(api.events.getAdmin, isAuthenticated ? { slug: params.slug } : "skip");
 
   const publishQueue = useMutation(api.events.publishQueue);
   const hideSubmission = useMutation(api.events.hideSubmission);
@@ -302,7 +300,7 @@ export default function AdminPage() {
 
   const reorderLineup = useMutation(api.events.reorderLineup).withOptimisticUpdate(
     (store, args) => {
-      const qa = { slug: args.slug, adminToken: args.adminToken };
+      const qa = { slug: args.slug, };
       const cur = store.getQuery(api.events.getAdmin, qa);
       if (!cur) return;
       const byId = new Map(
@@ -324,7 +322,7 @@ export default function AdminPage() {
 
   const moveToPool = useMutation(api.events.moveToPool).withOptimisticUpdate(
     (store, args) => {
-      const qa = { slug: args.slug, adminToken: args.adminToken };
+      const qa = { slug: args.slug, };
       const cur = store.getQuery(api.events.getAdmin, qa);
       if (!cur) return;
       const item = cur.lineup.find((e) => e.id === args.submissionId);
@@ -460,7 +458,7 @@ export default function AdminPage() {
     if (durationMs === queueTimerDurationMs) return;
 
     const timeoutId = window.setTimeout(() => {
-      void setStageTimerDuration({ slug: params.slug, adminToken: params.token, durationMs });
+      void setStageTimerDuration({ slug: params.slug, durationMs });
     }, 350);
 
     return () => window.clearTimeout(timeoutId);
@@ -469,7 +467,6 @@ export default function AdminPage() {
     queueTimerDurationMs,
     queueTimerStatus,
     params.slug,
-    params.token,
     setStageTimerDuration,
   ]);
 
@@ -482,7 +479,7 @@ export default function AdminPage() {
     if (durationMs === demoTimerDurationMs) return;
 
     const timeoutId = window.setTimeout(() => {
-      void setDemoTimerDuration({ slug: params.slug, adminToken: params.token, durationMs });
+      void setDemoTimerDuration({ slug: params.slug, durationMs });
     }, 350);
 
     return () => window.clearTimeout(timeoutId);
@@ -491,14 +488,13 @@ export default function AdminPage() {
     demoTimerDurationMs,
     demoTimerStatus,
     params.slug,
-    params.token,
     setDemoTimerDuration,
   ]);
 
   if (!admin) {
     return (
-      <main className="page">
-        <div className="shell">
+      <section className="page admin-page">
+        <div className="shell admin-shell">
           <Skeleton w={90} h={12} radius={6} style={{ marginBottom: 14 }} />
           <Skeleton w={320} h={40} radius={12} style={{ marginBottom: 18 }} />
           <section className="admin-grid">
@@ -516,7 +512,7 @@ export default function AdminPage() {
             </div>
           </section>
         </div>
-      </main>
+      </section>
     );
   }
 
@@ -586,26 +582,25 @@ export default function AdminPage() {
     // Commit: rewrite the lineup order (also pulls in a person dragged from the
     // pool), and explicitly send anyone dragged out back to the pool.
     if (startedIn === "lineup" && endedInPool) {
-      await moveToPool({ slug: params.slug, adminToken: params.token, submissionId: draggedId });
+      await moveToPool({ slug: params.slug, submissionId: draggedId });
     }
     if (finalBoard.lineup.length > 0) {
       await reorderLineup({
         slug: params.slug,
-        adminToken: params.token,
         orderedIds: finalBoard.lineup,
       });
     }
   }
 
   async function publish() {
-    await publishQueue({ slug: params.slug, adminToken: params.token });
+    await publishQueue({ slug: params.slug, });
   }
 
   async function shuffle() {
     if (queueIsLive) return;
     // Draw a fresh random lineup from everyone in the lineup or pool, up to the
     // lineup target; the rest go back to the pool.
-    await shuffleLineup({ slug: params.slug, adminToken: params.token });
+    await shuffleLineup({ slug: params.slug, });
   }
 
   async function runAiShuffle() {
@@ -615,7 +610,6 @@ export default function AdminPage() {
     try {
       await aiShuffle({
         slug: params.slug,
-        adminToken: params.token,
         prompt: aiPrompt.trim() || DEFAULT_AI_SHUFFLE_PROMPT,
       });
       setAiOpen(false);
@@ -627,48 +621,45 @@ export default function AdminPage() {
   }
 
   async function hide(id: Id<"submissions">) {
-    await hideSubmission({ slug: params.slug, adminToken: params.token, submissionId: id });
+    await hideSubmission({ slug: params.slug, submissionId: id });
   }
 
   async function restore(id: Id<"submissions">) {
-    await restoreSubmission({ slug: params.slug, adminToken: params.token, submissionId: id });
+    await restoreSubmission({ slug: params.slug, submissionId: id });
   }
 
   async function addToLineup(id: Id<"submissions">) {
     if (board.lineup.includes(id)) return;
     await reorderLineup({
       slug: params.slug,
-      adminToken: params.token,
       orderedIds: [...board.lineup, id],
     });
   }
 
   async function removeFromLineup(id: Id<"submissions">) {
-    await moveToPool({ slug: params.slug, adminToken: params.token, submissionId: id });
+    await moveToPool({ slug: params.slug, submissionId: id });
   }
 
   async function next() {
     if (!queueIsLive) return;
-    await pickNext({ slug: params.slug, adminToken: params.token });
+    await pickNext({ slug: params.slug, });
   }
 
   async function skip() {
     if (!queueIsLive) return;
-    await skipCurrent({ slug: params.slug, adminToken: params.token });
+    await skipCurrent({ slug: params.slug, });
   }
 
   async function noShow() {
     if (!queueIsLive || !currentLineupItem) return;
     await markNoShow({
       slug: params.slug,
-      adminToken: params.token,
-    });
+      });
   }
 
   async function toggleStageMeetLink(visible: boolean) {
     await setStageMeetLinkVisible({
       slug: params.slug,
-      adminToken: params.token,
       visible,
     });
   }
@@ -729,7 +720,7 @@ export default function AdminPage() {
       nextInput,
       effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
     );
-    await setStageTimerDuration({ slug: params.slug, adminToken: params.token, durationMs });
+    await setStageTimerDuration({ slug: params.slug, durationMs });
   }
 
   async function commitDemoTimerMinutesInput(nextInput = demoTimerMinutesInput) {
@@ -742,7 +733,7 @@ export default function AdminPage() {
       nextInput,
       effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS,
     );
-    await setDemoTimerDuration({ slug: params.slug, adminToken: params.token, durationMs });
+    await setDemoTimerDuration({ slug: params.slug, durationMs });
   }
 
   async function startQueueTimer() {
@@ -763,7 +754,7 @@ export default function AdminPage() {
       endsAt: now + remainingMs,
       serverNow: now,
     });
-    await startStageTimer({ slug: params.slug, adminToken: params.token, durationMs });
+    await startStageTimer({ slug: params.slug, durationMs });
   }
 
   async function pauseQueueTimer() {
@@ -775,7 +766,7 @@ export default function AdminPage() {
       endsAt: undefined,
       serverNow: now,
     });
-    await pauseStageTimer({ slug: params.slug, adminToken: params.token });
+    await pauseStageTimer({ slug: params.slug, });
   }
 
   async function resetQueueTimer() {
@@ -792,7 +783,6 @@ export default function AdminPage() {
     });
     await resetStageTimer({
       slug: params.slug,
-      adminToken: params.token,
       durationMs,
     });
     setQueueTimerMinutesInput(timerMsToInputMinutes(durationMs));
@@ -813,7 +803,6 @@ export default function AdminPage() {
     });
     await adjustStageTimer({
       slug: params.slug,
-      adminToken: params.token,
       deltaMs,
     });
   }
@@ -831,7 +820,7 @@ export default function AdminPage() {
       endsAt: now + remainingMs,
       serverNow: now,
     });
-    await startDemoTimer({ slug: params.slug, adminToken: params.token });
+    await startDemoTimer({ slug: params.slug, });
   }
 
   async function pauseCurrentDemoTimer() {
@@ -843,7 +832,7 @@ export default function AdminPage() {
       endsAt: undefined,
       serverNow: now,
     });
-    await pauseDemoTimer({ slug: params.slug, adminToken: params.token });
+    await pauseDemoTimer({ slug: params.slug, });
   }
 
   async function adjustCurrentDemoTimer(deltaMs: number) {
@@ -861,22 +850,21 @@ export default function AdminPage() {
     });
     await adjustDemoTimer({
       slug: params.slug,
-      adminToken: params.token,
       deltaMs,
     });
   }
 
   async function toggleActiveTimerVisibility(visible: boolean) {
     if (queueIsLive && currentLineupItem) {
-      await setDemoTimerVisible({ slug: params.slug, adminToken: params.token, visible });
+      await setDemoTimerVisible({ slug: params.slug, visible });
       return;
     }
 
-    await setStageTimerVisible({ slug: params.slug, adminToken: params.token, visible });
+    await setStageTimerVisible({ slug: params.slug, visible });
   }
 
   async function restorePrevious() {
-    await restorePreviousPresenter({ slug: params.slug, adminToken: params.token });
+    await restorePreviousPresenter({ slug: params.slug, });
   }
 
   async function livePrimaryAction() {
@@ -891,7 +879,6 @@ export default function AdminPage() {
   async function saveNew(values: SubmissionFields) {
     await adminAddSubmission({
       slug: params.slug,
-      adminToken: params.token,
       participantToken: randomToken(32),
       name: values.name,
       demoTitle: values.demoTitle,
@@ -933,7 +920,6 @@ export default function AdminPage() {
         });
         await adminAddTestSubmissions({
           slug: params.slug,
-          adminToken: params.token,
           submissions,
         });
       }
@@ -955,7 +941,7 @@ export default function AdminPage() {
     setIsAdding(false);
     setQueueTimerOverride(null);
     setDemoTimerOverride(null);
-    await clearQueue({ slug: params.slug, adminToken: params.token });
+    await clearQueue({ slug: params.slug, });
   }
 
   async function selectEventType(nextType: "demo" | "hackathon") {
@@ -972,7 +958,6 @@ export default function AdminPage() {
 
     await changeEventType({
       slug: params.slug,
-      adminToken: params.token,
       eventType: nextType,
       confirmReset: submissionCount > 0,
     });
@@ -987,7 +972,7 @@ export default function AdminPage() {
     setSheetMessage("");
     const sheetWindow = window.open("", "_blank");
     try {
-      const result = await createJudgingSheet({ slug: params.slug, adminToken: params.token });
+      const result = await createJudgingSheet({ slug: params.slug, });
       if (sheetWindow) {
         sheetWindow.opener = null;
         sheetWindow.location.replace(result.spreadsheetUrl);
@@ -1005,7 +990,7 @@ export default function AdminPage() {
     setSheetBusy(true);
     setSheetMessage("");
     try {
-      await requestJudgingSheetSync({ slug: params.slug, adminToken: params.token });
+      await requestJudgingSheetSync({ slug: params.slug, });
       setSheetMessage("Judging sheet sync started.");
     } catch (error) {
       setSheetMessage(error instanceof Error ? error.message : "Could not sync the judging sheet.");
@@ -1036,7 +1021,6 @@ export default function AdminPage() {
     try {
       const result = await saveRoundOneJudges({
         slug: params.slug,
-        adminToken: params.token,
         judges,
       });
       setJudgesOpen(false);
@@ -1055,7 +1039,6 @@ export default function AdminPage() {
   async function saveEdit(id: Id<"submissions">, values: SubmissionFields) {
     await updateSubmission({
       slug: params.slug,
-      adminToken: params.token,
       submissionId: id,
       name: values.name,
       demoTitle: values.demoTitle,
@@ -1072,7 +1055,7 @@ export default function AdminPage() {
   async function commitTarget(value: string) {
     const parsed = Number.parseInt(value, 10);
     if (!Number.isFinite(parsed)) return;
-    await setLineupTarget({ slug: params.slug, adminToken: params.token, target: parsed });
+    await setLineupTarget({ slug: params.slug, target: parsed });
   }
 
   const activeItem = activeId ? itemsById.get(activeId) : null;
@@ -1129,7 +1112,7 @@ export default function AdminPage() {
   const livePrimaryLabel = shouldStartDemoFromPrimary ? "Start timer" : "Advance";
 
   return (
-    <main className="page admin-page">
+    <section className="page admin-page">
       <div className="shell admin-shell">
         <section className="admin-control-grid">
           <section className="panel panel-pad admin-control-panel">
@@ -1472,7 +1455,6 @@ export default function AdminPage() {
                       onChange={(event) =>
                         setSubmissionCountVisible({
                           slug: params.slug,
-                          adminToken: params.token,
                           visible: event.currentTarget.checked,
                         })
                       }
@@ -1628,7 +1610,7 @@ export default function AdminPage() {
             slug={params.slug}
             stageMode={stageMode}
             onStageModeChange={(mode) =>
-              setStageScreenMode({ slug: params.slug, adminToken: params.token, mode })
+              setStageScreenMode({ slug: params.slug, mode })
             }
           />
         </section>
@@ -1636,8 +1618,7 @@ export default function AdminPage() {
         {isHackathonEvent ? (
           <JudgingAdminPanel
             slug={params.slug}
-            adminToken={params.token}
-            judges={admin.event.roundOneJudges}
+                        judges={admin.event.roundOneJudges}
             lineupSubmissionIds={board.lineup}
             onAddToLineup={addToLineup}
             onRemoveFromLineup={removeFromLineup}
@@ -1838,7 +1819,7 @@ export default function AdminPage() {
         </DndContext>
 
       </div>
-    </main>
+    </section>
   );
 }
 
@@ -1892,6 +1873,7 @@ function StagePreviewPanel({
       <div className="admin-stage-links">
         <Popover>
           <PopoverTrigger
+            data-slot="button"
             className={cn(
               buttonVariants({ variant: "outline" }),
               "admin-link-popover-trigger",
@@ -1909,6 +1891,7 @@ function StagePreviewPanel({
         </Popover>
       </div>
       <a
+        data-slot="button"
         className={cn(buttonVariants({ variant: "outline" }), "w-full")}
         href={url}
         rel="noreferrer"

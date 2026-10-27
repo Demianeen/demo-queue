@@ -9,14 +9,13 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 
 // AI shuffle: pick + order the lineup from the pool based on the organizer's
-// prompt. Runs server-side (admin-token gated via getAdmin), and only PUBLIC
+// prompt. Runs server-side (organization gated via getAdmin), and only PUBLIC
 // fields (name, demo title, category) are ever sent to the model.
 export const aiShuffle = action({
-  args: { slug: v.string(), adminToken: v.string(), prompt: v.string() },
+  args: { slug: v.string(), prompt: v.string() },
   handler: async (ctx, args): Promise<{ count: number }> => {
     const admin = await ctx.runQuery(api.events.getAdmin, {
       slug: args.slug,
-      adminToken: args.adminToken,
     });
 
     const people = [...admin.lineup, ...admin.pool].map((p) => ({
@@ -64,7 +63,6 @@ export const aiShuffle = action({
 
     await ctx.runMutation(api.events.setLineupOrder, {
       slug: args.slug,
-      adminToken: args.adminToken,
       orderedIds,
     });
 

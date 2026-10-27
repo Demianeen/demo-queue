@@ -713,7 +713,7 @@ export const syncJudgingSheet = internalAction({
 });
 
 export const createJudgingSheet = action({
-  args: { slug: v.string(), adminToken: v.string() },
+  args: { slug: v.string(), },
   handler: async (ctx, args): Promise<{ spreadsheetUrl: string; created: boolean }> => {
     const admin = await ctx.runQuery(api.events.getAdmin, args);
     if (admin.event.eventType !== "hackathon") {

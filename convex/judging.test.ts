@@ -21,26 +21,57 @@ const modules = {
   "./judging.ts": () => import("./judging"),
 };
 
+test("demo owners cannot change judging state or create judge access", async () => {
+  const t = convexTest(schema, modules).withIdentity({ subject: "operator", org_id: "org_judging" });
+  const eventId = await t.run((ctx) => ctx.db.insert("events", {
+    name: "Demo night", slug: "demo-night", eventType: "demo", workosOrganizationId: "org_judging",
+    meetUrl: "https://meet.example", roundOneJudges: ["Alex"], queuePublished: false, createdAt: 1, updatedAt: 1,
+  }));
+  const before = await t.run((ctx) => ctx.db.get(eventId));
+  await expect(t.mutation(api.judging.closeSubmissions, { slug: "demo-night" })).rejects.toThrow("Judging is only available for hackathon events.");
+  await expect(t.mutation(api.judging.createJudgeAccess, { slug: "demo-night", judgeName: "Alex", capabilityToken: "demo-judge" })).rejects.toThrow("Judging is only available for hackathon events.");
+  expect(await t.run((ctx) => ctx.db.get(eventId))).toEqual(before);
+  expect(await t.run((ctx) => ctx.db.query("judgeAccess").collect())).toEqual([]);
+});
+
+test("hackathon owners can close submissions and create judge access", async () => {
+  const { t, eventId } = await createHackathon(["Alex", "Sam"]);
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await t.mutation(api.judging.createJudgeAccess, { slug: "hack", judgeName: "Alex", capabilityToken: "hack-judge" });
+  expect(await t.run((ctx) => ctx.db.get(eventId))).toMatchObject({ submissionsClosedAt: expect.any(Number) });
+  expect(await t.query(api.judging.listJudgeAccess, { slug: "hack" })).toMatchObject([{ judgeName: "Alex", token: "hack-judge", active: true }]);
+});
+
+
+async function seedLegacyEvent(t: Pick<ReturnType<typeof convexTest>, "run" | "query" | "mutation">, input: {
+  name: string; slug: string; eventType: "hackathon"; meetUrl: string;
+  visualStyle?: "outpost";
+}) {
+  const eventId = await t.run((ctx) => ctx.db.insert("events", {
+    ...input, workosOrganizationId: "org_judging", queuePublished: false, createdAt: Date.now(), updatedAt: Date.now(),
+  }));
+  return { eventId };
+}
+
 async function createHackathon(judges = ["Alex", "Sam", "Taylor"]) {
-  const t = convexTest(schema, modules);
-  t.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);
-  const event = await t.mutation(api.events.createEvent, {
+  const root = convexTest(schema, modules);
+  root.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);
+  const t = root.withIdentity({ subject: "operator", org_id: "org_judging" });
+  const event = await seedLegacyEvent(t, {
     name: "Hack",
     slug: "hack",
     eventType: "hackathon",
     meetUrl: "https://meet.example",
-    adminToken: "admin",
-  });
+    });
   await t.mutation(api.events.saveRoundOneJudges, {
     slug: "hack",
-    adminToken: "admin",
     judges,
   });
   return { t, eventId: event.eventId };
 }
 
 async function addSubmission(
-  t: ReturnType<typeof convexTest>,
+  t: Pick<ReturnType<typeof convexTest>, "run" | "query" | "mutation">,
   eventId: Awaited<ReturnType<typeof createHackathon>>["eventId"],
   index: number,
 ) {
@@ -60,17 +91,15 @@ async function addSubmission(
   });
 }
 
-async function prepareAssignments(t: ReturnType<typeof convexTest>) {
-  await t.mutation(api.judging.closeSubmissions, { slug: "hack", adminToken: "admin" });
+async function prepareAssignments(t: Pick<ReturnType<typeof convexTest>, "run" | "query" | "mutation">) {
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack", });
   await t.mutation(api.judging.startAssignmentPreparation, {
     slug: "hack",
-    adminToken: "admin",
-  });
+    });
   for (;;) {
     const result = await t.mutation(api.judging.prepareAssignmentBatch, {
       slug: "hack",
-      adminToken: "admin",
-    });
+      });
     if (result.done) return;
   }
 }
@@ -85,7 +114,6 @@ test("replacing judges before reviews start redistributes existing assignments",
   await expect(
     t.mutation(api.events.saveRoundOneJudges, {
       slug: "hack",
-      adminToken: "admin",
       judges: ["David", "Michael", "Nikodem"],
     }),
   ).resolves.toEqual({ judgeCount: 3, reassignedSubmissionCount: 6 });
@@ -109,18 +137,16 @@ test("saving a roster deactivates omitted links and reactivates re-added links",
   const { t } = await createHackathon(["Alex", "Sam"]);
   await t.mutation(api.judging.createJudgeAccess, {
     slug: "hack",
-    adminToken: "admin",
     judgeName: "Alex",
     capabilityToken: "alex-secret",
   });
 
   await t.mutation(api.events.saveRoundOneJudges, {
     slug: "hack",
-    adminToken: "admin",
     judges: ["Sam", "Taylor"],
   });
   const inactiveAccess = (
-    await t.query(api.judging.listJudgeAccess, { slug: "hack", adminToken: "admin" })
+    await t.query(api.judging.listJudgeAccess, { slug: "hack", })
   ).find((access) => access.judgeName === "Alex");
   expect(inactiveAccess).toMatchObject({
     active: false,
@@ -129,11 +155,10 @@ test("saving a roster deactivates omitted links and reactivates re-added links",
 
   await t.mutation(api.events.saveRoundOneJudges, {
     slug: "hack",
-    adminToken: "admin",
     judges: ["Alex", "Sam", "Taylor"],
   });
   const reactivatedAccess = (
-    await t.query(api.judging.listJudgeAccess, { slug: "hack", adminToken: "admin" })
+    await t.query(api.judging.listJudgeAccess, { slug: "hack", })
   ).find((access) => access.judgeName === "Alex");
   expect(reactivatedAccess).toMatchObject({
     active: true,
@@ -143,16 +168,16 @@ test("saving a roster deactivates omitted links and reactivates re-added links",
 });
 
 test("visual style is available to stage and private participant pages", async () => {
-  const t = convexTest(schema, modules);
-  t.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);
-  const event = await t.mutation(api.events.createEvent, {
+  const root = convexTest(schema, modules);
+  root.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);
+  const t = root.withIdentity({ subject: "operator", org_id: "org_judging" });
+  const event = await seedLegacyEvent(t, {
     name: "Outpost Hack",
     slug: "outpost-hack",
     eventType: "hackathon",
     visualStyle: "outpost",
     meetUrl: "https://meet.example",
-    adminToken: "admin",
-  });
+    });
   await addSubmission(t, event.eventId, 1);
 
   const stage = await t.query(api.events.getStage, { slug: "outpost-hack" });
@@ -161,13 +186,11 @@ test("visual style is available to stage and private participant pages", async (
 
   await t.mutation(api.judging.closeSubmissions, {
     slug: "outpost-hack",
-    adminToken: "admin",
-  });
+    });
   expect((await t.query(api.events.getStage, { slug: "outpost-hack" })).event.submissionsClosed).toBe(true);
   await expect(
     t.mutation(api.events.adminAddTestSubmissions, {
       slug: "outpost-hack",
-      adminToken: "admin",
       submissions: [{
         participantToken: "late-participant",
         name: "Late person",
@@ -190,13 +213,11 @@ test("judge links isolate access and a single complete review produces a score",
   const submissionId = await addSubmission(t, eventId, 1);
   await t.mutation(api.judging.createJudgeAccess, {
     slug: "hack",
-    adminToken: "admin",
     judgeName: "Alex",
     capabilityToken: "alex-secret",
   });
   await t.mutation(api.judging.createJudgeAccess, {
     slug: "hack",
-    adminToken: "admin",
     judgeName: "Sam",
     capabilityToken: "sam-secret",
   });
@@ -204,7 +225,7 @@ test("judge links isolate access and a single complete review produces a score",
     (await t.run(async (ctx) => await ctx.db.get(submissionId)))?.roundOneAssignedJudges,
   ).toBeUndefined();
   expect(
-    (await t.query(api.judging.listJudgeAccess, { slug: "hack", adminToken: "admin" }))[0]
+    (await t.query(api.judging.listJudgeAccess, { slug: "hack", }))[0]
       .token,
   ).toBe("alex-secret");
   expect(
@@ -222,10 +243,9 @@ test("judge links isolate access and a single complete review produces a score",
   await prepareAssignments(t);
   await t.mutation(api.judging.setJudgingTimer, {
     slug: "hack",
-    adminToken: "admin",
     durationMs: 30 * 60 * 1000,
   });
-  await t.mutation(api.judging.startJudging, { slug: "hack", adminToken: "admin" });
+  await t.mutation(api.judging.startJudging, { slug: "hack", });
 
   expect(
     await t.mutation(api.judging.saveReview, {
@@ -249,8 +269,7 @@ test("judge links isolate access and a single complete review produces a score",
 
   const progress = await t.query(api.judging.getAdminProgress, {
     slug: "hack",
-    adminToken: "admin",
-  });
+    });
   expect(progress.scoring[0]).toMatchObject({
     assignedJudges: expect.arrayContaining(["Alex"]),
     completeReviewCount: 1,
@@ -272,7 +291,7 @@ test("judge links isolate access and a single complete review produces a score",
   ).toMatchObject({ judgingStatus: "open", assignments: [{ id: submissionId }] });
 
   expect(
-    await t.mutation(api.judging.closeSubmissions, { slug: "hack", adminToken: "admin" }),
+    await t.mutation(api.judging.closeSubmissions, { slug: "hack", }),
   ).toEqual({ judgingStatus: "open" });
 });
 
@@ -286,21 +305,19 @@ test("redistribution moves only an unavailable judge's unfinished slot", async (
   ] as const) {
     await t.mutation(api.judging.createJudgeAccess, {
       slug: "hack",
-      adminToken: "admin",
       judgeName,
       capabilityToken,
     });
   }
   await prepareAssignments(t);
-  await t.mutation(api.judging.startJudging, { slug: "hack", adminToken: "admin" });
+  await t.mutation(api.judging.startJudging, { slug: "hack", });
   const assignment = (await t.run(async (ctx) => await ctx.db.get(submissionId)))!
     .roundOneAssignedJudges!;
   const unavailable = assignment[0];
   const kept = assignment[1];
   const access = await t.query(api.judging.listJudgeAccess, {
     slug: "hack",
-    adminToken: "admin",
-  });
+    });
   const unavailableAccess = access.find((item) => item.judgeName === unavailable)!;
   const keptAccess = access.find((item) => item.judgeName === kept)!;
 
@@ -321,7 +338,6 @@ test("redistribution moves only an unavailable judge's unfinished slot", async (
 
   const preview = await t.query(api.judging.previewRedistribution, {
     slug: "hack",
-    adminToken: "admin",
     unavailableJudgeKey: unavailableAccess.judgeKey,
   });
   expect(preview).toHaveLength(1);
@@ -331,7 +347,6 @@ test("redistribution moves only an unavailable judge's unfinished slot", async (
 
   await t.mutation(api.judging.applyRedistribution, {
     slug: "hack",
-    adminToken: "admin",
     unavailableJudgeKey: unavailableAccess.judgeKey,
     assignments: preview.map((item) => ({
       submissionId: item.submissionId,
@@ -341,8 +356,7 @@ test("redistribution moves only an unavailable judge's unfinished slot", async (
 
   const progress = await t.query(api.judging.getAdminProgress, {
     slug: "hack",
-    adminToken: "admin",
-  });
+    });
   expect(progress.scoring[0]).toMatchObject({ completeReviewCount: 1, score: 8 });
   await expect(
     t.mutation(api.judging.saveReview, {
@@ -384,8 +398,7 @@ test("assignment preparation covers 500 submissions without exposing a partial r
   );
   const progress = await t.query(api.judging.getAdminProgress, {
     slug: "hack",
-    adminToken: "admin",
-  });
+    });
   expect(progress.eventStatus).toBe("ready");
 });
 
@@ -400,13 +413,12 @@ test("normalization decisions, finalist amendments, and placements stay independ
   ] as const) {
     await t.mutation(api.judging.createJudgeAccess, {
       slug: "hack",
-      adminToken: "admin",
       judgeName,
       capabilityToken,
     });
   }
   await prepareAssignments(t);
-  await t.mutation(api.judging.startJudging, { slug: "hack", adminToken: "admin" });
+  await t.mutation(api.judging.startJudging, { slug: "hack", });
 
   await t.mutation(api.judging.saveReview, {
     slug: "hack",
@@ -433,12 +445,11 @@ test("normalization decisions, finalist amendments, and placements stay independ
       demoClarity: review.score,
     });
   }
-  await t.mutation(api.judging.closeJudging, { slug: "hack", adminToken: "admin" });
+  await t.mutation(api.judging.closeJudging, { slug: "hack", });
 
   const initialOverview = await t.query(api.judging.getNormalizationOverview, {
     slug: "hack",
-    adminToken: "admin",
-  });
+    });
   expect(initialOverview.scoreBasisReady).toBe(true);
   expect(initialOverview.judges).toHaveLength(2);
   expect(initialOverview.judges.every((judge) => judge.lowData)).toBe(true);
@@ -449,8 +460,7 @@ test("normalization decisions, finalist amendments, and placements stay independ
 
   const defaultRanked = await t.query(api.judging.getFinalistDecision, {
     slug: "hack",
-    adminToken: "admin",
-  });
+    });
   expect(defaultRanked.scoreBasisReady).toBe(true);
   expect(defaultRanked.submissions[0]).toMatchObject({
     submissionId: secondId,
@@ -460,7 +470,6 @@ test("normalization decisions, finalist amendments, and placements stay independ
   expect(
     await t.mutation(api.judging.saveNormalizationDecision, {
       slug: "hack",
-      adminToken: "admin",
       judgeKey: "alex",
       decision: "apply",
     }),
@@ -468,7 +477,6 @@ test("normalization decisions, finalist amendments, and placements stay independ
   expect(
     await t.mutation(api.judging.saveNormalizationDecision, {
       slug: "hack",
-      adminToken: "admin",
       judgeKey: "sam",
       decision: "raw",
     }),
@@ -476,8 +484,7 @@ test("normalization decisions, finalist amendments, and placements stay independ
 
   const ranked = await t.query(api.judging.getFinalistDecision, {
     slug: "hack",
-    adminToken: "admin",
-  });
+    });
   expect(ranked.scoreBasisReady).toBe(true);
   expect(ranked.submissions.map((submission) => submission.submissionId)).toEqual([
     secondId,
@@ -495,7 +502,7 @@ test("normalization decisions, finalist amendments, and placements stay independ
     warning: "No complete reviews",
   });
 
-  await t.mutation(api.judging.reopenJudging, { slug: "hack", adminToken: "admin" });
+  await t.mutation(api.judging.reopenJudging, { slug: "hack", });
   await t.mutation(api.judging.saveReview, {
     slug: "hack",
     capabilityToken: "alex-secret",
@@ -504,11 +511,10 @@ test("normalization decisions, finalist amendments, and placements stay independ
     execution: 8,
     demoClarity: 8,
   });
-  await t.mutation(api.judging.closeJudging, { slug: "hack", adminToken: "admin" });
+  await t.mutation(api.judging.closeJudging, { slug: "hack", });
   const staleOverview = await t.query(api.judging.getNormalizationOverview, {
     slug: "hack",
-    adminToken: "admin",
-  });
+    });
   expect(staleOverview.scoreBasisReady).toBe(true);
   expect(staleOverview.judges.find((judge) => judge.judgeKey === "alex")?.decision).toEqual({
     decision: "apply",
@@ -521,7 +527,6 @@ test("normalization decisions, finalist amendments, and placements stay independ
   expect(
     await t.mutation(api.judging.saveNormalizationDecision, {
       slug: "hack",
-      adminToken: "admin",
       judgeKey: "alex",
       decision: "apply",
     }),
@@ -529,12 +534,10 @@ test("normalization decisions, finalist amendments, and placements stay independ
 
   await t.mutation(api.judging.saveFinalistDraft, {
     slug: "hack",
-    adminToken: "admin",
     finalistIds: [secondId, firstId],
   });
   await t.mutation(api.judging.submitFinalists, {
     slug: "hack",
-    adminToken: "admin",
     finalistIds: [secondId, firstId],
   });
   expect(
@@ -552,24 +555,20 @@ test("normalization decisions, finalist amendments, and placements stay independ
 
   await t.mutation(api.judging.savePlacementDraft, {
     slug: "hack",
-    adminToken: "admin",
     placementIds: [],
   });
   await t.mutation(api.judging.submitPlacements, {
     slug: "hack",
-    adminToken: "admin",
     placementIds: [secondId, firstId],
   });
   await t.mutation(api.judging.submitFinalists, {
     slug: "hack",
-    adminToken: "admin",
     finalistIds: [firstId],
   });
 
   const amended = await t.query(api.judging.getFinalistDecision, {
     slug: "hack",
-    adminToken: "admin",
-  });
+    });
   expect(amended).toMatchObject({
     finalistIds: [firstId],
     finalistStatus: "submitted",

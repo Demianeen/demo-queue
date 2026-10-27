@@ -15,7 +15,13 @@ const eventArgs = {
   slug: "demo-night",
   eventType: "demo" as const,
   meetUrl: "https://meet.example",
-  adminToken: "admin",
+  expectedOrganizationId: "org_visual_style",
+};
+
+const identity = {
+  subject: "user_operator",
+  issuer: "https://api.workos.com/user_management/client_test",
+  org_id: eventArgs.expectedOrganizationId,
 };
 
 async function addParticipant(
@@ -38,11 +44,11 @@ async function addParticipant(
   });
 }
 
-test.each(["codex", "outpost", "astra", "devday"] as const)(
+test.each(["neutral", "codex", "outpost", "astra", "devday"] as const)(
   "%s persists and reaches the stage and private participant page",
   async (visualStyle) => {
     const t = convexTest(schema, modules);
-    const { eventId } = await t.mutation(api.events.createEvent, {
+    const { eventId } = await t.withIdentity(identity).mutation(api.events.createEvent, {
       ...eventArgs,
       visualStyle,
     });
@@ -60,14 +66,13 @@ test.each(["codex", "outpost", "astra", "devday"] as const)(
 
 test.each(["astra", "devday"] as const)("editing a %s event preserves its selected theme", async (visualStyle) => {
   const t = convexTest(schema, modules);
-  const { eventId } = await t.mutation(api.events.createEvent, {
+  const { eventId } = await t.withIdentity(identity).mutation(api.events.createEvent, {
     ...eventArgs,
     visualStyle,
   });
 
-  await t.mutation(api.events.updateEvent, {
+  await t.withIdentity(identity).mutation(api.events.updateEvent, {
     slug: eventArgs.slug,
-    adminToken: eventArgs.adminToken,
     name: "Updated demo night",
     meetUrl: "https://meet.example/updated",
   });
@@ -79,17 +84,21 @@ test.each(["astra", "devday"] as const)("editing a %s event preserves its select
   });
 });
 
-test("new events without a theme retain the Codex default", async () => {
+test("new events without a theme use the neutral default", async () => {
   const t = convexTest(schema, modules);
-  const { eventId } = await t.mutation(api.events.createEvent, eventArgs);
+  const { eventId } = await t.withIdentity(identity).mutation(api.events.createEvent, eventArgs);
 
-  expect((await t.run((ctx) => ctx.db.get(eventId)))?.visualStyle).toBe("codex");
+  expect((await t.run((ctx) => ctx.db.get(eventId)))?.visualStyle).toBe("neutral");
 });
 
 test("legacy events without a stored theme render Codex on both public surfaces", async () => {
   const t = convexTest(schema, modules);
   const eventId = await t.run((ctx) => ctx.db.insert("events", {
-    ...eventArgs,
+    name: eventArgs.name,
+    slug: eventArgs.slug,
+    eventType: eventArgs.eventType,
+    meetUrl: eventArgs.meetUrl,
+    adminToken: "legacy-admin",
     queuePublished: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),

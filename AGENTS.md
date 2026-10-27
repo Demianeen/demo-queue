@@ -31,47 +31,84 @@ different behavior.
 
 ## Convex deployment safety
 
-The only canonical Convex deployments for this project are:
+Before claiming CI is missing or proposing a new workflow, inspect the live PR's
+checks and commit statuses, their owning integrations, and the repository's
+GitHub Actions runs. A missing local `.github` directory is not evidence that a
+PR has no automation. Distinguish GitHub Actions workflows from external checks
+shown on GitHub, state what was verified, and retry the existing check through
+its owning service before proposing replacement automation.
 
-- Production: `giant-egret-456`
-- Development Cloud: `precious-elk-564`
+The only canonical Convex deployments are development `precious-elk-564` and
+production `giant-egret-456`. Preview frontends use `precious-elk-564` and its
+matching development WorkOS application. Never read, write, configure, or deploy
+to another Convex deployment, including one provisioned by a Preview integration.
 
-If a command, URL, dashboard link, environment file, or CLI output names any
-other deployment, stop immediately. It is an anonymous or wrong project
-deployment and must not be read, written, configured, or deployed to.
+For local development commands, verify that `.env.local` exists and selects
+`precious-elk-564`. Before each local Convex command, report whether `.env.local`
+exists and the exact deployment selector. Do not create or edit `.env.local`
+to make commands work. With explicit permission naming source and target, an
+existing `.env.local` may be copied between checkouts and verified without
+printing secrets. This does not authorize authentication or project selection.
+Do not authenticate, bootstrap, repair project
+selection, or create/select an anonymous deployment. If local setup is missing,
+unauthenticated, or points to another development deployment, stop and leave
+setup to the user.
 
-When interpreting Convex CLI output, use the exact deployment name and URL as
-the authoritative identity. Generic verbs such as `Provisioned`, `Configured`,
-or `Developing against` do not by themselves mean that a new deployment was
-created. Compare the reported deployment name and URL with the canonical values
-above before drawing any conclusion or stopping work.
+Use `pnpm convex:check` for fresh read-only readiness evidence and
+`pnpm convex:sync` for a one-time development sync. These commands verify the
+canonical target, shared machine login, and current project access. Only a
+`login_required` result supports requesting login. Do not treat generic access,
+network, configuration-prompt, or schema errors as authentication failures.
+Run the check again before repeating a blocker in a later status report.
 
-Treat an absent `.env.local` as an intentional unconfigured-worktree state. Do
-not run an unqualified deployment-aware Convex command such as `convex run`,
-`convex dev`, `convex deploy`, or `convex env`: the CLI can configure the
-worktree, recreate `.env.local`, or select an anonymous development deployment.
-Use an explicit deployment reference supplied by the user, or stop and ask
-before configuring anything. Never create or select an anonymous Convex
-deployment on the user's behalf. Before each Convex command, verify and report
-both whether `.env.local` exists and the exact deployment selector the command
-will use.
+Agents may run, restart, and stop `convex dev` against `precious-elk-564`,
+including syncing schema/functions and running development checks, without
+asking for permission again.
 
-Convex readiness includes both deployment configuration and CLI authorization.
-Never set up, authenticate, repair, reconfigure, or bootstrap Convex on the
-user's behalf. Do not create, copy, replace, or edit `.env.local` to make Convex
-commands work, and do not start an authentication or project-selection flow. If
-the existing Convex setup is missing, unauthenticated, or names anything other
-than the canonical deployments above, stop and leave the setup to the user.
+Preview frontend and Production deployments run through CI/CD, not local `convex deploy`.
+Preview runs only the Next.js build. Its branch-scoped settings must use the
+canonical development backend and matching WorkOS credentials. The build guard
+rejects mismatches and strips inherited Convex deployment credentials. Never
+provision a Convex Preview deployment. Production retains its existing deploy
+command and environment.
+When asked to deploy or retry CI/CD, rerun the relevant GitHub Actions workflow.
+If the check is owned by Vercel's GitHub integration instead, use its Redeploy
+control. Verify the repository, project, branch, commit, and target environment
+before restarting. A Vercel frontend Preview is not a separate Convex deployment.
+Inspect the run and address
+reproducible failures before retrying unchanged failures repeatedly.
 
-Agents may run, restart, and stop `convex dev` whenever needed for development
-work, provided the existing `.env.local` and CLI output both identify the
-canonical development deployment `precious-elk-564`. This permission includes
-syncing local schema and function changes and running development-only checks.
-Do not ask for permission before running these development commands.
-It does not permit agents to create or select a deployment, repair Convex setup,
-or authenticate the CLI. Production deployment `giant-egret-456` remains
-protected: do not deploy, reconfigure, or mutate production unless the user has
-explicitly authorized that production action.
+Production deploys through the production pipeline after merge. Do not trigger
+a production deployment, change production configuration, or mutate production
+data unless that production action is explicitly authorized. Restarting a PR
+preview does not authorize deploying Production. Read-only inspection of
+verified project deployments is allowed; direct configuration changes still
+require authorization and must not substitute for the CI/CD deployment flow.
+
+Use exact deployment names and URLs to verify identity. Words such as
+`Provisioned`, `Configured`, or `Developing against` alone do not establish that
+a new deployment was created. Stop if the Convex target is not one of the two
+canonical deployments. Never substitute development credentials or deployments
+for Production.
+
+Do not use `vercel curl` without an explicitly supplied existing Preview-scoped
+bypass: it can automatically create a project-wide automation bypass token.
+Inspect deployment metadata and use the existing authorized browser session
+instead. Never create a project-wide bypass as a Preview troubleshooting step.
+
+## Development authentication testing
+
+Development WorkOS configuration and OAuth/MCP access testing are authorized.
+This includes granting the development MCP clients access to any development
+organization and testing cross-organization consent, token refresh, and
+revocation. Do not ask again for this same development authorization.
+
+Verify that the WorkOS environment belongs to the canonical development
+deployment `precious-elk-564` before each configuration or access change.
+Save configuration before temporary experiments, restore it afterwards, and
+verify restoration. Keep credentials out of logs and committed artifacts.
+This authorization does not cover production, database resets, or deletion
+of user data. The Convex deployment-safety rules above remain in force.
 
 ## Commit authorship
 
@@ -97,27 +134,26 @@ context.
 
 ```bash
 pnpm queue -- model-context
-pnpm queue -- model-context --deployment "<preview-reference>" --site-url "https://<preview>.vercel.app"
 pnpm queue -- snapshot
-pnpm queue:prod -- model-context --admin-url "https://.../admin/<slug>/<token>"
-pnpm queue:prod -- snapshot --admin-url "https://.../admin/<slug>/<token>"
+pnpm queue:prod -- model-context --admin-url "https://demo-queue-tau.vercel.app/events/<slug>/admin"
+pnpm queue:prod -- snapshot --event-slug "<slug>"
 pnpm queue:prod -- snapshot --show-admin-url
 ```
 
 If no admin URL is available, the helper falls back to Convex table reads and
 chooses the latest real user-facing event. Normal output intentionally omits
-phone numbers, emails, participant tokens, and admin tokens. Pass
+phone numbers, emails, and participant tokens. Pass
 `--show-admin-url` only when the user explicitly asks for the admin URL. The
 helper prints a full URL using `--site-url`, `DEMO_QUEUE_SITE_URL`, Vercel URL
 env vars, localhost for non-production, or the stable production default
 `https://demo-queue-tau.vercel.app`.
 
-A full `https://.../admin/<slug>/<token>` admin URL is the authoritative
-production path. For `model-context` and `snapshot`, the helper infers the
-public Convex deployment URL only from the deployed app named by that URL and
-queries Convex directly, so do not copy `.env.local` first when a full admin URL
-is already available. In this mode, local env cannot override the pasted
-production admin URL.
+Event administration uses `/events/<slug>/admin` and requires WorkOS sign-in
+with the event's organization. Admin URLs do not grant access or select a
+deployment. The read-only helper uses the existing authenticated Convex CLI;
+select production explicitly with `pnpm queue:prod`. It rejects legacy
+capability URLs and tokens. Never recreate legacy admin authorization or use
+browser-saved capability tokens as a fallback.
 When reporting helper results with IDs, paste the helper rows exactly or omit
 IDs if they are not needed. Do not manually retype submission IDs from memory.
 
@@ -128,9 +164,9 @@ add 30 seconds before any useful data is returned.
 Use raw Convex CLI table commands only when the helper does not fit, the user
 explicitly asks for table output, or you need to debug the helper itself. If the
 user says "prod queue" or "production queue", use `--prod`; otherwise use the
-default dev deployment unless they name a deployment. For preview deployments,
-pass the Convex preview deployment reference to the helper with
-`--deployment <reference>`.
+default dev deployment unless they name a deployment. Preview frontends share
+the canonical development backend; do not pass a separate Preview deployment
+reference to the helper.
 
 1. Read events first:
 

@@ -23,6 +23,7 @@ export function buildDevDayParticipantFixture(eventType: "demo" | "hackathon"): 
       visualStyle: "devday",
       theme: stage.event.theme,
       submissionsClosed: false,
+      lumaLinked: false,
     },
     submission: {
       ...submission,
@@ -32,7 +33,6 @@ export function buildDevDayParticipantFixture(eventType: "demo" | "hackathon"): 
       twitter: "@example",
       linkedin: undefined,
       githubProfile: undefined,
-      fromLuma: { twitter: false, linkedin: false, githubProfile: false },
       githubUrl: "https://github.com/example/signal-relay",
       rulesAcceptedAt: undefined,
       finalist: false,

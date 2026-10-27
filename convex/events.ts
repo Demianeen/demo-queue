@@ -66,7 +66,7 @@ import {
 } from "./tracks";
 import { emailConfig } from "./emails";
 import { publicAiSummary, queueAiSummaryIfStale } from "./aiSummaries";
-import { lumaOrganizationAllowed, queueLumaImport, socialEditPatch, typedSocialSources } from "./luma";
+import { lumaOrganizationAllowed, queueLumaImport, participantSocialEditPatch, participantSocials, socialEditPatch, typedSocialSources } from "./luma";
 import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -928,15 +928,6 @@ export const getAdmin = query({
     getAdminForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-/** Which socials were filled in from Luma, for the "from Luma" notes. */
-function fromLuma(sources: Doc<"submissions">["socialSources"]) {
-  return {
-    twitter: sources?.twitter === "luma",
-    linkedin: sources?.linkedin === "luma",
-    githubProfile: sources?.githubProfile === "luma",
-  };
-}
-
 export const getParticipant = query({
   args: { slug: v.string(), participantToken: v.string() },
   handler: async (ctx, { slug, participantToken }) => {
@@ -982,28 +973,24 @@ export const getParticipant = query({
         visualStyle: normalizeVisualStyle(event.visualStyle),
         theme: event.theme,
         submissionsClosed: event.submissionsClosedAt !== undefined,
+        lumaLinked: Boolean(event.lumaEventId) && lumaOrganizationAllowed(event.workosOrganizationId),
       },
       submission: {
         ...publicSubmissionFields(submission, byId),
         status: liveStatus,
         phone: submission.phone,
         email: submission.email,
-        twitter: submission.twitter,
-        linkedin: submission.linkedin,
-        githubProfile: submission.githubProfile,
-        fromLuma: fromLuma(submission.socialSources),
+        // Only what people typed: Luma-imported socials are for organisers and judges.
+        ...participantSocials(submission),
         githubUrl: submission.githubUrl,
         rulesAcceptedAt: submission.rulesAcceptedAt,
         finalist: submission.finalist ?? false,
         teamMembers: teamMembers.map((member) => member.name),
-        // Each member's socials, so the team can check what Luma filled in. No emails or phones.
+        // Each member's typed socials, so the team can fill in or correct them. No emails or phones.
         teamMemberSocials: teamMembers.map((member) => ({
           id: member._id,
           name: member.name,
-          twitter: member.twitter,
-          linkedin: member.linkedin,
-          githubProfile: member.githubProfile,
-          fromLuma: fromLuma(member.socialSources),
+          ...participantSocials(member),
         })),
         videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
         videoDeleteAt: submission.videoDeleteAt,
@@ -1052,16 +1039,12 @@ export const getSubmittedView = query({
         {
           name: submission.name,
           presenter: true,
-          twitter: submission.twitter,
-          linkedin: submission.linkedin,
-          githubProfile: submission.githubProfile,
+          ...participantSocials(submission),
         },
         ...members.map((member) => ({
           name: member.name,
           presenter: false,
-          twitter: member.twitter,
-          linkedin: member.linkedin,
-          githubProfile: member.githubProfile,
+          ...participantSocials(member),
         })),
       ],
     };
@@ -1563,7 +1546,7 @@ export const editParticipantContact = mutation({
       linkedin: contact.linkedin,
       ...(args.githubProfile !== undefined ? { githubProfile } : {}),
     };
-    const { patch, emailChanged } = socialEditPatch(submission, socials, contact.email);
+    const { patch, emailChanged } = participantSocialEditPatch(submission, socials, contact.email);
     await ctx.db.patch(submission._id, {
       ...contact,
       ...email,
@@ -1571,7 +1554,8 @@ export const editParticipantContact = mutation({
       updatedAt: Date.now(),
     });
     await queueJudgingSheetSync(ctx, event);
-    if (emailChanged) await queueLumaImport(ctx, event, submission._id);
+    // No new import once submissions are closed.
+    if (emailChanged && event.submissionsClosedAt === undefined) await queueLumaImport(ctx, event, submission._id);
   },
 });
 
@@ -1604,7 +1588,7 @@ export const editTeamMemberSocials = mutation({
       twitter: args.twitter, linkedin: args.linkedin, githubProfile: args.githubProfile,
     });
     assertSocialLinks({ twitter, linkedin, githubProfile });
-    const { patch } = socialEditPatch(member, { twitter, linkedin, githubProfile }, member.email);
+    const { patch } = participantSocialEditPatch(member, { twitter, linkedin, githubProfile }, member.email);
     await ctx.db.patch(member._id, patch);
     await ctx.db.patch(submission._id, { updatedAt: Date.now() });
     await queueJudgingSheetSync(ctx, event);
@@ -2198,7 +2182,7 @@ export async function updateSubmissionForOrganization(
     const updated = await ctx.db.get(args.submissionId);
     if (updated) await queueAiSummaryIfStale(ctx, event, updated);
     await queueJudgingSheetSync(ctx, event);
-    if (emailChanged) await queueLumaImport(ctx, event, args.submissionId);
+    if (emailChanged && event.submissionsClosedAt === undefined) await queueLumaImport(ctx, event, args.submissionId);
 }
 
 export const updateSubmission = mutation({

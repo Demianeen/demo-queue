@@ -145,6 +145,38 @@ export function socialEditPatch(
   return { patch: { ...after, ...cleared, socialSources }, emailChanged };
 }
 
+/**
+ * What a participant may see of a person's socials: only what was typed.
+ * Luma-imported values (and the fact that a field came from Luma) are for
+ * organisers and judges only, or the status page would be a lookup tool for
+ * whichever emails the submitter typed.
+ */
+export function participantSocials(person: SocialValues & { socialSources?: SocialSources }) {
+  const visible = (field: SocialField) => (person.socialSources?.[field] === "luma" ? undefined : person[field]);
+  return { twitter: visible("twitter"), linkedin: visible("linkedin"), githubProfile: visible("githubProfile") };
+}
+
+/**
+ * The patch for socials a participant edited on the status page. They never
+ * saw the imported values, so an empty field they send back keeps an imported
+ * value. Anything they send counts as typed, even when it matches what Luma
+ * had, so it shows to them from then on.
+ */
+export function participantSocialEditPatch(
+  before: SocialValues & { email?: string; socialSources?: SocialSources },
+  sent: SocialValues,
+  nextEmail: string | undefined,
+) {
+  const after: SocialValues = { ...sent };
+  const sources: SocialSources = { ...(before.socialSources ?? {}) };
+  for (const field of SOCIAL_FIELDS) {
+    if (!(field in sent)) continue;
+    if (sent[field]?.trim()) sources[field] = "typed";
+    else if (sources[field] === "luma") after[field] = before[field];
+  }
+  return socialEditPatch({ ...before, socialSources: Object.keys(sources).length ? sources : undefined }, after, nextEmail);
+}
+
 /** Queues the import for one submission when its event is linked and allowed. */
 export async function queueLumaImport(
   ctx: Pick<MutationCtx, "scheduler">,

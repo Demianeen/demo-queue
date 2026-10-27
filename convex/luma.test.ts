@@ -216,13 +216,9 @@ test("after a submit, empty socials are imported from Luma; typed ones are kept"
   expect(item).toMatchObject({ linkedin: "https://www.linkedin.com/in/sam-lee", githubProfile: "samlee" });
   expect(item.teamMemberContacts.find((member) => member.name === "Ana Ruiz")).toMatchObject({ githubProfile: "anaruiz" });
 
-  // The private status page marks what came from Luma.
+  // The private status page shows only what the team typed (see the test below).
   const participant = await t.query(api.events.getParticipant, { slug, participantToken: TOKEN });
-  expect(participant.submission.fromLuma).toEqual({ twitter: false, linkedin: true, githubProfile: true });
-  expect(participant.submission.teamMemberSocials.find((member) => member.name === "Ana Ruiz")).toMatchObject({
-    githubProfile: "anaruiz",
-    fromLuma: { twitter: false, linkedin: true, githubProfile: true },
-  });
+  expect(participant.submission).toMatchObject({ twitter: "@sam_typed" });
   expect(JSON.stringify(participant.submission.teamMemberSocials)).not.toMatch(/@example\.com|\+4479/);
 
   // Logs say how many, never who or with which key.
@@ -239,19 +235,57 @@ test("after a submit, empty socials are imported from Luma; typed ones are kept"
   expect(loggedText()).toContain('"cached":');
 });
 
-test("what the team typed or cleared is never refilled by a later import", async () => {
+test("the status page never shows what Luma filled in, or that it did", async () => {
   configure();
   registered();
   const { t } = await setup();
   const { submissionId } = await submitTeam(t);
   await runAll(t);
-  // The presenter clears LinkedIn and changes GitHub; a member corrects their GitHub.
+  // Luma did fill these in (organisers see them).
+  const { presenter, members } = await people(t, submissionId);
+  const ana = members.find((member) => member.name === "Ana Ruiz")!;
+  expect(ana).toMatchObject({ githubProfile: "anaruiz", socialSources: { githubProfile: "luma" } });
+  expect(presenter).toMatchObject({ githubProfile: "samlee", socialSources: { githubProfile: "luma" } });
+
+  const participant = await t.query(api.events.getParticipant, { slug, participantToken: TOKEN });
+  const anaView = participant.submission.teamMemberSocials.find((member) => member.name === "Ana Ruiz")!;
+  expect(anaView).toEqual({ id: ana._id, name: "Ana Ruiz", twitter: undefined, linkedin: undefined, githubProfile: undefined });
+  expect(participant.submission.twitter).toBe("@sam_typed");
+  expect(participant.submission).not.toHaveProperty("linkedin");
+  expect(participant.submission).not.toHaveProperty("githubProfile");
+  const noorView = participant.submission.teamMemberSocials.find((member) => member.name === "Noor Bakr")!;
+  expect(noorView.githubProfile).toBe("noorb");
+  const submittedView = await t.query(api.events.getSubmittedView, { slug, participantToken: TOKEN });
+  for (const view of [participant, submittedView]) {
+    const text = JSON.stringify(view);
+    expect(text).not.toMatch(/socialSources|fromLuma|"luma"/);
+    expect(text).not.toMatch(/anaruiz|ana-ruiz|samlee|sam-lee/);
+  }
+
+  // Typing the very value Luma had makes it the team's own, so it shows (and reveals nothing).
+  await t.mutation(api.events.editTeamMemberSocials, { slug, participantToken: TOKEN, memberId: ana._id, twitter: "", linkedin: "", githubProfile: "anaruiz" });
+  const again = await t.query(api.events.getParticipant, { slug, participantToken: TOKEN });
+  const anaAgain = again.submission.teamMemberSocials.find((member) => member.name === "Ana Ruiz")!;
+  expect(anaAgain.githubProfile).toBe("anaruiz");
+  expect(anaAgain).not.toHaveProperty("linkedin");
+  const anaAfter = (await people(t, submissionId)).members.find((member) => member.name === "Ana Ruiz")!;
+  expect(anaAfter).toMatchObject({ githubProfile: "anaruiz", linkedin: "https://linkedin.com/in/ana-ruiz", socialSources: { githubProfile: "typed", linkedin: "luma" } });
+});
+
+test("what the team typed is never replaced by a later import, and a blank sent back keeps the import", async () => {
+  configure();
+  registered();
+  const { t } = await setup();
+  const { submissionId } = await submitTeam(t);
+  await runAll(t);
+  // The status page shows the imported fields blank. The presenter saves with LinkedIn blank and a
+  // new GitHub; a member saves a GitHub and leaves the rest blank.
   await t.mutation(api.events.editParticipantContact, {
-    slug, participantToken: TOKEN, phone: "+447911123400", email: "sam@example.com", twitter: "@sam_typed", githubProfile: "sam-fixed",
+    slug, participantToken: TOKEN, phone: "+447911123400", email: "sam@example.com", twitter: "@sam_typed", linkedin: "", githubProfile: "sam-fixed",
   });
   const ana = (await people(t, submissionId)).members.find((member) => member.name === "Ana Ruiz")!;
   await t.mutation(api.events.editTeamMemberSocials, {
-    slug, participantToken: TOKEN, memberId: ana._id, twitter: "", linkedin: ana.linkedin ?? "", githubProfile: "ana-real",
+    slug, participantToken: TOKEN, memberId: ana._id, twitter: "", linkedin: "", githubProfile: "ana-real",
   });
 
   // Luma is asked again (cache expired); nothing the team set changes.
@@ -260,10 +294,14 @@ test("what the team typed or cleared is never refilled by a later import", async
   await t.action(internal.luma.importSubmissionSocials, { submissionId });
   await runAll(t);
   const after = await people(t, submissionId);
-  expect(after.presenter).toMatchObject({ twitter: "@sam_typed", githubProfile: "sam-fixed", socialSources: { twitter: "typed", linkedin: "typed", githubProfile: "typed" } });
-  expect(after.presenter?.linkedin).toBeUndefined();
+  expect(after.presenter).toMatchObject({
+    twitter: "@sam_typed",
+    githubProfile: "sam-fixed",
+    linkedin: "https://www.linkedin.com/in/sam-lee",
+    socialSources: { twitter: "typed", linkedin: "luma", githubProfile: "typed" },
+  });
   const anaAfter = after.members.find((member) => member.name === "Ana Ruiz")!;
-  // The unchanged LinkedIn keeps its Luma source; the corrected GitHub is now typed.
+  // The blank LinkedIn keeps its Luma value; the corrected GitHub is now typed.
   expect(anaAfter).toMatchObject({ githubProfile: "ana-real", linkedin: "https://linkedin.com/in/ana-ruiz", socialSources: { githubProfile: "typed", linkedin: "luma" } });
   expect(anaAfter.twitter).toBeUndefined();
 });
@@ -277,11 +315,31 @@ test("a new email clears what Luma filled from the old one and imports again", a
   await runAll(t);
   await t.mutation(api.events.editParticipantContact, {
     slug, participantToken: TOKEN, phone: "+447911123400", email: "sam.new@example.com", twitter: "@sam_typed",
-    linkedin: "https://www.linkedin.com/in/sam-lee", githubProfile: "samlee",
+    linkedin: "", githubProfile: "",
   });
   await runAll(t);
   const { presenter } = await people(t, submissionId);
   expect(presenter).toMatchObject({ twitter: "@sam_typed", githubProfile: "sam-new", socialSources: { twitter: "typed", githubProfile: "luma" } });
+  expect(presenter?.linkedin).toBeUndefined();
+});
+
+test("after submissions close, a new email clears what Luma filled but imports nothing", async () => {
+  configure();
+  registered();
+  lumaReplies({ "guest:sam.new@example.com": { status: 200, body: guest([{ question_type: "github", value: "sam-new" }]) } });
+  const { t, eventId } = await setup();
+  const { submissionId } = await submitTeam(t);
+  await runAll(t);
+  await t.run((ctx) => ctx.db.patch(eventId, { submissionsClosedAt: Date.now() }));
+  const calls = lumaCalls().length;
+  await t.mutation(api.events.editParticipantContact, {
+    slug, participantToken: TOKEN, phone: "+447911123400", email: "sam.new@example.com", twitter: "@sam_typed", linkedin: "", githubProfile: "",
+  });
+  await runAll(t);
+  expect(lumaCalls()).toHaveLength(calls);
+  const { presenter } = await people(t, submissionId);
+  expect(presenter).toMatchObject({ email: "sam.new@example.com", twitter: "@sam_typed" });
+  expect(presenter?.githubProfile).toBeUndefined();
   expect(presenter?.linkedin).toBeUndefined();
 });
 

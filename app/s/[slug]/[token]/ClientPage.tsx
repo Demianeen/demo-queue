@@ -47,21 +47,15 @@ function FieldError({ children }: { children: ReactNode }) {
   return <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{children}</span>;
 }
 
-/** Shown next to a social that was filled in from the person's Luma registration. */
-function FromLuma({ show }: { show: boolean }) {
-  return show ? <span className="from-luma-note">from Luma</span> : null;
-}
-
 type MemberSocials = {
   id: Id<"teamMembers">;
   name: string;
   twitter?: string;
   linkedin?: string;
   githubProfile?: string;
-  fromLuma: { twitter: boolean; linkedin: boolean; githubProfile: boolean };
 };
 
-/** One team member's socials, editable so the team can correct what Luma filled in. */
+/** One team member's socials as the team typed them, editable here. */
 function MemberSocialsForm({ slug, token, member }: { slug: string; token: string; member: MemberSocials }) {
   const save = useMutation(api.events.editTeamMemberSocials);
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
@@ -89,15 +83,15 @@ function MemberSocialsForm({ slug, token, member }: { slug: string; token: strin
       <strong>{member.name}</strong>
       <div className="member-socials-fields">
         <div className="field">
-          <label htmlFor={`${prefix}-twitter`}>X <FromLuma show={member.fromLuma.twitter} /></label>
+          <label htmlFor={`${prefix}-twitter`}>X</label>
           <input defaultValue={member.twitter ?? ""} id={`${prefix}-twitter`} maxLength={SUBMISSION_FIELD_LIMITS.twitter} name="twitter" placeholder="@handle" />
         </div>
         <div className="field">
-          <label htmlFor={`${prefix}-linkedin`}>LinkedIn <FromLuma show={member.fromLuma.linkedin} /></label>
+          <label htmlFor={`${prefix}-linkedin`}>LinkedIn</label>
           <input defaultValue={member.linkedin ?? ""} id={`${prefix}-linkedin`} maxLength={SUBMISSION_FIELD_LIMITS.linkedin} name="linkedin" placeholder="linkedin.com/in/..." />
         </div>
         <div className="field">
-          <label htmlFor={`${prefix}-github`}>GitHub <FromLuma show={member.fromLuma.githubProfile} /></label>
+          <label htmlFor={`${prefix}-github`}>GitHub</label>
           <input defaultValue={member.githubProfile ?? ""} id={`${prefix}-github`} maxLength={SUBMISSION_FIELD_LIMITS.githubProfile} name="githubProfile" placeholder="username" />
         </div>
       </div>
@@ -372,7 +366,7 @@ export function ParticipantPage({
           </div>
 
           <div className="field">
-            <label htmlFor="twitter">Twitter/X <FromLuma show={participant.submission.fromLuma.twitter} /></label>
+            <label htmlFor="twitter">Twitter/X</label>
             <input
               id="twitter"
               name="twitter"
@@ -384,7 +378,7 @@ export function ParticipantPage({
           </div>
 
           <div className="field">
-            <label htmlFor="linkedin">LinkedIn <FromLuma show={participant.submission.fromLuma.linkedin} /></label>
+            <label htmlFor="linkedin">LinkedIn</label>
             <input
               id="linkedin"
               name="linkedin"
@@ -396,7 +390,7 @@ export function ParticipantPage({
           </div>
 
           <div className="field">
-            <label htmlFor="githubProfile">GitHub <FromLuma show={participant.submission.fromLuma.githubProfile} /></label>
+            <label htmlFor="githubProfile">GitHub</label>
             <input
               id="githubProfile"
               name="githubProfile"
@@ -426,14 +420,15 @@ export function ParticipantPage({
         {participant.submission.teamMemberSocials.length > 0 ? (
           <>
             <h2 id="team-socials" style={{ marginTop: 24 }}>Team socials</h2>
-            <p className="muted form-help">
-              Socials marked &ldquo;from Luma&rdquo; came from that person&apos;s Luma registration. Correct them here if they are wrong.
-            </p>
+            <p className="muted form-help">Add or correct each team member&apos;s X, LinkedIn and GitHub.</p>
             <div className="member-socials-list">
               {participant.submission.teamMemberSocials.map((member) => (
                 <MemberSocialsForm key={member.id} member={member} slug={slug} token={token} />
               ))}
             </div>
+            {participant.event.lumaLinked ? (
+              <p className="muted form-help" style={{ marginTop: 10 }}>Socials left blank may be filled from Luma registrations for the organisers.</p>
+            ) : null}
           </>
         ) : null}
       </section>

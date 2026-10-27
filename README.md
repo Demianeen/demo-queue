@@ -139,10 +139,10 @@ Luma import runs in Convex from `convex/luma.ts`. An organiser links an event
 to its Luma event in Event settings. After a team submits, an internal action
 looks up the presenter and every team member by email and fills only the X,
 LinkedIn and GitHub fields they left empty. It never overwrites what people
-typed, and it records where each value came from. The submit form never calls
-Luma; the team sees imported values, marked "from Luma", on its private status
-page and can correct them there. The Luma registration form needs X, LinkedIn
-and GitHub questions. It only reads from Luma.
+typed, and it records where each value came from. Imported values show only to
+organisers: the submit form never calls Luma, and the team's status page shows
+only what people typed. The Luma registration form needs X, LinkedIn and
+GitHub questions. It only reads from Luma.
 
 ```bash
 pnpm exec convex env set LUMA_API_KEY "$(cat ~/.config/demo-queue/luma-api-key)"

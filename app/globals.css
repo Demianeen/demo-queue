@@ -386,18 +386,6 @@ h3 {
   margin-left: auto;
 }
 
-/* Socials imported from the person's Luma registration, on the status page. */
-.from-luma-note {
-  background: color-mix(in srgb, var(--app-muted) 12%, transparent);
-  border-radius: 999px;
-  color: var(--app-muted);
-  font-size: 11px;
-  font-weight: 650;
-  margin-left: 6px;
-  padding: 1px 7px;
-  vertical-align: middle;
-}
-
 .member-socials-list {
   display: grid;
   gap: 12px;

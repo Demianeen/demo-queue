@@ -2,6 +2,7 @@
 
 import { FormEvent, ReactNode, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Skeleton } from "@/app/Skeleton";
@@ -15,6 +16,7 @@ import {
 import { Brand } from "@/app/Brand";
 import { shouldShowMeetAvailabilityCopy } from "@/lib/event-state";
 import { AstraHero } from "@/components/AstraHero";
+import { DevDayHero } from "@/components/DevDayHero";
 import { OutpostHero } from "@/components/OutpostHero";
 import { cn } from "@/lib/utils";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
@@ -41,7 +43,15 @@ function FieldError({ children }: { children: ReactNode }) {
   return <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{children}</span>;
 }
 
-export default function ParticipantStatusPage() {
+export type ParticipantPageProps = {
+  slug: string;
+  token: string;
+  participant: FunctionReturnType<typeof api.events.getParticipant> | undefined;
+  editContact: (args: FunctionArgs<typeof api.events.editParticipantContact>) => Promise<unknown>;
+  withdraw: (args: FunctionArgs<typeof api.events.withdrawSubmission>) => Promise<unknown>;
+};
+
+export default function ConnectedParticipantStatusPage() {
   const params = useParams<{ slug: string; token: string }>();
   const participant = useQuery(api.events.getParticipant, {
     slug: params.slug,
@@ -49,6 +59,25 @@ export default function ParticipantStatusPage() {
   });
   const editContact = useMutation(api.events.editParticipantContact);
   const withdraw = useMutation(api.events.withdrawSubmission);
+
+  return (
+    <ParticipantPage
+      slug={params.slug}
+      token={params.token}
+      participant={participant}
+      editContact={editContact}
+      withdraw={withdraw}
+    />
+  );
+}
+
+export function ParticipantPage({
+  slug,
+  token,
+  participant,
+  editContact,
+  withdraw,
+}: ParticipantPageProps) {
   const [message, setMessage] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [twitterError, setTwitterError] = useState("");
@@ -74,6 +103,7 @@ export default function ParticipantStatusPage() {
   const visualStyle = normalizeVisualStyle(participant.event.visualStyle);
   const isOutpost = isOutpostStyle(visualStyle);
   const isAstra = visualStyle === "astra";
+  const isDevDay = visualStyle === "devday";
 
   async function saveContact(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -121,8 +151,8 @@ export default function ParticipantStatusPage() {
     }
 
     await editContact({
-      slug: params.slug,
-      participantToken: params.token,
+      slug,
+      participantToken: token,
       phone,
       email: read("email") || undefined,
       twitter: twitter || undefined,
@@ -132,12 +162,15 @@ export default function ParticipantStatusPage() {
   }
 
   async function withdrawDemo() {
-    await withdraw({ slug: params.slug, participantToken: params.token });
+    await withdraw({ slug, participantToken: token });
     setMessage("Your submission has been withdrawn.");
   }
 
   return (
-    <main className={isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
+    <main className={isDevDay ? "devday-public-page" : isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
+      {isDevDay ? (
+        <DevDayHero eventName={participant.event.name} eventType={participant.event.eventType} mode="status" />
+      ) : null}
       {isAstra ? (
         <AstraHero eventName={participant.event.name} eventType={participant.event.eventType} mode="status" />
       ) : null}
@@ -149,11 +182,14 @@ export default function ParticipantStatusPage() {
         />
       ) : null}
       <section
-        className={cn("panel panel-pad", isOutpost && "outpost-content", isAstra && "astra-content")}
-        style={isOutpost || isAstra ? undefined : { width: "min(760px, 100%)" }}
+        className={cn("panel panel-pad", isOutpost && "outpost-content", isAstra && "astra-content", isDevDay && "devday-content")}
+        style={isOutpost || isAstra || isDevDay ? undefined : { width: "min(760px, 100%)" }}
       >
-        {isOutpost || isAstra ? null : <Brand label={participant.event.name} />}
+        {isOutpost || isAstra || isDevDay ? null : <Brand label={participant.event.name} />}
         {isAstra ? <p className="astra-eyebrow">{participant.event.name}</p> : null}
+        {isDevDay ? (
+          <p className="devday-eyebrow">{participant.event.eventType === "hackathon" ? "Community hackathon" : "Demo queue"} / Your submission</p>
+        ) : null}
         {isOutpost ? (
           <p className="outpost-event-kicker">
             {participant.event.eventType === "hackathon" ? "Project status" : "Demo status"} · {participant.event.name}

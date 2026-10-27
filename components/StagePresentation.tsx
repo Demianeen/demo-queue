@@ -3,6 +3,8 @@
 import Image from "next/image";
 import { AstraBackdrop } from "@/components/AstraBackdrop";
 import { AstraBrand } from "@/components/AstraBrand";
+import { DevDayBrand } from "@/components/DevDayBrand";
+import { DevDayCharacter } from "@/components/DevDayCharacter";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 import { stageSubmissionPrompt } from "@/lib/event-state";
@@ -90,6 +92,7 @@ export function StagePresentation({
   const visualStyle = normalizeVisualStyle(stage.event.visualStyle);
   const isOutpost = isOutpostStyle(visualStyle);
   const isAstra = visualStyle === "astra";
+  const isDevDay = visualStyle === "devday";
   const isHackathon = stage.event.eventType === "hackathon";
   const lineupNoun = isHackathon ? "presenter" : "demoer";
   const projectNoun = isHackathon ? "project" : "demo";
@@ -262,14 +265,28 @@ export function StagePresentation({
   return (
     <Root
       aria-hidden={embedded ? true : undefined}
-      className={cn("stage", isOutpost && "stage-outpost", isAstra && "stage-astra", isAdvancing && "stage-advancing")}
+      className={cn(
+        "stage",
+        isOutpost && "stage-outpost",
+        isAstra && "stage-astra",
+        isDevDay && "stage-devday",
+        isDevDay && showDemoTimer && "has-demo-timer",
+        isDevDay && currentStageTitle.length > 30 && "has-long-title",
+        isAdvancing && "stage-advancing",
+      )}
       inert={embedded ? true : undefined}
       data-visual-style={visualStyle}
+      data-embedded={embedded || undefined}
       ref={(node: HTMLElement | null) => {
         stageRootRef.current = node;
       }}
     >
-      {isAstra ? (
+      {isDevDay ? (
+        <header className="devday-stage-header">
+          <DevDayBrand className="devday-stage-brand" />
+          <span className="devday-stage-event">{stage.event.name}</span>
+        </header>
+      ) : isAstra ? (
         <>
           <AstraBackdrop animated={!embedded} />
           <AstraBrand className="astra-stage-brand" />
@@ -305,6 +322,11 @@ export function StagePresentation({
               </div>
             ) : null}
             <div className="stage-title">{stage.event.name}</div>
+            {isDevDay ? (
+              <div className="devday-stage-character-slot">
+                <DevDayCharacter variant="blue" className="devday-stage-character" interactive={!embedded} />
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="stage-main">
@@ -319,6 +341,12 @@ export function StagePresentation({
                 </div>
               ) : null}
             </div>
+            {isDevDay ? (
+              <div className="devday-stage-character-slot">
+                <DevDayCharacter variant="purple" className="devday-stage-character" interactive={!embedded} />
+                <span className="devday-stage-dot-caption">{liveLineupIsComplete ? "See you at the next one." : "Built to be shared."}</span>
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -381,7 +409,9 @@ export function StagePresentation({
           ) : (
             <div className="stage-qr-shell">
               <div className="stage-qr-stack">
-                <Image
+                {isDevDay ? (
+                  <DevDayCharacter variant="orange" className="devday-stage-qr-character" interactive={!embedded} />
+                ) : <Image
                   src="/mascot.png"
                   alt=""
                   aria-hidden
@@ -389,7 +419,7 @@ export function StagePresentation({
                   height={110}
                   priority
                   className="stage-mascot"
-                />
+                />}
                 <div className="qr-box">
                   <QRCodeSVG value={submissionUrl} size={264} marginSize={2} />
                   <h3 style={{ marginTop: 14 }}>{stageSubmissionPrompt(stage.event.eventType)}</h3>

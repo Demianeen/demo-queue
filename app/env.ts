@@ -25,11 +25,14 @@ function isConvexClientDeploymentUrl(value: string) {
   );
 }
 
-export const env = createEnv({
-  client: {
-    NEXT_PUBLIC_CONVEX_URL: convexDeploymentUrl,
-  },
-  experimental__runtimeEnv: {
-    NEXT_PUBLIC_CONVEX_URL: process.env.NEXT_PUBLIC_CONVEX_URL,
-  },
-});
+// Validate when a backend consumer is mounted; fixture-only review has none.
+export function getEnv() {
+  return createEnv({
+    client: {
+      NEXT_PUBLIC_CONVEX_URL: convexDeploymentUrl,
+    },
+    experimental__runtimeEnv: {
+      NEXT_PUBLIC_CONVEX_URL: process.env.NEXT_PUBLIC_CONVEX_URL,
+    },
+  });
+}

@@ -1,0 +1,122 @@
+/* Scoped DevDay identity: original vectors, flat colour, optical type. */
+@font-face { font-family: 'DevDay Sans'; src: url('/devday/OpenAISans-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'DevDay Sans'; src: url('/devday/OpenAISans-Medium.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'DevDay Sans'; src: url('/devday/OpenAISans-Semibold.woff2') format('woff2'); font-weight: 600 900; font-style: normal; font-display: swap; }
+[data-visual-style='devday'] {
+  --app-ink: #000; --app-muted: #575757; --app-line: #d6d6d6; --app-paper: #fff; --app-panel: #fff;
+  --app-accent: #000; --app-accent-dark: #262626; --app-good: #00712d; --app-bad: #b42318;
+  --app-soft-blue: #f0f0f0; --app-soft-green: #e5f6eb; --app-shadow: none; --cx-indigo: #000;
+  --primary: #000; --primary-foreground: #fff; --ring: #006aff;
+  font-family: 'DevDay Sans', Arial, sans-serif; color: #000;
+}
+html:has([data-visual-style='devday']) { background: #fff; }
+body:has([data-visual-style='devday']) > .page-bg { display: none; }
+.devday-brand { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; width: 100%; max-width: 660px; font-size: 27px; font-weight: 600; letter-spacing: -1.1px; line-height: 1.08; }
+.devday-wordmark { display: flex; flex-direction: column; white-space: nowrap; }
+.devday-community-wordmark { font-size: .57em; line-height: 1.3; letter-spacing: -.015em; margin-top: 4px; }
+.devday-openai { white-space: nowrap; }
+.devday-eyebrow { font-size: 11px; line-height: 1.5; font-weight: 500; letter-spacing: .09em; text-transform: uppercase; margin: 0 0 22px; }
+.devday-public-page { display: grid; grid-template-columns: 1fr 1fr; min-height: 100svh; background: #fff; }
+.devday-hero { position: sticky; top: var(--preview-bar-height, 0px); align-self: start; height: calc(100svh - var(--preview-bar-height, 0px)); min-height: 650px; padding: clamp(24px, 3.1vw, 52px); overflow: hidden; border-right: 1px solid #000; display: flex; flex-direction: column; }
+.devday-hero-copy { margin-top: clamp(52px, 8vh, 110px); position: relative; z-index: 1; }
+.devday-hero-copy .devday-eyebrow { margin-bottom: 20px; }
+.devday-hero-copy h2 { font-size: clamp(46px, 5.7vw, 104px); font-weight: 600; line-height: 1.01; letter-spacing: -.065em; margin: 0 0 28px; }
+.devday-event-name { font-size: clamp(17px, 1.7vw, 26px); font-weight: 600; line-height: 1.25; margin: 0 0 10px; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.devday-hero-note { font-size: clamp(14px, 1.2vw, 18px); line-height: 1.5; max-width: 34ch; margin: 0; }
+.devday-hero-cast { position: relative; flex: 1; min-height: 180px; margin: 40px calc(-1 * clamp(24px, 3.1vw, 52px)) calc(-1 * clamp(24px, 3.1vw, 52px))); }
+.devday-hero-main-dot { position: absolute !important; width: 73%; left: -5%; top: 12%; }
+.devday-hero-small-dot { position: absolute !important; width: 24%; right: 5%; top: 3%; }
+.devday-content.panel { padding: clamp(26px, 3.2vw, 56px); border: 0; border-radius: 0; background: #fff; box-shadow: none; backdrop-filter: none; width: 100%; min-width: 0; }
+.devday-content h1 { font-size: clamp(30px, 3vw, 48px); font-weight: 600; line-height: 1.08; letter-spacing: -.045em; margin: 0 0 16px; }
+.devday-content h2 { letter-spacing: -.025em; font-weight: 600; }
+.devday-content .lead { font-size: 16px; line-height: 1.55; color: #575757; max-width: 54ch; }
+[data-visual-style='devday'] input:not([type='radio']):not([type='checkbox']),
+[data-visual-style='devday'] textarea,
+[data-visual-style='devday'] select,
+[data-visual-style='devday'] [data-slot='select-trigger'] { border: 1px solid #bdbdbd; border-radius: 6px; background: #fff; color: #000; box-shadow: none; min-height: 45px; padding: 11px 12px; font-weight: 400; }
+[data-visual-style='devday'] input::placeholder,
+[data-visual-style='devday'] textarea::placeholder { color: #777; }
+[data-visual-style='devday'] input:focus,
+[data-visual-style='devday'] textarea:focus,
+[data-visual-style='devday'] select:focus { border-color: #006aff; outline: 2px solid #006aff; outline-offset: 2px; box-shadow: none; }
+[data-visual-style='devday'] .field > label { font-weight: 500; font-size: 14px; }
+.devday-content .form { gap: 24px; }
+.devday-content .form-section { border-top: 1px solid #d6d6d6; padding-top: 24px; }
+.devday-content .section-heading { margin-bottom: 18px; }
+[data-visual-style='devday'] .button { border-radius: 6px; background: #000; color: #fff; box-shadow: none; font-weight: 500; padding: 12px 20px; transition: background .18s, transform .18s; }
+[data-visual-style='devday'] .button:hover { background: #262626; transform: translateX(2px); box-shadow: none; }
+[data-visual-style='devday'] .button.ghost { background: #fff; border: 1px solid #bbb; color: #000; }
+[data-visual-style='devday'] .button.danger { background: #fff; color: #b42318; border: 1px solid #b42318; }
+[data-visual-style='devday'] .button:focus-visible { outline: 2px solid #006aff; outline-offset: 3px; }
+[data-visual-style='devday'] .pill { background: #eee; border: 0; color: #262626; border-radius: 4px; font-weight: 500; }
+[data-visual-style='devday'] .pill.green { color: #000; background: #00ab44; }
+[data-visual-style='devday'] .team-member-row { background: #f6f6f6; border: 1px solid #ddd; border-radius: 6px; }
+[data-visual-style='devday'] .team-members-grid { gap: 16px; }
+.devday-content .status-strip { margin: 24px 0; }
+.devday-content .callout { border: 1px solid #d6d6d6; border-radius: 6px; background: #f6f6f6; }
+.devday-content a { text-underline-offset: 3px; }
+/* Creator preserves its existing workflow and all selectable styles. */
+.creator-page[data-visual-style='devday'] { max-width: 1600px; width: 100%; padding: 40px; margin: 0 auto; background: #fff; }
+.creator-page[data-visual-style='devday'] .creator-shell { border: 0; padding: 0; border-radius: 0; background: #fff; box-shadow: none; backdrop-filter: none; }
+.creator-page[data-visual-style='devday'] .devday-brand { max-width: 380px; font-size: 26px; margin-bottom: 44px; }
+.devday-creator-heading { display: flex; justify-content: space-between; gap: 30px; align-items: center; }
+.creator-page[data-visual-style='devday'] .creator-intro h1 { max-width: 15ch; font-size: clamp(40px, 4.6vw, 72px); letter-spacing: -.055em; font-weight: 600; line-height: 1.02; }
+.devday-creator-dot { width: 134px; flex: 0 0 134px; margin-right: 40px; }
+.creator-page[data-visual-style='devday'] .creator-intro .lead { max-width: 65ch; font-size: 16px; color: #575757; }
+.creator-page[data-visual-style='devday'] .creator-layout { margin-top: 40px; gap: 50px; border-top: 1px solid #000; padding-top: 28px; }
+.creator-page[data-visual-style='devday'] .creator-preview-column { background: #f5f5f5; border: 1px solid #ddd; border-radius: 0; box-shadow: none; padding: 18px; }
+.creator-page[data-visual-style='devday'] .shared-stage-preview { border: 1px solid #ddd; border-radius: 0; }
+.creator-page[data-visual-style='devday'] .visual-style-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.visual-style-option-devday .visual-style-preview { background: #fff; color: #000; position: relative; overflow: hidden; }
+.visual-style-option-devday .visual-style-preview-brand { font-family: 'DevDay Sans', Arial, sans-serif; text-transform: none; letter-spacing: -.02em; font-size: 12px; font-weight: 600; max-width: calc(100% - 42px); line-height: 1.15; }
+.devday-picker-dot { width: 72px; position: absolute; right: -8px; bottom: -27px; }
+.creator-page[data-visual-style='devday'] .visual-style-option { border-radius: 6px; }
+.creator-page[data-visual-style='devday'] .visual-style-option.is-selected { border-color: #000; box-shadow: 0 0 0 1px #000; }
+.creator-page[data-visual-style='devday'] .visual-style-check { background: #000; color: #fff; }
+/* Review controls are local-only and sit outside the production theme. */
+.devday-preview { --preview-bar-height: 64px; background: #fff; min-height: 100svh; font-family: 'DevDay Sans', Arial, sans-serif; }
+.devday-preview-toolbar { position: sticky; top: 0; z-index: 30; min-height: 56px; padding: 12px 22px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #ddd; background: #f4f4f4; color: #000; }
+.devday-preview-toolbar > div, .devday-preview-toolbar nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.devday-preview-toolbar button { font-family: 'DevDay Sans', Arial, sans-serif; font-size: 12px; }
+.devday-preview-toolbar [data-active='true'] { background: #000; color: #fff; }
+.devday-preview-toolbar strong { font-size: 10px; font-weight: 500; letter-spacing: .08em; }
+.devday-preview-toolbar select { font-size: 12px; padding: 6px; }
+.devday-preview-toolbar [data-slot='select-trigger'] { min-width: 130px; width: auto; min-height: 32px; }
+.devday-preview-notice { font-size: 12px; padding: 12px 24px; background: #e5f6eb; border-bottom: 1px solid #b0d3bb; color: #000; }
+.devday-preview .stage { --stage-vh: calc((100svh - var(--preview-bar-height)) / 100); min-height: calc(100svh - var(--preview-bar-height)); }
+.devday-preview .stage > .stage-grid { min-height: calc(100svh - var(--preview-bar-height) - 56px); }
+@media (min-width: 1800px) { .devday-hero-cast { min-height: 260px; } }
+@media (max-width: 1000px) and (min-width: 761px) { .devday-public-page { grid-template-columns: 44% 56%; } .devday-hero-copy h2 { font-size: 5.3vw; } .devday-hero { padding: 24px; } .devday-content.panel { padding: 30px; } .devday-brand { font-size: 23px; } }
+@media (max-width: 760px) {
+ .devday-public-page { grid-template-columns: 1fr; }
+ .devday-hero { position: relative; top: 0; min-height: 570px; height: auto; padding: 24px; border-right: 0; border-bottom: 1px solid #000; }
+ .devday-brand { font-size: clamp(20px, 6vw, 25px); gap: 20px; }
+ .devday-hero-copy { margin-top: 48px; }
+ .devday-hero-copy h2 { font-size: clamp(44px, 11.8vw, 78px); margin-bottom: 22px; }
+ .devday-hero-cast { min-height: 200px; margin: 30px -24px -24px; }
+ .devday-hero-main-dot { width: 64%; left: -3%; top: 8%; }
+ .devday-hero-small-dot { width: 24%; right: 6%; top: 1%; }
+ .devday-content.panel { padding: 32px 24px; }
+ .devday-content h1 { font-size: 34px; }
+ .creator-page[data-visual-style='devday'] { padding: 28px 22px; }
+ .devday-creator-dot { width: 80px; flex-basis: 80px; margin-right: 0; }
+ .creator-page[data-visual-style='devday'] .creator-intro h1 { font-size: 37px; }
+ .creator-page[data-visual-style='devday'] .creator-layout { gap: 30px; }
+ .devday-preview { --preview-bar-height: 116px; }
+ .devday-preview-toolbar { padding: 9px 12px; gap: 8px; }
+ .devday-preview-toolbar nav { width: 100%; }
+ .devday-preview-toolbar button { padding-left: 9px; padding-right: 9px; }
+}
+@media (prefers-reduced-motion: reduce) { [data-visual-style='devday'] *, [data-visual-style='devday'] *::before, [data-visual-style='devday'] *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } [data-visual-style='devday'] .button:hover { transform: none; } }
+
+.devday-preview-label { font-size: 11px; letter-spacing: .04em; }
+@media (max-height: 800px) and (min-width: 761px) {
+  .devday-hero-copy { margin-top: 36px; }
+  .devday-hero-copy .devday-eyebrow { margin-bottom: 16px; }
+  .devday-hero-copy h2 { font-size: clamp(44px, 4.8vw, 76px); margin-bottom: 22px; }
+  .devday-hero-cast { margin-top: 26px; }
+  .devday-hero-main-dot { top: 0; width: 68%; }
+  .devday-hero-small-dot { top: 0; width: 23%; }
+}
+/* Reserve the header in the full-screen local stage, including a wrapped review bar. */
+.devday-preview .stage.stage-devday > .stage-grid { min-height: calc(100svh - var(--preview-bar-height) - 106px); }

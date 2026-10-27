@@ -38,14 +38,18 @@ PR has no automation. Distinguish GitHub Actions workflows from external checks
 shown on GitHub, state what was verified, and retry the existing check through
 its owning service before proposing replacement automation.
 
-Local development uses the existing Convex deployment `precious-elk-564`.
-Production is `giant-egret-456`. Preview deployments are managed by the
-project's CI/CD integration and may have different deployment names.
+The only canonical Convex deployments are development `precious-elk-564` and
+production `giant-egret-456`. Preview frontends use `precious-elk-564` and its
+matching development WorkOS application. Never read, write, configure, or deploy
+to another Convex deployment, including one provisioned by a Preview integration.
 
 For local development commands, verify that `.env.local` exists and selects
 `precious-elk-564`. Before each local Convex command, report whether `.env.local`
-exists and the exact deployment selector. Do not create, copy, replace, or edit
-`.env.local` to make commands work. Do not authenticate, bootstrap, repair project
+exists and the exact deployment selector. Do not create or edit `.env.local`
+to make commands work. With explicit permission naming source and target, an
+existing `.env.local` may be copied between checkouts and verified without
+printing secrets. This does not authorize authentication or project selection.
+Do not authenticate, bootstrap, repair project
 selection, or create/select an anonymous deployment. If local setup is missing,
 unauthenticated, or points to another development deployment, stop and leave
 setup to the user.
@@ -61,13 +65,17 @@ Agents may run, restart, and stop `convex dev` against `precious-elk-564`,
 including syncing schema/functions and running development checks, without
 asking for permission again.
 
-Preview and Production deployments run through CI/CD, not local `convex deploy`.
+Preview frontend and Production deployments run through CI/CD, not local `convex deploy`.
+Preview runs only the Next.js build. Its branch-scoped settings must use the
+canonical development backend and matching WorkOS credentials. The build guard
+rejects mismatches and strips inherited Convex deployment credentials. Never
+provision a Convex Preview deployment. Production retains its existing deploy
+command and environment.
 When asked to deploy or retry CI/CD, rerun the relevant GitHub Actions workflow.
 If the check is owned by Vercel's GitHub integration instead, use its Redeploy
 control. Verify the repository, project, branch, commit, and target environment
-before restarting. A preview deployment identified by this project's CI/CD is
-valid even when its name differs from the development and production names;
-do not reject it solely for that difference. Inspect the run and address
+before restarting. A Vercel frontend Preview is not a separate Convex deployment.
+Inspect the run and address
 reproducible failures before retrying unchanged failures repeatedly.
 
 Production deploys through the production pipeline after merge. Do not trigger
@@ -79,9 +87,9 @@ require authorization and must not substitute for the CI/CD deployment flow.
 
 Use exact deployment names and URLs to verify identity. Words such as
 `Provisioned`, `Configured`, or `Developing against` alone do not establish that
-a new deployment was created. Stop if the target cannot be verified as belonging
-to this project. Never substitute development credentials or deployments for
-Preview or Production.
+a new deployment was created. Stop if the Convex target is not one of the two
+canonical deployments. Never substitute development credentials or deployments
+for Production.
 
 ## Development authentication testing
 
@@ -151,9 +159,9 @@ add 30 seconds before any useful data is returned.
 Use raw Convex CLI table commands only when the helper does not fit, the user
 explicitly asks for table output, or you need to debug the helper itself. If the
 user says "prod queue" or "production queue", use `--prod`; otherwise use the
-default dev deployment unless they name a deployment. For preview deployments,
-pass the Convex preview deployment reference to the helper with
-`--deployment <reference>`.
+default dev deployment unless they name a deployment. Preview frontends share
+the canonical development backend; do not pass a separate Preview deployment
+reference to the helper.
 
 1. Read events first:
 

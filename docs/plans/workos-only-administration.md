@@ -66,7 +66,10 @@ Record only allowlisted failure phases and status codes.
   gate, not completed migration evidence.
 - Personal Vercel access is restored. Current hosted logs show
   `convex-provider-mismatch` after successful session and membership checks.
-  A Preview-only canonical-development build/configuration fix awaits approval.
+  Preview now has a separate build path for canonical development and matching
+  WorkOS credentials. It does not provision or deploy Convex. The Production
+  command remains unchanged. Branch configuration and hosted verification remain
+  open until the corrected Preview completes sign-in and workspace loading.
 
 ## Verified on 27 October 2026
 

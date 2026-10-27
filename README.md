@@ -62,13 +62,14 @@ The app validates its Next.js environment with T3 Env during `next build`.
 URL ending in `.convex.cloud` for hosted deployments, or a local Convex URL for
 local deployments. Do not use the HTTP actions URL ending in `.convex.site`.
 
-The official Convex Vercel deployment flow is to run:
+Production keeps the official Convex Vercel deployment command:
 
 ```bash
 pnpm exec convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'pnpm run build'
 ```
 
-That is the command in `vercel.json`. Convex documents that `convex deploy`
+`vercel.json` uses `scripts/vercel-build.mjs`, which runs this exact command only
+when `VERCEL_ENV=production`. Convex documents that `convex deploy`
 reads `CONVEX_DEPLOY_KEY`, sets the frontend Convex URL env var for the build
 command, then deploys Convex functions:
 https://docs.convex.dev/production/hosting/vercel
@@ -79,15 +80,25 @@ Production Vercel requires its deploy key plus the WorkOS variables listed below
 CONVEX_DEPLOY_KEY=<production deploy key>
 ```
 
-Preview Vercel requires its deploy key plus separately configured preview WorkOS variables:
+Preview builds use the existing canonical development backend. Set these
+branch-scoped Vercel Preview variables for each review branch:
 
 ```bash
-CONVEX_DEPLOY_KEY=<preview deploy key>
+NEXT_PUBLIC_CONVEX_URL=https://precious-elk-564.convex.cloud
+WORKOS_CLIENT_ID=client_01M1RPKQD8S6KM3Q61N0N2FE4D
+WORKOS_API_KEY=<matching development API key>
+WORKOS_COOKIE_PASSWORD=<independent secret of at least 32 characters>
+NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://<stable branch host>/callback
 ```
 
-Do not manually maintain `NEXT_PUBLIC_CONVEX_URL` in Vercel production or
-preview when using the `convex deploy --cmd` flow above. Convex injects it for
-the build. Local development still needs it in `.env.local`.
+Preview runs only `pnpm run build`. It does not invoke the Convex CLI or provision
+a deployment. The build rejects a different Convex URL, WorkOS client, missing
+credentials, or a callback that differs from this project's stable branch host.
+It removes inherited Convex credentials from the Next.js build environment.
+
+Do not manually maintain `NEXT_PUBLIC_CONVEX_URL` in Vercel Production. Convex
+injects it for the production build. Local development still needs it in
+`.env.local`.
 
 Convex function environment variables are separate from Vercel build variables.
 They are set per Convex deployment, not in `.env.local`, and can be declared in
@@ -194,13 +205,13 @@ Production app build:
 
 Preview app build:
 
-- The current hosted Preview has a confirmed WorkOS/Convex provider mismatch.
-  Its deployment check is not proof that signed-in workspace loading works.
-- Repository safety permits only the canonical development and production
-  deployments. Do not select or inspect another deployment to repair Preview.
-- A Preview-only build/configuration change to use `precious-elk-564` and its
-  matching development WorkOS credentials is awaiting authorization. Production
-  deployment behavior must remain unchanged.
+- `scripts/vercel-build.mjs` builds Next.js against `precious-elk-564` and the
+  matching development WorkOS client. Preview does not deploy Convex functions.
+- The required branch-scoped variables appear in the Environment section above.
+  The callback must match `https://${VERCEL_BRANCH_URL}/callback`.
+- Preview shares development data. Use the Test organization for review events.
+  Sync reviewed backend changes to canonical development separately.
+- Production retains its existing Convex deployment command and credentials.
 
 Local development:
 
@@ -254,9 +265,10 @@ Set these variables in the matching frontend hosting environment:
 - `NEXT_PUBLIC_WORKOS_REDIRECT_URI` for local development and Production
   (the app's origin plus `/callback`)
 
-Set Preview variables at the Vercel environment level using the Staging WorkOS
-environment. Preview callbacks derive from Vercel's trusted `VERCEL_BRANCH_URL`;
-do not set one branch's redirect URL for all previews. Workspace routes opened
+Set Preview variables per branch using the WorkOS environment attached to
+`precious-elk-564`. Preview callbacks derive from Vercel's trusted
+`VERCEL_BRANCH_URL`; the explicit redirect variable must match that branch.
+Do not set one branch's redirect URL for all previews. Workspace routes opened
 on a unique deployment URL redirect to the stable branch host before sign-in so
 the authentication cookie and callback share a host. Production uses its separate
 Production WorkOS environment and explicit callback URL.

@@ -36,6 +36,7 @@ type Env = {
   readonly GOOGLE_OAUTH_CLIENT_SECRET: string | undefined;
   readonly GOOGLE_OAUTH_REFRESH_TOKEN: string | undefined;
   readonly LUMA_API_KEY: string | undefined;
+  readonly LUMA_ORGANIZATION_IDS: string | undefined;
   readonly OPENAI_API_KEY: string | undefined;
   readonly OPENAI_MODEL: string | undefined;
   readonly RESEND_API_KEY: string | undefined;

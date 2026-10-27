@@ -15,6 +15,8 @@ const app = defineApp({
     OPENAI_MODEL: v.optional(v.string()),
     // Read-only Luma API key: links events and prefills socials. Without it, both are off.
     LUMA_API_KEY: v.optional(v.string()),
+    // Comma separated WorkOS organisation ids that may use the Luma key (its calendar's owners).
+    LUMA_ORGANIZATION_IDS: v.optional(v.string()),
     // Submission emails. Without all three, sending is skipped and logged.
     RESEND_API_KEY: v.optional(v.string()),
     RESEND_FROM_EMAIL: v.optional(v.string()),

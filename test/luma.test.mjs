@@ -8,6 +8,7 @@ import {
   lumaEventPageUrl,
   lumaSocialsFromGuest,
   parseLumaEventInput,
+  parseLumaOrganizationIds,
 } from "../lib/luma.ts";
 
 const KEY = "test-luma-key-not-real";
@@ -158,8 +159,8 @@ test("an event lookup returns its id, name and Luma page only", async () => {
     { status: 200, body: { name: "no id" } },
   ]);
   const client = createLumaClient({ apiKey: KEY, fetch });
-  assert.deepEqual(await client.getEvent("evt-abc123"), { ok: true, data: { id: "evt-abc123", name: "Daytona HackSprint London", url: "https://luma.com/hacksprint-ldn" } });
-  assert.deepEqual(await client.getEvent("evt-abc123"), { ok: true, data: { id: "evt-abc123", name: "evt-abc123", url: null } });
+  assert.deepEqual(await client.getEvent("evt-abc123"), { ok: true, data: { id: "evt-abc123", name: "Daytona HackSprint London", url: "https://luma.com/hacksprint-ldn", calendarId: "cal-1" } });
+  assert.deepEqual(await client.getEvent("evt-abc123"), { ok: true, data: { id: "evt-abc123", name: "evt-abc123", url: null, calendarId: null } });
   assert.deepEqual(await client.getEvent("evt-abc123"), { ok: false, status: 200, reason: "bad_response" });
   assert.equal(new URL(calls[0].url).pathname, "/v1/events/get");
   assert.equal(new URL(calls[0].url).searchParams.get("event_id"), "evt-abc123");
@@ -171,4 +172,26 @@ test("the cache key is a hash, never the email", async () => {
   assert.equal(hash, await lumaEmailHash("sam@example.com"));
   assert.notEqual(hash, await lumaEmailHash("sam2@example.com"));
   assert.ok(!hash.includes("sam"));
+});
+
+test("the key's calendar comes from calendars/get", async () => {
+  const { fetch, calls } = fakeFetch([
+    { status: 200, body: { id: "cal-1", name: "Outpost", is_personal: false } },
+    { status: 200, body: { calendar: { id: "cal-2" } } },
+    { status: 200, body: {} },
+    { status: 401, body: {} },
+  ]);
+  const client = createLumaClient({ apiKey: KEY, fetch });
+  assert.deepEqual(await client.getKeyCalendarId(), { ok: true, data: "cal-1" });
+  assert.deepEqual(await client.getKeyCalendarId(), { ok: true, data: "cal-2" });
+  assert.deepEqual(await client.getKeyCalendarId(), { ok: false, status: 200, reason: "bad_response" });
+  assert.deepEqual(await client.getKeyCalendarId(), { ok: false, status: 401, reason: "unauthorized" });
+  assert.equal(new URL(calls[0].url).pathname, "/v1/calendars/get");
+  assert.equal(calls[0].init.method, "GET");
+});
+
+test("the organisation allowlist keeps only WorkOS organisation ids", () => {
+  assert.deepEqual([...parseLumaOrganizationIds(" org_Outpost1 , org_two,,not-an-org, org_bad id, org_local_outpost ")], ["org_Outpost1", "org_two", "org_local_outpost"]);
+  assert.equal(parseLumaOrganizationIds("").size, 0);
+  assert.equal(parseLumaOrganizationIds(undefined).size, 0);
 });

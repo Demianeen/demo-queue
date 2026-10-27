@@ -26,7 +26,7 @@ export type LumaFailureReason =
 
 export type LumaResult<T> = { ok: true; data: T } | { ok: false; status: number; reason: LumaFailureReason };
 
-export type LumaEventSummary = { id: string; name: string; url: string | null };
+export type LumaEventSummary = { id: string; name: string; url: string | null; calendarId: string | null };
 
 type FetchLike = (input: string, init: { method: "GET"; headers: Record<string, string>; signal?: AbortSignal }) => Promise<{
   ok: boolean;
@@ -151,6 +151,11 @@ export function lumaSocialsFromGuest(guest: unknown): LumaSocials {
   return socials;
 }
 
+/** The WorkOS organisation ids allowed to use the deployment's Luma key, from a comma separated list. */
+export function parseLumaOrganizationIds(value: string | undefined | null): Set<string> {
+  return new Set((value ?? "").split(",").map((id) => id.trim()).filter((id) => /^org_\w+$/.test(id)));
+}
+
 /** A SHA-256 of the normalised email, so lookups are cached without storing the address. */
 export async function lumaEmailHash(normalizedEmail: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`luma-lookup:${normalizedEmail}`));
@@ -217,10 +222,21 @@ export function createLumaClient({
       const result = await get("/v1/events/get", { event_id: eventId });
       if (!result.ok) return result;
       const body = result.data as { event?: unknown } | null;
-      const event = (body && typeof body === "object" && "event" in body ? body.event : body) as { id?: unknown; name?: unknown; url?: unknown } | null;
+      const event = (body && typeof body === "object" && "event" in body ? body.event : body) as { id?: unknown; name?: unknown; url?: unknown; calendar_id?: unknown } | null;
       if (!event || typeof event.id !== "string" || !EVENT_ID.test(event.id)) return { ok: false, status: 200, reason: "bad_response" };
       const name = typeof event.name === "string" && event.name.trim() ? event.name.trim().slice(0, 200) : event.id;
-      return { ok: true, data: { id: event.id, name, url: lumaEventPageUrl(event.url) } };
+      const calendarId = typeof event.calendar_id === "string" && event.calendar_id ? event.calendar_id : null;
+      return { ok: true, data: { id: event.id, name, url: lumaEventPageUrl(event.url), calendarId } };
+    },
+
+    /** The id of the calendar this API key belongs to. */
+    async getKeyCalendarId(): Promise<LumaResult<string>> {
+      const result = await get("/v1/calendars/get", {});
+      if (!result.ok) return result;
+      const body = result.data as { calendar?: unknown } | null;
+      const calendar = (body && typeof body === "object" && "calendar" in body ? body.calendar : body) as { id?: unknown } | null;
+      if (!calendar || typeof calendar.id !== "string" || !calendar.id) return { ok: false, status: 200, reason: "bad_response" };
+      return { ok: true, data: calendar.id };
     },
 
     /** Only the X, LinkedIn and GitHub answers of the guest registered with this email. */

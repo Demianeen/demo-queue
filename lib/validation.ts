@@ -63,6 +63,7 @@ export const contactTextSchema = submissionTextSchema.pick({
   email: true,
   twitter: true,
   linkedin: true,
+  githubProfile: true,
 });
 
 export type SubmissionTextInput = z.input<typeof submissionTextSchema>;

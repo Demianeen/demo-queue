@@ -10,10 +10,13 @@ import { Skeleton } from "@/app/Skeleton";
 import {
   SUBMISSION_FIELD_LIMITS,
   firstFieldLimitError,
+  isValidGithubProfile,
   isValidLinkedin,
   isValidPhone,
   isValidTwitter,
+  socialLinksError,
 } from "@/lib/validation";
+import type { Id } from "../../../../convex/_generated/dataModel";
 import { Brand } from "@/app/Brand";
 import { shouldShowMeetAvailabilityCopy } from "@/lib/event-state";
 import { AstraHero } from "@/components/AstraHero";
@@ -42,6 +45,71 @@ const hackathonStatusLabels: Record<string, string> = {
 
 function FieldError({ children }: { children: ReactNode }) {
   return <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{children}</span>;
+}
+
+/** Shown next to a social that was filled in from the person's Luma registration. */
+function FromLuma({ show }: { show: boolean }) {
+  return show ? <span className="from-luma-note">from Luma</span> : null;
+}
+
+type MemberSocials = {
+  id: Id<"teamMembers">;
+  name: string;
+  twitter?: string;
+  linkedin?: string;
+  githubProfile?: string;
+  fromLuma: { twitter: boolean; linkedin: boolean; githubProfile: boolean };
+};
+
+/** One team member's socials, editable so the team can correct what Luma filled in. */
+function MemberSocialsForm({ slug, token, member }: { slug: string; token: string; member: MemberSocials }) {
+  const save = useMutation(api.events.editTeamMemberSocials);
+  const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
+  const [error, setError] = useState("");
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const read = (key: string) => String(form.get(key) ?? "").trim();
+    const values = { twitter: read("twitter"), linkedin: read("linkedin"), githubProfile: read("githubProfile") };
+    const problem = socialLinksError(values) || firstFieldLimitError(values);
+    setError(problem);
+    if (problem) return;
+    setState("saving");
+    try {
+      await save({ slug, participantToken: token, memberId: member.id, ...values });
+      setState("saved");
+    } catch {
+      setState("idle");
+      setError("Could not save. Try again.");
+    }
+  }
+  const prefix = `member-${member.id}`;
+  return (
+    <form className="member-socials" onSubmit={submit}>
+      <strong>{member.name}</strong>
+      <div className="member-socials-fields">
+        <div className="field">
+          <label htmlFor={`${prefix}-twitter`}>X <FromLuma show={member.fromLuma.twitter} /></label>
+          <input defaultValue={member.twitter ?? ""} id={`${prefix}-twitter`} maxLength={SUBMISSION_FIELD_LIMITS.twitter} name="twitter" placeholder="@handle" />
+        </div>
+        <div className="field">
+          <label htmlFor={`${prefix}-linkedin`}>LinkedIn <FromLuma show={member.fromLuma.linkedin} /></label>
+          <input defaultValue={member.linkedin ?? ""} id={`${prefix}-linkedin`} maxLength={SUBMISSION_FIELD_LIMITS.linkedin} name="linkedin" placeholder="linkedin.com/in/..." />
+        </div>
+        <div className="field">
+          <label htmlFor={`${prefix}-github`}>GitHub <FromLuma show={member.fromLuma.githubProfile} /></label>
+          <input defaultValue={member.githubProfile ?? ""} id={`${prefix}-github`} maxLength={SUBMISSION_FIELD_LIMITS.githubProfile} name="githubProfile" placeholder="username" />
+        </div>
+      </div>
+      <div className="member-socials-actions">
+        <button className="button secondary" disabled={state === "saving"} type="submit">
+          {state === "saving" ? "Saving..." : "Save"}
+        </button>
+        {state === "saved" ? <span className="muted" role="status">Saved.</span> : null}
+        {error ? <FieldError>{error}</FieldError> : null}
+      </div>
+    </form>
+  );
 }
 
 export type ParticipantPageProps = {
@@ -83,6 +151,7 @@ export function ParticipantPage({
   const [phoneError, setPhoneError] = useState("");
   const [twitterError, setTwitterError] = useState("");
   const [linkedinError, setLinkedinError] = useState("");
+  const [githubError, setGithubError] = useState("");
   const [socialError, setSocialError] = useState("");
 
   if (!participant) {
@@ -113,17 +182,20 @@ export function ParticipantPage({
     const phone = read("phone");
     const twitter = read("twitter");
     const linkedin = read("linkedin");
+    const githubProfile = read("githubProfile");
     const lengthError = firstFieldLimitError({
       phone,
       email: read("email"),
       twitter,
       linkedin,
+      githubProfile,
     });
 
     setMessage("");
     setPhoneError("");
     setTwitterError("");
     setLinkedinError("");
+    setGithubError("");
     setSocialError("");
 
     let valid = true;
@@ -135,8 +207,12 @@ export function ParticipantPage({
       setPhoneError("Enter a valid phone number (7-15 digits).");
       valid = false;
     }
-    if (!twitter && !linkedin) {
-      setSocialError("Keep at least one of Twitter/X or LinkedIn so the team can reach you.");
+    if (!twitter && !linkedin && !githubProfile) {
+      setSocialError("Keep at least one of Twitter/X, LinkedIn or GitHub so the team can reach you.");
+      valid = false;
+    }
+    if (githubProfile && !isValidGithubProfile(githubProfile)) {
+      setGithubError("Enter a GitHub username or github.com link.");
       valid = false;
     }
     if (twitter && !isValidTwitter(twitter)) {
@@ -158,6 +234,7 @@ export function ParticipantPage({
       email: read("email") || undefined,
       twitter: twitter || undefined,
       linkedin: linkedin || undefined,
+      githubProfile,
     });
     setMessage("Contact info updated.");
   }
@@ -295,7 +372,7 @@ export function ParticipantPage({
           </div>
 
           <div className="field">
-            <label htmlFor="twitter">Twitter/X</label>
+            <label htmlFor="twitter">Twitter/X <FromLuma show={participant.submission.fromLuma.twitter} /></label>
             <input
               id="twitter"
               name="twitter"
@@ -307,7 +384,7 @@ export function ParticipantPage({
           </div>
 
           <div className="field">
-            <label htmlFor="linkedin">LinkedIn</label>
+            <label htmlFor="linkedin">LinkedIn <FromLuma show={participant.submission.fromLuma.linkedin} /></label>
             <input
               id="linkedin"
               name="linkedin"
@@ -316,6 +393,18 @@ export function ParticipantPage({
               maxLength={SUBMISSION_FIELD_LIMITS.linkedin}
             />
             {linkedinError ? <FieldError>{linkedinError}</FieldError> : null}
+          </div>
+
+          <div className="field">
+            <label htmlFor="githubProfile">GitHub <FromLuma show={participant.submission.fromLuma.githubProfile} /></label>
+            <input
+              id="githubProfile"
+              name="githubProfile"
+              placeholder="username or github.com/username"
+              defaultValue={participant.submission.githubProfile ?? ""}
+              maxLength={SUBMISSION_FIELD_LIMITS.githubProfile}
+            />
+            {githubError ? <FieldError>{githubError}</FieldError> : null}
           </div>
 
           {socialError ? <FieldError>{socialError}</FieldError> : null}
@@ -333,6 +422,20 @@ export function ParticipantPage({
         </form>
 
         {message ? <p className="muted" style={{ marginTop: 14 }}>{message}</p> : null}
+
+        {participant.submission.teamMemberSocials.length > 0 ? (
+          <>
+            <h2 id="team-socials" style={{ marginTop: 24 }}>Team socials</h2>
+            <p className="muted form-help">
+              Socials marked &ldquo;from Luma&rdquo; came from that person&apos;s Luma registration. Correct them here if they are wrong.
+            </p>
+            <div className="member-socials-list">
+              {participant.submission.teamMemberSocials.map((member) => (
+                <MemberSocialsForm key={member.id} member={member} slug={slug} token={token} />
+              ))}
+            </div>
+          </>
+        ) : null}
       </section>
     </main>
   );

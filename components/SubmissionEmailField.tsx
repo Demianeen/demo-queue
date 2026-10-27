@@ -1,15 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useAction, useMutation } from "convex/react";
+import { useEffect, useState } from "react";
+import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { browserClientId } from "@/lib/client-id";
-import type { LumaSocials } from "@/lib/luma";
 import { emailKey, isValidEmail } from "@/lib/validation";
 
 const CHECK_DELAY_MS = 350;
-// Longer than the taken check, so a half-typed address is not sent to Luma.
-const LUMA_DELAY_MS = 900;
 
 export const EMAIL_TAKEN_MESSAGE = "You already submitted with this email. Check your inbox for your status link.";
 
@@ -51,44 +48,6 @@ export function useEmailTaken(slug: string, email: string) {
   return ready && answers[key] === true;
 }
 
-/**
- * Once the person stops typing a well-formed email, asks the event's Luma
- * registrations for their X, LinkedIn and GitHub (once per address). Any
- * failure is ignored: the form works the same without it.
- */
-function useLumaSocials(slug: string, email: string, enabled: boolean, onFound?: (socials: LumaSocials) => void) {
-  const lookup = useAction(api.luma.lookupLumaSocials);
-  const trimmed = email.trim();
-  const debounced = useDebounced(trimmed, LUMA_DELAY_MS);
-  const asked = useRef(new Set<string>());
-  const found = useRef(onFound);
-  useEffect(() => {
-    found.current = onFound;
-  }, [onFound]);
-  useEffect(() => {
-    if (!enabled || debounced !== trimmed) return;
-    const key = emailKey(debounced);
-    const askedEmails = asked.current;
-    if (!isValidEmail(key) || askedEmails.has(key)) return;
-    askedEmails.add(key);
-    let current = true;
-    let answered = false;
-    lookup({ slug, email: debounced })
-      .then((socials) => {
-        answered = true;
-        if (current && Object.keys(socials).length > 0) found.current?.(socials);
-      })
-      .catch(() => {
-        answered = true;
-      });
-    return () => {
-      current = false;
-      // Changed before the answer came: ask again if they come back to it.
-      if (!answered) askedEmails.delete(key);
-    };
-  }, [debounced, enabled, lookup, slug, trimmed]);
-}
-
 export function SubmissionEmailField({
   slug,
   id,
@@ -101,8 +60,6 @@ export function SubmissionEmailField({
   placeholder,
   autoComplete,
   maxLength,
-  lumaLinked = false,
-  onLumaSocials,
 }: {
   slug: string;
   id: string;
@@ -115,12 +72,8 @@ export function SubmissionEmailField({
   placeholder?: string;
   autoComplete?: string;
   maxLength: number;
-  /** The event is linked to Luma, so socials can be prefilled from this email. */
-  lumaLinked?: boolean;
-  onLumaSocials?: (socials: LumaSocials) => void;
 }) {
   const taken = useEmailTaken(slug, value);
-  useLumaSocials(slug, value, lumaLinked && !taken, onLumaSocials);
   useEffect(() => onTakenChange(taken), [taken, onTakenChange]);
   const errorId = `${id}-error`;
   const takenId = `${id}-taken`;

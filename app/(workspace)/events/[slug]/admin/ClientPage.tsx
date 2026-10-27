@@ -1476,7 +1476,7 @@ export default function AdminPage() {
                 presentation view unless you enable it after publishing.
               </span>
             </div>
-            <LumaEventSetting lumaEvent={admin.event.lumaEvent} slug={params.slug} />
+            <LumaEventSetting available={admin.event.luma.available} lumaEvent={admin.event.luma.event} slug={params.slug} />
             </div>
 
             <div className="admin-section-label">Presentation timer</div>

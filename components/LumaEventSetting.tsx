@@ -11,15 +11,21 @@ function errorMessage(error: unknown) {
   return message.includes("ConvexError") ? message.split("ConvexError: ").pop()?.split("\n")[0] ?? message : message;
 }
 
+const HELP =
+  "After a team submits, X, LinkedIn and GitHub they left empty are filled in from each person's Luma registration. The Luma registration form needs X, LinkedIn and GitHub questions.";
+
 /**
- * Links the event to its Luma event, so the submit form can prefill X,
- * LinkedIn and GitHub from each person's Luma registration.
+ * Links the event to its Luma event, so empty socials are imported from each
+ * person's Luma registration after they submit. Only organisations that own
+ * the deployment's Luma calendar can link.
  */
 export function LumaEventSetting({
   slug,
+  available,
   lumaEvent,
 }: {
   slug: string;
+  available: boolean;
   lumaEvent: { id: string; name: string; url: string | null } | null;
 }) {
   const link = useAction(api.luma.linkLumaEvent);
@@ -57,6 +63,15 @@ export function LumaEventSetting({
   }
 
   const showForm = !lumaEvent || editing;
+  if (!available) {
+    return (
+      <div className="field admin-luma-setting">
+        <label htmlFor="lumaEvent">Luma event</label>
+        <input disabled id="lumaEvent" placeholder="Not available" value="" readOnly />
+        <span className="muted form-help">Luma import is not available for this organization.</span>
+      </div>
+    );
+  }
   return (
     <div className="field admin-luma-setting">
       <label htmlFor="lumaEvent">Luma event</label>
@@ -98,10 +113,7 @@ export function LumaEventSetting({
         </form>
       ) : null}
       {error ? <span className="form-error" id="lumaEvent-error" role="alert">{error}</span> : null}
-      <span className="muted form-help" id="lumaEvent-help">
-        People who registered on Luma get their X, LinkedIn and GitHub filled in when they enter their email on the submit form.
-        The Luma registration form needs X, LinkedIn and GitHub questions for this to work.
-      </span>
+      <span className="muted form-help" id="lumaEvent-help">{HELP}</span>
     </div>
   );
 }

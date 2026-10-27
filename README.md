@@ -135,18 +135,24 @@ repository changes. Without the key, summaries are skipped and logged.
 `OPENAI_MODEL` is optional, but setting it lets event operators pick a faster
 model without changing code.
 
-Luma prefill runs in Convex from `convex/luma.ts`. With a Luma API key, an
-organiser can link an event to its Luma event in Event settings, and the
-submit form fills in X, LinkedIn and GitHub from each person's Luma
-registration answers when they enter their email. The Luma registration form
-needs X, LinkedIn and GitHub questions. It only reads from Luma.
+Luma import runs in Convex from `convex/luma.ts`. An organiser links an event
+to its Luma event in Event settings. After a team submits, an internal action
+looks up the presenter and every team member by email and fills only the X,
+LinkedIn and GitHub fields they left empty. It never overwrites what people
+typed, and it records where each value came from. The submit form never calls
+Luma; the team sees imported values, marked "from Luma", on its private status
+page and can correct them there. The Luma registration form needs X, LinkedIn
+and GitHub questions. It only reads from Luma.
 
 ```bash
 pnpm exec convex env set LUMA_API_KEY "$(cat ~/.config/demo-queue/luma-api-key)"
+pnpm exec convex env set LUMA_ORGANIZATION_IDS org_...
 ```
 
-`LUMA_API_KEY` is optional. Without it, linking explains that Luma is not
-connected and the submit form works as before.
+Both are optional. `LUMA_API_KEY` belongs to one Luma calendar, so only admins
+of the WorkOS organisations listed in `LUMA_ORGANIZATION_IDS` (comma-separated)
+can link an event, and only to an event on that calendar. Everyone else sees
+the Luma setting as unavailable, and without a key nothing is imported.
 
 Hackathon judging export also runs from Convex. It uses one personal Google
 account with the narrow `drive.file` OAuth scope. Sheets are owned by that

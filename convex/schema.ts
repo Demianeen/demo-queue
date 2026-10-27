@@ -3,6 +3,14 @@ import { v } from "convex/values";
 import { eventThemeValidator } from "./eventTheme";
 import { visualStyleValidator } from "./visualStyle";
 
+/** Where each social came from: typed by the team, or imported from Luma. */
+const socialSource = v.union(v.literal("typed"), v.literal("luma"));
+export const socialSourcesValidator = v.object({
+  twitter: v.optional(socialSource),
+  linkedin: v.optional(socialSource),
+  githubProfile: v.optional(socialSource),
+});
+
 export default defineSchema({
   mcpApprovals: defineTable({
     ownerAccountKey: v.string(), workosUserId: v.string(), actor: v.string(),
@@ -106,6 +114,7 @@ export default defineSchema({
     linkedin: v.optional(v.string()),
     // The presenter's GitHub username or profile link (not the project repo).
     githubProfile: v.optional(v.string()),
+    socialSources: v.optional(socialSourcesValidator),
     // When the status link was last emailed, to throttle "email me the link again".
     statusLinkEmailedAt: v.optional(v.number()),
     // Legacy free-text category. Kept for existing data; tracks replace it.
@@ -181,6 +190,7 @@ export default defineSchema({
     githubProfile: v.optional(v.string()),
     // emailKey(email), or "" without an email. Missing only on rows from before it.
     normalizedEmail: v.optional(v.string()),
+    socialSources: v.optional(socialSourcesValidator),
     createdAt: v.number(),
   })
     .index("by_event", ["eventId"])

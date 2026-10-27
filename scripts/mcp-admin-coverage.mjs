@@ -20,6 +20,7 @@ export const UI_EXCLUSIONS = [
   { file: "app/e/[slug]/ClientPage.tsx", browser: "events.getSubmittedView", reason: "Participant capability view of their own submission, not organization administration." },
   { file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: "judging.getOtherSubmissions", reason: "Judge capability page. Organization tools already read every submission." },
   ...["linkLumaEvent", "unlinkLumaEvent"].map((name) => ({ file: "components/LumaEventSetting.tsx", browser: `luma.${name}`, reason: "Linking uses the deployment's Luma key and is limited to allowed organisations, so it stays in the admin page." })),
+  { file: "app/s/[slug]/[token]/ClientPage.tsx", browser: "events.editTeamMemberSocials", reason: "Participant capability page. Organization tools must not impersonate participants." },
   ...finalistFunctions.map((name) => ({ file: finalistPath, browser: `judging.${name}`, reason: "Dormant finalist and placement controls require SHOW_FINALIST_TOOLS to remain false.", dormant: true })),
 ];
 

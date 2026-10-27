@@ -386,7 +386,61 @@ h3 {
   margin-left: auto;
 }
 
-/* Socials filled in from the person's Luma registration. */
+/* Socials imported from the person's Luma registration, on the status page. */
+.from-luma-note {
+  background: color-mix(in srgb, var(--app-muted) 12%, transparent);
+  border-radius: 999px;
+  color: var(--app-muted);
+  font-size: 11px;
+  font-weight: 650;
+  margin-left: 6px;
+  padding: 1px 7px;
+  vertical-align: middle;
+}
+
+.member-socials-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.member-socials {
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.member-socials-fields {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.member-socials-fields .field {
+  min-width: 0;
+}
+
+.member-socials-fields input {
+  min-width: 0;
+  width: 100%;
+}
+
+.member-socials-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .member-socials-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Under the socials on the submit form when the event is linked to Luma. */
 .person-socials-note {
   color: var(--app-muted);
   font-size: 12px;

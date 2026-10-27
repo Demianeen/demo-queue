@@ -1,0 +1,29 @@
+{
+  "verifiedAt": "2026-10-26",
+  "deployment": "precious-elk-564",
+  "tokenCopiedToDisk": false,
+  "browserToken": {
+    "issuedAt": 1793048388,
+    "expiresAt": 1793048448,
+    "signedLifetimeSeconds": 60,
+    "queryAcceptedFourSecondsAfterExpiry": true,
+    "rawQueryAtExpiryPlus25Seconds": 401,
+    "queryAndMutationAtExpiryPlus32Seconds": "expired_token"
+  },
+  "cachedSubscription": {
+    "expiresAt": "2026-10-26T21:05:07.000Z",
+    "positiveControl": { "deliveries": 2, "errors": 0, "updatedAt": 1793048706959 },
+    "independentWrite": { "secondsAfterExpiry": 16, "updatedAt": 1793048721671 },
+    "afterWrite": { "deliveries": 2, "errors": 1, "updatedAt": 1793048706959 },
+    "closed": true
+  },
+  "temporaryTestMembershipDeactivation": {
+    "nativeClientInitialization": "auth_required",
+    "browserRefresh": "sign_in_required",
+    "restoredMembership": "active",
+    "normalOAuthReconnected": true,
+    "nativeGetEventAfterRestoration": "success"
+  },
+  "bound": "60-second signed lifetime plus Convex's 5-second HTTP clock tolerance",
+  "scope": "Development Test only. No production access changes or event mutations in this check. Existing QA style values and defaults preserved."
+}

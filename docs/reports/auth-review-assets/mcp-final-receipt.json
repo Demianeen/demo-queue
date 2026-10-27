@@ -1,0 +1,53 @@
+{
+  "verifiedAt": "2026-10-27",
+  "deployment": "precious-elk-564",
+  "endpoint": "https://precious-elk-564.convex.site/mcp",
+  "client": "Codex CLI native MCP client using its saved WorkOS OAuth grant",
+  "selectedOrganization": "Test",
+  "style": {
+    "id": "k574rew2xp8tr8cmqjy6zz39r98h2frz",
+    "isDefault": false,
+    "name": "MCP review 27 Oct 2026",
+    "preset": null,
+    "theme": {
+      "accent": "#8BE9A8",
+      "background": "#101820",
+      "font": "sans",
+      "foreground": "#F2F5F1",
+      "radius": 8
+    }
+  },
+  "event": {
+    "createdAt": 1793098598247,
+    "eventType": "demo",
+    "id": "j979m88cdewq5mj1kk32hp02wx8h3z89",
+    "name": "MCP review 27 Oct 2026",
+    "organizationId": "org_01M1RR9X1JBJ5MN1XBR2N5Z544",
+    "queuePublished": false,
+    "slug": "mcp-review-27-oct-2026-final",
+    "submissionsClosed": false,
+    "theme": {
+      "accent": "#8BE9A8",
+      "background": "#101820",
+      "font": "sans",
+      "foreground": "#F2F5F1",
+      "radius": 8
+    },
+    "visualStyle": "neutral"
+  },
+  "checks": {
+    "exactReadback": true,
+    "themeSnapshot": true,
+    "unpublished": true,
+    "listed": true,
+    "foreignOrganizationDenied": true,
+    "eventAdminTokenReturned": false
+  },
+  "authorization": "Development Test verification only. Per-tool creation approval applied only to this invocation. No persistent client policy change.",
+  "unchanged": [
+    "organization default",
+    "publication",
+    "participants",
+    "production records"
+  ]
+}

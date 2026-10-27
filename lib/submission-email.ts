@@ -43,10 +43,9 @@ export function buildSubmissionEmail(input: SubmissionEmailInput): SubmissionEma
   const eventName = oneLine(input.eventName);
   const title = oneLine(input.demoTitle);
   const firstName = oneLine(input.recipientName ?? "").split(" ")[0];
+  // A fixed subject naming the event: nothing participants typed goes in it.
   const subject =
-    input.reason === "resend"
-      ? `Your status link for ${title} at ${eventName}`
-      : `You submitted ${title} to ${eventName}`;
+    input.reason === "resend" ? `Your status link for ${eventName}` : `Your submission to ${eventName}`;
   const heading =
     input.reason === "resend"
       ? "Here is your status link"
@@ -58,7 +57,7 @@ export function buildSubmissionEmail(input: SubmissionEmailInput): SubmissionEma
   const footer = isTeam
     ? input.reason === "resend"
       ? "Only people with the link can open the status page, so do not forward it outside your team."
-      : "Everyone on the team gets this email. Only people with the link can open the status page, so do not forward it outside your team."
+      : 'Only people with the link can open the status page, so do not forward it outside your team. Teammates can get their own copy: on the submit page, they enter their email and choose "Email me the link again".'
     : "Only people with the link can open the status page, so do not forward it.";
 
   const rows: Array<[string, string, string?]> = [[isTeam ? "Project" : "Demo", title]];

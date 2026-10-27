@@ -17,6 +17,9 @@ importers:
       '@convex-dev/mcp':
         specifier: 0.1.0-alpha.7
         version: 0.1.0-alpha.7(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
+      '@convex-dev/rate-limiter':
+        specifier: 0.3.2
+        version: 0.3.2(convex@1.48.0(react@19.2.7))(react@19.2.7)
       '@convex-dev/resend':
         specifier: 0.2.6
         version: 0.2.6(@standard-schema/spec@1.1.0)(convex-helpers@0.1.131(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3))(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)

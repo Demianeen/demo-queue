@@ -17,16 +17,17 @@ const team = {
   statusUrl: "https://demo-queue.test/s/outpost/token123",
 };
 
-test("the team email has the details, the status link and the team note", () => {
+test("the team email has the details, the status link and how teammates get a copy", () => {
   const email = buildSubmissionEmail(team);
-  assert.equal(email.subject, "You submitted Guardrail to Outpost");
+  assert.equal(email.subject, "Your submission to Outpost");
   assert.match(email.text, /^Your team is in, Sam/);
   assert.match(email.text, /Open your status page: https:\/\/demo-queue\.test\/s\/outpost\/token123/);
   assert.match(email.text, /Team: Night Owls · Sam Lee, Ana Ruiz/);
   assert.match(email.text, /Tracks: Developer tools · Best use of Daytona/);
   assert.match(email.text, /GitHub: github\.com\/night-owls\/guardrail/);
   assert.match(email.text, /Demo video: youtube\.com\/watch\?v=abc/);
-  assert.match(email.text, /Everyone on the team gets this email/);
+  assert.match(email.text, /Teammates can get their own copy/);
+  assert.doesNotMatch(email.text, /Everyone on the team gets this email/);
   assert.match(email.html, /href="https:\/\/demo-queue\.test\/s\/outpost\/token123"/);
 });
 
@@ -35,12 +36,12 @@ test("a demo email and a resend use their own copy", () => {
   assert.match(demo.text, /^Your demo is in, Sam/);
   assert.match(demo.text, /Demo: Guardrail/);
   assert.match(demo.text, /Tracks: None/);
-  assert.doesNotMatch(demo.text, /Team:|Everyone on the team/);
+  assert.doesNotMatch(demo.text, /Team:|Teammates/);
 
   const resend = buildSubmissionEmail({ ...team, reason: "resend" });
-  assert.equal(resend.subject, "Your status link for Guardrail at Outpost");
+  assert.equal(resend.subject, "Your status link for Outpost");
   assert.match(resend.text, /^Here is your status link/);
-  assert.doesNotMatch(resend.text, /Everyone on the team gets this email/);
+  assert.doesNotMatch(resend.text, /Teammates can get their own copy/);
 });
 
 test("what people typed is escaped and kept on one line", () => {
@@ -50,7 +51,8 @@ test("what people typed is escaped and kept on one line", () => {
     teamName: '"><img src=x>',
     githubUrl: "javascript:alert(1)",
   });
-  assert.doesNotMatch(email.subject, /[\r\n]/);
+  // Nothing participants typed reaches the subject.
+  assert.equal(email.subject, "Your submission to Outpost");
   assert.doesNotMatch(email.html, /<script>|<img src=x>/);
   assert.match(email.html, /&lt;script&gt;/);
   assert.doesNotMatch(email.html, /href="javascript:/);

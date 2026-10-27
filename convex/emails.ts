@@ -1,4 +1,5 @@
 import { Resend } from "@convex-dev/resend";
+import { HOUR, RateLimiter } from "@convex-dev/rate-limiter";
 import { v } from "convex/values";
 import { components } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
@@ -7,6 +8,21 @@ import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { emailKey } from "../lib/validation";
 import { participantPath } from "../lib/routes";
 import { buildSubmissionEmail, emailSender } from "../lib/submission-email";
+
+/**
+ * Submitting needs no sign-in, so emails are capped: a few per address per
+ * hour across all events, and a ceiling per event. Over a cap, the email is
+ * skipped and logged; the submission itself is unaffected.
+ */
+export const STATUS_EMAIL_LIMITS = {
+  perAddress: { kind: "fixed window", rate: 5, period: HOUR },
+  perEvent: { kind: "token bucket", rate: 300, period: HOUR, capacity: 100 },
+} as const;
+
+export const emailRateLimiter = new RateLimiter(components.rateLimiter, {
+  statusEmailPerAddress: STATUS_EMAIL_LIMITS.perAddress,
+  statusEmailPerEvent: STATUS_EMAIL_LIMITS.perEvent,
+});
 
 type EmailConfig =
   | { ok: true; apiKey: string; from: string; siteUrl: string }
@@ -38,8 +54,8 @@ function logEmail(details: Record<string, unknown>) {
 
 /**
  * Emails the private status link with what was submitted. After a submit it
- * goes to everyone on the team who gave an email; "email me the link again"
- * sends it only to the address that asked.
+ * goes only to the presenter; a team member gets their own copy by asking
+ * with "Email me the link again", which sends only to the address that asked.
  */
 export const sendStatusLinkEmail = internalMutation({
   args: {
@@ -60,8 +76,8 @@ export const sendStatusLinkEmail = internalMutation({
       .query("teamMembers")
       .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
       .take(50);
-    const recipients = emailRecipients(submission, members, args.to);
-    if (recipients.length === 0) {
+    const recipient = emailRecipient(submission, members, args.reason === "resend" ? args.to : undefined);
+    if (!recipient) {
       logEmail({ ...base, status: "skipped", why: "no_recipient" });
       return { sent: 0 };
     }
@@ -72,50 +88,56 @@ export const sendStatusLinkEmail = internalMutation({
       return { sent: 0 };
     }
 
+    const perAddress = await emailRateLimiter.limit(ctx, "statusEmailPerAddress", { key: emailKey(recipient.email) });
+    if (!perAddress.ok) {
+      logEmail({ ...base, status: "skipped", why: "rate_limited", limit: "per_address" });
+      return { sent: 0 };
+    }
+    const perEvent = await emailRateLimiter.limit(ctx, "statusEmailPerEvent", { key: event._id });
+    if (!perEvent.ok) {
+      logEmail({ ...base, status: "skipped", why: "rate_limited", limit: "per_event" });
+      return { sent: 0 };
+    }
+
     const tracks = trackNamesFor(submission, tracksById(await listEventTracks(ctx, event._id)));
     const statusUrl = new URL(participantPath(event.slug, submission.participantToken), config.siteUrl).toString();
+    const message = buildSubmissionEmail({
+      reason: args.reason,
+      eventName: event.name,
+      eventType: event.eventType ?? "demo",
+      recipientName: recipient.name,
+      demoTitle: submission.demoTitle,
+      teamName: submission.teamName,
+      people: [submission.name, ...members.map((member) => member.name)],
+      tracks,
+      githubUrl: submission.githubUrl,
+      videoUrl: submission.videoUrl,
+      statusUrl,
+    });
     const resend = new Resend(components.resend, { apiKey: config.apiKey, testMode: false });
-    const from = emailSender(event.name, config.from);
-    for (const recipient of recipients) {
-      const message = buildSubmissionEmail({
-        reason: args.reason,
-        eventName: event.name,
-        eventType: event.eventType ?? "demo",
-        recipientName: recipient.name,
-        demoTitle: submission.demoTitle,
-        teamName: submission.teamName,
-        people: [submission.name, ...members.map((member) => member.name)],
-        tracks,
-        githubUrl: submission.githubUrl,
-        videoUrl: submission.videoUrl,
-        statusUrl,
-      });
-      await resend.sendEmail(ctx, { from, to: recipient.email, ...message });
-    }
-    logEmail({ ...base, status: "queued", recipients: recipients.length });
-    return { sent: recipients.length };
+    await resend.sendEmail(ctx, { from: emailSender(event.name, config.from), to: recipient.email, ...message });
+    logEmail({ ...base, status: "queued" });
+    return { sent: 1 };
   },
 });
 
-function emailRecipients(
+/**
+ * The presenter, or for a resend the person on this submission who asked.
+ * Nobody else is ever emailed.
+ */
+function emailRecipient(
   submission: Doc<"submissions">,
   members: Doc<"teamMembers">[],
-  onlyTo: string | undefined,
+  askedBy: string | undefined,
 ) {
+  if (askedBy === undefined) {
+    return submission.email ? { name: submission.name, email: submission.email } : null;
+  }
+  const key = emailKey(askedBy);
   const people = [
     { name: submission.name, email: submission.email },
     ...members.map((member) => ({ name: member.name, email: member.email })),
   ];
-  const seen = new Set<string>();
-  const recipients: Array<{ name: string; email: string }> = [];
-  for (const person of people) {
-    if (!person.email) continue;
-    const key = emailKey(person.email);
-    if (seen.has(key)) continue;
-    // A resend goes only to the person who asked, and only if they are on this submission.
-    if (onlyTo !== undefined && key !== emailKey(onlyTo)) continue;
-    seen.add(key);
-    recipients.push({ name: person.name, email: person.email });
-  }
-  return recipients;
+  const person = people.find((candidate) => candidate.email && emailKey(candidate.email) === key);
+  return person?.email ? { name: person.name, email: person.email } : null;
 }

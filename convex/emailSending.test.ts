@@ -1,7 +1,9 @@
 import { Resend } from "@convex-dev/resend";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi, type MockInstance } from "vitest";
 import { api, internal } from "./_generated/api";
+import { STATUS_EMAIL_LIMITS } from "./emails";
 import schema from "./schema";
 
 const modules = {
@@ -40,6 +42,7 @@ function configure() {
 
 async function team() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const owner = t.withIdentity(identity);
   await owner.mutation(api.events.createEvent, {
     expectedOrganizationId: organizationId,
@@ -70,7 +73,8 @@ async function team() {
     videoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     trackIds: [stage.event.tracks[1].id],
   });
-  return { t, owner, submissionId };
+  const eventId = (await t.run((ctx) => ctx.db.get(submissionId)))!.eventId;
+  return { t, owner, submissionId, eventId };
 }
 
 test("submitting queues the email, and without settings it is skipped", async () => {
@@ -87,30 +91,79 @@ test("submitting queues the email, and without settings it is skipped", async ()
   expect(JSON.stringify(info.mock.calls)).not.toMatch(/example\.com|participant-token/);
 });
 
-test("with settings, everyone on the team gets the details and the status link", async () => {
+type Sent = { from: string; to: string; subject: string; html: string; text: string };
+const sent = () => sendEmail.mock.calls.map((call) => call[1] as Sent);
+
+test("after a submit only the presenter is emailed, with the details and the status link", async () => {
   configure();
   const { t, submissionId } = await team();
   const result = await t.mutation(internal.emails.sendStatusLinkEmail, { submissionId, reason: "submitted" });
-  expect(result).toEqual({ sent: 3 });
-  const messages = sendEmail.mock.calls.map((call) => call[1] as { from: string; to: string; subject: string; html: string; text: string });
-  expect(messages.map((message) => message.to)).toEqual(["sam@example.com", "ana@example.com", "Luca@Example.com"]);
+  expect(result).toEqual({ sent: 1 });
+  const messages = sent();
+  expect(messages.map((message) => message.to)).toEqual(["sam@example.com"]);
   const [first] = messages;
   expect(first.from).toBe('"Outpost Hack Night via Demo Queue" <hello@demo-queue.test>');
-  expect(first.subject).toBe("You submitted Guardrail <b> to Outpost <Hack> Night");
+  // A fixed subject: nothing participants typed.
+  expect(first.subject).toBe("Your submission to Outpost <Hack> Night");
   expect(first.text).toContain(`https://demo-queue.test/s/${slug}/${token}`);
   expect(first.text).toContain("Team: Night Owls · Sam Lee, Ana Ruiz, Luca Romano");
   expect(first.text).toContain("Tracks: Developer tools");
   expect(first.html).toContain("Guardrail &lt;b&gt;");
   expect(first.html).not.toContain("Guardrail <b>");
   expect(first.html).toContain("Your team is in, Sam");
-  expect(messages[1].html).toContain("Your team is in, Ana");
+});
+
+test("emails per address are capped across the hour", async () => {
+  configure();
+  const { t, submissionId } = await team();
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  // The email queued by the submit counts as the first one.
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(sendEmail).toHaveBeenCalledTimes(1);
+  for (let i = 1; i < STATUS_EMAIL_LIMITS.perAddress.rate; i += 1) {
+    expect(await t.mutation(internal.emails.sendStatusLinkEmail, { submissionId, reason: "submitted" })).toEqual({ sent: 1 });
+  }
+  expect(await t.mutation(internal.emails.sendStatusLinkEmail, { submissionId, reason: "submitted" })).toEqual({ sent: 0 });
+  // The same address asking through a resend is capped too; another address is not.
+  expect(await t.mutation(internal.emails.sendStatusLinkEmail, { submissionId, reason: "resend", to: "SAM@example.com" })).toEqual({ sent: 0 });
+  expect(await t.mutation(internal.emails.sendStatusLinkEmail, { submissionId, reason: "resend", to: "ana@example.com" })).toEqual({ sent: 1 });
+  expect(sendEmail).toHaveBeenCalledTimes(STATUS_EMAIL_LIMITS.perAddress.rate + 1);
+  expect(info).toHaveBeenCalledWith("status-link-email", expect.objectContaining({ why: "rate_limited", limit: "per_address" }));
+
+  // An hour later the address can be emailed again.
+  vi.advanceTimersByTime(STATUS_EMAIL_LIMITS.perAddress.period + 1000);
+  expect(await t.mutation(internal.emails.sendStatusLinkEmail, { submissionId, reason: "submitted" })).toEqual({ sent: 1 });
+});
+
+test("emails per event are capped", async () => {
+  configure();
+  const { t, submissionId, eventId } = await team();
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  // Many different presenters in one event, each under their own address cap.
+  const template = (await t.run((ctx) => ctx.db.get(submissionId)))!;
+  const { _id, _creationTime, ...fields } = template;
+  void _id;
+  void _creationTime;
+  const others = await t.run(async (ctx) =>
+    Promise.all(
+      Array.from({ length: STATUS_EMAIL_LIMITS.perEvent.capacity }, (_, i) =>
+        ctx.db.insert("submissions", { ...fields, eventId, participantToken: `bulk-${i}`, email: `bulk${i}@example.com` }),
+      ),
+    ),
+  );
+  for (const id of others) {
+    expect(await t.mutation(internal.emails.sendStatusLinkEmail, { submissionId: id, reason: "submitted" })).toEqual({ sent: 1 });
+  }
+  expect(await t.mutation(internal.emails.sendStatusLinkEmail, { submissionId, reason: "submitted" })).toEqual({ sent: 0 });
+  expect(sendEmail).toHaveBeenCalledTimes(STATUS_EMAIL_LIMITS.perEvent.capacity);
+  expect(info).toHaveBeenCalledWith("status-link-email", expect.objectContaining({ why: "rate_limited", limit: "per_event" }));
 });
 
 test("a resend goes only to the person who asked, and nothing goes to a withdrawn team", async () => {
   configure();
   const { t, submissionId } = await team();
   expect(await t.mutation(internal.emails.sendStatusLinkEmail, { submissionId, reason: "resend", to: "luca@example.com" })).toEqual({ sent: 1 });
-  expect(sendEmail.mock.calls[0][1]).toMatchObject({ to: "Luca@Example.com", subject: "Your status link for Guardrail <b> at Outpost <Hack> Night" });
+  expect(sendEmail.mock.calls[0][1]).toMatchObject({ to: "Luca@Example.com", subject: "Your status link for Outpost <Hack> Night" });
   expect(await t.mutation(internal.emails.sendStatusLinkEmail, { submissionId, reason: "resend", to: "stranger@example.com" })).toEqual({ sent: 0 });
 
   await t.run((ctx) => ctx.db.patch(submissionId, { status: "withdrawn" }));

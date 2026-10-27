@@ -102,4 +102,5 @@ export declare const components: {
   mcp: import("@convex-dev/mcp/_generated/component.js").ComponentApi<"mcp">;
   judgingDecisionHistory: import("@convex-dev/table-history/_generated/component.js").ComponentApi<"judgingDecisionHistory">;
   resend: import("@convex-dev/resend/_generated/component.js").ComponentApi<"resend">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

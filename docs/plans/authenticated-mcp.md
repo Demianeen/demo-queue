@@ -1,6 +1,6 @@
 ---
 title: Authenticated event and style MCP
-status: FINAL VERIFICATION IN PROGRESS
+status: COMPLETE
 tier: Tier 2
 created: 2026-10-26
 updated: 2026-10-27
@@ -154,6 +154,23 @@ TypeScript and focused ESLint checks. The alias regression test failed before th
 reader changed and passed afterward. New MCP-created events contain no stored
 admin token. This integration check does not replace the final native OAuth and
 hosted-browser checks.
+
+## Final development verification, 27 October 2026
+
+The native Codex CLI used its existing WorkOS OAuth grant to create a nondefault
+style and unpublished Test event, read both back exactly, list the event, and
+deny Outpost access. The safe receipt is
+`docs/reports/auth-review-assets/mcp-final-receipt.json`. The same event appears
+in the verified hosted organization workspace. The final frontend source is
+identical between the two PRs; MCP adds only backend functions and documentation.
+Both branch builds use canonical development credentials and only build Next.js.
+They never provision or deploy a separate Convex Preview backend.
+
+All 118 Node tests and 52 Convex tests pass, with TypeScript and full lint.
+Independent final reviews found no outstanding blocking issue after the
+foreign-admin page fix. Production configuration is not runtime proof. Production
+code deployment, ownership assignment and the separate Daytona rename remain
+post-merge operations with their existing authorization conditions.
 
 ## Sources
 

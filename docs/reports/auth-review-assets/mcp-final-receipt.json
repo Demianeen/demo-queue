@@ -2,7 +2,7 @@
   "verifiedAt": "2026-10-27",
   "deployment": "precious-elk-564",
   "endpoint": "https://precious-elk-564.convex.site/mcp",
-  "client": "Native CLI MCP client using its saved WorkOS OAuth grant",
+  "client": "Codex CLI native MCP client using its saved WorkOS OAuth grant",
   "selectedOrganization": "Test",
   "style": {
     "id": "k574rew2xp8tr8cmqjy6zz39r98h2frz",

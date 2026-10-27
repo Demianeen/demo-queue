@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-27",
+  "implementationCommit": "42cfb97a14c7b7e9e8f5afece3257d936c95e3f2",
+  "pullRequest": "https://github.com/Demianeen/demo-queue/pull/46",
+  "deployment": "precious-elk-564",
+  "endpoint": "https://precious-elk-564.convex.site/mcp",
+  "selectedOrganizationId": "org_01M1RR9X1JBJ5MN1XBR2N5Z544",
+  "toolCount": 60,
+  "enabledBrowserFunctionsMapped": 57,
+  "nodeTests": 129,
+  "backendTests": 98,
+  "nativeOAuth": {
+    "status": "passed",
+    "calls": 54,
+    "events": [
+      { "slug": "mcp-admin-parity-demo-27-oct-2026-1304", "id": "j97556p0meaa2e1j9s7jv401v18h2rz2" },
+      { "slug": "mcp-admin-parity-hack-27-oct-2026-1304", "id": "j97bzsrv5akvtdyfmh1heergrh8h396c" }
+    ],
+    "checked": ["organization and event listing", "event creation", "submission creation", "lineup target", "pool and reorder", "hide and restore", "publication", "stage screen and display toggles", "stage timer lifecycle", "demo timer lifecycle", "skip and advance", "undo advance", "judge roster", "test team creation", "private judge link generation and listing", "submission closure", "assignment preparation", "judging timer and close/reopen", "raw progress and normalization reads", "persisted final state"],
+    "denials": { "foreignOrganization": "reauthorization_required", "missingEvent": "access_denied" }
+  },
+  "boundaries": {
+    "productionUntouched": true,
+    "existingRecordsNotCleared": true,
+    "destructiveOperations": "isolated local fixtures only",
+    "aiAndGoogleResponses": "mocked in local integration tests",
+    "liveExternalSheetCreated": false,
+    "participantAndJudgeImpersonation": false,
+    "finalHeadIdAdapterVerification": {
+      "status": "passed",
+      "calls": 8,
+      "sameOrderPersisted": true,
+      "contactsToolRead": true,
+      "wrongTableIdDenied": true,
+      "unchangedAfterDenial": true,
+      "hackJudgingStatus": "closed",
+      "denialCode": "invalid_operation"
+    }
+  }
+}

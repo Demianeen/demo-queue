@@ -33,9 +33,9 @@ trust, grant participant or judge impersonation, or expose maintenance endpoints
   - [x] Add queue, submission, presentation and timer tools with behavior parity tests.
   - [x] Add judging, normalization, access-link and Sheet tools with behavior parity tests.
   - [x] Verify negative access, stale-state handling, confirmation and sensitive projections.
-  - [ ] Exercise real native OAuth against canonical development and inspect persistence.
+  - [x] Exercise real native OAuth against canonical development and inspect persistence.
   - [ ] Publish a separate dependent PR and concise review artifact; verify final checks.
-- [ ] Phase D: Keep the audit trail
+- [x] Phase D: Keep the audit trail
 - [ ] Phase E: Verify and hand back
 
 ## Throughput checkpoint
@@ -106,3 +106,10 @@ development. It verified queue, timers, links, assignments, judging and denials.
 Destructive cleanup and AI/Google provider flows were tested with isolated local
 fixtures and provider mocks, not by deleting existing records or creating live
 external files. Final-head deployment and review receipts are tracked separately.
+
+The final ID-adapter check made eight further native OAuth calls after syncing
+implementation commit `42cfb97`. Reordering persisted unchanged order, explicit
+contact reads worked, a wrong-table ID was denied without changing the lineup,
+and judging remained closed. The quick review is
+`docs/reports/mcp-admin-parity-review.html`; the safe receipt is
+`docs/reports/auth-review-assets/mcp-admin-parity-receipt.json`.

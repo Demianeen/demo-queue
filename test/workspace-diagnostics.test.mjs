@@ -24,3 +24,17 @@ test('workspace diagnostics omit non-HTTP status values and raw errors', () => {
     });
   }
 });
+
+test('workspace diagnostics classify provider failures without echoing error details', () => {
+  for (const [message, reason] of [
+    ['No auth provider found matching the given token private-credential', 'convex-authentication-rejected'],
+    ['Could not find public function events:listOrganizationEvents private-url', 'convex-function-unavailable'],
+    ['ArgumentValidationError: Object contains extra field private-field', 'convex-arguments-rejected'],
+    ['Sign in to manage events. private-user', 'organization-access-rejected'],
+    ['fetch failed private-endpoint', 'connection-failed'],
+  ]) {
+    assert.deepEqual(workspaceFailureDiagnostic('events-and-styles', new Error(message)), {
+      phase: 'events-and-styles', status: undefined, reason,
+    });
+  }
+});

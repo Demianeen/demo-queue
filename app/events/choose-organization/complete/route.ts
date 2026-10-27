@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { organizationSelectionChoice, organizationSelectionCookieName, organizationSelectionCookieOptions, organizationSelectionFlowId, readOrganizationSelection } from "@/lib/google-auth-flow";
 
 export async function POST(request: NextRequest) {
-  let destination = "/events?error=sign-in";
+  let destination: string;
   const flowId = organizationSelectionFlowId(request.nextUrl);
   try {
     const password = process.env.WORKOS_COOKIE_PASSWORD;
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     await saveSession(session, request);
     destination = choice.returnTo;
   } catch {
-    // Authentication errors can contain live credentials and must not be logged.
+    destination = "/events?error=sign-in";
   }
   const response = NextResponse.redirect(new URL(destination, request.url), 303);
   if (flowId) response.cookies.set(organizationSelectionCookieName(flowId), "", { ...organizationSelectionCookieOptions(request.url), maxAge: 0 });

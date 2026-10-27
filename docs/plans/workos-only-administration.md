@@ -1,6 +1,6 @@
 ---
 title: WorkOS-only event administration
-status: IMPLEMENTING
+status: CODE VERIFIED; HOSTED PREVIEW GATE OPEN
 tier: 3
 created: 2026-10-27
 updated: 2026-10-27
@@ -31,8 +31,11 @@ and one organization-switch boundary. The judging event-type guard remains a
 separate domain precondition after authorization.
 
 Generate the AuthKit sign-in URL with the existing SDK to preserve PKCE and
-sealed state, then select Google's documented OAuth provider. Keep the SDK
-callback and session flow. Confirm membership before querying organization data.
+sealed state, then select Google's documented OAuth provider. Validate the same
+sealed PKCE state at callback and use official WorkOS code exchange and SDK
+session storage. Complete multi-organization challenges on the app-owned screen
+with separate encrypted, short-lived HttpOnly continuations for concurrent flows.
+Confirm membership before querying organization data.
 Record only allowlisted failure phases and status codes.
 
 ## Throughput checkpoint
@@ -57,12 +60,24 @@ Record only allowlisted failure phases and status codes.
 - Verify real MCP OAuth, tool discovery, safe creation/readback, and foreign-org
   denial on the final backend. Do not substitute a protocol harness for a native
   client connection claim.
-- Classify all 25 production events before any ownership mutation. Two rows need
-  ownership confirmation, now resolved. Apply only the exact approved manifest
+- Classify all 25 production events before any ownership mutation. The complete
+  six-Outpost, nineteen-Test manifest is approved. Apply only that manifest
   after merge and deployment. Until then historical administration remains a rollout
   gate, not completed migration evidence.
-- Hosted failure investigation currently needs access to the personal Vercel
-  project. The active work account cannot see its runtime logs.
+- Personal Vercel access is restored. Current hosted logs show
+  `convex-provider-mismatch` after successful session and membership checks.
+  A Preview-only canonical-development build/configuration fix awaits approval.
+
+## Verified on 27 October 2026
+
+113 Node tests, 52 integrated Convex tests, TypeScript, lint, frozen installation,
+and the optimized build pass. Independent callback, alias, and integrated code
+reviews pass after fixes. Real Google login reaches Outpost and Test in canonical
+development. Native OAuth creates and reads back an unpublished Test event and
+nondefault style, and denies an Outpost request with the same grant.
+
+The hosted gate remains open. No production deployment or ownership mutation
+has run. The Daytona alias-backed rename is prepared separately and not applied.
 
 The earlier plan's capability-link fallback is superseded. Judging, scoring,
 normalization, timers, spreadsheet fallback, and finalist behavior are unchanged

@@ -85,3 +85,56 @@ PASS at 1910x1075: shared admin white surfaces, neutral gray borders, moderate c
 PASS: /styles now contains selection, previews and organization-default action only. Base/Codex/Outpost and saved custom style previews verified; no authoring fields/New style. Event creation copy no longer promises customization. TSC/lint and six style backend tests pass. No real defaults changed during QA. Evidence styles-selection-only.png at 813x873. MCP authoring deferred to next PR.
 
 PR cleanup (September 6): earlier style-editor checks are historical. The current selection-only behavior is recorded in `docs/plans/defer-style-editor.md`.
+
+## WorkOS-only sign-in, 27 October 2026
+
+final result: passed
+
+This section supersedes historical saved-event-link and capability-admin checks
+above. Saved links are no longer an account-menu or sign-in action. The old
+`/saved` route only redirects to the authenticated event list.
+
+Source visual truth: `docs/reports/auth-review-assets/sign-in-reference.png`,
+1487 × 1058 pixels. Implementation: `http://127.0.0.1:3001/events`, signed out,
+with the server verified in this checkout. Desktop screenshot:
+`docs/reports/auth-review-assets/sign-in-desktop.png`, 2976 × 2112 pixels at
+1488 × 1056 CSS pixels and 2× density. The two-CSS-pixel height and one-pixel
+width differences from the raster reference are recorded, not treated as drift.
+Mobile screenshot: `docs/reports/auth-review-assets/sign-in-mobile.png`,
+800 × 1400 pixels at 400 × 700 CSS pixels and 2× density.
+
+The original reference and latest desktop screenshot were opened together in
+one comparison input at native resolution. Controls and text were legible there,
+so no separate focused image crop was needed. The CTA and paragraph also received
+DOM geometry and computed-font checks.
+
+- Fonts and typography: Geist Sans, 46-pixel desktop headline, two-line heading,
+  26-pixel body text, and 19-pixel action follow the selected hierarchy. Minor
+  reference glyph differences are P3. The body wraps before "your organizations."
+- Spacing and layout: the stage occupies 45% and the panel 55%. The panel is
+  vertically centered. Removing the obsolete saved-links row intentionally
+  shortens the block. The description is 400 pixels wide at the reference size.
+- Colors and tokens: white panel, near-black title/action, gray supporting text,
+  and white stage text retain the reference palette and readable contrast.
+- Images: the generated warm stage photograph retains the microphone, stool,
+  audience, brick, and spotlight composition. It is a newly generated asset,
+  not a claim of an identical photograph. Google's supplied logo is loaded.
+- Copy and content: reference headline, description, action, brand, and stage
+  tagline remain. "Open saved event links" is deliberately removed under the
+  revised authentication requirement.
+- Responsive behavior: mobile uses a stage banner above the sign-in content.
+  No horizontal overflow at 400 × 700. The Google action measures 352 × 56 CSS
+  pixels, remains above the fold, and has a visible keyboard focus treatment.
+
+Comparison history: the first pass found the description wrapping one extra
+word on its first line. Reducing its maximum width from 480 to 400 CSS pixels
+restored the reference wrap. The latest combined comparison confirms the fix.
+No actionable P0/P1/P2 visual findings remain. Minor font and photo differences
+remain P3, with no pixel-identical-photo claim.
+
+Real Google account selection, the app-owned Outpost/Test chooser, successful
+callback, and workspace switching were exercised. The token-free admin route
+loaded for its Test owner and showed sign-in when opened anonymously.
+Backend tests cover role-specific public links and cross-organization denial.
+Hosted Preview loading remains a separate failed configuration gate, not a
+design-QA pass or production verification.

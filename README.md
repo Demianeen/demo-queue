@@ -194,20 +194,22 @@ Production app build:
 
 Preview app build:
 
-- Required in Vercel Preview: preview `CONVEX_DEPLOY_KEY` and preview WorkOS variables above.
-- Not manually required in Vercel Preview: `NEXT_PUBLIC_CONVEX_URL`, because
-  Convex creates a preview deployment and injects its URL for the build.
-- If you need a full admin link for a preview from the local CLI, pass the
-  Convex preview deployment reference with `--deployment` and the Vercel preview
-  URL with `--site-url`.
+- The current hosted Preview has a confirmed WorkOS/Convex provider mismatch.
+  Its deployment check is not proof that signed-in workspace loading works.
+- Repository safety permits only the canonical development and production
+  deployments. Do not select or inspect another deployment to repair Preview.
+- A Preview-only build/configuration change to use `precious-elk-564` and its
+  matching development WorkOS credentials is awaiting authorization. Production
+  deployment behavior must remain unchanged.
 
 Local development:
 
 - Required in `.env.local`: `CONVEX_DEPLOYMENT` and `NEXT_PUBLIC_CONVEX_URL`.
 - Optional: `DEMO_QUEUE_SITE_URL`. The helper defaults to
   `http://localhost:3000` for non-production commands.
-- To create these values for a new checkout, run `pnpm dev:convex` once or copy
-  `.env.local` from the main checkout.
+- An absent `.env.local` is an unconfigured checkout. The project owner must
+  configure it, or explicitly authorize copying it from a named checkout.
+  `pnpm dev:convex` requires existing canonical configuration and CLI access.
 
 Vercel can expose generated app URL variables such as `VERCEL_URL`,
 `VERCEL_BRANCH_URL`, and `VERCEL_PROJECT_PRODUCTION_URL` when system env vars

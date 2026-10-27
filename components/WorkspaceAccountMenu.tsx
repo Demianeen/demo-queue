@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
-import Link from "next/link";
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
-import { Building2, Check, Link2, LogOut } from "lucide-react";
+import { Building2, Check, LogOut } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
@@ -46,8 +45,6 @@ export function WorkspaceAccountMenu({ email, displayName, organizations, active
           </DropdownMenuSubContent>
         </DropdownMenuSub>
       </DropdownMenuGroup></>}
-      <DropdownMenuSeparator />
-      <DropdownMenuItem render={<Link href="/saved" />}><Link2 aria-hidden />Saved event links</DropdownMenuItem>
       <DropdownMenuSeparator />
       <form action={logOut}><SignOutItem /></form>
     </DropdownMenuContent>

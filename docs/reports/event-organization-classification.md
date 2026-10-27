@@ -5,44 +5,44 @@ deployment. No production records have been changed.
 
 Read-only production inventory checked on 27 October 2026. All 25 events have no organization. The read requested up to 1,000 rows and returned 25. The complete WorkOS production organization listing contains Outpost and Test only.
 
-## Proposed assignment
+## Approved assignment
 
 6 events to Outpost and 19 to Test. The renamed Daytona event is Outpost and
 SwiftXR is Test. The complete manifest is approved. Event names and publication
 state supplied classification evidence; the two ambiguous rows received an
 explicit ownership decision.
 
-| Event | Slug | Proposed organization | Review | Reason |
+| Event | Slug | Approved organization | Review | Reason |
 | --- | --- | --- | --- | --- |
-| test 1 | `test-1-8d81a6` | Test | Proposed | Explicit test/debug event name. |
-| test | `test-04dfc4` | Test | Proposed | Explicit test/debug event name. |
-| Codex meetup: GPT-6 ASTRA | `codex-meetup-gpt-6-astra-2c2568` | Outpost | Proposed | Named community meetup or HackSprint. Proposed Outpost. |
-| test | `test-7dd381` | Test | Proposed | Explicit test/debug event name. |
-| ZZ Debug Probe | `zz-debug-probe-95ab5d` | Test | Proposed | Explicit test/debug event name. |
-| Daytona HackSprint - London, August 2026 | `daytona-hacksprint-london-august-2026-a76e6e` | Outpost | Proposed | Named community meetup or HackSprint. Proposed Outpost. |
-| test hack 5 | `test-hack-5-063e28` | Test | Proposed | Explicit test/debug event name. |
+| test 1 | `test-1-8d81a6` | Test | Approved | Explicit test/debug event name. |
+| test | `test-04dfc4` | Test | Approved | Explicit test/debug event name. |
+| Codex meetup: GPT-6 ASTRA | `codex-meetup-gpt-6-astra-2c2568` | Outpost | Approved | Named community meetup or HackSprint. Outpost assignment approved. |
+| test | `test-7dd381` | Test | Approved | Explicit test/debug event name. |
+| ZZ Debug Probe | `zz-debug-probe-95ab5d` | Test | Approved | Explicit test/debug event name. |
+| Daytona HackSprint - London, August 2026 | `daytona-hacksprint-london-august-2026-a76e6e` | Outpost | Approved | Named community meetup or HackSprint. Outpost assignment approved. |
+| test hack 5 | `test-hack-5-063e28` | Test | Approved | Explicit test/debug event name. |
 | Daytona HackSprint - London, August 2026 | `test-hack-5-1db202` | Outpost | Approved | Explicitly confirmed Outpost despite the original test slug. |
-| test hack 5 | `test-hack-5-4a554d` | Test | Proposed | Explicit test/debug event name. |
-| test hack 4 | `test-hack-4-18a4b3` | Test | Proposed | Explicit test/debug event name. |
-| test hack 3 | `test-hack-3-693570` | Test | Proposed | Explicit test/debug event name. |
-| test hack 2 | `test-hack-2-b054fd` | Test | Proposed | Explicit test/debug event name. |
-| test hack | `test-hack-77e3e2` | Test | Proposed | Explicit test/debug event name. |
-| test | `test-a3f042` | Test | Proposed | Explicit test/debug event name. |
-| test event | `test-event-8f5310` | Test | Proposed | Explicit test/debug event name. |
-| Test | `test-5adaf2` | Test | Proposed | Explicit test/debug event name. |
-| test | `test-aad9bb` | Test | Proposed | Explicit test/debug event name. |
-| Codex Community Hackathon 18th July 2026 | `codex-community-hackathon-18th-july-2026-b29005` | Outpost | Proposed | Named community meetup or HackSprint. Proposed Outpost. |
-| test 1 | `test-1-93c0bb` | Test | Proposed | Explicit test/debug event name. |
-| test | `test-72459f` | Test | Proposed | Explicit test/debug event name. |
+| test hack 5 | `test-hack-5-4a554d` | Test | Approved | Explicit test/debug event name. |
+| test hack 4 | `test-hack-4-18a4b3` | Test | Approved | Explicit test/debug event name. |
+| test hack 3 | `test-hack-3-693570` | Test | Approved | Explicit test/debug event name. |
+| test hack 2 | `test-hack-2-b054fd` | Test | Approved | Explicit test/debug event name. |
+| test hack | `test-hack-77e3e2` | Test | Approved | Explicit test/debug event name. |
+| test | `test-a3f042` | Test | Approved | Explicit test/debug event name. |
+| test event | `test-event-8f5310` | Test | Approved | Explicit test/debug event name. |
+| Test | `test-5adaf2` | Test | Approved | Explicit test/debug event name. |
+| test | `test-aad9bb` | Test | Approved | Explicit test/debug event name. |
+| Codex Community Hackathon 18th July 2026 | `codex-community-hackathon-18th-july-2026-b29005` | Outpost | Approved | Named community meetup or HackSprint. Outpost assignment approved. |
+| test 1 | `test-1-93c0bb` | Test | Approved | Explicit test/debug event name. |
+| test | `test-72459f` | Test | Approved | Explicit test/debug event name. |
 | SwiftXR Guassian Splatting | `swiftxr-guassian-splatting-0a2d3f` | Test | Approved | Explicitly confirmed Test. |
-| Codex Community Meetup 3 | `codex-community-meetup-3-0c20e4` | Outpost | Proposed | Named community meetup or HackSprint. Proposed Outpost. |
-| test 1 | `test-1-0a16d5` | Test | Proposed | Explicit test/debug event name. |
-| test | `test-12007b` | Test | Proposed | Explicit test/debug event name. |
-| Codex Community Meetup London #2 | `codex-community-meetup-london-2-968789` | Outpost | Proposed | Named community meetup or HackSprint. Proposed Outpost. |
+| Codex Community Meetup 3 | `codex-community-meetup-3-0c20e4` | Outpost | Approved | Named community meetup or HackSprint. Outpost assignment approved. |
+| test 1 | `test-1-0a16d5` | Test | Approved | Explicit test/debug event name. |
+| test | `test-12007b` | Test | Approved | Explicit test/debug event name. |
+| Codex Community Meetup London #2 | `codex-community-meetup-london-2-968789` | Outpost | Approved | Named community meetup or HackSprint. Outpost assignment approved. |
 
 ## Exact destinations
 
-Approved manifest SHA-256:
+Approved manifest SHA-256, computed from normalized JSON by `manifestHash`:
 `729b689cfdd07f941252fd939baef4e1c39a527588907053ad7680efa69e7b67`.
 
 - Outpost: `org_01M5WZN8BW5GYKKED6Q7XQHDDK`.

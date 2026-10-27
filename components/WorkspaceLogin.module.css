@@ -67,7 +67,7 @@
 }
 
 .description {
-  max-width: 30rem;
+  max-width: 25rem;
   margin: 1.6rem 0 2.65rem;
   color: #606773;
   font-size: clamp(1.1rem, 1.75vw, 1.65rem);

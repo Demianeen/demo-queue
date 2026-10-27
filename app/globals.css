@@ -818,11 +818,6 @@ h3 {
   margin-top: 22px;
 }
 
-.saved-events-note {
-  margin-top: -4px;
-  margin-bottom: 2px;
-}
-
 /* "Your events" list: flat rows inside the page card (no nested cards). */
 .event-item + .event-item {
   margin-top: 4px;

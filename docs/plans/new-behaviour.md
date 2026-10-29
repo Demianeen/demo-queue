@@ -144,9 +144,35 @@ Nothing new in Convex.
 Every organiser and judge query returns track names and ids per project,
 with none meaning the main event.
 
+Judging progress (`judging.getAdminProgress`) rows now carry the team name,
+track names and track ids, with the event's tracks, for the track filter.
+
 ### MCP
 
-Every new organiser action has a tool with the same checks.
+Every new organiser action has a tool with the same checks:
+`preview_phase_change`, `set_phase`, `reopen_submissions`,
+`set_judging_time_left`, `pause_judging_timer`, `resume_judging_timer`,
+`set_stage_timer_remaining`, `list_recent_changes`, `undo_change`,
+`get_judges_overview` (a sensitive read), `replace_judge_link` (makes its own
+token), `move_judge_scores`, `set_judge_link_active`, `get_live_event`,
+`create_practice_event`, `list_practice_events`, `add_practice_submissions`,
+`score_as_test_judges`, `skip_practice_timer` and `reset_practice_event`
+(needs a matching confirmation). Changes an assistant makes show as an
+assistant's in Recent changes.
+
+The judge page functions (`judging.getJudgeWorkspace`,
+`judging.confirmJudge`) are judge capability calls and get no tool, like
+`judging.saveReview`. The UI step adds them to the coverage exclusions.
+
+## Progress
+
+- Done (backend, 29 October 2026): items 1, 2, 3, 6, 7, 8, 9, 10 and MCP.
+  Items 4 and 5 need nothing new in Convex.
+- Next: the UI on top of `codex/dq-redesign`. It removes each
+  `UI_PENDING` entry in `scripts/mcp-admin-coverage.mjs` as it adds the
+  caller.
+- Not done: no deploy and no `convex dev`, so the functions have only run
+  in convex-test.
 
 ## Proposed
 
@@ -166,3 +192,12 @@ Every new organiser action has a tool with the same checks.
 - Moving scores refuses a project both judges have scored.
 - Recent changes return the person's WorkOS user id; the page shows names
   from the members list.
+- Practice events need 0 test judges, or 2 to 10 (each project needs two).
+- Test people's phone numbers come from the reserved drama range
+  (+44 20 7946 0xxx), so they never reach a real phone.
+- Test hackathon submissions queue an AI summary like real ones, so a
+  practice run calls the model for each.
+- The MCP coverage check lets these tools land before their admin UI
+  (`UI_PENDING`); each entry goes stale once the UI calls the function.
+- The Undo toast reads the newest change marked as yours from
+  `changes.listRecentChanges` after a mutation.

@@ -168,11 +168,17 @@ The judge page functions (`judging.getJudgeWorkspace`,
 
 - Done (backend, 29 October 2026): items 1, 2, 3, 6, 7, 8, 9, 10 and MCP.
   Items 4 and 5 need nothing new in Convex.
-- Next: the UI on top of `codex/dq-redesign`. It removes each
-  `UI_PENDING` entry in `scripts/mcp-admin-coverage.mjs` as it adds the
-  caller.
-- Not done: no deploy and no `convex dev`, so the functions have only run
-  in convex-test.
+- Done (change log privacy, 29 October 2026): a change that can't be
+  undone keeps no documents; inserts keep only the id; secret fields
+  (participant and judge link tokens) are kept only as sha256 markers, so
+  Replace link can't be undone; a daily job removes rows older than 30
+  days, and the practice tidy removes an event's rows with it.
+- Done (UI, 29 October 2026): the live event home, Share, the Judges page,
+  the judge page, track chips in Judging, the Practice list, the practice
+  bar and practice tools, and command menu entries for each. `UI_PENDING`
+  is empty.
+- Verified on a local anonymous Convex deployment with a WorkOS mock:
+  screenshots in `docs/reports/new-behaviour/`. No deploy.
 
 ## Proposed
 
@@ -201,3 +207,25 @@ The judge page functions (`judging.getJudgeWorkspace`,
   (`UI_PENDING`); each entry goes stale once the UI calls the function.
 - The Undo toast reads the newest change marked as yours from
   `changes.listRecentChanges` after a mutation.
+- Change log rows are kept for 30 days.
+- A replaced judge link can't be undone ("A replaced link can't be brought
+  back"), since its old token is not kept.
+- Moving forward applies at once; only a move back asks first, inline.
+- The timer key sequences: E to type a time, T then 5, 1 0, 1 5 or 3 0 for
+  the presets, P to pause or resume, Shift T to skip to the last 10 seconds
+  in a practice event, F for the full screen QR.
+- The submissions phase shows the stage timer, labelled "Submissions close
+  in".
+- Recent changes note: "Most changes can be undone from here, and from the
+  toast right after you make it."
+- Names in Recent changes come from a server action over the members list.
+- A practice event's home keeps the live home's right column (stage,
+  properties, Recent changes) instead of the getting started cards.
+- Track chips share one colour; no colour per track. The sidebar shows no
+  counts.
+- A judge who confirmed once is not asked "Are you X?" again on that link.
+- On the judge page, pressing 1 then 0 within 700 ms scores 10.
+- A paused clock reads "Clock paused at mm:ss" on the judge page; judging
+  paused by reopened submissions reads "Judging paused".
+- Adding test submissions is off once submissions close, with the note
+  "Submissions are closed. Move back to Submissions to add more."

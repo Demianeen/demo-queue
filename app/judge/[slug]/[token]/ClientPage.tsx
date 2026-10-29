@@ -162,7 +162,8 @@ function AiSummarySlot({ summary, status }: { summary: AiSummary | null; status:
 }
 
 function AiSummaryPanel({ summary }: { summary: AiSummary }) {
-  const rows: [string, string][] = [["What it does", summary.whatItDoes], ["How it works", summary.howItWorks], ["Look for in the demo", summary.demoFocus]];
+  // The event's own sections, in order; the stored list already covers older three-line summaries.
+  const rows = summary.sections.filter((section) => section.text).map((section) => [section.label, section.text] as const);
   return (
     <section aria-labelledby="ai-summary-heading" className={styles.aiSummary}>
       <h2 className={styles.aiSummaryHeading} id="ai-summary-heading"><SparklesIcon aria-hidden="true" /> AI summary</h2>

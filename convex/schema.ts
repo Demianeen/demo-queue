@@ -2,6 +2,10 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { eventThemeValidator } from "./eventTheme";
 import { visualStyleValidator } from "./visualStyle";
+import { changeDocValidator, undoKindValidator, undoLabelValidator } from "./changeLog";
+
+const phaseValidator = v.union(v.literal("submissions"), v.literal("judging"), v.literal("stage"), v.literal("finished"));
+const summarySectionValidator = v.object({ key: v.string(), label: v.string(), instruction: v.string() });
 
 /** Where each social came from: typed by the team, or imported from Luma. */
 const socialSource = v.union(v.literal("typed"), v.literal("luma"));
@@ -95,10 +99,28 @@ export default defineSchema({
     lumaEventId: v.optional(v.string()),
     lumaEventName: v.optional(v.string()),
     lumaEventUrl: v.optional(v.string()),
+    // Where the organiser has moved the event. Older events derive it (lib/event-phase.ts).
+    phase: v.optional(phaseValidator),
+    finishedAt: v.optional(v.number()),
+    // Set when moving back to submissions paused a running judging timer, so moving forward resumes it.
+    judgingTimerPausedByPhase: v.optional(v.boolean()),
+    // AI summary sections for this event; the defaults in lib/ai-summary.ts when unset.
+    aiSummarySections: v.optional(v.array(summarySectionValidator)),
+    // A practice event: a real event with only test people, listed apart from real events.
+    practice: v.optional(v.boolean()),
+    practiceOwnerActor: v.optional(v.string()),
+    // Test people get plus-addresses of this email, so their emails reach the owner.
+    practiceOwnerEmail: v.optional(v.string()),
+    practiceCopiedFromEventId: v.optional(v.id("events")),
+    practiceCopiedFromName: v.optional(v.string()),
+    // How many test people have been made, so each gets its own plus-address.
+    practiceTestPeopleCount: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"])
-    .index("by_workosOrganizationId", ["workosOrganizationId"]),
+    .index("by_workosOrganizationId", ["workosOrganizationId"])
+    .index("by_workosOrganizationId_and_practice", ["workosOrganizationId", "practice"])
+    .index("by_practice_and_updatedAt", ["practice", "updatedAt"]),
 
   submissions: defineTable({
     eventId: v.id("events"),
@@ -127,9 +149,11 @@ export default defineSchema({
     // sourceKey says which description and repository it was written from.
     aiSummary: v.optional(
       v.object({
-        whatItDoes: v.string(),
-        howItWorks: v.string(),
-        demoFocus: v.string(),
+        // Older summaries hold only these three; newer ones hold sections too.
+        whatItDoes: v.optional(v.string()),
+        howItWorks: v.optional(v.string()),
+        demoFocus: v.optional(v.string()),
+        sections: v.optional(v.array(v.object({ key: v.string(), label: v.string(), text: v.string() }))),
         sourceKey: v.string(),
         model: v.string(),
         usedReadme: v.boolean(),
@@ -206,6 +230,27 @@ export default defineSchema({
   }).index("by_event", ["eventId"])
     .index("by_event_and_action", ["eventId", "action"]),
 
+  // Organiser changes, for Recent changes and Undo (convex/changeLog.ts).
+  eventChanges: defineTable({
+    eventId: v.id("events"),
+    actor: v.string(),
+    actorUserId: v.optional(v.string()),
+    via: v.union(v.literal("app"), v.literal("assistant")),
+    kind: v.string(),
+    // A short phrase after the person's name: "hid Bus Buddy II".
+    summary: v.string(),
+    subjectId: v.optional(v.string()),
+    undo: undoKindValidator,
+    undoLabel: undoLabelValidator,
+    fromPhase: v.optional(phaseValidator),
+    toPhase: v.optional(phaseValidator),
+    docs: v.array(changeDocValidator),
+    undoOf: v.optional(v.id("eventChanges")),
+    undoneAt: v.optional(v.number()),
+    undoneBy: v.optional(v.id("eventChanges")),
+    createdAt: v.number(),
+  }).index("by_event", ["eventId"]),
+
   // The Getting started guide's own choices, per person and organization.
   gettingStartedGuides: defineTable({
     ownerAccountKey: v.string(),
@@ -224,6 +269,9 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     deactivatedAt: v.optional(v.number()),
+    // When the judge confirmed their name on this link. Cleared when the link is replaced.
+    openedAt: v.optional(v.number()),
+    replacedAt: v.optional(v.number()),
   }).index("by_event", ["eventId"]).index("by_event_and_judge_key", ["eventId", "judgeKey"]).index("by_token", ["token"]),
 
   reviews: defineTable({

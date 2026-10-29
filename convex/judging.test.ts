@@ -591,7 +591,7 @@ test("normalization decisions, finalist amendments, and placements stay independ
   expect(history.page).toHaveLength(3);
 });
 
-test("judges can read every submission in judging but score only their own", async () => {
+test("judges can read and score every submission in judging", async () => {
   const { t, eventId } = await createHackathon(["Alex", "Sam", "Taylor"]);
   const ids: Id<"submissions">[] = [];
   for (let index = 0; index < 6; index += 1) ids.push(await addSubmission(t, eventId, index));
@@ -630,15 +630,15 @@ test("judges can read every submission in judging but score only their own", asy
   const team = [...mine.assignments, ...others].find((item) => item.id === ids[0])!;
   expect(team).toMatchObject({ teamName: "Night Owls", memberCount: 3, demoTitle: "Demo 0", name: "Person 0" });
   for (const item of others) {
-    expect(Object.keys(item).sort()).toEqual(["aiSummary", "aiSummaryStatus", "demoTitle", "description", "githubUrl", "id", "memberCount", "name", "teamName", "tracks", "videoUrl"]);
+    expect(Object.keys(item).sort()).toEqual(["aiSummary", "aiSummaryStatus", "demoTitle", "description", "githubUrl", "id", "memberCount", "name", "teamName", "trackIds", "tracks", "videoUrl"]);
   }
   expect(JSON.stringify(others)).not.toMatch(/\+44|@example\.com|participant-/);
 
-  // Scoring someone else's submission is refused and writes nothing.
+  // Helping on someone else's submission is allowed and saved as Alex's own review.
   await expect(t.mutation(api.judging.saveReview, {
     slug: "hack", capabilityToken: "alex-secret", submissionId: otherIds[0], innovation: 8, execution: 8, demoClarity: 8,
-  })).rejects.toThrow("Submission is not assigned to this judge.");
-  expect(await t.run((ctx) => ctx.db.query("reviews").collect())).toEqual([]);
+  })).resolves.toEqual({ completed: true });
+  expect(await t.run((ctx) => ctx.db.query("reviews").collect())).toMatchObject([{ submissionId: otherIds[0], judgeKey: "alex", completed: true }]);
   await expect(t.mutation(api.judging.saveReview, {
     slug: "hack", capabilityToken: "alex-secret", submissionId: mineIds[0], innovation: 8, execution: 8, demoClarity: 8,
   })).resolves.toEqual({ completed: true });

@@ -290,6 +290,6 @@ test("private judging rejects invalid lifecycle transitions and judge tokens can
   await expect(t.mutation(internal.mcpAdmin.startAssignmentPreparation, { principal, input })).rejects.toThrow("before judging starts");
   const foreignEventId = await t.run((ctx) => ctx.db.insert("events", { name: "Other", slug: "other", eventType: "hackathon", workosOrganizationId: "org_foreign", meetUrl: "https://meet.example", queuePublished: false, createdAt: 1, updatedAt: 1 }));
   const foreignSubmissionId = await submission(t, foreignEventId, 99, ["Alex", "Sam"]);
-  await expect(review(t, alex.capabilityToken, foreignSubmissionId, 10)).rejects.toThrow("not assigned to this judge");
+  await expect(review(t, alex.capabilityToken, foreignSubmissionId, 10)).rejects.toThrow("not in judging");
   expect(await review(t, alex.capabilityToken, first, 8)).toEqual({ completed: true });
 });

@@ -5,7 +5,7 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import { requireOrganization, requireOwnedEvent, type OrganizationPrincipal } from "./organizationAuth";
 import { aiSummariesConfigured } from "./aiSummaries";
 import { recordChange } from "./changeLog";
-import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment } from "../lib/judging-assignment";
+import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment, sameJudge } from "../lib/judging-assignment";
 import {
   EVENT_PHASES,
   PHASE_EFFECT_TEXT,
@@ -37,11 +37,13 @@ export function judgingRemaining(event: Doc<"events">, now: number) {
 
 /**
  * Gives two judges to every submission in judging that has none, for when
- * submissions reopened after assignments were made. Bounded like the rest of
- * judging at 1000 submissions.
+ * submissions reopened after assignments were made. Judges whose link is
+ * turned off get none. Bounded like the rest of judging at 1000 submissions.
  */
 async function assignNewSubmissions(ctx: MutationCtx, event: Doc<"events">) {
-  const roster = event.roundOneJudges ?? [];
+  const links = await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(200);
+  const off = links.filter((link) => !link.active);
+  const roster = (event.roundOneJudges ?? []).filter((judge) => !off.some((link) => sameJudge(link.judgeName, judge)));
   if (roster.length < 2) return 0;
   const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
   const counts = buildJudgeAssignmentCounts(submissions.map((submission) => submission.roundOneAssignedJudges));

@@ -1787,8 +1787,14 @@ async function saveRoundOneJudgesOperation(
       .query("judgeAccess")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .take(100);
+    // Judges added to the roster get their link back; removed ones lose it.
+    // A judge on both the old and new roster keeps the link as it is, so one
+    // that was turned off deliberately stays off.
+    const previousRoster = event.roundOneJudges ?? [];
     for (const access of judgeAccess) {
-      const active = roster.some((judge) => sameJudge(judge, access.judgeName));
+      const listed = roster.some((judge) => sameJudge(judge, access.judgeName));
+      const wasListed = previousRoster.some((judge) => sameJudge(judge, access.judgeName));
+      const active = listed && (wasListed ? access.active : true);
       if (access.active === active) continue;
       await ctx.db.patch(access._id, {
         active,
@@ -3390,7 +3396,7 @@ export const adminAddTestSubmissionsForOrganization = withChange<Infer<typeof ad
 );
 
 export const saveRoundOneJudgesForOrganization = withChange<Infer<typeof saveRoundOneJudgesArgs>, Awaited<ReturnType<typeof saveRoundOneJudgesOperation>>>(
-  () => ({ kind: "judges_saved", summary: "updated the judges", watch: { submissions: "all" } }),
+  () => ({ kind: "judges_saved", summary: "updated the judges", watch: { submissions: "all", judgeAccess: "all" } }),
   saveRoundOneJudgesOperation,
 );
 

@@ -1,10 +1,12 @@
 import { ConvexError, v, type Infer } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
+import { requireApproval } from "./mcpConnectionPolicy";
 import { findEventBySlug } from "./eventSlugs";
 
 export const organizationPrincipalValidator = v.object({
   organizationId: v.string(),
   actor: v.string(),
+  mcp: v.optional(v.object({ approvalId: v.id("mcpApprovals"), scope: v.string() })),
 });
 export type OrganizationPrincipal = Infer<typeof organizationPrincipalValidator>;
 
@@ -25,8 +27,9 @@ export async function requireEventOrganization(ctx: Pick<QueryCtx, "auth" | "db"
 export async function requireOwnedEvent(
   ctx: Pick<QueryCtx, "db">,
   slug: string,
-  { organizationId, actor }: OrganizationPrincipal,
+  { organizationId, actor, mcp }: OrganizationPrincipal,
 ) {
+  if (mcp) await requireApproval(ctx, mcp.approvalId, organizationId, mcp.scope);
   const event = await findEventBySlug(ctx, slug);
   if (!event || event.workosOrganizationId !== organizationId) throw new ConvexError("Unauthorized");
   return { event, actor };

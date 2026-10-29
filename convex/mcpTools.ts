@@ -1,5 +1,8 @@
 import { type CallToolResult, McpServer } from "@modelcontextprotocol/server";
-import type { GenericValidator, Infer } from "convex/values";
+import { createTool } from "@convex-dev/mcp";
+import { componentToolCall, toolFailure } from "./mcpRuntime";
+import type { Id } from "./_generated/dataModel";
+import { v, type PropertyValidators, type ObjectType, type VObject } from "convex/values";
 import { internal } from "./_generated/api";
 import type { ActionCtx } from "./_generated/server";
 import type { OrganizationPrincipal } from "./organizationAuth";
@@ -8,6 +11,7 @@ import { adminToolSchema } from "./mcpSchema";
 import * as operations from "./mcpAdmin";
 import { aiShuffleArgs, createJudgingSheetArgs } from "./adminActionArgs";
 
+const componentTool = createTool<Id<"mcpApprovals">>();
 type ToolContext = Pick<ActionCtx, "runQuery" | "runMutation" | "runAction">;
 type Protect = (organizationId: string, operation: () => Promise<unknown>) => Promise<CallToolResult>;
 type Effect = "read" | "sensitive" | "write" | "destructive" | "action";
@@ -15,21 +19,42 @@ type RegisteredAdminTool = {
   name: string;
   browser: string;
   effect: Effect;
+  component: ReturnType<typeof componentTool>;
   register: (server: McpServer, ctx: ToolContext, user: ConnectUser, protect: Protect) => void;
 };
 
-function defineAdminTool<V extends GenericValidator>(definition: {
+function defineAdminTool<Fields extends PropertyValidators>(definition: {
   name: string;
   browser: string;
-  input: V;
+  input: VObject<ObjectType<Fields>, Fields, "required", string>;
   effect: Effect;
   description: string;
-  invoke: (ctx: ToolContext, principal: OrganizationPrincipal, input: Infer<V>) => Promise<unknown>;
+  invoke: (ctx: ToolContext, principal: OrganizationPrincipal, input: ObjectType<Fields>) => Promise<unknown>;
 }): RegisteredAdminTool {
   return {
     name: definition.name,
     browser: definition.browser,
     effect: definition.effect,
+    component: componentTool({
+      description: definition.description,
+      args: { organizationId: v.string(), ...definition.input.fields },
+      scope: definition.effect === "read" ? "events:read" : "events:manage",
+      annotations: {
+        readOnlyHint: definition.effect === "read" || definition.effect === "sensitive",
+        destructiveHint: definition.effect === "destructive", idempotentHint: false,
+        openWorldHint: definition.effect === "action",
+      },
+      handler: async (ctx, args, user) => {
+        try {
+          const parsed = await adminToolSchema(definition.input)["~standard"].validate(args);
+          if (parsed.issues) throw new Error("Invalid tool arguments");
+          const { organizationId, input } = parsed.value;
+          return componentToolCall(ctx, user, organizationId,
+            definition.effect === "read" ? "events:read" : "events:manage",
+            (principal) => definition.invoke(ctx, principal, input));
+        } catch (error) { return toolFailure(error); }
+      },
+    }),
     register(server: McpServer, ctx: ToolContext, user: ConnectUser, protect: Protect) {
       server.registerTool(definition.name, {
         description: definition.description,

@@ -19,7 +19,14 @@ const modules = {
   "./judging.ts": () => import("./judging"),
   "./ai.ts": () => import("./ai"),
   "./googleSheets.ts": () => import("./googleSheets"),
-  "./http.ts": () => import("./http"),
+  "./http.ts": async () => {
+    const { httpRouter } = await import("convex/server");
+    const { mcp, metadata } = await import("./mcpWorkos");
+    const http = httpRouter();
+    for (const method of ["POST", "GET", "DELETE", "OPTIONS"] as const) http.route({ path: "/mcp", method, handler: mcp });
+    for (const path of ["/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource"]) http.route({ path, method: "GET", handler: metadata });
+    return { default: http };
+  },
 };
 const config = { issuer: "https://login.example.com", resource: "https://some.convex.site/mcp", requestOrigin: "https://some.convex.site", apiKey: "private-provider-key" };
 const user = { userId: "user_operator", organizationId: "org_one", actor: "https://login.example.com|user_operator" };

@@ -1,3 +1,5 @@
+import { organizationPrincipalValidator } from "./organizationAuth";
+import { requireApproval } from "./mcpConnectionPolicy";
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -24,24 +26,27 @@ function styleDto(style: Doc<"organizationStyles">) {
 }
 
 export const listEvents = internalQuery({
-  args: { organizationId: v.string(), paginationOpts: paginationOptsValidator },
-  handler: async (ctx, { organizationId, paginationOpts }) => {
+  args: { principal: v.optional(organizationPrincipalValidator), organizationId: v.string(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { principal, organizationId, paginationOpts }) => {
+    if (principal?.mcp) await requireApproval(ctx, principal.mcp.approvalId, organizationId, "events:read");
     const result = await ctx.db.query("events").withIndex("by_workosOrganizationId", (q) => q.eq("workosOrganizationId", organizationId)).order("desc").paginate(paginationOpts);
     return { page: result.page.map(eventDto), isDone: result.isDone, continueCursor: result.continueCursor };
   },
 });
 
 export const getEvent = internalQuery({
-  args: { organizationId: v.string(), slug: v.string() },
-  handler: async (ctx, { organizationId, slug }) => {
+  args: { principal: v.optional(organizationPrincipalValidator), organizationId: v.string(), slug: v.string() },
+  handler: async (ctx, { principal, organizationId, slug }) => {
+    if (principal?.mcp) await requireApproval(ctx, principal.mcp.approvalId, organizationId, "events:read");
     const event = await findEventBySlug(ctx, slug);
     return event?.workosOrganizationId === organizationId ? eventDto(event) : null;
   },
 });
 
 export const createEvent = internalMutation({
-  args: { ...createEventArgs, styleId: v.optional(v.string()), actor: v.string() },
+  args: { principal: v.optional(organizationPrincipalValidator), ...createEventArgs, styleId: v.optional(v.string()), actor: v.string() },
   handler: async (ctx, args) => {
+    if (args.principal?.mcp) await requireApproval(ctx, args.principal.mcp.approvalId, args.expectedOrganizationId, "events:manage");
     const styleId = args.styleId ? ctx.db.normalizeId("organizationStyles", args.styleId) : undefined;
     if (styleId === null) throw new ConvexError("Style not found.");
     const { eventId } = await createOrganizationEvent(ctx, { ...args, styleId }, { organizationId: args.expectedOrganizationId, actor: args.actor });
@@ -52,8 +57,9 @@ export const createEvent = internalMutation({
 });
 
 export const listStyles = internalQuery({
-  args: { organizationId: v.string() },
-  handler: async (ctx, { organizationId }) => {
+  args: { principal: v.optional(organizationPrincipalValidator), organizationId: v.string() },
+  handler: async (ctx, { principal, organizationId }) => {
+    if (principal?.mcp) await requireApproval(ctx, principal.mcp.approvalId, organizationId, "events:read");
     const styles = await ctx.db.query("organizationStyles").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(MAX_ORGANIZATION_STYLES);
     const defaultStyle = styles.find((style) => style.isDefault);
     return {
@@ -65,8 +71,9 @@ export const listStyles = internalQuery({
 });
 
 export const createStyle = internalMutation({
-  args: { organizationId: v.string(), name: v.string(), theme: eventThemeValidator },
+  args: { principal: v.optional(organizationPrincipalValidator), organizationId: v.string(), name: v.string(), theme: eventThemeValidator },
   handler: async (ctx, args) => {
+    if (args.principal?.mcp) await requireApproval(ctx, args.principal.mcp.approvalId, args.organizationId, "events:manage");
     const id = await saveOrganizationStyle(ctx, { expectedOrganizationId: args.organizationId, name: args.name, theme: args.theme, isDefault: false }, args.organizationId);
     const style = await ctx.db.get(id);
     if (!style) throw new Error("operation_failed");
@@ -75,8 +82,9 @@ export const createStyle = internalMutation({
 });
 
 export const setDefaultStyle = internalMutation({
-  args: { organizationId: v.string(), selection: v.union(v.object({ kind: v.literal("preset"), preset: visualStyleValidator }), v.object({ kind: v.literal("saved"), id: v.string() })) },
-  handler: async (ctx, { organizationId, selection }) => {
+  args: { principal: v.optional(organizationPrincipalValidator), organizationId: v.string(), selection: v.union(v.object({ kind: v.literal("preset"), preset: visualStyleValidator }), v.object({ kind: v.literal("saved"), id: v.string() })) },
+  handler: async (ctx, { principal, organizationId, selection }) => {
+    if (principal?.mcp) await requireApproval(ctx, principal.mcp.approvalId, organizationId, "events:manage");
     if (selection.kind === "preset") {
       const id = await setOrganizationPresetDefault(ctx, { expectedOrganizationId: organizationId, preset: selection.preset }, organizationId);
       return { organizationId, styleId: id };

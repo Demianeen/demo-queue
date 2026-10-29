@@ -28,3 +28,8 @@ test('every event slug has a collision-free overview route', () => {
     assert.equal(workspaceReturnPath(path), path);
   }
 });
+
+test('connection login preserves only a local validated consent request', () => {
+  for (const path of ['/events/connections', '/events/connect', '/events/connect?request=abc123']) assert.equal(workspaceReturnPath(path), path);
+  for (const path of ['/events/connect?request=abc&redirect=https://evil.test', '/events/connect?request=', '/events/connect?request=abc#fragment', '/events/connect?request=../other']) assert.equal(workspaceReturnPath(path), '/events');
+});

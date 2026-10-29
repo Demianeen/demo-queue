@@ -1,3 +1,4 @@
+import { requireApproval } from "./mcpConnectionPolicy";
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { organizationPrincipalValidator, requireOwnedEvent } from "./organizationAuth";
@@ -28,7 +29,10 @@ export const getAdminInput = events.getAdminArgs;
 export const getEventOverviewInput = events.getOrganizationEventDetailsArgs;
 export const getEventOverview = internalQuery({
   args: { principal: organizationPrincipalValidator, input: getEventOverviewInput },
-  handler: (ctx, { principal, input }) => events.getOrganizationEventDetailsForOrganization(ctx, input, principal),
+  handler: async (ctx, { principal, input }) => {
+    if (principal.mcp) await requireApproval(ctx, principal.mcp.approvalId, principal.organizationId, "events:read");
+    return events.getOrganizationEventDetailsForOrganization(ctx, input, principal);
+  },
 });
 export const getAdminForAction = internalQuery({
   args: { principal: organizationPrincipalValidator, input: getAdminInput },

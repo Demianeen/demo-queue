@@ -10,6 +10,16 @@ export function mcpRewrites(deploymentUrl: string) {
     default:
       throw new Error("MCP rewrites require a canonical Convex deployment URL");
   }
-  return ["/mcp", "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource"]
+  return [
+    "/mcp",
+    "/.well-known/oauth-protected-resource/mcp",
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-authorization-server",
+    "/mcp/oauth/register",
+    "/mcp/oauth/authorize",
+    "/mcp/oauth/token",
+    "/mcp/oauth/device",
+    "/mcp/oauth/revoke",
+  ]
     .map((source) => ({ source, destination: `${origin}${source}` }));
 }

@@ -14,9 +14,12 @@ importers:
       '@base-ui/react':
         specifier: ^1.5.0
         version: 1.5.0(@types/react@19.2.17)(date-fns@4.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@convex-dev/mcp':
+        specifier: 0.1.0-alpha.7
+        version: 0.1.0-alpha.7(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
       '@convex-dev/table-history':
         specifier: 0.1.5
-        version: 0.1.5(@standard-schema/spec@1.1.0)(convex@1.40.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
+        version: 0.1.5(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -48,8 +51,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       convex:
-        specifier: ^1.28.0
-        version: 1.40.0(react@19.2.7)
+        specifier: ^1.48.0
+        version: 1.48.0(react@19.2.7)
       geist:
         specifier: ^1.7.2
         version: 1.7.2(next@15.5.19(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))
@@ -125,7 +128,7 @@ importers:
         version: 10.0.3
       convex-test:
         specifier: ^0.0.40
-        version: 0.0.40(convex@1.40.0(react@19.2.7))
+        version: 0.0.40(convex@1.48.0(react@19.2.7))
       eslint:
         specifier: ^9.28.0
         version: 9.39.4(jiti@2.7.0)
@@ -334,6 +337,25 @@ packages:
       react-dom: ^17 || ^18 || ^19
     peerDependenciesMeta:
       '@types/react':
+        optional: true
+
+  '@convex-dev/batch-worker@0.3.5':
+    resolution: {integrity: sha512-kTxLGy1TXRN6WLcENcoRWWnvPshv1sIZp2EpPqGqCB4FxDI7m8tEHUr+jCLdhGtSZT1UHkWtb1w8YYuEzTxHWQ==}
+    peerDependencies:
+      convex: ^1.43.0
+
+  '@convex-dev/mcp@0.1.0-alpha.7':
+    resolution: {integrity: sha512-z5GGX9dipVAjWk5p3+LyL7JPW0CVd9IFaBIPO6Pl/gA3MSlom8LnimKQyaM4/oc3spCqDnD3QGF2CKjrLV/bWQ==}
+    peerDependencies:
+      convex: ^1.43.0
+
+  '@convex-dev/rate-limiter@0.4.2':
+    resolution: {integrity: sha512-njheoDd//MZgxtw+0PP3LL47PVMkvOKZmXDjYglDKSu5IdrfJtGmz/EHd6px9UcALuk/w7LTo83YwQ3bTGsMIg==}
+    peerDependencies:
+      convex: ^1.43.0
+      react: ^18.2.0 || ^19.0.0
+    peerDependenciesMeta:
+      react:
         optional: true
 
   '@convex-dev/table-history@0.1.5':
@@ -2012,14 +2034,36 @@ packages:
       zod:
         optional: true
 
+  convex-helpers@0.1.131:
+    resolution: {integrity: sha512-3fTeyPEcL9YOYTPSIPJRMQNzamMRS7IMeqZoDXyt15BJT7JGqWOvVanVMG2CwPHhM/5wcmkqghjtA+AK5khAJA==}
+    hasBin: true
+    peerDependencies:
+      '@standard-schema/spec': ^1.0.0
+      convex: ^1.46.0
+      hono: ^4.0.5
+      react: ^17.0.2 || ^18.0.0 || ^19.0.0
+      typescript: ^5.5 || ^6.0.0 || ^7.0.0
+      zod: ^3.25.0 || ^4.0.0
+    peerDependenciesMeta:
+      '@standard-schema/spec':
+        optional: true
+      hono:
+        optional: true
+      react:
+        optional: true
+      typescript:
+        optional: true
+      zod:
+        optional: true
+
   convex-test@0.0.40:
     resolution: {integrity: sha512-BOM4aoXFI6JxA5eb7TIKI/q7c880Jq5OHbbEbmUDmsN82LAxzomYveQDNFlj3a+cN4K7TB3KjpyzNzEjlOPvNg==}
     peerDependencies:
       convex: ^1.16.4
 
-  convex@1.40.0:
-    resolution: {integrity: sha512-jChWEB45q+9Ibryc7hg0l6hB1xA4zwE2y6ZhkhGP6oJkqYeiURkMagA2ZQZYMy1/T8PZ9ztoVJJtbL/+Ob851Q==}
-    engines: {node: '>=18.0.0', npm: '>=7.0.0'}
+  convex@1.48.0:
+    resolution: {integrity: sha512-M9jEgTvCN8ziP/VgQQUH+j0ijM7g+NmQd8tFlvETK8/HMC/aaqHZwcu4hBO30X5DV2VIyYK4mOoLQGIb1766ew==}
+    engines: {node: '>=20.0.0', npm: '>=7.0.0'}
     hasBin: true
     peerDependencies:
       '@auth0/auth0-react': ^2.0.1
@@ -4349,8 +4393,8 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  ws@8.20.1:
-    resolution: {integrity: sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==}
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -4654,10 +4698,44 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.17
 
-  '@convex-dev/table-history@0.1.5(@standard-schema/spec@1.1.0)(convex@1.40.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)':
+  '@convex-dev/batch-worker@0.3.5(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)':
     dependencies:
-      convex: 1.40.0(react@19.2.7)
-      convex-helpers: 0.1.123(@standard-schema/spec@1.1.0)(convex@1.40.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
+      convex: 1.48.0(react@19.2.7)
+      convex-helpers: 0.1.131(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
+    transitivePeerDependencies:
+      - '@standard-schema/spec'
+      - hono
+      - react
+      - typescript
+      - zod
+
+  '@convex-dev/mcp@0.1.0-alpha.7(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)':
+    dependencies:
+      '@convex-dev/rate-limiter': 0.4.2(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
+      convex: 1.48.0(react@19.2.7)
+    transitivePeerDependencies:
+      - '@standard-schema/spec'
+      - hono
+      - react
+      - typescript
+      - zod
+
+  '@convex-dev/rate-limiter@0.4.2(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)':
+    dependencies:
+      '@convex-dev/batch-worker': 0.3.5(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
+      convex: 1.48.0(react@19.2.7)
+    optionalDependencies:
+      react: 19.2.7
+    transitivePeerDependencies:
+      - '@standard-schema/spec'
+      - hono
+      - typescript
+      - zod
+
+  '@convex-dev/table-history@0.1.5(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)':
+    dependencies:
+      convex: 1.48.0(react@19.2.7)
+      convex-helpers: 0.1.123(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
     transitivePeerDependencies:
       - '@standard-schema/spec'
       - hono
@@ -5996,9 +6074,9 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  convex-helpers@0.1.123(@standard-schema/spec@1.1.0)(convex@1.40.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3):
+  convex-helpers@0.1.123(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3):
     dependencies:
-      convex: 1.40.0(react@19.2.7)
+      convex: 1.48.0(react@19.2.7)
     optionalDependencies:
       '@standard-schema/spec': 1.1.0
       hono: 4.12.23
@@ -6006,15 +6084,25 @@ snapshots:
       typescript: 5.9.3
       zod: 4.4.3
 
-  convex-test@0.0.40(convex@1.40.0(react@19.2.7)):
+  convex-helpers@0.1.131(@standard-schema/spec@1.1.0)(convex@1.48.0(react@19.2.7))(hono@4.12.23)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3):
     dependencies:
-      convex: 1.40.0(react@19.2.7)
+      convex: 1.48.0(react@19.2.7)
+    optionalDependencies:
+      '@standard-schema/spec': 1.1.0
+      hono: 4.12.23
+      react: 19.2.7
+      typescript: 5.9.3
+      zod: 4.4.3
 
-  convex@1.40.0(react@19.2.7):
+  convex-test@0.0.40(convex@1.48.0(react@19.2.7)):
+    dependencies:
+      convex: 1.48.0(react@19.2.7)
+
+  convex@1.48.0(react@19.2.7):
     dependencies:
       esbuild: 0.27.0
       prettier: 3.8.3
-      ws: 8.20.1
+      ws: 8.21.0
     optionalDependencies:
       react: 19.2.7
     transitivePeerDependencies:
@@ -8924,7 +9012,7 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  ws@8.20.1: {}
+  ws@8.21.0: {}
 
   wsl-utils@0.3.1:
     dependencies:

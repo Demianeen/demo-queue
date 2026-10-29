@@ -4,6 +4,17 @@ import { eventThemeValidator } from "./eventTheme";
 import { visualStyleValidator } from "./visualStyle";
 
 export default defineSchema({
+  mcpApprovals: defineTable({
+    ownerAccountKey: v.string(), workosUserId: v.string(), actor: v.string(),
+    source: v.union(v.literal("oauth"), v.literal("device"), v.literal("apiKey")),
+    name: v.string(), access: v.union(v.literal("read"), v.literal("manage")),
+    requestId: v.optional(v.string()), requestedScopes: v.array(v.string()), approvedScopes: v.array(v.string()),
+    revokedAt: v.optional(v.number()),
+    allOrganizations: v.optional(v.literal(true)),
+  }).index("by_ownerAccountKey", ["ownerAccountKey"]),
+  mcpApprovalOrganizations: defineTable({
+    approvalId: v.id("mcpApprovals"), organizationId: v.string(),
+  }).index("by_approvalId_and_organizationId", ["approvalId", "organizationId"]),
   eventSlugAliases: defineTable({
     slug: v.string(),
     eventId: v.id("events"),

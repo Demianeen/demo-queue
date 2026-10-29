@@ -21,9 +21,9 @@
     },
     "prod": {
       "configure": {
-        "redirectUris": ["https://${buildEnv.VERCEL_PROJECT_PRODUCTION_URL}/callback"],
-        "appHomepageUrl": "https://${buildEnv.VERCEL_PROJECT_PRODUCTION_URL}",
-        "corsOrigins": ["https://${buildEnv.VERCEL_PROJECT_PRODUCTION_URL}"]
+        "redirectUris": ["https://hack.outpostcrew.co/callback", "https://demo-queue-tau.vercel.app/callback"],
+        "appHomepageUrl": "https://hack.outpostcrew.co",
+        "corsOrigins": ["https://hack.outpostcrew.co", "https://demo-queue-tau.vercel.app"]
       }
     }
   }

@@ -128,6 +128,8 @@ type JudgeEntry = {
   githubUrl: string | null;
   videoUrl: string | null;
   aiSummary: AiSummary | null;
+  // ready: shown. writing: queued, not saved yet. none: no summary is coming.
+  aiSummaryStatus?: "ready" | "writing" | "none";
   review: { completed: boolean } | null;
   assigned: boolean;
   number: number;
@@ -140,6 +142,26 @@ type AiSummary = {
   usedReadme: boolean;
   stale: boolean;
 };
+
+/** The summary comes first. While it is being written, or when none is coming, the judge is told so. */
+function AiSummarySlot({ summary, status }: { summary: AiSummary | null; status: "ready" | "writing" | "none" | undefined }) {
+  if (summary) return <AiSummaryPanel summary={summary} />;
+  if (status === "writing") {
+    return (
+      <section aria-labelledby="ai-summary-heading" aria-busy="true" className={styles.aiSummary}>
+        <h2 className={styles.aiSummaryHeading} id="ai-summary-heading"><SparklesIcon aria-hidden="true" /> AI summary</h2>
+        <div className={styles.aiSummaryPending}><Skeleton h={12} /><Skeleton w="86%" h={12} /><Skeleton w="72%" h={12} /></div>
+        <p className={styles.aiSummaryNote}>Summary is being written. It appears here on its own.</p>
+      </section>
+    );
+  }
+  return (
+    <section aria-labelledby="ai-summary-heading" className={styles.aiSummaryNone}>
+      <h2 className={styles.aiSummaryHeading} id="ai-summary-heading"><SparklesIcon aria-hidden="true" /> No summary</h2>
+      <p className={styles.aiSummaryNote}>There is no AI summary for this project. Use the description, the demo and the README.</p>
+    </section>
+  );
+}
 
 function AiSummaryPanel({ summary }: { summary: AiSummary }) {
   return (
@@ -187,6 +209,8 @@ export default function JudgeClientPage() {
   const [search, setSearch] = useState("");
   const [trackFilter, setTrackFilter] = useState<string | null>(null);
   const remainingMs = useSignedTimer(data?.timer);
+  // The clock stops at 0:00; judges can still finish scoring until the organizer closes judging.
+  const timeUp = remainingMs <= 0;
 
   // Assigned submissions first, then everyone else, numbered in that order.
   const entries = useMemo<JudgeEntry[]>(() => {
@@ -357,8 +381,8 @@ export default function JudgeClientPage() {
           <span className={styles.eventName}>{data.eventName}</span>
           <span className={styles.divider} />
           <span className={styles.timeBlock}>
-            <span>{isClosed ? "Judging closed" : "Time remaining"}</span>
-            <strong className={remainingMs < 0 ? styles.overtime : undefined}>{formatTimer(remainingMs)}</strong>
+            <span>{isClosed ? "Judging closed" : timeUp ? "Time's up" : "Time remaining"}</span>
+            <strong className={timeUp && !isClosed ? styles.overtime : undefined}>{formatTimer(Math.max(0, remainingMs))}</strong>
           </span>
         </div>
         <div className={styles.topActions}>
@@ -408,7 +432,7 @@ export default function JudgeClientPage() {
                   {selected.tracks.map((track) => <span className={styles.trackPill} key={track}>{track}</span>)}
                   <span className={styles.assignmentPill}>{selected.assigned ? "Assigned to you" : "Not assigned to you"}</span>
                 </div>
-                {selected.aiSummary ? <AiSummaryPanel summary={selected.aiSummary} /> : null}
+                <AiSummarySlot summary={selected.aiSummary} status={selected.aiSummaryStatus} />
                 <p className={styles.description}>{selected.description}</p>
                 <div className={styles.projectLinks}>
                   {selected.githubUrl ? <a href={selected.githubUrl} target="_blank" rel="noreferrer"><GitForkIcon /> GitHub repository <ExternalLinkIcon /></a> : null}

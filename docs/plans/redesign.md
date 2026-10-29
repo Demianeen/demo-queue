@@ -67,6 +67,21 @@ Not agreed yet:
   open. Two-key sequences (G then S) have 1.2 seconds.
 - Admin views live in the address: `?view=queue|submissions|judging|settings`.
 
+## Fixes in this PR
+
+- The judge clock stops at 0:00 and says "Time's up". The previous tip
+  (290283b) counted below zero, for example -3187:02.
+- The judge page always fills the AI summary slot, first: the summary,
+  "Summary is being written" while one is queued, or "No summary". The
+  judge query adds `aiSummaryStatus` for this.
+
+## Known gap
+
+The sidebar's current event is the newest event, so on another event's
+admin page it can name a different event (for example DevDay Demo Hour
+while Daytona HackSprint London is open). PR 3 replaces it with the live
+event.
+
 ## Feature inventory
 
 Taken from the previous tip (290283b) before each page was redrawn. Every
@@ -156,6 +171,9 @@ for phone shots.
 | Admin actions in ⌘K | ⌘K on admin | `admin-command-menu.png` |
 | Add test people dialog | Add test people | `admin-test-people.png` |
 | Judge page | judge link | `judge.png` |
+| Judge, time is up | the judging clock passes 0:00 | `judge-times-up.png` |
+| AI summary being written | summary queued, not saved yet | `judge-summary-writing.png` |
+| No AI summary | no model key, or not in judging | `judge-summary-none.png` |
 | Judge tooltip | hover Next project | `judge-tooltip.png` |
 | Judge loading | Convex not connected yet | `judge-loading.png` |
 | Phone events, sidebar, admin | 390 wide | `phone-events.png`, `phone-sidebar.png`, `phone-admin.png` |

@@ -146,7 +146,7 @@
 .projectIntro h1 { font-size: 20px; line-height: 26px; letter-spacing: -0.01em; }
 .trackPill { border: 1px solid var(--dq-line); background: var(--dq-card); color: var(--dq-fg-2); border-radius: 11px; font-weight: 500; }
 .assignmentPill { background: transparent; color: var(--dq-warning-fg); padding: 0; }
-.aiSummary { border: 1px solid #e2e2f6; border-radius: 10px; background: #fafaff; padding: 12px 14px; }
+.aiSummary { border: 1px solid color-mix(in srgb, var(--dq-accent) 16%, transparent); border-radius: 10px; background: var(--dq-accent-soft); padding: 12px 14px; }
 .aiSummaryHeading { font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; }
 .aiSummary ul { font-size: 13px; }
 .description { font-size: 13px; color: var(--dq-fg-2); }
@@ -165,3 +165,8 @@
 .scoreOption:hover:not(:disabled) { background: var(--dq-accent-soft); }
 .scoreNav { display: flex; gap: 8px; margin-top: auto; padding-top: 16px; }
 .scoreNav .nextProject { flex: 1; margin-top: 0; }
+
+/* AI summary states */
+.aiSummaryPending { display: grid; gap: 8px; padding: 2px 0 4px; }
+.aiSummaryNone { display: grid; gap: 4px; margin-top: 8px; padding: 12px 14px; border: 1px dashed var(--dq-line); border-radius: 10px; }
+.aiSummaryNone .aiSummaryHeading { color: var(--dq-fg-2); }

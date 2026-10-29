@@ -123,6 +123,15 @@ export const saveSummary = internalMutation({
   },
 });
 
+/**
+ * What a judge sees in the summary slot: the summary, one being written
+ * (queued and not saved yet), or none coming (no model key, or not in judging).
+ */
+export function aiSummaryStatus(event: Doc<"events">, submission: Doc<"submissions">): "ready" | "writing" | "none" {
+  if (submission.aiSummary) return "ready";
+  return aiSummariesConfigured() && needsSummary(event, submission) ? "writing" : "none";
+}
+
 /** The summary as shown to judges and admins, or null. */
 export function publicAiSummary(submission: Doc<"submissions">) {
   const summary = submission.aiSummary;

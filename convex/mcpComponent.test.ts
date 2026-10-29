@@ -777,3 +777,32 @@ test("connection pagination keeps older active grants reachable after unused app
   expect((await rpc(t, oldest.apiKey, "tools/list")).status).toBe(401);
   expect((await listed(t, newest.apiKey))).toHaveLength(60);
 });
+
+test("component tools take event track ids, show track names and keep tracks inside their event", async () => {
+  const t = setup();
+  const manage = await key(t);
+  const read = await key(t, { access: "read" });
+  const event = createdEvent.parse(await success(t, manage.apiKey, "create_event", eventInput("org_one", "track-parity")));
+  const other = createdEvent.parse(await success(t, manage.apiKey, "create_event", eventInput("org_one", "track-other")));
+  const [tools, robots, foreign] = await t.run(async (ctx) => {
+    const insert = (eventId: string, name: string, order: number) => {
+      const id = ctx.db.normalizeId("events", eventId);
+      if (!id) throw new Error("Event missing");
+      return ctx.db.insert("eventTracks", { eventId: id, name, order, createdAt: 0, updatedAt: 0 });
+    };
+    return [await insert(event.id, "Tools", 0), await insert(event.id, "Robots", 1), await insert(other.id, "Elsewhere", 0)];
+  });
+  const fields = { organizationId: "org_one", slug: event.slug, name: "Sam", demoTitle: "Track demo", description: "Live", phone: "+447700900000" };
+  const submission = createdSubmission.parse(await success(t, manage.apiKey, "add_submission", { ...fields, queueOrder: 0, trackIds: [robots, tools] }));
+  const admin = z.object({ tracks: z.array(z.object({ id: z.string(), name: z.string(), submissionCount: z.number() })), lineup: z.array(z.object({ id: z.string(), tracks: z.array(z.string()), trackIds: z.array(z.string()) })) })
+    .parse(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug }));
+  expect(admin.tracks).toEqual([{ id: tools, name: "Tools", submissionCount: 1 }, { id: robots, name: "Robots", submissionCount: 1 }]);
+  expect(admin.lineup).toEqual([expect.objectContaining({ id: submission.submissionId, tracks: ["Tools", "Robots"], trackIds: [tools, robots] })]);
+  await success(t, manage.apiKey, "update_submission", { ...fields, submissionId: submission.submissionId, trackIds: [robots] });
+  expect(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug })).toMatchObject({ lineup: [{ tracks: ["Robots"], trackIds: [robots] }] });
+  const crossEvent = await call(t, manage.apiKey, "update_submission", { ...fields, submissionId: submission.submissionId, trackIds: [foreign] });
+  expect(crossEvent.result.isError).toBe(true);
+  const readWrite = await rpc(t, read.apiKey, "tools/call", { name: "add_submission", arguments: { ...fields, queueOrder: 1, trackIds: [tools] } });
+  expect(readWrite.status).toBe(403);
+  expect((await t.run((ctx) => ctx.db.query("submissions").collect())).map((row) => row.trackIds)).toEqual([[robots]]);
+});

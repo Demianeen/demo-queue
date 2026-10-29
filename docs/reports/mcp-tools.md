@@ -14,7 +14,7 @@ and private judge links require Manage. Organization access is checked separatel
 | `create_style` | Manage | Create a new nondefault structured style. Existing styles are never updated. |
 | `set_default_style` | Manage | Explicitly change the organization default. Existing event snapshots remain unchanged. |
 | `get_event_overview` | Read | Read the event summary, submission count, judging and confirmed results status. |
-| `get_event_admin` | Read | Read event controls, all six submission groups, team and video links, stage/demo timers and Sheet sync state. Contacts and capability tokens are excluded. |
+| `get_event_admin` | Read | Read event controls, tracks and their ids, all six submission groups, team and video links, stage/demo timers and Sheet sync state. Contacts and capability tokens are excluded. |
 | `get_submission_contacts` | Manage | Explicit sensitive read of one submission's contact/social fields and team-member contacts. |
 | `add_submission` | Manage | Add one demo submission to the lineup or pool. Participant capability is generated privately. |
 | `add_test_submissions` | Manage | Add 1 to 25 test submissions per call, including hackathon teams. All participant capabilities are generated privately. |

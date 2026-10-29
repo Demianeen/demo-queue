@@ -53,6 +53,8 @@ export const getEventAdmin = internalQuery({
     const admin = await events.getAdminForOrganization(ctx, input, principal);
     return {
       event: admin.event,
+      // Track ids here are what add_submission and update_submission take.
+      tracks: admin.tracks, noTrackCount: admin.noTrackCount, legacyCategoryCount: admin.legacyCategoryCount,
       lineup: admin.lineup.map(submissionDto), pool: admin.pool.map(submissionDto),
       hidden: admin.hidden.map(submissionDto), completed: admin.completed.map(submissionDto),
       noShows: admin.noShows.map(submissionDto), withdrawn: admin.withdrawn.map(submissionDto),

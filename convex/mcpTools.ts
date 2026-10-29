@@ -87,7 +87,7 @@ export const ADMIN_TOOLS: RegisteredAdminTool[] = [
   }),
   defineAdminTool({
     name: "get_event_admin", browser: "events.getAdmin", input: operations.getAdminInput, effect: "read",
-    description: "Read event controls, all six submission groups, team and video links, stage/demo timers and Sheet sync state. Contacts and capability tokens are excluded.",
+    description: "Read event controls, tracks and their ids, all six submission groups, team and video links, stage/demo timers and Sheet sync state. Contacts and capability tokens are excluded.",
     invoke: (ctx, principal, input) => ctx.runQuery(internal.mcpAdmin.getEventAdmin, { principal, input }),
   }),
   defineAdminTool({

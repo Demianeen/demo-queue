@@ -212,6 +212,15 @@ test("manage-only OAuth requests include reads and respect read-only consent", a
   expect((await t.run((ctx) => ctx.db.query("events").collect())).map((event) => event.slug)).toEqual(["manage-implies-read"]);
 });
 
+test("settings report effective permissions when a client requests only reads", async () => {
+  const t = setup();
+  const approval = await approve(t, await start(t, undefined, "events:read"), { access: "manage" });
+  expect((await exchange(t, approval)).status).toBe(200);
+  const connections = await t.withIdentity(identity()).query(api.mcpConsent.listConnections, {});
+  expect(connections).toHaveLength(1);
+  expect(connections[0]).toMatchObject({ access: "read", organizationIds: ["org_one"] });
+});
+
 test("selected organizations stay fixed as memberships change and live revocation fails closed", async () => {
   const t = setup();
   const selected = await key(t, { organizationIds: ["org_one"] });
@@ -445,9 +454,9 @@ test("malformed admin arguments return structured safe errors through component 
 
 test("all 60 component tools preserve the existing flat argument names and required fields", async () => {
   const t = setup();
-  const { createToolServer, serveMcp } = await import("./mcpLegacy");
+  const { createToolServer, serveMcp } = await import("./mcpWorkos");
   const legacy = toolsSchema.parse(JSON.parse(await t.run(async (ctx) => {
-    const response = await serveMcp(new Request(`${site}/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }) }), () => createToolServer(ctx, { userId: "user_alice", organizationId: "org_one", actor: "alice" }, { issuer: "https://login.example.com", resource, apiKey: "private-provider-key" }));
+    const response = await serveMcp(new Request(`${site}/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }) }), () => createToolServer(ctx, { userId: "user_alice", organizationId: "org_one", actor: "alice" }, { issuer: "https://login.example.com", resource, requestOrigin: site, apiKey: "private-provider-key" }));
     return response.text();
   })));
   const connection = await key(t);

@@ -51,7 +51,7 @@ async function insertApproval(ctx: MutationCtx, args: { ownerAccountKey: string;
   const approvedScopes = scopesForAccess(args.access).filter((scope) => requestedScopes.includes(scope));
   if (approvedScopes.length === 0) throw new ConvexError("The request has no supported permissions.");
   const { organizationIds, ...approval } = args;
-  const id = await ctx.db.insert("mcpApprovals", { ...approval, approvedScopes });
+  const id = await ctx.db.insert("mcpApprovals", { ...approval, access: approvedScopes.includes("events:manage") ? "manage" : "read", approvedScopes });
   for (const organizationId of organizationIds) await ctx.db.insert("mcpApprovalOrganizations", { approvalId: id, organizationId });
   return { id, approvedScopes };
 }

@@ -166,3 +166,13 @@ export async function revokeOrganizationInvitation(organizationId: string, invit
   if (!revoked.ok) throw new ConvexError("This invitation can no longer be revoked.");
   return { id: invitationId, email: normalizeEmail(invitation.data.email), status: "revoked" as const };
 }
+
+/** One WorkOS user's email, for practice events' test people. */
+export async function workosUserEmail(userId: string) {
+  if (!/^user_[A-Za-z0-9]+$/.test(userId)) throw new ConvexError("Sign in to make a practice event.");
+  const response = await workos(`/user_management/users/${userId}`);
+  if (!response.ok) throw new ConvexError("Your email is unavailable right now. Try again in a moment.");
+  const user = userSchema.safeParse(await response.json());
+  if (!user.success || user.data.id !== userId) throw new ConvexError("Your email is unavailable right now. Try again in a moment.");
+  return normalizeEmail(user.data.email);
+}

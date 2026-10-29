@@ -8,7 +8,7 @@ import { isCompleteReview, isJudgingScore } from "../lib/judging-rubric";
 import { TableHistory } from "@convex-dev/table-history";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { components } from "./_generated/api";
-import { aiSummariesConfigured, aiSummaryStatus, publicAiSummary } from "./aiSummaries";
+import { aiSummaryStatus, publicAiSummary } from "./aiSummaries";
 import { recordChange } from "./changeLog";
 import { withChange } from "./changeWrap";
 import { closeJudgingForEvent, closeSubmissionsForEvent, judgingRemaining, reopenJudgingForEvent } from "./phases";

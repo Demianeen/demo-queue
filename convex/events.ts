@@ -532,7 +532,7 @@ async function requireUnattachedSubmissionFile(ctx: MutationCtx, storageId: Id<"
   }
 }
 
-function blankEventState(now: number) {
+export function blankEventState(now: number) {
   return {
     queuePublished: false,
     stageScreenMode: "qr" as const,
@@ -554,7 +554,7 @@ function blankEventState(now: number) {
   };
 }
 
-async function deleteSubmissionData(
+export async function deleteSubmissionData(
   ctx: MutationCtx,
   event: Doc<"events">,
   submissions: Doc<"submissions">[],
@@ -656,8 +656,9 @@ export const listOrganizationEvents = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, { paginationOpts }) => {
     const { organizationId } = await requireOrganization(ctx);
+    // Real events only: practice events are listed apart, in practice.listPracticeEvents.
     const result = await ctx.db.query("events")
-      .withIndex("by_workosOrganizationId", (q) => q.eq("workosOrganizationId", organizationId))
+      .withIndex("by_workosOrganizationId_and_practice", (q) => q.eq("workosOrganizationId", organizationId).eq("practice", undefined))
       .order("desc")
       .paginate(paginationOpts);
     return {
@@ -670,9 +671,36 @@ export const listOrganizationEvents = query({
         eventType: eventType(event),
         createdAt: event.createdAt,
         organizationId,
+        phase: phaseFields(event).phase,
       })),
     };
   },
+});
+
+export const getLiveEventArgs = v.object({});
+
+/**
+ * The organization's live event: the newest real event that is not
+ * finished (Proposed). There is one at a time per organization for now.
+ * Never a practice event. Null when there is none.
+ */
+export async function getLiveEventForOrganization(
+  ctx: QueryCtx,
+  _args: Infer<typeof getLiveEventArgs>,
+  principal: OrganizationPrincipal,
+) {
+  const recent = await ctx.db.query("events")
+    .withIndex("by_workosOrganizationId_and_practice", (q) => q.eq("workosOrganizationId", principal.organizationId).eq("practice", undefined))
+    .order("desc")
+    .take(20);
+  const event = recent.find((candidate) => phaseFields(candidate).phase !== "finished");
+  if (!event) return null;
+  return { id: event._id, name: event.name, slug: event.slug, eventType: eventType(event), createdAt: event.createdAt, ...phaseFields(event) };
+}
+
+export const getLiveEvent = query({
+  args: getLiveEventArgs,
+  handler: async (ctx, args) => getLiveEventForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 export const getOrganizationEventDetailsArgs = v.object({ slug: v.string() });

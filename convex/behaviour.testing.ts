@@ -29,6 +29,8 @@ export const modules = {
   "./changeLog.ts": () => import("./changeLog"),
   "./mcpAdmin.ts": () => import("./mcpAdmin"),
   "./luma.ts": () => import("./luma"),
+  "./practice.ts": () => import("./practice"),
+  "./members.ts": () => import("./members"),
 };
 
 export const ORG = "org_live";

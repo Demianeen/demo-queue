@@ -17,4 +17,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "tidy away old practice events",
+  { hours: 24 },
+  internal.practice.tidyPracticeEvents,
+  {},
+);
+
 export default crons;

@@ -33,6 +33,17 @@ const IGNORED_FIELDS = new Set([
   "lastAdvanceSnapshot", "statusLinkEmailedAt", "aiSummary", "submissionSurgeAt",
 ]);
 
+/**
+ * Tables where every write sets updatedAt, so it works as a version. Not
+ * events: each submit touches the event, which would block every undo.
+ */
+export const VERSIONED_TABLES: ReadonlySet<ChangeTable> = new Set(["submissions", "reviews", "judgeAccess", "normalizationDecisions"]);
+
+/** The version a document of this table has now, or undefined. */
+export function docVersion(table: ChangeTable, doc: Record<string, unknown> | null | undefined) {
+  return VERSIONED_TABLES.has(table) && typeof doc?.updatedAt === "number" ? doc.updatedAt : undefined;
+}
+
 /** Proposed: 30 days, long enough to undo anything from an event night. */
 export const CHANGE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -84,6 +95,10 @@ export const changeDocValidator = v.object({
   id: v.string(),
   op: v.union(v.literal("patch"), v.literal("insert"), v.literal("delete")),
   fields: v.array(changeFieldValidator),
+  // The document's updatedAt after the change, for tables where every write
+  // sets it. Undo compares it, so a later write that was never logged (a
+  // participant edit, a judge's score) still blocks the undo.
+  version: v.optional(v.number()),
 });
 export type ChangeDoc = Infer<typeof changeDocValidator>;
 
@@ -184,8 +199,10 @@ async function readScope(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, watch:
 async function diffDoc(table: ChangeTable, before: AnyDoc | null, after: AnyDoc | null): Promise<ChangeDoc | null> {
   if (!before && !after) return null;
   const id = (before ?? after)!._id;
+  const version = docVersion(table, after);
+  const versioned = version !== undefined ? { version } : {};
   // Inserts and deletes keep no field values: only the id and the op.
-  if (!before) return { table, id, op: "insert", fields: [] };
+  if (!before) return { table, id, op: "insert", fields: [], ...versioned };
   if (!after) return { table, id, op: "delete", fields: [] };
   const keys = new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]);
   const fields: ChangeDoc["fields"] = [];
@@ -199,7 +216,7 @@ async function diffDoc(table: ChangeTable, before: AnyDoc | null, after: AnyDoc 
     fields.push({ name, ...(from !== undefined ? { before: await kept(from) } : {}), ...(to !== undefined ? { after: await kept(to) } : {}) });
   }
   if (fields.length === 0) return null;
-  return { table, id, op: "patch", fields };
+  return { table, id, op: "patch", fields, ...versioned };
 }
 
 /** Compares two reads of the same scope. Documents found only after are inserts. */

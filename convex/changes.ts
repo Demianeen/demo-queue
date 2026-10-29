@@ -3,7 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { requireOrganization, requireOwnedEvent, type OrganizationPrincipal } from "./organizationAuth";
-import { CHANGE_RETENTION_MS, insertChange, storedValueMatches, type ChangeDoc, type ChangeTable } from "./changeLog";
+import { CHANGE_RETENTION_MS, VERSIONED_TABLES, docVersion, insertChange, storedValueMatches, type ChangeDoc, type ChangeTable } from "./changeLog";
 import { movePhase } from "./phases";
 import { queueJudgingSheetSync } from "./judgingSheetSync";
 import { eventPhase, PHASE_LABELS } from "../lib/event-phase";
@@ -11,8 +11,9 @@ import { eventPhase, PHASE_LABELS } from "../lib/event-phase";
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const CONFLICT_SCAN = 200;
-/** Rows with more documents than this skip the live conflict check in the list. */
-const LIST_CHECK_DOCS = 60;
+/** Documents the list reads, newest change first, to check what can be undone. */
+const LIST_CHECK_BUDGET = 1_000;
+export const TOO_LARGE_TO_CHECK = "This change is too large to check here. Undo newer changes first.";
 const TABLES_WITH_UPDATED_AT = new Set<ChangeTable>(["events", "submissions", "reviews", "judgeAccess", "normalizationDecisions"]);
 
 type AnyDoc = Record<string, unknown>;
@@ -22,26 +23,72 @@ async function current(ctx: Pick<QueryCtx, "db">, table: ChangeTable, id: string
   return normalized ? ((await ctx.db.get(normalized)) as AnyDoc | null) : null;
 }
 
-/** The documents and fields of a change that no longer hold the value it left. */
+/**
+ * The documents and fields of a change that no longer hold the value it
+ * left. A document whose version moved was written since, even when no
+ * logged change did it.
+ */
 async function staleParts(ctx: Pick<QueryCtx, "db">, change: Doc<"eventChanges">) {
-  const stale: { doc: ChangeDoc; fields: string[]; missing: boolean }[] = [];
+  const stale: { doc: ChangeDoc; fields: string[]; missing: boolean; rewritten: boolean }[] = [];
   for (const doc of change.docs) {
     const now = await current(ctx, doc.table, doc.id);
     if (!now) {
-      stale.push({ doc, fields: doc.fields.map((field) => field.name), missing: true });
+      stale.push({ doc, fields: doc.fields.map((field) => field.name), missing: true, rewritten: false });
       continue;
     }
     const fields: string[] = [];
     for (const field of doc.fields) {
       if (!(await storedValueMatches(doc.table, field.name, now[field.name], field.after))) fields.push(field.name);
     }
-    if (fields.length > 0) stale.push({ doc, fields, missing: false });
+    const rewritten = doc.version !== undefined && docVersion(doc.table, now) !== doc.version;
+    if (fields.length > 0 || rewritten) stale.push({ doc, fields, missing: false, rewritten });
   }
   return stale;
 }
 
-/** Why a change cannot be undone right now, or null when it can. */
-async function undoBlocker(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, change: Doc<"eventChanges">) {
+async function titleOf(ctx: Pick<QueryCtx, "db">, id: Id<"submissions">) {
+  return (await ctx.db.get(id))?.demoTitle ?? "a project";
+}
+
+/**
+ * Writes that the change does not cover but that undoing it would break:
+ * scores or team members added to a submission it inserted, and a review
+ * that moving scores back would duplicate.
+ */
+async function dependentBlocker(ctx: Pick<QueryCtx, "db">, change: Doc<"eventChanges">) {
+  const inChange = new Set(change.docs.map((doc) => `${doc.table}:${doc.id}`));
+  for (const doc of change.docs) {
+    if (doc.op === "insert" && doc.table === "submissions") {
+      const id = ctx.db.normalizeId("submissions", doc.id);
+      if (!id) continue;
+      const scored = await ctx.db.query("reviews").withIndex("by_submission", (q) => q.eq("submissionId", id)).first();
+      if (scored) return `${await titleOf(ctx, id)} has scores now, so adding it can't be undone.`;
+      const members = await ctx.db.query("teamMembers").withIndex("by_submission", (q) => q.eq("submissionId", id)).take(50);
+      if (members.some((member) => !inChange.has(`teamMembers:${member._id}`))) {
+        return `${await titleOf(ctx, id)} has new team members since, so adding it can't be undone.`;
+      }
+    }
+    if (doc.op === "patch" && doc.table === "reviews") {
+      const judgeKey = doc.fields.find((field) => field.name === "judgeKey")?.before;
+      const id = ctx.db.normalizeId("reviews", doc.id);
+      const review = id ? await ctx.db.get(id) : null;
+      if (typeof judgeKey !== "string" || !review) continue;
+      const clash = await ctx.db.query("reviews")
+        .withIndex("by_submission_and_judge", (q) => q.eq("submissionId", review.submissionId).eq("judgeKey", judgeKey))
+        .first();
+      if (clash && clash._id !== review._id) {
+        return `${await titleOf(ctx, review.submissionId)} was scored on the first judge's link since, so the scores can't be moved back.`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Why a change cannot be undone right now, or null when it can. `recent` is
+ * the newest change rows, read once by the list; the undo reads its own.
+ */
+async function undoBlocker(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, change: Doc<"eventChanges">, recent?: Doc<"eventChanges">[]) {
   if (change.undoneAt !== undefined) return "This change was already undone.";
   if (change.undo === "none") return change.noUndoReason ?? "This change can't be undone.";
   if (change.undo === "phase") {
@@ -52,17 +99,20 @@ async function undoBlocker(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, chan
     return null;
   }
   const stale = await staleParts(ctx, change);
+  if (stale.some((part) => part.missing)) return "Something this change touched was deleted since, so it can't be undone.";
+  const dependent = await dependentBlocker(ctx, change);
+  if (dependent) return dependent;
   // An insert keeps no field values, so a later change to the inserted
-  // document is found by its id instead.
+  // document is found by its id, and by its version when it has one.
   const inserted = new Set(change.docs.filter((doc) => doc.op === "insert").map((doc) => `${doc.table}:${doc.id}`));
   if (stale.length === 0 && inserted.size === 0) return null;
-  const later = (await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", event._id)).order("desc").take(CONFLICT_SCAN))
-    .filter((row) => row._creationTime > change._creationTime && row.undoneAt === undefined && row._id !== change._id);
+  const rows = recent ?? (await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", event._id)).order("desc").take(CONFLICT_SCAN));
+  const later = rows.filter((row) => row._creationTime > change._creationTime && row.undoneAt === undefined && row._id !== change._id);
   const touched = new Set(stale.flatMap((part) => part.fields.map((field) => `${part.doc.table}:${part.doc.id}:${field}`)));
+  const rewritten = new Set(stale.filter((part) => part.rewritten).map((part) => `${part.doc.table}:${part.doc.id}`));
   const blocker = later.find((row) =>
-    row.docs.some((doc) => inserted.has(`${doc.table}:${doc.id}`) || doc.fields.some((field) => touched.has(`${doc.table}:${doc.id}:${field.name}`))),
+    row.docs.some((doc) => inserted.has(`${doc.table}:${doc.id}`) || rewritten.has(`${doc.table}:${doc.id}`) || doc.fields.some((field) => touched.has(`${doc.table}:${doc.id}:${field.name}`))),
   );
-  if (stale.some((part) => part.missing)) return "Something this change touched was deleted since, so it can't be undone.";
   if (stale.length === 0 && !blocker) return null;
   return blocker
     ? `Changed again since: undo "${blocker.summary}" first.`
@@ -87,10 +137,11 @@ async function assertEmailsFree(ctx: MutationCtx, eventId: Id<"events">, doc: Ch
   if (holders.length > 0) throw new ConvexError("Another submission now uses an email from this one. Change that email first.");
 }
 
-function inverse(doc: ChangeDoc): ChangeDoc {
-  if (doc.op === "insert") return { ...doc, op: "delete", fields: [] };
+function inverse(doc: ChangeDoc, now: number): ChangeDoc {
+  if (doc.op === "insert") return { table: doc.table, id: doc.id, op: "delete", fields: [] };
   return {
     ...doc,
+    ...(VERSIONED_TABLES.has(doc.table) ? { version: now } : {}),
     fields: doc.fields.map((field) => ({
       name: field.name,
       ...(field.after !== undefined ? { before: field.after } : {}),
@@ -121,7 +172,7 @@ async function applySnapshotUndo(ctx: MutationCtx, event: Doc<"events">, change:
       await ctx.db.patch(decision._id, { stale: true, updatedAt: now });
     }
   }
-  return change.docs.map(inverse);
+  return change.docs.map((doc) => inverse(doc, now));
 }
 
 export const undoChangeArgs = v.object({ slug: v.string(), changeId: v.string() });
@@ -179,9 +230,19 @@ export const listRecentChangesArgs = v.object({ slug: v.string(), limit: v.optio
 export async function listRecentChangesForOrganization(ctx: QueryCtx, args: Infer<typeof listRecentChangesArgs>, principal: OrganizationPrincipal) {
   const { event } = await requireOwnedEvent(ctx, args.slug, principal);
   const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(args.limit ?? DEFAULT_LIMIT)));
-  const rows = await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", event._id)).order("desc").take(limit + 1);
-  const changes = await Promise.all(rows.slice(0, limit).map(async (row) => {
-    const blocker = row.docs.length > LIST_CHECK_DOCS && row.undo === "snapshot" && row.undoneAt === undefined ? null : await undoBlocker(ctx, event, row);
+  // One read of the newest rows serves the list and every row's conflict check.
+  const recent = await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", event._id)).order("desc").take(Math.max(CONFLICT_SCAN, limit + 1));
+  const rows = recent.slice(0, limit + 1);
+  let budget = LIST_CHECK_BUDGET;
+  const blockers: (string | null)[] = [];
+  for (const row of rows.slice(0, limit)) {
+    const reads = row.undo === "snapshot" && row.undoneAt === undefined ? row.docs.length : 0;
+    if (reads > budget) { blockers.push(TOO_LARGE_TO_CHECK); continue; }
+    budget -= reads;
+    blockers.push(await undoBlocker(ctx, event, row, recent));
+  }
+  const changes = rows.slice(0, limit).map((row, index) => {
+    const blocker = blockers[index];
     return {
       id: row._id,
       createdAt: row.createdAt,
@@ -197,7 +258,7 @@ export async function listRecentChangesForOrganization(ctx: QueryCtx, args: Infe
       undoneAt: row.undoneAt ?? null,
       isUndo: row.undoOf !== undefined,
     };
-  }));
+  });
   return { changes, hasMore: rows.length > limit };
 }
 
@@ -206,7 +267,8 @@ export const listRecentChanges = query({
   handler: async (ctx, args) => listRecentChangesForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-const RETENTION_BATCH = 500;
+/** Change rows can be up to 600 KB each, so a batch stays small. */
+const RETENTION_BATCH = 20;
 
 /**
  * Daily: deletes change rows older than CHANGE_RETENTION_MS (Proposed: 30

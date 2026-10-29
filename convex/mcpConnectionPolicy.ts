@@ -73,7 +73,12 @@ export async function currentMemberships(workosUserId: string): Promise<{ id: st
   return [...organizations.values()];
 }
 
-export function selectedOrganizations(selected: string[], memberships: { id: string }[]) {
+export function selectedOrganizations(selected: string[], memberships: { id: string }[], allOrganizations?: true) {
+  if (allOrganizations) {
+    if (selected.length !== 0) throw new ConvexError("Choose either all organizations or specific organizations.");
+    if (memberships.length === 0) throw new ConvexError("You must currently belong to an organization.");
+    return [];
+  }
   const organizationIds = [...new Set(selected)];
   if (organizationIds.length === 0 || organizationIds.length > 100 || organizationIds.some((id) => !memberships.some((organization) => organization.id === id))) {
     throw new ConvexError("Choose organizations you currently belong to.");
@@ -84,8 +89,10 @@ export function selectedOrganizations(selected: string[], memberships: { id: str
 export async function requireApproval(ctx: Pick<QueryCtx, "db">, approvalId: Id<"mcpApprovals">, organizationId: string, scope: string) {
   const approval = await ctx.db.get("mcpApprovals", approvalId);
   if (!approval || approval.revokedAt !== undefined || !normalizeScopes(approval.approvedScopes).some((approvedScope) => approvedScope === scope)) throw new ConvexError("Unauthorized");
-  const organization = await ctx.db.query("mcpApprovalOrganizations").withIndex("by_approvalId_and_organizationId", (q) => q.eq("approvalId", approvalId).eq("organizationId", organizationId)).unique();
-  if (!organization) throw new ConvexError("Unauthorized");
+  if (!approval.allOrganizations) {
+    const organization = await ctx.db.query("mcpApprovalOrganizations").withIndex("by_approvalId_and_organizationId", (q) => q.eq("approvalId", approvalId).eq("organizationId", organizationId)).unique();
+    if (!organization) throw new ConvexError("Unauthorized");
+  }
   return approval;
 }
 

@@ -20,7 +20,7 @@ reauthorization need their own rollout change.
 | --- | --- | --- |
 | Google sign-in and invitation access | WorkOS | WorkOS |
 | Approve an assistant | WorkOS-hosted page | Demo Queue page |
-| Organization choice | One per connection | Several selected organizations in one connection |
+| Organization choice | One per connection | Selected organizations or all current and future organizations |
 | Read-only access | Not implemented in the current integration | Enforced in discovery and direct calls |
 | View and disconnect connections | Not implemented in the app | App settings and immediate revocation |
 | Script credentials | Not implemented in the MCP server | Optional owner-scoped API keys |
@@ -28,10 +28,13 @@ reauthorization need their own rollout change.
 | Current membership checks | WorkOS API on every tool call | WorkOS API on every tool call |
 | Credential issuer and storage | WorkOS | Component inside our Convex deployment |
 
-Select all records the organizations available at approval time. It does not
-automatically add organizations joined later. Both the approved set and current
-membership must allow every operation. Existing browser organization switching
-does not change an assistant's approval.
+Consent and script-key settings offer two policies. All current and future
+organizations follows active WorkOS memberships as they change. Choose
+organizations saves a fixed selection; Select all listed selects only the
+organizations shown. Existing grants retain their original selections until
+reapproved. Both policies still enforce active membership and approved
+permissions on every operation. Browser organization switching does not change
+an assistant's approval.
 
 ## Review links
 
@@ -52,8 +55,9 @@ Production settings were unchanged by the branch-scoped Preview configuration.
 | Read-only key | Passed live HTTP probe | Test read succeeded, unapproved Outpost denied, writes returned 403, foreign Origin denied and event list remained unchanged. |
 | Key revocation | Passed live app and HTTP probe | Disconnect removed the connection; the same key immediately returned 401. Both temporary keys were disconnected. |
 | Two live owners | Twelve checks passed against development | A passwordless Test-only WorkOS fixture could read Test, could not access Outpost or another owner's connections, and could not revoke another owner's access. Used privileged CLI identity injection followed by real bearer HTTP, not a second Google browser login. All three temporary credentials were revoked and returned 401. |
+| All current and future organizations | Nineteen live development checks passed | The same read-only key gained Outpost after membership creation and lost it after removal. A selected-Test key stayed restricted. Unknown orgs and writes were denied, original memberships restored and both temporary keys revoked with 401 readback. Public consent actions used privileged CLI identity injection, followed by real MCP HTTP. |
 | Administrative tool parity | Passed automated HTTP comparison | All 60 names and flat argument fields match. Success workflows cover 59 distinct tools. |
-| Component authorization and lifecycle | 25 automated cases passed | `convex/mcpComponent.test.ts` |
+| Component authorization and lifecycle | 33 automated cases passed | `convex/mcpComponent.test.ts` |
 
 The native write test initially requested an invalid list limit of 100. Those
 calls failed without changes and succeeded after retry with the supported
@@ -139,7 +143,7 @@ change older credentials. Forking the component would add an upstream protocol
 maintenance burden. Instead, each consent transaction stores an immutable
 approval and passes that approval ID as the component principal. Token exchange
 preserves that ID. Tool authentication resolves it to its original owner,
-selected organizations and effective permissions.
+organization policy and effective permissions. An explicit all-organizations policy stores no organization snapshot; a missing policy flag retains the original selected-organization behavior.
 
 The experiment currently serves the canonical development MCP endpoint.
 Development clients previously authorized through WorkOS need to authorize the
@@ -147,14 +151,15 @@ component again. Production connections retain WorkOS authorization.
 
 Two unpublished event fixtures, one passwordless synthetic WorkOS user with
 Test membership, and one native multi-org OAuth connection remain for review.
-Five temporary API-key connections were revoked. Existing user data was not
+Temporary API-key connections were revoked. Existing user data was not
 removed. Connection settings scan the latest 100 approval rows, including
 revoked and pending rows, before filtering active grants. Pagination is required
 before broad adoption so older active connections remain visible.
 
 ## Review and rerun
 
-Open `docs/reports/mcp-comparison.html` for the short review artifact. The local
+Open `docs/reports/mcp-comparison.html` for the short review artifact.
+[All 60 MCP tools](mcp-tools.md) lists descriptions and required permissions. The local
 development settings page is `http://localhost:3002/events/connections` while
 the review server is running.
 

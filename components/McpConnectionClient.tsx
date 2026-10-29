@@ -13,6 +13,7 @@ import styles from "./McpConnectionPage.module.css";
 
 type Organization = { id: string; name: string };
 type Access = "read" | "manage";
+type OrganizationSelection = { kind: "all" } | { kind: "selected"; organizationIds: string[] };
 type LoadState = { kind: "loading" } | { kind: "ready"; organizations: Organization[] } | { kind: "error" };
 
 export function McpConnectionClient({ requestId, settings }: { requestId?: string; settings: boolean }) {
@@ -24,7 +25,7 @@ export function McpConnectionClient({ requestId, settings }: { requestId?: strin
   const request = useQuery(api.mcpConsent.getRequest, isAuthenticated && requestId ? { requestId } : "skip");
   const connections = useQuery(api.mcpConsent.listConnections, isAuthenticated && settings ? {} : "skip");
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selection, setSelection] = useState<OrganizationSelection>({ kind: "selected", organizationIds: [] });
   const [access, setAccess] = useState<Access>("read");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -53,12 +54,17 @@ export function McpConnectionClient({ requestId, settings }: { requestId?: strin
   if (!settings && (!requestId || request === null)) return <section className={styles.card}><h1>Start from your assistant</h1><p>Add the MCP server URL to your assistant, then open its approval link.</p><Link href="/events/connections">View connected assistants</Link></section>;
   if (!settings && request === undefined) return <section className={styles.card} role="status"><h1>Loading approval request...</h1></section>;
 
+  const grantSelection: { organizationIds: string[]; allOrganizations?: true } = selection.kind === "all"
+    ? { organizationIds: [], allOrganizations: true }
+    : { organizationIds: selection.organizationIds };
+  const hasOrganizations = load.organizations.length > 0 && (selection.kind === "all" || selection.organizationIds.length > 0);
+
   async function approve(approved: boolean) {
     if (!requestId) return;
     setBusy(true);
     setError("");
     try {
-      const result = await authorize({ requestId, approve: approved, organizationIds: selected, access, ...(request?.kind === "device" ? { userCode } : {}) });
+      const result = await authorize({ requestId, approve: approved, ...grantSelection, access, ...(request?.kind === "device" ? { userCode } : {}) });
       if (result.redirectUrl) window.location.assign(result.redirectUrl);
       else setComplete(true);
     } catch { setError("This request could not be completed. Start again from your assistant."); }
@@ -71,7 +77,7 @@ export function McpConnectionClient({ requestId, settings }: { requestId?: strin
     setKey("");
     setShowKey(false);
     setCopied(false);
-    try { const result = await createApiKey({ name, organizationIds: selected, access }); setKey(result.apiKey); setName(""); }
+    try { const result = await createApiKey({ name, ...grantSelection, access }); setKey(result.apiKey); setName(""); }
     catch { setError("Could not create the key. Check your organization access and try again."); }
     finally { setBusy(false); }
   }
@@ -89,7 +95,7 @@ export function McpConnectionClient({ requestId, settings }: { requestId?: strin
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       {settings && <ul className={styles.connections} aria-label="Connected assistants">
         {connections?.map((connection) => <li key={connection.id}>
-          <div><strong>{connection.name}</strong><p>{connection.organizationIds.map((id) => load.organizations.find((organization) => organization.id === id)?.name || "Unavailable organization").join(", ")} · {connection.access === "read" ? "Read only" : "Manage events"}</p></div>
+          <div><strong>{connection.name}</strong><p>{connection.allOrganizations ? "All current and future organizations" : connection.organizationIds.map((id) => load.organizations.find((organization) => organization.id === id)?.name || "Unavailable organization").join(", ")} · {connection.access === "read" ? "Read only" : "Manage events"}</p></div>
           <Button variant="outline" disabled={busy} onClick={async () => {
             setBusy(true); setError("");
             try { await revoke({ id: connection.id }); }
@@ -103,13 +109,24 @@ export function McpConnectionClient({ requestId, settings }: { requestId?: strin
       {settings && <p>Optional. Use a key for a script or CLI that cannot sign in through a browser.</p>}
       <fieldset disabled={busy} className={styles.fieldset}>
         <legend>Organizations</legend>
-        <div className={styles.organizationHeading}><span>Select one or more.</span><Button variant="link" onClick={() => setSelected(load.organizations.map((organization) => organization.id))}>Select all</Button></div>
-        {load.organizations.map((organization) => <label className={styles.choice} key={organization.id}>
-          <Checkbox checked={selected.includes(organization.id)} onCheckedChange={(checked) => setSelected((ids) => checked ? [...ids, organization.id] : ids.filter((id) => id !== organization.id))} />
-          <span>{organization.name}</span>
-        </label>)}
+        <RadioGroup aria-label="Organization access" value={selection.kind} onValueChange={(value) => {
+          if (value === "all") setSelection({ kind: "all" });
+          else if (value === "selected") setSelection({ kind: "selected", organizationIds: [] });
+        }}>
+          <label className={styles.choice}><RadioGroupItem value="all" /><span><strong>All current and future organizations</strong><small>Include every organization you belong to now and any you join later.</small></span></label>
+          <label className={styles.choice}><RadioGroupItem value="selected" /><span><strong>Choose organizations</strong><small>Only the organizations you select. New memberships need a new approval.</small></span></label>
+        </RadioGroup>
+        {selection.kind === "selected" && <>
+          <div className={styles.organizationHeading}><span>Select one or more.</span><Button variant="link" onClick={() => setSelection({ kind: "selected", organizationIds: load.organizations.map((organization) => organization.id) })}>Select all listed</Button></div>
+          {load.organizations.map((organization) => <label className={styles.choice} key={organization.id}>
+            <Checkbox checked={selection.organizationIds.includes(organization.id)} onCheckedChange={(checked) => setSelection((current) => current.kind === "all" ? current : {
+              kind: "selected", organizationIds: checked ? [...current.organizationIds, organization.id] : current.organizationIds.filter((id) => id !== organization.id),
+            })} />
+            <span>{organization.name}</span>
+          </label>)}
+        </>}
         {load.organizations.length === 0 && <p>You have no active organization memberships.</p>}
-        <p className={styles.help}>New organizations are not added automatically. Losing membership removes access even if this approval still exists.</p>
+        <p className={styles.help}>Every call requires your active membership and the permissions approved for this connection.</p>
       </fieldset>
       <fieldset disabled={busy} className={styles.fieldset}>
         <legend>Permissions</legend>
@@ -120,11 +137,11 @@ export function McpConnectionClient({ requestId, settings }: { requestId?: strin
       </fieldset>
       {settings ? <div className={styles.keyForm}>
         <label htmlFor="script-name">Key name</label><Input id="script-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} placeholder="Event summary script" />
-        <Button disabled={busy || !selected.length || !name.trim()} onClick={generateKey}>Create API key</Button>
+        <Button disabled={busy || !hasOrganizations || !name.trim()} onClick={generateKey}>Create API key</Button>
         {key && <Alert><AlertDescription><p>Copy this key now. It is only shown once.</p><Input aria-label="New API key" type={showKey ? "text" : "password"} readOnly value={key} /><Button variant="outline" onClick={async () => { try { await navigator.clipboard.writeText(key); setCopied(true); } catch { setError("Could not copy the key. Show the key, then select and copy it from the field."); } }}>{copied ? "Copied" : "Copy key"}</Button><Button variant="ghost" onClick={() => setShowKey((shown) => !shown)}>{showKey ? "Mask key" : "Show key"}</Button><Button variant="ghost" onClick={() => { setKey(""); setShowKey(false); setCopied(false); }}>Done</Button></AlertDescription></Alert>}
       </div> : <div className={styles.actions}>
         <Button variant="outline" disabled={busy} onClick={() => approve(false)}>Cancel</Button>
-        <Button disabled={busy || !selected.length || (request?.kind === "device" && userCode.trim().length < 6)} onClick={() => approve(true)}>{busy ? "Connecting..." : "Allow access"}</Button>
+        <Button disabled={busy || !hasOrganizations || (request?.kind === "device" && userCode.trim().length < 6)} onClick={() => approve(true)}>{busy ? "Connecting..." : "Allow access"}</Button>
       </div>}
     </section>
     <footer className={styles.footer}><Link href="/events">Back to events</Link>{!settings && <Link href="/events/connections">Manage connections</Link>}</footer>

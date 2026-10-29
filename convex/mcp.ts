@@ -37,15 +37,16 @@ export const mcp: McpServer<Id<"mcpApprovals">> = new ApprovalMcpServer(componen
   allowedOrigins: ["http://localhost:3002"],
   tools: {
     list_organizations: tool({
-      description: "List current active memberships approved for this connection. Additional organizations require a new approval.",
+      description: "List current active memberships covered by this connection's organization approval.",
       args: { cursor: v.optional(v.union(v.string(), v.null())) }, scope: "events:read", annotations: { readOnlyHint: true, openWorldHint: false },
       handler: async (ctx, args, user) => {
         try {
           if (args.cursor !== undefined && args.cursor !== null) z.string().min(1).max(4096).parse(args.cursor);
           const approval = await ctx.runQuery(internal.mcpConnectionPolicy.getApproval, { approvalId: user.userId });
           if (!approval) throw new ConvexError("Unauthorized");
-          const approved = await ctx.runQuery(internal.mcpConnectionPolicy.listApprovedOrganizations, { approvalId: user.userId });
           const memberships = await currentMemberships(approval.workosUserId);
+          if (approval.allOrganizations) return { organizations: memberships, nextCursor: null, hasMore: false };
+          const approved = await ctx.runQuery(internal.mcpConnectionPolicy.listApprovedOrganizations, { approvalId: user.userId });
           return { organizations: memberships.filter((org) => approved.some((allowed) => allowed.organizationId === org.id)), nextCursor: null, hasMore: false };
         } catch (error) { return toolFailure(error); }
       },

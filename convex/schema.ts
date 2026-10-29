@@ -10,6 +10,7 @@ export default defineSchema({
     name: v.string(), access: v.union(v.literal("read"), v.literal("manage")),
     requestId: v.optional(v.string()), requestedScopes: v.array(v.string()), approvedScopes: v.array(v.string()),
     revokedAt: v.optional(v.number()),
+    allOrganizations: v.optional(v.literal(true)),
   }).index("by_ownerAccountKey", ["ownerAccountKey"]),
   mcpApprovalOrganizations: defineTable({
     approvalId: v.id("mcpApprovals"), organizationId: v.string(),

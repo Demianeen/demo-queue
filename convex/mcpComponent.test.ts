@@ -3,7 +3,7 @@ import { componentsGeneric, queryGeneric, type FunctionReference } from "convex/
 import component from "@convex-dev/mcp/test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { z } from "zod";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { ADMIN_TOOLS } from "./mcpTools";
 import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
@@ -71,8 +71,8 @@ async function start(t: Test, clientId?: string, scope = "events:read events:man
   if (!requestId) throw new Error("Consent request missing");
   return { clientId: id, requestId };
 }
-async function approve(t: Test, request: Awaited<ReturnType<typeof start>>, options: { subject?: string; organizationIds?: string[]; access?: "read" | "manage" } = {}) {
-  const result = await t.withIdentity(identity(options.subject)).action(api.mcpConsent.authorize, { requestId: request.requestId, approve: true, organizationIds: options.organizationIds ?? ["org_one"], access: options.access ?? "manage" });
+async function approve(t: Test, request: Awaited<ReturnType<typeof start>>, options: { subject?: string; organizationIds?: string[]; allOrganizations?: true; access?: "read" | "manage" } = {}) {
+  const result = await t.withIdentity(identity(options.subject)).action(api.mcpConsent.authorize, { requestId: request.requestId, approve: true, organizationIds: options.organizationIds ?? (options.allOrganizations ? [] : ["org_one"]), allOrganizations: options.allOrganizations, access: options.access ?? "manage" });
   if (!result.redirectUrl) throw new Error("Authorization redirect missing");
   const location = new URL(result.redirectUrl);
   expect(location.origin + location.pathname).toBe(redirectUri);
@@ -91,8 +91,8 @@ async function oauth(t: Test, options: Parameters<typeof approve>[2] = {}) {
   expect(response.headers.get("Cache-Control")).toBe("no-store");
   return { ...approval, ...tokensSchema.parse(await response.json()) };
 }
-async function key(t: Test, options: { subject?: string; organizationIds?: string[]; access?: "read" | "manage"; name?: string } = {}) {
-  return t.withIdentity(identity(options.subject)).action(api.mcpConsent.createApiKey, { name: options.name ?? "Test key", organizationIds: options.organizationIds ?? ["org_one"], access: options.access ?? "manage" });
+async function key(t: Test, options: { subject?: string; organizationIds?: string[]; allOrganizations?: true; access?: "read" | "manage"; name?: string } = {}) {
+  return t.withIdentity(identity(options.subject)).action(api.mcpConsent.createApiKey, { name: options.name ?? "Test key", organizationIds: options.organizationIds ?? (options.allOrganizations ? [] : ["org_one"]), allOrganizations: options.allOrganizations, access: options.access ?? "manage" });
 }
 async function rpc(t: Test, bearer: string, method: string, params: unknown = {}) {
   return t.fetch("/mcp", { method: "POST", headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream", "MCP-Protocol-Version": "2025-06-18" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
@@ -473,9 +473,9 @@ test("all 60 component tools preserve the existing flat argument names and requi
   }
 });
 
-test("every organization-bound tool denies unapproved and removed organizations before domain effects", async () => {
+test.each(["selected", "all"])("every organization-bound tool with %s approval denies foreign and removed organizations before domain effects", async (policy) => {
   const t = setup();
-  const selected = await key(t);
+  const selected = await key(t, policy === "all" ? { allOrganizations: true } : {});
   await success(t, selected.apiKey, "create_event", eventInput("org_one", "preserved-event"));
   const tools = await listed(t, selected.apiKey);
   const before = await t.run(async (ctx) => ({ events: await ctx.db.query("events").collect(), submissions: await ctx.db.query("submissions").collect(), styles: await ctx.db.query("organizationStyles").collect(), audit: await ctx.db.query("auditLog").collect() }));
@@ -652,4 +652,94 @@ test("component lint allows only the two explicit sensitive reads requiring mana
     'Tool "get_submission_contacts" is read-only but requires the write-like scope "events:manage"; read-only connections can\'t use it.',
     'Tool "list_judge_links" is read-only but requires the write-like scope "events:manage"; read-only connections can\'t use it.',
   ]);
+});
+
+for (const transport of ["oauth", "apiKey"] as const) {
+  test(`${transport} all-organization approval follows future active memberships and keeps selected grants independent`, async () => {
+    const t = setup();
+    const futureSlug = `future-${transport.toLowerCase()}`;
+    const selected = await key(t, { organizationIds: ["org_one", "org_two"] });
+    const connection = transport === "oauth" ? await oauth(t, { allOrganizations: true }) : await key(t, { allOrganizations: true });
+    const bearer = "access_token" in connection ? connection.access_token : connection.apiKey;
+    const owner = t.withIdentity(identity());
+    const connections = await owner.query(api.mcpConsent.listConnections, {});
+    const all = connections.find((row) => row.allOrganizations);
+    if (!all) throw new Error("All-organization approval missing");
+    expect(all).toMatchObject({ organizationIds: [], allOrganizations: true, access: "manage" });
+    expect(connections.find((row) => row.id === selected.id)).toMatchObject({ organizationIds: ["org_one", "org_two"] });
+    const oldApproval = await t.run(async (ctx) => {
+      const id = ctx.db.normalizeId("mcpApprovals", selected.id);
+      if (!id) throw new Error("Selected approval missing");
+      return ctx.db.get("mcpApprovals", id);
+    });
+    expect(oldApproval).not.toHaveProperty("allOrganizations");
+    expect(await t.run((ctx) => ctx.db.query("mcpApprovalOrganizations").withIndex("by_approvalId_and_organizationId", (q) => q.eq("approvalId", all.id)).collect())).toEqual([]);
+    expect(await success(t, bearer, "list_organizations", {})).toEqual({ organizations: [{ id: "org_one", name: "one" }, { id: "org_two", name: "two" }], nextCursor: null, hasMore: false });
+    memberships.get("user_alice")?.push(
+      { user_id: "user_alice", organization_id: "org_three", organization_name: "Three", status: "active" },
+      { user_id: "user_alice", organization_id: "org_pending", organization_name: "Pending", status: "pending" },
+      { user_id: "user_alice", organization_id: "org_inactive", organization_name: "Inactive", status: "inactive" },
+      { user_id: "user_bob", organization_id: "org_bob", organization_name: "Bob", status: "active" },
+    );
+    expect(await success(t, bearer, "list_organizations", {})).toEqual({ organizations: [{ id: "org_one", name: "one" }, { id: "org_two", name: "two" }, { id: "org_three", name: "Three" }], nextCursor: null, hasMore: false });
+    expect(await success(t, bearer, "create_event", eventInput("org_three", futureSlug))).toMatchObject({ slug: futureSlug });
+    expect((await call(t, selected.apiKey, "list_events", { organizationId: "org_three" })).value).toEqual({ error: "access_denied" });
+    for (const org of ["org_bob", "org_unknown", "org_pending", "org_inactive"]) {
+      expect((await call(t, bearer, "list_events", { organizationId: org })).value).toEqual({ error: "access_denied" });
+    }
+    memberships.set("user_alice", [{ user_id: "user_alice", organization_id: "org_one", organization_name: "one", status: "active" }]);
+    expect(await success(t, bearer, "list_organizations", {})).toEqual({ organizations: [{ id: "org_one", name: "one" }], nextCursor: null, hasMore: false });
+    expect((await call(t, bearer, "get_event", { organizationId: "org_three", slug: futureSlug })).value).toEqual({ error: "access_denied" });
+    providerAvailable = false;
+    for (const [name, args] of [["list_organizations", {}], ["create_event", eventInput("org_one", "provider-must-deny")]] as const) {
+      const failed = await call(t, bearer, name, args);
+      expect(failed.value).toEqual({ error: "provider_unavailable" });
+      expect(JSON.stringify(failed)).not.toContain("private-provider-key");
+      expect(JSON.stringify(failed)).not.toContain("private-contact@example.com");
+    }
+    providerAvailable = true;
+    memberships.set("user_alice", []);
+    expect(await success(t, bearer, "list_organizations", {})).toEqual({ organizations: [], nextCursor: null, hasMore: false });
+    expect((await call(t, bearer, "list_events", { organizationId: "org_one" })).value).toEqual({ error: "access_denied" });
+    await owner.mutation(api.mcpConsent.revokeConnection, { id: all.id });
+    expect((await rpc(t, bearer, "tools/list")).status).toBe(401);
+    expect((await listed(t, selected.apiKey))).toHaveLength(60);
+    expect((await t.run((ctx) => ctx.db.query("events").collect())).map((event) => event.slug)).toEqual([futureSlug]);
+  });
+
+  test(`${transport} all-organization read consent never widens permissions as membership grows`, async () => {
+    const t = setup();
+    const connection = transport === "oauth" ? await oauth(t, { allOrganizations: true, access: "read" }) : await key(t, { allOrganizations: true, access: "read" });
+    const bearer = "access_token" in connection ? connection.access_token : connection.apiKey;
+    memberships.get("user_alice")?.push({ user_id: "user_alice", organization_id: "org_three", organization_name: "Three", status: "active" });
+    expect(await success(t, bearer, "list_events", { organizationId: "org_three" })).toMatchObject({ page: [] });
+    const response = await rpc(t, bearer, "tools/call", { name: "create_event", arguments: eventInput("org_three", "read-must-deny") });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "insufficient_scope" });
+    expect((await listed(t, bearer)).some((tool) => ["create_event", "get_submission_contacts", "list_judge_links"].includes(tool.name))).toBe(false);
+    expect(await t.run((ctx) => ctx.db.query("events").collect())).toEqual([]);
+  });
+
+  test(`${transport} consent rejects contradictory, empty selected and membershipless all grants without creating approvals`, async () => {
+    const t = setup();
+    const issue = async (options: Parameters<typeof key>[1]) => transport === "oauth" ? approve(t, await start(t), options) : key(t, options);
+    await expect(issue({ allOrganizations: true, organizationIds: ["org_one"] })).rejects.toThrow("Choose either all organizations or specific organizations.");
+    await expect(issue({ organizationIds: [] })).rejects.toThrow("Choose organizations you currently belong to.");
+    memberships.set("user_alice", [{ user_id: "user_alice", organization_id: "org_pending", organization_name: "Pending", status: "pending" }]);
+    await expect(issue({ allOrganizations: true })).rejects.toThrow("You must currently belong to an organization.");
+    expect(await t.run((ctx) => ctx.db.query("mcpApprovals").collect())).toEqual([]);
+    expect(await t.run((ctx) => ctx.db.query("mcpApprovalOrganizations").collect())).toEqual([]);
+  });
+}
+
+
+test("internal key approval rejects conflicting organization policies atomically", async () => {
+  const t = setup();
+  await expect(t.mutation(internal.mcpConsent.insertApiKey, {
+    ownerAccountKey: "workos:client_test:user_alice", workosUserId: "user_alice", actor: "alice",
+    name: "Conflicting selection", hash: "unused", resource,
+    allOrganizations: true, organizationIds: ["org_one"], access: "read",
+  })).rejects.toThrow("Choose either all organizations or specific organizations.");
+  expect(await t.run((ctx) => ctx.db.query("mcpApprovals").collect())).toEqual([]);
+  expect(await t.run((ctx) => ctx.db.query("mcpApprovalOrganizations").collect())).toEqual([]);
 });

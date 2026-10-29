@@ -12,7 +12,7 @@ async function hashSecret(value: string) {
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 const ownerFields = { ownerAccountKey: v.string(), workosUserId: v.string(), actor: v.string() };
-const selectionFields = { organizationIds: v.array(v.string()), access: accessValidator };
+const selectionFields = { organizationIds: v.array(v.string()), allOrganizations: v.optional(v.literal(true)), access: accessValidator };
 
 export const getRequest = query({
   args: { requestId: v.string() },
@@ -46,7 +46,8 @@ export const memberships = action({
   handler: async (ctx): Promise<{ id: string; name: string }[]> => currentMemberships(connectionIdentity(await ctx.auth.getUserIdentity()).workosUserId),
 });
 
-async function insertApproval(ctx: MutationCtx, args: { ownerAccountKey: string; workosUserId: string; actor: string; organizationIds: string[]; access: "read" | "manage"; source: "oauth" | "device" | "apiKey"; name: string; requestedScopes: string[]; requestId?: string }) {
+async function insertApproval(ctx: MutationCtx, args: { ownerAccountKey: string; workosUserId: string; actor: string; organizationIds: string[]; allOrganizations?: true; access: "read" | "manage"; source: "oauth" | "device" | "apiKey"; name: string; requestedScopes: string[]; requestId?: string }) {
+  if (args.allOrganizations && args.organizationIds.length !== 0) throw new ConvexError("Choose either all organizations or specific organizations.");
   const requestedScopes = normalizeScopes(args.requestedScopes);
   const approvedScopes = scopesForAccess(args.access).filter((scope) => requestedScopes.includes(scope));
   if (approvedScopes.length === 0) throw new ConvexError("The request has no supported permissions.");
@@ -63,7 +64,7 @@ export const decide = internalMutation({
     if (!request || request.status !== "pending") throw new ConvexError("This request has expired. Start again from your agent.");
     let principalId: string = args.ownerAccountKey;
     if (args.approve) {
-      const approval = await insertApproval(ctx, { ownerAccountKey: args.ownerAccountKey, workosUserId: args.workosUserId, actor: args.actor, organizationIds: args.organizationIds, access: args.access,
+      const approval = await insertApproval(ctx, { ownerAccountKey: args.ownerAccountKey, workosUserId: args.workosUserId, actor: args.actor, organizationIds: args.organizationIds, allOrganizations: args.allOrganizations, access: args.access,
         source: request.kind === "device" ? "device" : "oauth", name: request.clientName ?? "Unnamed client", requestedScopes: request.scopes, requestId: args.requestId });
       principalId = approval.id;
     }
@@ -81,7 +82,7 @@ export const authorize = action({
   args: { requestId: v.string(), approve: v.boolean(), ...selectionFields, userCode: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{ redirectUrl: string | null }> => {
     const owner = connectionIdentity(await ctx.auth.getUserIdentity());
-    const organizationIds = args.approve ? selectedOrganizations(args.organizationIds, await currentMemberships(owner.workosUserId)) : [];
+    const organizationIds = args.approve ? selectedOrganizations(args.organizationIds, await currentMemberships(owner.workosUserId), args.allOrganizations) : [];
     const code = args.approve ? randomSecret("mcp_code_") : undefined;
     const decided = await ctx.runMutation(internal.mcpConsent.decide, { ...args, ...owner, organizationIds, codeHash: code ? await hashSecret(code) : undefined });
     if (decided.kind === "device") return { redirectUrl: null };
@@ -97,7 +98,7 @@ export const authorize = action({
 export const insertApiKey = internalMutation({
   args: { ...ownerFields, ...selectionFields, name: v.string(), hash: v.string(), resource: v.string() },
   handler: async (ctx, args): Promise<Id<"mcpApprovals">> => {
-    const { id, approvedScopes } = await insertApproval(ctx, { ownerAccountKey: args.ownerAccountKey, workosUserId: args.workosUserId, actor: args.actor, organizationIds: args.organizationIds, access: args.access, source: "apiKey", name: args.name, requestedScopes: scopesForAccess(args.access) });
+    const { id, approvedScopes } = await insertApproval(ctx, { ownerAccountKey: args.ownerAccountKey, workosUserId: args.workosUserId, actor: args.actor, organizationIds: args.organizationIds, allOrganizations: args.allOrganizations, access: args.access, source: "apiKey", name: args.name, requestedScopes: scopesForAccess(args.access) });
     await ctx.runMutation(components.mcp.grants.createApiKey, { userId: id, name: args.name, scopes: approvedScopes, resource: args.resource, hash: args.hash });
     return id;
   },
@@ -107,10 +108,10 @@ export const createApiKey = action({
   args: { name: v.string(), ...selectionFields },
   handler: async (ctx, args): Promise<{ id: string; apiKey: string; url: string }> => {
     const owner = connectionIdentity(await ctx.auth.getUserIdentity());
-    const organizationIds = selectedOrganizations(args.organizationIds, await currentMemberships(owner.workosUserId));
+    const organizationIds = selectedOrganizations(args.organizationIds, await currentMemberships(owner.workosUserId), args.allOrganizations);
     const apiKey = randomSecret("mcp_key_");
     const url = componentSiteUrl() + "/mcp";
-    const id = await ctx.runMutation(internal.mcpConsent.insertApiKey, { ...owner, organizationIds, access: args.access, name: args.name.trim().slice(0, 100) || "API key", hash: await hashSecret(apiKey), resource: url });
+    const id = await ctx.runMutation(internal.mcpConsent.insertApiKey, { ...owner, organizationIds, allOrganizations: args.allOrganizations, access: args.access, name: args.name.trim().slice(0, 100) || "API key", hash: await hashSecret(apiKey), resource: url });
     return { id, apiKey, url };
   },
 });
@@ -126,7 +127,7 @@ export const listConnections = query({
       const grants = await ctx.runQuery(components.mcp.grants.list, { userId: approval._id });
       if (grants.length === 0) continue;
       const organizations = await ctx.db.query("mcpApprovalOrganizations").withIndex("by_approvalId_and_organizationId", (q) => q.eq("approvalId", approval._id)).take(100);
-      connections.push({ id: approval._id, name: approval.name, organizationIds: organizations.map((org) => org.organizationId), access: approval.access, createdAt: approval._creationTime,
+      connections.push({ id: approval._id, name: approval.name, organizationIds: organizations.map((org) => org.organizationId), allOrganizations: approval.allOrganizations, access: approval.access, createdAt: approval._creationTime,
         lastUsedAt: grants.reduce<number | undefined>((latest, grant) => grant.lastUsedAt === undefined ? latest : Math.max(latest ?? 0, grant.lastUsedAt), undefined), kind: approval.source === "apiKey" ? "apiKey" : "oauth" });
     }
     return connections;

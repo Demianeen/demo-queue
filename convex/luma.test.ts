@@ -117,7 +117,7 @@ const TOKEN = "participant-token-for-the-team-0001";
 async function submitTeam(t: T, overrides: { presenterEmail?: string; twitter?: string; token?: string; memberDomain?: string } = {}) {
   const domain = overrides.memberDomain ?? "example.com";
   const stage = await t.query(api.events.getStage, { slug });
-  return t.mutation(api.events.submitHackathon, {
+  const result = await t.mutation(api.events.submitHackathon, {
     slug,
     participantToken: overrides.token ?? TOKEN,
     clientId: `test-browser-luma-${String((lumaClients += 1)).padStart(6, "0")}`,
@@ -138,6 +138,8 @@ async function submitTeam(t: T, overrides: { presenterEmail?: string; twitter?: 
     videoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     trackIds: [stage.event.tracks[0].id],
   });
+  if (!("submissionId" in result)) throw new Error("Expected a new submission, got emailTaken");
+  return result;
 }
 
 function registered() {

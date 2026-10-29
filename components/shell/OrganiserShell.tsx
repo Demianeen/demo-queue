@@ -176,7 +176,7 @@ function GlobalCommands({ liveEvent, organizations, activeOrganizationId, switch
     ];
     if (liveEvent) {
       for (const item of adminViewsFor(liveEvent.eventType)) {
-        list.push({ id: `go-${item.view}`, group: "Current event", label: `${liveEvent.name}: ${item.label.toLowerCase()}`, keys: ["G", ADMIN_VIEW_KEYS[item.view]], run: () => router.push(adminViewPath(liveEvent.slug, item.view)) });
+        list.push({ id: `go-${item.view}`, group: "Live now", label: `${liveEvent.name}: ${item.label.toLowerCase()}`, keys: ["G", ADMIN_VIEW_KEYS[item.view]], run: () => router.push(adminViewPath(liveEvent.slug, item.view)) });
       }
     }
     if (organizations.length > 1) for (const org of organizations) {

@@ -1,0 +1,29 @@
+.page { min-height: 100vh; background: #f6f6f4; color: #202127; padding: 28px 32px 64px; }
+.header { max-width: 1120px; margin: 0 auto 48px; display: flex; justify-content: space-between; align-items: center; gap: 20px; font-size: 14px; }
+.header a { font-size: 23px; font-weight: 650; letter-spacing: -.8px; }
+.header span { color: #656871; overflow-wrap: anywhere; }
+.content { max-width: 640px; margin: auto; }
+.card { max-width: 640px; margin: auto; padding: 40px; border: 1px solid #dedfdc; border-radius: 18px; background: white; box-shadow: 0 12px 36px #20212706; display: grid; gap: 20px; }
+.card h1 { font-size: clamp(28px, 4vw, 36px); line-height: 1.12; letter-spacing: -1.2px; font-weight: 600; margin: 0; }
+.card h2 { font-size: 21px; font-weight: 600; margin: 12px 0 0; }
+.card p { color: #62656f; line-height: 1.5; margin: 0; }
+.eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
+.request { display: grid; gap: 7px; padding: 16px; border: 1px solid #e5e6e3; border-radius: 10px; font-size: 14px; overflow-wrap: anywhere; }
+.request > span { color: #656871; font-size: 12px; }
+.fieldset { border: 0; padding: 0; margin: 4px 0; display: grid; gap: 10px; min-width: 0; }
+.fieldset legend { font-weight: 600; margin-bottom: 10px; }
+.organizationHeading { display: flex; justify-content: space-between; align-items: center; color: #62656f; font-size: 14px; }
+.choice { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid #e5e6e3; border-radius: 10px; cursor: pointer; font-size: 14px; }
+.choice > :first-child { margin-top: 3px; }
+.choice small { display: block; color: #62656f; line-height: 1.5; margin-top: 4px; font-size: 13px; }
+.help { font-size: 12px; }
+.actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 12px; border-top: 1px solid #e5e6e3; }
+.actions button { min-width: 110px; height: 40px; }
+.connections { list-style: none; padding: 0; margin: 0; }
+.connections li { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 16px 0; border-bottom: 1px solid #e5e6e3; }
+.connections p { font-size: 12px; margin-top: 5px; }
+.keyForm { display: grid; gap: 12px; font-size: 14px; }
+.keyForm > button { justify-self: start; }
+.footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 22px; font-size: 13px; color: #62656f; }
+.footer a { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 600px) { .page { padding: 20px 16px 40px; } .header { margin-bottom: 28px; align-items: flex-start; flex-direction: column; gap: 8px; } .card { padding: 25px 20px; } }

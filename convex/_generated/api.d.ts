@@ -21,7 +21,11 @@ import type * as judging from "../judging.js";
 import type * as mcp from "../mcp.js";
 import type * as mcpAdmin from "../mcpAdmin.js";
 import type * as mcpAuth from "../mcpAuth.js";
+import type * as mcpConnectionPolicy from "../mcpConnectionPolicy.js";
+import type * as mcpConsent from "../mcpConsent.js";
 import type * as mcpData from "../mcpData.js";
+import type * as mcpWorkos from "../mcpWorkos.js";
+import type * as mcpRuntime from "../mcpRuntime.js";
 import type * as mcpSchema from "../mcpSchema.js";
 import type * as mcpTools from "../mcpTools.js";
 import type * as organizationAuth from "../organizationAuth.js";
@@ -48,7 +52,11 @@ declare const fullApi: ApiFromModules<{
   mcp: typeof mcp;
   mcpAdmin: typeof mcpAdmin;
   mcpAuth: typeof mcpAuth;
+  mcpConnectionPolicy: typeof mcpConnectionPolicy;
+  mcpConsent: typeof mcpConsent;
   mcpData: typeof mcpData;
+  mcpWorkos: typeof mcpWorkos;
+  mcpRuntime: typeof mcpRuntime;
   mcpSchema: typeof mcpSchema;
   mcpTools: typeof mcpTools;
   organizationAuth: typeof organizationAuth;
@@ -83,5 +91,6 @@ export declare const internal: FilterApi<
 >;
 
 export declare const components: {
+  mcp: import("@convex-dev/mcp/_generated/component.js").ComponentApi<"mcp">;
   judgingDecisionHistory: import("@convex-dev/table-history/_generated/component.js").ComponentApi<"judgingDecisionHistory">;
 };

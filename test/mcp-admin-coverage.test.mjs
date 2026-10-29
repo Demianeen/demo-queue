@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkCoverage, checkRepository, scanUiSources, scanToolMappings } from "../scripts/mcp-admin-coverage.mjs";
+import { UI_EXCLUSIONS, checkCoverage, checkRepository, scanUiSources, scanToolMappings } from "../scripts/mcp-admin-coverage.mjs";
 
 const importedApi = 'import { api } from "@/convex/_generated/api";';
 const mapping = (browser) => `defineAdminTool({ name: "${browser.replaceAll(".", "_")}", browser: "${browser}" });`;
@@ -80,6 +80,46 @@ test("legacy mappings must name actual registrations and new tools need literal 
   const report = scanToolMappings('const LEGACY_ADMIN_TOOL_MAPPINGS = [{ name: "list_events", browser: "events.listOrganizationEvents" }]; defineAdminTool({ name: "new", browser: operation });', 'server.registerTool("create_event", {}, () => {});');
   assert.match(report.errors.join("\n"), /unregistered tool list_events/);
   assert.match(report.errors.join("\n"), /require literal name/);
+});
+
+test("component server tool properties register actual names and deleted tools fail coverage", () => {
+  const catalog = 'const LEGACY_ADMIN_TOOL_MAPPINGS = [{ name: "fixture_read", browser: "events.fixtureRead" }, { name: "fixture_write", browser: "events.fixtureWrite" }];';
+  const component = (readTool) => `import { McpServer as Server, createTool as makeTool } from "@convex-dev/mcp";
+    const componentTool = makeTool<ApprovalId>();
+    class ApprovalServer extends Server<ApprovalId> {}
+    const unrelated = { tools: { fixture_read: componentTool({}) } };
+    const server = new ApprovalServer(component, { tools: {
+      ${readTool}
+      "fixture_write": componentTool({ handler: () => ({}) }),
+      ...Object.fromEntries(ADMIN_TOOLS.map((tool) => [tool.name, tool.component])),
+    } });`;
+  const registered = scanToolMappings(catalog, component("fixture_read: componentTool({ handler: () => ({}) }),"));
+  assert.deepEqual(registered.errors, []);
+  assert.deepEqual(registered.legacyNames.sort(), ["fixture_read", "fixture_write"]);
+  const missing = scanToolMappings(catalog, component(""));
+  assert.match(missing.errors.join("\n"), /unregistered tool fixture_read/);
+});
+
+test("component registrations reject dynamic names and unrecognized factories", () => {
+  const report = scanToolMappings("", `import { McpServer, createTool } from "@convex-dev/mcp";
+    const tool = createTool();
+    new McpServer(component, { tools: { [getName()]: tool({}), fake: anotherFactory({}) } });`);
+  assert.equal(report.errors.length, 2);
+  assert.deepEqual(report.legacyNames, []);
+});
+
+test("human connection consent exclusions cannot hide new callers or become tools", () => {
+  const exclusions = UI_EXCLUSIONS.filter((entry) => entry.file === "components/McpConnectionClient.tsx");
+  const calls = exclusions.map((entry) => `useAction(api.${entry.browser});`).join("\n");
+  const sources = { "components/McpConnectionClient.tsx": importedApi + calls };
+  assert.equal(exclusions.length, 6);
+  assert.deepEqual(checkCoverage({ sources, toolSource: "", exclusions, requireFinalistGuard: false }).errors, []);
+  const report = checkCoverage({ sources: { ...sources, "components/Admin.tsx": importedApi + "useAction(api.mcpConsent.authorize); useAction(api.mcpConsent.newOperation);" }, toolSource: mapping("mcpConsent.authorize"), exclusions, requireFinalistGuard: false });
+  assert.match(report.errors.join("\n"), /Unmapped admin function mcpConsent.newOperation/);
+  const exposed = checkCoverage({ sources, toolSource: mapping("mcpConsent.authorize"), exclusions, requireFinalistGuard: false });
+  assert.match(exposed.errors.join("\n"), /mcpConsent.authorize.*no enabled organization-admin UI caller/);
+  const relocated = checkCoverage({ sources: { ...sources, "components/Admin.tsx": importedApi + "useAction(api.mcpConsent.authorize);" }, toolSource: "", exclusions, requireFinalistGuard: false });
+  assert.match(relocated.errors.join("\n"), /Unmapped admin function mcpConsent.authorize at components\/Admin.tsx/);
 });
 
 test("unused backend functions cannot gain tools by adding a catalog entry", () => {

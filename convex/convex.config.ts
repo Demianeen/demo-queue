@@ -1,3 +1,4 @@
+import mcp from "@convex-dev/mcp/convex.config.js";
 import { defineApp } from "convex/server";
 import { v } from "convex/values";
 import tableHistory from "@convex-dev/table-history/convex.config";
@@ -13,5 +14,6 @@ const app = defineApp({
   },
 });
 
+app.use(mcp);
 app.use(tableHistory, { name: "judgingDecisionHistory" });
 export default app;

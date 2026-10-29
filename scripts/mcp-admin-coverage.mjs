@@ -13,6 +13,8 @@ export const UI_EXCLUSIONS = [
   ...["getMyAssignments", "saveReview"].map((name) => ({ file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: `judging.${name}`, reason: "Judge capability page. Organization tools must not submit judge reviews." })),
   { file: "app/metadata.ts", browser: "events.getEventMeta", reason: "Public title metadata used by event routes, including admin navigation. Admin reads expose event metadata already." },
   { file: "app/metadata.ts", browser: "events.getParticipantMeta", reason: "Participant title metadata, not organization administration." },
+  ...["memberships", "getRequest", "authorize"].map((name) => ({ file: "components/McpConnectionClient.tsx", browser: `mcpConsent.${name}`, reason: "Human connection consent. A tool must not inspect or approve its own authorization request." })),
+  ...["createApiKey", "revokeConnection", "listConnections"].map((name) => ({ file: "components/McpConnectionClient.tsx", browser: `mcpConsent.${name}`, reason: "Human credential management. Connection credentials and their lifecycle stay in the signed-in browser." })),
   ...finalistFunctions.map((name) => ({ file: finalistPath, browser: `judging.${name}`, reason: "Dormant finalist and placement controls require SHOW_FINALIST_TOOLS to remain false.", dormant: true })),
 ];
 
@@ -148,15 +150,56 @@ export function scanToolMappings(text, legacyText = "") {
   }
   visit(file);
   const legacyNames = new Set();
+  const legacyFile = sourceFile("convex/mcp.ts", legacyText);
+  const serverClasses = new Set();
+  const createTools = new Set();
+  const toolFactories = new Set();
+  for (const statement of legacyFile.statements) {
+    if (!ts.isImportDeclaration(statement) || literal(statement.moduleSpecifier) !== "@convex-dev/mcp") continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const binding of bindings.elements) {
+      const imported = (binding.propertyName ?? binding.name).text;
+      if (imported === "McpServer") serverClasses.add(binding.name.text);
+      if (imported === "createTool") createTools.add(binding.name.text);
+    }
+  }
+  let changed;
+  do {
+    changed = false;
+    for (const statement of legacyFile.statements) {
+      if (!ts.isClassDeclaration(statement) || !statement.name || serverClasses.has(statement.name.text)) continue;
+      const extendsServer = statement.heritageClauses?.some((clause) => clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types.some((type) => ts.isIdentifier(type.expression) && serverClasses.has(type.expression.text)));
+      if (extendsServer) { serverClasses.add(statement.name.text); changed = true; }
+    }
+  } while (changed);
+  function findFactories(node) {
+    const value = ts.isVariableDeclaration(node) ? unwrapped(node.initializer) : undefined;
+    if (value && ts.isIdentifier(node.name) && ts.isCallExpression(value) && ts.isIdentifier(value.expression) && createTools.has(value.expression.text)) toolFactories.add(node.name.text);
+    ts.forEachChild(node, findFactories);
+  }
+  findFactories(legacyFile);
   function visitLegacy(node) {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "registerTool") {
       const name = literal(node.arguments[0]);
       if (name) legacyNames.add(name);
       else errors.push("Legacy tool registrations require literal names.");
     }
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && serverClasses.has(node.expression.text)) {
+      const options = unwrapped(node.arguments?.[1]);
+      const tools = options && ts.isObjectLiteralExpression(options) ? unwrapped(property(options, "tools")) : undefined;
+      if (!tools || !ts.isObjectLiteralExpression(tools)) errors.push("Component server tools must use an object literal.");
+      else for (const entry of tools.properties) {
+        if (ts.isSpreadAssignment(entry)) continue;
+        const value = ts.isPropertyAssignment(entry) ? unwrapped(entry.initializer) : undefined;
+        const name = entry.name && (ts.isIdentifier(entry.name) ? entry.name.text : literal(ts.isComputedPropertyName(entry.name) ? entry.name.expression : entry.name));
+        if (!name || !value || !ts.isCallExpression(value) || !ts.isIdentifier(value.expression) || !toolFactories.has(value.expression.text)) errors.push("Component tool registrations require literal names and a createTool factory call.");
+        else legacyNames.add(name);
+      }
+    }
     ts.forEachChild(node, visitLegacy);
   }
-  visitLegacy(sourceFile("convex/mcp.ts", legacyText));
+  visitLegacy(legacyFile);
   for (const entry of mappings.filter((entry) => entry.legacy)) if (!legacyNames.has(entry.name)) errors.push(`Legacy mapping ${entry.browser} names unregistered tool ${entry.name}.`);
   for (const name of toolNames) if (toolNames.filter((value) => value === name).length > 1 || legacyNames.has(name)) errors.push(`Duplicate tool registration ${name}.`);
   return { mappings, errors, legacyNames: [...legacyNames] };

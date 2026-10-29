@@ -10,7 +10,7 @@ const connectUser = z.object({
 });
 
 export type ConnectUser = Readonly<{ userId: string; organizationId: string; actor: string }>;
-export type McpConfig = Readonly<{ issuer: string; resource: string; apiKey: string }>;
+export type McpConfig = Readonly<{ issuer: string; resource: string; requestOrigin: string; apiKey: string }>;
 
 export class McpFailure extends Error {
   constructor(readonly code: "invalid_token" | "reauthorization_required" | "membership_required" | "provider_unavailable" | "invalid_request" | "operation_failed") { super(code); }
@@ -19,11 +19,13 @@ export class McpFailure extends Error {
 export function mcpConfig(env: Record<string, string | undefined>): McpConfig {
   const issuer = new URL(env.WORKOS_MCP_ISSUER ?? "");
   const resource = new URL(env.WORKOS_MCP_RESOURCE ?? `${env.CONVEX_SITE_URL}/mcp`);
+  const ingress = new URL(env.CONVEX_SITE_URL ?? resource.origin);
   if (issuer.protocol !== "https:" || issuer.pathname !== "/" || issuer.search || issuer.hash || issuer.username || issuer.password ||
-      resource.protocol !== "https:" || resource.pathname !== "/mcp" || resource.search || resource.hash || resource.username || resource.password || !env.WORKOS_API_KEY) {
+      resource.protocol !== "https:" || resource.pathname !== "/mcp" || resource.search || resource.hash || resource.username || resource.password ||
+      ingress.protocol !== "https:" || ingress.pathname !== "/" || ingress.search || ingress.hash || ingress.username || ingress.password || !env.WORKOS_API_KEY) {
     throw new McpFailure("provider_unavailable");
   }
-  return { issuer: issuer.origin, resource: resource.href, apiKey: env.WORKOS_API_KEY };
+  return { issuer: issuer.origin, resource: resource.href, requestOrigin: ingress.origin, apiKey: env.WORKOS_API_KEY };
 }
 
 export async function verifyConnectUser(token: string, config: McpConfig, key?: JWTVerifyGetKey): Promise<ConnectUser> {

@@ -21,7 +21,7 @@ const modules = {
   "./googleSheets.ts": () => import("./googleSheets"),
   "./http.ts": () => import("./http"),
 };
-const config = { issuer: "https://login.example.com", resource: "https://some.convex.site/mcp", apiKey: "private-provider-key" };
+const config = { issuer: "https://login.example.com", resource: "https://some.convex.site/mcp", requestOrigin: "https://some.convex.site", apiKey: "private-provider-key" };
 const user = { userId: "user_operator", organizationId: "org_one", actor: "https://login.example.com|user_operator" };
 const membership = { user_id: "user_operator", organization_id: "org_one", organization_name: "One", status: "active" };
 let privateKey: CryptoKey;
@@ -186,6 +186,36 @@ test("HTTP boundary supplies OAuth discovery and rejects unauthorized, expired, 
   expect([400, 413]).toContain(oversized.status);
 });
 
+test("public resource discovery and authenticated calls work through trusted Convex ingress", async () => {
+  provider();
+  const publicResource = "https://hack.outpostcrew.co/mcp";
+  vi.stubEnv("CONVEX_SITE_URL", "https://some.convex.site");
+  vi.stubEnv("WORKOS_MCP_RESOURCE", publicResource);
+  const t = convexTest(schema, modules);
+  for (const path of ["/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource"]) {
+    const discovery = await t.fetch(path);
+    expect(discovery.status).toBe(200);
+    expect(await discovery.json()).toMatchObject({ resource: publicResource, authorization_servers: [config.issuer] });
+  }
+  const missing = await t.fetch("/mcp", { method: "POST" });
+  expect(missing.status).toBe(401);
+  expect(missing.headers.get("WWW-Authenticate")).toBe('Bearer resource_metadata="https://hack.outpostcrew.co/.well-known/oauth-protected-resource/mcp"');
+  const bearer = await token({ aud: publicResource });
+  const response = await request(t, bearer, "tools/call", { name: "list_events", arguments: { organizationId: "org_one" } }, { Origin: "https://hack.outpostcrew.co" });
+  expect(response.status).toBe(200);
+  expect(JSON.parse((await response.json()).result.content[0].text)).toMatchObject({ page: [], isDone: true });
+  expect((await request(t, await token(), "tools/list", {})).status).toBe(401);
+  const maliciousHeaders: Record<string, string>[] = [
+    { Origin: "https://attacker.example", "X-Forwarded-Host": "hack.outpostcrew.co" },
+    { Host: "hack.outpostcrew.co", "X-Forwarded-Host": "some.convex.site" },
+    { Host: "attacker.example", Origin: "https://hack.outpostcrew.co" },
+  ];
+  for (const headers of maliciousHeaders) {
+    expect((await request(t, bearer, "tools/list", {}, headers)).status).toBe(403);
+  }
+  expect((await t.fetch("/mcp?access_token=secret", { method: "POST" })).status).toBe(403);
+});
+
 test("every tool call checks current membership and binds arguments to the OAuth organization", async () => {
   let active = true;
   provider(() => ({ data: active ? [membership] : [], list_metadata: { after: null } }));
@@ -336,4 +366,8 @@ test("style creation enforces structured tokens, limits, and leaves defaults unc
 test("config derives only the built-in deployment resource and rejects insecure URLs", () => {
   expect(mcpConfig({ WORKOS_MCP_ISSUER: config.issuer, CONVEX_SITE_URL: "https://some.convex.site", WORKOS_API_KEY: "key" }).resource).toBe(config.resource);
   expect(() => mcpConfig({ WORKOS_MCP_ISSUER: config.issuer, WORKOS_MCP_RESOURCE: "http://example.com/mcp", WORKOS_API_KEY: "key" })).toThrow("provider_unavailable");
+  expect(mcpConfig({ WORKOS_MCP_ISSUER: config.issuer, WORKOS_MCP_RESOURCE: "https://hack.outpostcrew.co/mcp", CONVEX_SITE_URL: "https://some.convex.site", WORKOS_API_KEY: "key" })).toMatchObject({ resource: "https://hack.outpostcrew.co/mcp", requestOrigin: "https://some.convex.site" });
+  for (const ingress of ["http://some.convex.site", "https://user@some.convex.site", "https://some.convex.site/path", "https://some.convex.site?extra=1", "https://some.convex.site/#fragment"]) {
+    expect(() => mcpConfig({ WORKOS_MCP_ISSUER: config.issuer, WORKOS_MCP_RESOURCE: config.resource, CONVEX_SITE_URL: ingress, WORKOS_API_KEY: "key" })).toThrow("provider_unavailable");
+  }
 });

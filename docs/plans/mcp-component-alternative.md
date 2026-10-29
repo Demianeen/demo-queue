@@ -1,6 +1,6 @@
 ---
 title: Compare component-based MCP authorization
-status: IMPLEMENTING
+status: COMPLETE
 tier: Tier 3
 created: 2026-10-29
 updated: 2026-10-29
@@ -17,10 +17,10 @@ repeatable evidence. Do not migrate Production to the component.
 
 - [x] Read the Principles section of the poteto-mode skill.
 - [x] Phase A: Frame.
-- [ ] Phase B: Design the workflow.
-- [ ] Phase C: Run the loop.
-- [ ] Phase D: Keep the audit trail.
-- [ ] Phase E: Verify and hand back.
+- [x] Phase B: Design the workflow.
+- [x] Phase C: Run the loop.
+- [x] Phase D: Keep the audit trail.
+- [x] Phase E: Verify and hand back.
 
 The parallel coverage has four phases: Frame, Fan out, Aggregate, and Report.
 The architecture has five phases: Ground, Sketch, Agree, Implement, and Scrap.
@@ -74,3 +74,14 @@ Decision trail: `docs/reports/mcp-component-decisions.tsv`.
 Package baseline: component alpha tag `0.1.0-alpha.7`, Convex minimum `^1.43.0`.
 The existing lockfile uses Convex 1.40.0, so the isolated alternative needs a
 Convex dependency update. This update does not change Production dependencies.
+
+## Delivered result
+
+Draft evaluation PR #56 contains the working development alternative, rendered
+comparison report and rerunnable probe. Public endpoint PR #55 is merged and
+authenticated in Production. The component remains development only.
+
+All 140 Node and 126 backend checks passed. Native multi-org consent, fixture
+writes, read-only denial, live owner isolation and revocation were exercised.
+The hosted Preview passed its build and completed personal Google sign-in.
+See the report for the external-provider and lifecycle proof boundaries.

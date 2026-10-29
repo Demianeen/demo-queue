@@ -33,6 +33,14 @@ automatically add organizations joined later. Both the approved set and current
 membership must allow every operation. Existing browser organization switching
 does not change an assistant's approval.
 
+## Review links
+
+[Draft evaluation PR](https://github.com/Demianeen/demo-queue/pull/56).
+[Hosted development settings](https://demo-queue-git-codex-mcp-compo-38ce98-netlyukh-demians-projects.vercel.app/events/connections).
+The hosted Preview completed personal Google sign-in and loaded the existing
+multi-org connection. Native MCP approval currently uses the proven local app.
+Production settings were unchanged by the branch-scoped Preview configuration.
+
 ## Observed evidence
 
 | Check | Result | Evidence |

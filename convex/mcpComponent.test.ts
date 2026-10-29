@@ -806,3 +806,18 @@ test("component tools take event track ids, show track names and keep tracks ins
   expect(readWrite.status).toBe(403);
   expect((await t.run((ctx) => ctx.db.query("submissions").collect())).map((row) => row.trackIds)).toEqual([[robots]]);
 });
+
+test("component tools save GitHub profiles and show them only through the contacts tool", async () => {
+  const t = setup();
+  const manage = await key(t);
+  const read = await key(t, { access: "read" });
+  const event = createdEvent.parse(await success(t, manage.apiKey, "create_event", eventInput("org_one", "github-parity")));
+  const fields = { organizationId: "org_one", slug: event.slug, name: "Sam", demoTitle: "Social demo", description: "Live", phone: "+447700900000" };
+  const submission = createdSubmission.parse(await success(t, manage.apiKey, "add_submission", { ...fields, queueOrder: 0, githubProfile: "https://github.com/sam-builds" }));
+  const contacts = { organizationId: "org_one", slug: event.slug, submissionId: submission.submissionId };
+  expect(await success(t, manage.apiKey, "get_submission_contacts", contacts)).toMatchObject({ githubProfile: "https://github.com/sam-builds" });
+  await success(t, manage.apiKey, "update_submission", { ...fields, submissionId: submission.submissionId, githubProfile: "https://github.com/sam-ships" });
+  expect(await success(t, manage.apiKey, "get_submission_contacts", contacts)).toMatchObject({ githubProfile: "https://github.com/sam-ships" });
+  expect(JSON.stringify(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug }))).not.toContain("sam-ships");
+  expect((await rpc(t, read.apiKey, "tools/call", { name: "get_submission_contacts", arguments: contacts })).status).toBe(403);
+});

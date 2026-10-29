@@ -94,6 +94,8 @@ export default defineSchema({
     description: v.string(),
     phone: v.string(),
     email: v.optional(v.string()),
+    // emailKey(email), or "" without an email. Missing only on rows from before it.
+    normalizedEmail: v.optional(v.string()),
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
     // The presenter's GitHub username or profile link (not the project repo).
@@ -132,6 +134,7 @@ export default defineSchema({
   })
     .index("by_event", ["eventId"])
     .index("by_event_status", ["eventId", "status"])
+    .index("by_event_and_normalized_email", ["eventId", "normalizedEmail"])
     .index("by_participant_token", ["participantToken"])
     .index("by_screenshot_id", ["screenshotId"])
     .index("by_video_delete_at", ["videoDeleteAt"])
@@ -155,10 +158,13 @@ export default defineSchema({
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
     githubProfile: v.optional(v.string()),
+    // emailKey(email), or "" without an email. Missing only on rows from before it.
+    normalizedEmail: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_event", ["eventId"])
-    .index("by_submission", ["submissionId"]),
+    .index("by_submission", ["submissionId"])
+    .index("by_event_and_normalized_email", ["eventId", "normalizedEmail"]),
 
   auditLog: defineTable({
     eventId: v.id("events"),

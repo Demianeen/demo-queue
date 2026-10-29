@@ -3,6 +3,7 @@ import { paginationOptsValidator } from "convex/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { holdsEmails, storedEmailKey } from "./events";
 import { listEventTracks } from "./tracks";
 import { MAX_EVENT_TRACKS, MAX_TRACK_NAME_LENGTH, normalizeTrackInput, trackKey } from "../lib/tracks";
 
@@ -148,5 +149,46 @@ export const migrateCategoriesToTracks = internalAction({
       cursor = page.continueCursor;
     }
     return { dryRun, submissions, createdTracks, events: null, overLimitEvents: null, skipped };
+  },
+});
+
+// One-off backfill: stores the email lookup key on submissions and team members
+// written before the key existed (empty for withdrawn or hidden submissions).
+// Safe to run again; rows that have it are skipped.
+export const backfillNormalizedEmailsPage = internalMutation({
+  args: { table: v.union(v.literal("submissions"), v.literal("teamMembers")), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { table, paginationOpts }) => {
+    const result = await ctx.db.query(table).paginate(paginationOpts);
+    let updated = 0;
+    for (const row of result.page) {
+      if (row.normalizedEmail !== undefined) continue;
+      const submission = "submissionId" in row ? await ctx.db.get(row.submissionId) : row;
+      const holds = submission !== null && holdsEmails(submission.status);
+      // Adds the key only: no other field changes and nothing is deleted.
+      await ctx.db.patch(row._id, { normalizedEmail: storedEmailKey(row.email, holds) });
+      updated += 1;
+    }
+    return { updated, isDone: result.isDone, continueCursor: result.continueCursor };
+  },
+});
+
+/** Run with `npx convex run migrations:backfillNormalizedEmails`. */
+export const backfillNormalizedEmails = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const updated = { submissions: 0, teamMembers: 0 };
+    for (const table of ["submissions", "teamMembers"] as const) {
+      let cursor: string | null = null;
+      for (;;) {
+        const page: { updated: number; isDone: boolean; continueCursor: string } = await ctx.runMutation(
+          internal.migrations.backfillNormalizedEmailsPage,
+          { table, paginationOpts: { numItems: PAGE_SIZE, cursor } },
+        );
+        updated[table] += page.updated;
+        if (page.isDone) break;
+        cursor = page.continueCursor;
+      }
+    }
+    return updated;
   },
 });

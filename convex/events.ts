@@ -303,54 +303,114 @@ export const EMAIL_TAKEN_MESSAGE =
   "You already submitted with this email. Check your inbox for your status link.";
 // Wait this long before emailing the same status link again.
 const STATUS_LINK_RESEND_MS = 2 * 60 * 1000;
-const MAX_EVENT_SUBMISSIONS = 1000;
-const MAX_EVENT_TEAM_MEMBERS = MAX_EVENT_SUBMISSIONS * (MAX_ADDITIONAL_TEAM_MEMBERS + 1);
+type EmailOwner = { submission: Doc<"submissions">; email: string };
+type SubmissionStatus = Doc<"submissions">["status"];
 
-type EmailOwner = { submissionId: Id<"submissions">; email: string };
-
-/**
- * Every email already used in this event, by presenters and team members of
- * submissions that have not been withdrawn, keyed without case.
+/*
+ * Email uniqueness. Invariant: in one event, at most one row across
+ * submissions and team members holds a given normalizedEmail, and only rows of
+ * submissions that hold emails (not withdrawn or hidden) hold one. Every write
+ * keeps it through two helpers: emailFields for any email written onto a row,
+ * and patchSubmissionStatus for any status change. A lookup then reads at
+ * most two rows per table.
  */
-async function eventEmailOwners(ctx: Pick<QueryCtx, "db">, eventId: Id<"events">) {
-  const submissions = await ctx.db
-    .query("submissions")
-    .withIndex("by_event", (q) => q.eq("eventId", eventId))
-    .take(MAX_EVENT_SUBMISSIONS);
-  const active = new Map(
-    submissions.filter((submission) => submission.status !== "withdrawn").map((submission) => [submission._id, submission]),
-  );
-  const owners = new Map<string, EmailOwner>();
-  for (const submission of active.values()) {
-    if (submission.email) owners.set(emailKey(submission.email), { submissionId: submission._id, email: submission.email });
-  }
-  const members = await ctx.db
-    .query("teamMembers")
-    .withIndex("by_event", (q) => q.eq("eventId", eventId))
-    .take(MAX_EVENT_TEAM_MEMBERS);
-  for (const member of members) {
-    const key = member.email ? emailKey(member.email) : "";
-    if (key && active.has(member.submissionId) && !owners.has(key)) {
-      owners.set(key, { submissionId: member.submissionId, email: member.email! });
-    }
-  }
-  return { owners, submissions: active };
+
+/** Withdrawn and hidden submissions free their emails; every other status holds them. */
+export function holdsEmails(status: SubmissionStatus) {
+  return status !== "withdrawn" && status !== "hidden";
 }
 
-/** Rejects emails that repeat within one submission or that another submission already uses. */
-async function assertEmailsAvailable(
-  ctx: Pick<QueryCtx, "db">,
-  eventId: Id<"events">,
-  emails: Array<string | undefined>,
-  ownSubmissionId?: Id<"submissions">,
-) {
+/** The stored lookup key: emailKey(email) while the row holds it, otherwise "". */
+export function storedEmailKey(email: string | undefined, holds: boolean) {
+  return holds && email?.trim() ? emailKey(email) : "";
+}
+
+export const EMAIL_RESTORE_TAKEN_MESSAGE =
+  "Another submission in this event now uses an email from this one. Change that email first.";
+// Rows written before normalizedEmail existed, read until the backfill has run.
+const LEGACY_EMAIL_SCAN_LIMIT = 1000;
+
+async function emailOwners(ctx: Pick<QueryCtx, "db">, eventId: Id<"events">, key: string): Promise<EmailOwner[]> {
+  const [submissions, members, legacySubmissions, legacyMembers] = await Promise.all([
+    ctx.db.query("submissions").withIndex("by_event_and_normalized_email", (q) => q.eq("eventId", eventId).eq("normalizedEmail", key)).take(2),
+    ctx.db.query("teamMembers").withIndex("by_event_and_normalized_email", (q) => q.eq("eventId", eventId).eq("normalizedEmail", key)).take(2),
+    ctx.db.query("submissions").withIndex("by_event_and_normalized_email", (q) => q.eq("eventId", eventId).eq("normalizedEmail", undefined)).take(LEGACY_EMAIL_SCAN_LIMIT + 1),
+    ctx.db.query("teamMembers").withIndex("by_event_and_normalized_email", (q) => q.eq("eventId", eventId).eq("normalizedEmail", undefined)).take(LEGACY_EMAIL_SCAN_LIMIT + 1),
+  ]);
+  if (legacySubmissions.length > LEGACY_EMAIL_SCAN_LIMIT || legacyMembers.length > LEGACY_EMAIL_SCAN_LIMIT) {
+    console.error("Email lookup refused: run migrations:backfillNormalizedEmails", { eventId });
+    throw new ConvexError("Email checks are being updated. Try again in a few minutes.");
+  }
+  if (submissions.length + members.length > 1) {
+    console.error("Email lookup found more than one row holding one email", {
+      eventId,
+      rows: [...submissions, ...members].map((row) => row._id),
+    });
+  }
+  const matches = (row: { email?: string }) => Boolean(row.email) && emailKey(row.email!) === key;
+  const owners: EmailOwner[] = [];
+  for (const submission of [...submissions, ...legacySubmissions.filter(matches)]) {
+    if (holdsEmails(submission.status)) owners.push({ submission, email: submission.email! });
+  }
+  for (const member of [...members, ...legacyMembers.filter(matches)]) {
+    const submission = await ctx.db.get(member.submissionId);
+    if (submission && holdsEmails(submission.status)) owners.push({ submission, email: member.email! });
+  }
+  return owners;
+}
+
+/** Rejects emails that repeat within one submission. */
+function assertDistinctEmails(emails: Array<string | undefined>) {
   const keys = emails.filter((email): email is string => Boolean(email?.trim())).map(emailKey);
   if (new Set(keys).size !== keys.length) throw new ConvexError("Each person needs a different email.");
-  const { owners } = await eventEmailOwners(ctx, eventId);
-  for (const key of keys) {
-    const owner = owners.get(key);
-    if (owner && owner.submissionId !== ownSubmissionId) throw new ConvexError(EMAIL_TAKEN_MESSAGE);
+}
+
+/**
+ * The one way to write an email onto a submission or team member row. When
+ * the row holds emails, checks no other submission in the event uses it.
+ * Returns the email with its lookup key, to spread into the insert or patch.
+ */
+async function emailFields(
+  ctx: Pick<QueryCtx, "db">,
+  eventId: Id<"events">,
+  email: string | undefined,
+  options: { ownSubmissionId?: Id<"submissions">; holds?: boolean; takenMessage?: string } = {},
+) {
+  const holds = options.holds ?? true;
+  const normalizedEmail = storedEmailKey(email, holds);
+  if (normalizedEmail) {
+    const owners = await emailOwners(ctx, eventId, normalizedEmail);
+    if (owners.some((owner) => owner.submission._id !== options.ownSubmissionId)) {
+      throw new ConvexError(options.takenMessage ?? EMAIL_TAKEN_MESSAGE);
+    }
   }
+  return { email, normalizedEmail };
+}
+
+/**
+ * The one way to change a submission's status. Leaving the statuses that hold
+ * emails clears the lookup keys on the submission and its team members; coming
+ * back checks every email again and refuses if another submission took one.
+ */
+async function patchSubmissionStatus(
+  ctx: MutationCtx,
+  submission: Doc<"submissions">,
+  patch: { status: SubmissionStatus; queueOrder?: number | undefined; updatedAt: number },
+) {
+  const holds = holdsEmails(patch.status);
+  if (holds !== holdsEmails(submission.status)) {
+    const members = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
+      .collect();
+    if (holds) assertDistinctEmails([submission.email, ...members.map((member) => member.email)]);
+    const options = { ownSubmissionId: submission._id, holds, takenMessage: EMAIL_RESTORE_TAKEN_MESSAGE };
+    await ctx.db.patch(submission._id, await emailFields(ctx, submission.eventId, submission.email, options));
+    for (const member of members) {
+      await ctx.db.patch(member._id, await emailFields(ctx, submission.eventId, member.email, options));
+    }
+  }
+  await ctx.db.patch(submission._id, patch);
 }
 
 function assertSocialLinks(links: { twitter?: string; linkedin?: string; githubProfile?: string }) {
@@ -924,9 +984,9 @@ export const checkSubmissionEmail = query({
     const key = emailKey(args.email);
     if (!isValidEmail(key)) throw new ConvexError("Enter a valid email address.");
     const event = await findEventBySlug(ctx, args.slug);
-    if (!event) return { taken: false };
-    const { owners } = await eventEmailOwners(ctx, event._id);
-    return { taken: owners.has(key) };
+    // Says nothing about events that are not taking submissions.
+    if (!event || event.submissionsClosedAt !== undefined) return { taken: false };
+    return { taken: (await emailOwners(ctx, event._id, key)).length > 0 };
   },
 });
 
@@ -941,10 +1001,9 @@ export const requestStatusLinkEmail = mutation({
     const key = emailKey(args.email);
     if (!isValidEmail(key)) throw new ConvexError("Enter a valid email address.");
     const event = await eventBySlug(ctx, args.slug);
-    const { owners, submissions } = await eventEmailOwners(ctx, event._id);
-    const owner = owners.get(key);
+    const [owner] = await emailOwners(ctx, event._id, key);
     if (!owner) return { ok: true };
-    const submission = submissions.get(owner.submissionId)!;
+    const { submission } = owner;
     const now = Date.now();
     if (submission.statusLinkEmailedAt !== undefined && now - submission.statusLinkEmailedAt < STATUS_LINK_RESEND_MS) {
       return { ok: true };
@@ -981,10 +1040,11 @@ export const submitDemo = mutation({
     if (eventType(event) !== "demo") {
       throw new ConvexError("Use the hackathon submission form for this event.");
     }
+    if (event.submissionsClosedAt !== undefined) throw new ConvexError("Submissions are closed.");
     const now = Date.now();
     const fields = normalizeSubmissionTextFields(args);
     assertSocialLinks(fields);
-    await assertEmailsAvailable(ctx, event._id, [fields.email]);
+    const email = await emailFields(ctx, event._id, fields.email);
     const tracks = await trackSelection(ctx, event, args.trackIds);
     if (args.screenshotId) await requireUnattachedSubmissionFile(ctx, args.screenshotId);
 
@@ -992,6 +1052,7 @@ export const submitDemo = mutation({
       eventId: event._id,
       participantToken: args.participantToken,
       ...fields,
+      ...email,
       ...tracks,
       screenshotId: args.screenshotId,
       // New submissions land in the pool ("all people"); the admin drags chosen
@@ -1080,10 +1141,10 @@ export const submitHackathon = mutation({
       throw new ConvexError("Confirm that your submission meets the event rules.");
     }
     assertSocialLinks(fields);
-    await assertEmailsAvailable(ctx, event._id, [
-      presenter?.email ?? fields.email,
-      ...teamMemberContacts.map((member) => member.email),
-    ]);
+    assertDistinctEmails([presenter?.email ?? fields.email, ...teamMemberContacts.map((member) => member.email)]);
+    const presenterEmail = await emailFields(ctx, event._id, presenter?.email ?? fields.email);
+    const memberEmails = [];
+    for (const contact of teamMemberContacts) memberEmails.push(await emailFields(ctx, event._id, contact.email));
     const tracks = await trackSelection(ctx, event, args.trackIds);
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
@@ -1092,7 +1153,7 @@ export const submitHackathon = mutation({
       ...tracks,
       name: presenter?.name ?? fields.name,
       phone: presenter?.whatsappPhone ?? fields.phone,
-      email: presenter?.email ?? fields.email,
+      ...presenterEmail,
       teamName,
       githubUrl,
       videoUrl,
@@ -1109,7 +1170,7 @@ export const submitHackathon = mutation({
         eventId: event._id,
         submissionId,
         name: memberName,
-        email: contact?.email,
+        ...(memberEmails[index] ?? (await emailFields(ctx, event._id, undefined))),
         whatsappPhone: contact?.whatsappPhone,
         twitter: contact?.twitter,
         linkedin: contact?.linkedin,
@@ -1155,11 +1216,13 @@ export async function adminAddSubmissionForOrganization(
     const toPool = args.list === "pool";
     const fields = normalizeSubmissionTextFields(args);
     const tracks = await trackSelection(ctx, event, args.trackIds);
+    const email = await emailFields(ctx, event._id, fields.email);
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,
       ...fields,
+      ...email,
       ...tracks,
       status: toPool ? "candidate" : "queued",
       queueOrder: toPool ? undefined : args.queueOrder,
@@ -1228,10 +1291,13 @@ export async function adminAddTestSubmissionsForOrganization(
         ? normalizeHackathonVideoUrl(submission.videoUrl) ?? undefined
         : undefined;
       const tracks = await trackSelection(ctx, event, submission.trackIds);
+      // Rows inserted earlier in this batch already hold their emails, so repeats are caught too.
+      const email = await emailFields(ctx, event._id, fields.email);
       const submissionId = await ctx.db.insert("submissions", {
         eventId: event._id,
         participantToken: submission.participantToken,
         ...fields,
+        ...email,
         ...tracks,
         teamName,
         githubUrl,
@@ -1248,6 +1314,7 @@ export async function adminAddTestSubmissionsForOrganization(
           eventId: event._id,
           submissionId,
           name: memberName,
+          ...(await emailFields(ctx, event._id, undefined)),
           createdAt: now,
         });
       }
@@ -1289,9 +1356,13 @@ export const editParticipantContact = mutation({
 
     const contact = normalizeContactTextFields(args);
     assertSocialLinks(contact);
-    await assertEmailsAvailable(ctx, event._id, [contact.email], submission._id);
+    const email = await emailFields(ctx, event._id, contact.email, {
+      ownSubmissionId: submission._id,
+      holds: holdsEmails(submission.status),
+    });
     await ctx.db.patch(submission._id, {
       ...contact,
+      ...email,
       updatedAt: Date.now(),
     });
     await queueJudgingSheetSync(ctx, event);
@@ -1312,7 +1383,7 @@ export const withdrawSubmission = mutation({
     }
     if (event.submissionsClosedAt !== undefined) throw new ConvexError("Submissions are closed.");
 
-    await ctx.db.patch(submission._id, { status: "withdrawn", updatedAt: Date.now() });
+    await patchSubmissionStatus(ctx, submission, { status: "withdrawn", updatedAt: Date.now() });
     await logAction(ctx, event._id, "submission_withdrawn", "participant", submission._id);
     await queueJudgingSheetSync(ctx, event);
   },
@@ -1863,8 +1934,13 @@ export async function updateSubmissionForOrganization(
     }
 
     const { category, githubProfile, ...fields } = normalizeSubmissionTextFields(args);
+    const email = await emailFields(ctx, event._id, fields.email, {
+      ownSubmissionId: submission._id,
+      holds: holdsEmails(submission.status),
+    });
     await ctx.db.patch(args.submissionId, {
       ...fields,
+      ...email,
       ...(args.githubProfile !== undefined ? { githubProfile } : {}),
       // Legacy clients still send a category; newer ones send tracks instead.
       ...(args.category !== undefined ? { category } : {}),
@@ -2383,7 +2459,7 @@ export async function hideSubmissionForOrganization(
     }
 
     const now = Date.now();
-    await ctx.db.patch(args.submissionId, {
+    await patchSubmissionStatus(ctx, submission, {
       status: "hidden",
       queueOrder: undefined,
       updatedAt: now,
@@ -2419,7 +2495,7 @@ export async function restoreSubmissionForOrganization(
     const now = Date.now();
     // Restoring a hidden person returns them to the pool, not straight into the
     // lineup; the admin drags them into the running order if they want them.
-    await ctx.db.patch(args.submissionId, {
+    await patchSubmissionStatus(ctx, submission, {
       status: "candidate",
       queueOrder: undefined,
       updatedAt: now,
@@ -2459,7 +2535,7 @@ export async function reorderLineupForOrganization(
       ) {
         continue;
       }
-      await ctx.db.patch(submissionId, {
+      await patchSubmissionStatus(ctx, submission, {
         status: "queued",
         queueOrder: index + 1,
         updatedAt: now,
@@ -2511,7 +2587,7 @@ export async function shuffleLineupForOrganization(
     const now = Date.now();
     for (let i = 0; i < eligible.length; i += 1) {
       const inLineup = i < target;
-      await ctx.db.patch(eligible[i]._id, {
+      await patchSubmissionStatus(ctx, eligible[i], {
         status: inLineup ? "queued" : "candidate",
         queueOrder: inLineup ? i + 1 : undefined,
         updatedAt: now,
@@ -2547,24 +2623,25 @@ export async function setLineupOrderForOrganization(
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
-    const eligibleIds = new Set(
+    const eligible = new Map(
       submissions
         .filter((s) => s.status === "queued" || s.status === "candidate")
-        .map((s) => s._id),
+        .map((s) => [s._id, s]),
     );
+    const eligibleIds = new Set(eligible.keys());
 
     const now = Date.now();
     const placed = new Set<string>();
     let order = 1;
     for (const id of args.orderedIds) {
       if (!eligibleIds.has(id) || placed.has(id)) continue;
-      await ctx.db.patch(id, { status: "queued", queueOrder: order, updatedAt: now });
+      await patchSubmissionStatus(ctx, eligible.get(id)!, { status: "queued", queueOrder: order, updatedAt: now });
       placed.add(id);
       order += 1;
     }
     for (const id of eligibleIds) {
       if (!placed.has(id)) {
-        await ctx.db.patch(id, { status: "candidate", queueOrder: undefined, updatedAt: now });
+        await patchSubmissionStatus(ctx, eligible.get(id)!, { status: "candidate", queueOrder: undefined, updatedAt: now });
       }
     }
 
@@ -2598,7 +2675,7 @@ export async function moveToPoolForOrganization(
     }
 
     const now = Date.now();
-    await ctx.db.patch(args.submissionId, {
+    await patchSubmissionStatus(ctx, submission, {
       status: "candidate",
       queueOrder: undefined,
       updatedAt: now,
@@ -2661,7 +2738,7 @@ export async function markNoShowForOrganization(
     }
 
     const now = Date.now();
-    await ctx.db.patch(current._id, {
+    await patchSubmissionStatus(ctx, current, {
       status: "no_show",
       queueOrder: undefined,
       updatedAt: now,
@@ -2708,7 +2785,7 @@ export async function pickNextForOrganization(
     const demoRemainingMs = currentDemoTimerRemaining(event, now);
     const demoTimerStatus = event.demoTimerStatus ?? "idle";
 
-    await ctx.db.patch(current._id, {
+    await patchSubmissionStatus(ctx, current, {
       status: "done",
       queueOrder: undefined,
       updatedAt: now,
@@ -2766,7 +2843,7 @@ export async function restorePreviousPresenterForOrganization(
         ? snapshot.demoTimerDurationMs
         : clampSignedTimerMs(snapshot.demoTimerRemainingMs);
 
-    await ctx.db.patch(snapshot.currentSubmissionId, {
+    await patchSubmissionStatus(ctx, submission, {
       status: "queued",
       queueOrder: snapshot.currentQueueOrder ?? now,
       updatedAt: now,

@@ -54,7 +54,7 @@ async function fixture(eventType: "demo" | "hackathon" = "demo", t = convexTest(
     ];
     const ids = [];
     for (const row of rows) ids.push(await ctx.db.insert("submissions", {
-      ...fields, eventId, name: row.label, demoTitle: row.label,
+      ...fields, eventId, name: row.label, demoTitle: row.label, email: `${row.label.toLowerCase()}@example.com`,
       participantToken: `private-${row.label}`, status: row.status,
       queueOrder: row.queueOrder, createdAt: 1, updatedAt: 1,
     }));
@@ -241,7 +241,7 @@ test("shuffle draws only eligible demos up to the target and keeps an ordered li
 test("adding and editing demos generates a private capability and matches normalized browser data", async () => {
   const p = await pair();
   for (const list of ["lineup", "pool"] satisfies ("lineup" | "pool")[]) {
-    const input = { slug, ...fields, name: "  New presenter  ", demoTitle: `Added ${list}`, queueOrder: 9, list };
+    const input = { slug, ...fields, name: "  New presenter  ", demoTitle: `Added ${list}`, email: `added-${list}@example.com`, queueOrder: 9, list };
     await p.browser.browser.mutation(api.events.adminAddSubmission, { ...input, participantToken: `browser-${list}` });
     const result = await p.mcp.t.mutation(internal.mcpAdmin.addSubmission, { principal, input: { ...input, slug: p.mcp.slug } });
     const row = await p.mcp.t.run((ctx) => ctx.db.get(result.submissionId));
@@ -261,7 +261,7 @@ test("adding and editing demos generates a private capability and matches normal
 
 test.each(["demo", "hackathon"] satisfies ("demo" | "hackathon")[])("test batches support %s fixtures, nested team members and atomic validation", async (eventType) => {
   const p = await pair(eventType);
-  const submissions = [1, 2].map((index) => ({ ...fields, demoTitle: `Seeded ${index}`, teamName: `Team ${index}`, teamMembers: ["One", "Two"], githubUrl: "https://github.com/example/project" }));
+  const submissions = [1, 2].map((index) => ({ ...fields, demoTitle: `Seeded ${index}`, email: `seeded-${index}@example.com`, teamName: `Team ${index}`, teamMembers: ["One", "Two"], githubUrl: "https://github.com/example/project" }));
   await p.browser.browser.mutation(api.events.adminAddTestSubmissions, { slug, submissions: submissions.map((s, index) => ({ ...s, participantToken: `batch-${index}` })) });
   const result = await p.mcp.t.mutation(internal.mcpAdmin.addTestSubmissions, { principal, input: { slug: p.mcp.slug, submissions } });
   expect(result.submissionIds).toHaveLength(2);
@@ -291,7 +291,7 @@ test("private admin reads preserve all six groups and explicitly separate contac
   }
   expect(admin.lineup[0]).toMatchObject({ teamMembers: ["Team mate"] });
   const contacts = await f.t.query(internal.mcpAdmin.getSubmissionContacts, { principal, input: { slug, submissionId: f.first } });
-  expect(contacts).toMatchObject({ id: f.first, phone: fields.phone, email: fields.email, teamMemberContacts: [{ name: "Team mate", email: "member@example.com", whatsappPhone: "+447700900124" }] });
+  expect(contacts).toMatchObject({ id: f.first, phone: fields.phone, email: "first@example.com", teamMemberContacts: [{ name: "Team mate", email: "member@example.com", whatsappPhone: "+447700900124" }] });
   expect(contacts).not.toHaveProperty("participantToken");
   expect(await f.t.query(internal.mcpAdmin.getEventOverview, { principal, input: { slug } })).toEqual(await f.browser.query(api.events.getOrganizationEventDetails, { slug }));
 });

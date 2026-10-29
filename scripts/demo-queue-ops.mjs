@@ -250,8 +250,10 @@ function pickEvent(events, slug) {
     return exact;
   }
 
-  const realEvents = events.filter((event) => !TEST_EVENT_RE.test(`${event.name} ${event.slug}`));
-  const candidates = (realEvents.length > 0 ? realEvents : events).slice();
+  // Practice events are never picked on their own: name one with --slug.
+  const pickable = events.filter((event) => event.practice !== true);
+  const realEvents = pickable.filter((event) => !TEST_EVENT_RE.test(`${event.name} ${event.slug}`));
+  const candidates = (realEvents.length > 0 ? realEvents : pickable).slice();
   candidates.sort((a, b) => {
     const publishedDelta = Number(Boolean(b.queuePublished)) - Number(Boolean(a.queuePublished));
     if (publishedDelta !== 0) return publishedDelta;
@@ -392,6 +394,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 export {
+  pickEvent,
   localProcessEnv,
   parseArgs,
   parseAdminUrl,

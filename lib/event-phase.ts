@@ -61,6 +61,7 @@ export type PhaseEffect =
   | "judging_reopen"
   | "judging_skipped"
   | "queue_publish"
+  | "lineup_stays_published"
   | "finish"
   | "unfinish";
 
@@ -76,6 +77,7 @@ export const PHASE_EFFECT_TEXT: Record<PhaseEffect, string> = {
   judging_reopen: "Judging opens again and the timer carries on.",
   judging_skipped: "Judging has not started, so it is skipped.",
   queue_publish: "The lineup is published to participants.",
+  lineup_stays_published: "The lineup stays published.",
   finish: "The event is marked finished.",
   unfinish: "The event is no longer marked finished.",
 };

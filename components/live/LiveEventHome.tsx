@@ -117,7 +117,7 @@ export function PhaseSwitch({ slug, phase, phases }: { slug: string; phase: Even
         {phases.map((item) => <button key={item} type="button" role="radio" aria-checked={item === phase} disabled={busy} onClick={() => void choose(item)}>{PHASE_LABELS[item]}</button>)}
       </div>
     </div>
-    {pending && <div role="dialog" aria-labelledby="phase-confirm-title" className={styles.confirm} onKeyDown={(keyEvent) => { if (keyEvent.key === "Escape") setPending(null); }}>
+    {pending && <div role="dialog" data-open="" aria-labelledby="phase-confirm-title" className={styles.confirm} onKeyDown={(keyEvent) => { if (keyEvent.key === "Escape") setPending(null); }}>
       <h3 id="phase-confirm-title">Back to {PHASE_LABELS[pending.to].toLowerCase()}?</h3>
       <p>{confirmText(pending.preview)}</p>
       <div className={styles.confirmActions}>

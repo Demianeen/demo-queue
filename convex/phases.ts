@@ -158,6 +158,8 @@ function stepEffects(event: Pick<Doc<"events">, "eventType" | "judgingStatus" | 
     return event.judgingStatus === "closed" ? ["judging_reopen", "scores_kept"] : [];
   }
   if (!hackathon && from === "submissions" && to === "stage") return event.queuePublished ? [] : ["queue_publish"];
+  // Proposed: going back leaves the lineup published, and the confirm says so.
+  if (!hackathon && from === "stage" && to === "submissions") return event.queuePublished ? ["lineup_stays_published"] : [];
   if (to === "finished") return ["finish"];
   if (from === "finished") return ["unfinish"];
   return [];

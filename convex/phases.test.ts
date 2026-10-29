@@ -102,6 +102,11 @@ test("a demo night has no judging phase, and its stage publishes the lineup", as
   await t.mutation(api.phases.setPhase, { slug: "demo", phase: "stage" });
   expect(await eventOf(t, "demo")).toMatchObject({ phase: "stage", queuePublished: true, stageScreenMode: "demo" });
   await expect(t.mutation(api.phases.reopenSubmissions, { slug: "demo" })).rejects.toThrow("always open");
+  // Going back says the lineup stays published, and leaves it so.
+  const back = await t.query(api.phases.previewPhaseChange, { slug: "demo", phase: "submissions" });
+  expect(back.effects).toEqual([{ code: "lineup_stays_published", text: "The lineup stays published." }]);
+  await t.mutation(api.phases.setPhase, { slug: "demo", phase: "submissions" });
+  expect(await eventOf(t, "demo")).toMatchObject({ phase: "submissions", queuePublished: true });
 });
 
 test("reopen submissions on its own, and close them again keeps judging set up", async () => {

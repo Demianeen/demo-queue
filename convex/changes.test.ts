@@ -311,3 +311,16 @@ test("the list never offers undo for a change it did not check", async () => {
   // Rows carry the summary only: never the stored documents or their values (the assistant tool returns the same rows).
   expect(Object.keys(row).sort()).toEqual(["actorUserId", "canUndo", "createdAt", "id", "isUndo", "isYou", "kind", "subjectId", "summary", "undoBlockedReason", "undoLabel", "undoneAt", "via"]);
 });
+
+test("a timer change cannot be undone once the event moved to another phase", async () => {
+  const { t } = setupTest();
+  const { eventId } = await createEvent(t, { slug: "demo", eventType: "demo" });
+  await addProject(t, eventId, 0);
+  await t.mutation(api.events.setStageTimerDuration, { slug: "demo", durationMs: 5 * 60_000 });
+  const [timerChange] = (await t.query(api.changes.listRecentChanges, { slug: "demo" })).changes;
+  expect(timerChange).toMatchObject({ summary: "set the stage timer to 5 minutes", canUndo: true });
+  await t.mutation(api.phases.setPhase, { slug: "demo", phase: "stage" });
+  const reason = "The event has moved to Stage since, so this timer change can't be undone. Set the timer again instead.";
+  expect((await t.query(api.changes.listRecentChanges, { slug: "demo" })).changes.find((row) => row.id === timerChange.id)).toMatchObject({ canUndo: false, undoBlockedReason: reason });
+  await expect(t.mutation(api.changes.undoChange, { slug: "demo", changeId: timerChange.id })).rejects.toThrow(reason);
+});

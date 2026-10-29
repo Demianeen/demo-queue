@@ -13,6 +13,7 @@ const MAX_LIMIT = 100;
 const CONFLICT_SCAN = 200;
 /** Documents the list reads, newest change first, to check what can be undone. */
 const LIST_CHECK_BUDGET = 1_000;
+const TIMER_CHANGE = /_timer_/;
 export const TOO_LARGE_TO_CHECK = "This change is too large to check here. Undo newer changes first.";
 const TABLES_WITH_UPDATED_AT = new Set<ChangeTable>(["events", "submissions", "reviews", "judgeAccess", "normalizationDecisions"]);
 
@@ -97,6 +98,11 @@ async function undoBlocker(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, chan
       return `The event has moved to ${PHASE_LABELS[phase]} since. Move it there from the phase switch instead.`;
     }
     return null;
+  }
+  // A timer change belongs to its phase: moving phases pauses or resumes
+  // timers, so undoing one in another phase would get round those rules.
+  if (TIMER_CHANGE.test(change.kind) && change.phaseAtChange && eventPhase(event) !== change.phaseAtChange) {
+    return `The event has moved to ${PHASE_LABELS[eventPhase(event)]} since, so this timer change can't be undone. Set the timer again instead.`;
   }
   const stale = await staleParts(ctx, change);
   if (stale.some((part) => part.missing)) return "Something this change touched was deleted since, so it can't be undone.";

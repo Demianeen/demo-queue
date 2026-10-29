@@ -248,6 +248,8 @@ export default defineSchema({
     undoLabel: undoLabelValidator,
     fromPhase: v.optional(phaseValidator),
     toPhase: v.optional(phaseValidator),
+    // The phase the event was in when a snapshot change was made.
+    phaseAtChange: v.optional(phaseValidator),
     docs: v.array(changeDocValidator),
     undoOf: v.optional(v.id("eventChanges")),
     undoneAt: v.optional(v.number()),

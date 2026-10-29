@@ -2,7 +2,7 @@ import { v, type Infer } from "convex/values";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { OrganizationPrincipal } from "./organizationAuth";
-import type { EventPhase } from "../lib/event-phase";
+import { eventPhase, type EventPhase } from "../lib/event-phase";
 
 /**
  * The organiser change log behind Recent changes and Undo. An undoable patch
@@ -265,6 +265,7 @@ export async function insertChange(
     ...(undo === "none" && noUndoReason ? { noUndoReason } : {}),
     fromPhase: input.fromPhase,
     toPhase: input.toPhase,
+    ...(undo === "snapshot" ? { phaseAtChange: eventPhase(input.event) } : {}),
     docs: stored,
     undoOf: extra.undoOf,
     createdAt: Date.now(),

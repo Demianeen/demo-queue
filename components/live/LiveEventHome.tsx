@@ -214,11 +214,14 @@ export function ExactTimer({ label, timer, help, onSet, onPause, onResume, resum
     try { await (running ? onPause() : onResume()); } catch (error) { toast.error(errorText(error, "Could not change the timer.")); } finally { setBusy(false); }
   }
 
+  // Shortcuts read the latest time and handlers, so a preset never works from a stale clock.
+  const latest = useRef({ set, toggle, remaining });
+  useEffect(() => { latest.current = { set, toggle, remaining }; });
   const commands = useMemo<Command[]>(() => [
-    { id: "timer-toggle", group: "This page", label: running ? "Pause timer" : `${resumeLabel} timer`, keys: ["P"], run: () => void toggle() },
-    { id: "timer-edit", group: "This page", label: "Set the time exactly", keys: ["E"], run: () => setDraft(formatClock(remaining)) },
-    ...PRESETS.map((minutes) => ({ id: `timer-${minutes}`, group: "This page", label: `Set the timer to ${minutes} minutes`, keys: ["T", ...String(minutes).split("")], run: () => void set(minutes * 60_000) })),
-  ], [running, resumeLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+    { id: "timer-toggle", group: "This page", label: running ? "Pause timer" : `${resumeLabel} timer`, keys: ["P"], run: () => void latest.current.toggle() },
+    { id: "timer-edit", group: "This page", label: "Set the time exactly", keys: ["E"], run: () => setDraft(formatClock(latest.current.remaining)) },
+    ...PRESETS.map((minutes) => ({ id: `timer-${minutes}`, group: "This page", label: `Set the timer to ${minutes} minutes`, keys: ["T", ...String(minutes).split("")], run: () => void latest.current.set(minutes * 60_000) })),
+  ], [running, resumeLabel]);
   useCommands("live-timer", commands);
 
   return <section className={styles.section} aria-label={label}>

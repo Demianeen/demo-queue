@@ -32,6 +32,8 @@ export const MAX_TEST_SUBMISSIONS_PER_CALL = 50;
 export const MAX_TEST_JUDGES = 10;
 const PRACTICE_LIST_LIMIT = 100;
 const TIDY_BATCH = 400;
+/** Change rows can be up to 600 KB each, so a tidy pass deletes only a few. */
+const TIDY_CHANGE_ROWS = 20;
 const DEFAULT_MEET_URL = "https://meet.google.com/";
 // Ofcom keeps 020 7946 0000 to 0999 for drama, so these never reach a real phone.
 const TEST_PHONE_PREFIX = "+44 20 7946 0";
@@ -488,11 +490,17 @@ export const tidyPracticeEvents = internalMutation({
     if (budget > 0) await remove(ids(await ctx.db.query("normalizationDecisions").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("judgingDecisions").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
-    if (budget > 0) await remove(ids(await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
+    if (budget > 0) {
+      const changes = await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(Math.min(budget, TIDY_CHANGE_ROWS));
+      await remove(ids(changes));
+      // A full batch may leave more: finish them in the next pass before deleting the event.
+      if (changes.length === TIDY_CHANGE_ROWS) budget = 0;
+    }
     if (budget > 0) await remove(ids(await ctx.db.query("auditLog").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("teamMembers").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("eventTracks").withIndex("by_event_and_order", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("lumaGuestLookups").withIndex("by_event_and_email", (q) => q.eq("eventId", eventId)).take(budget)));
+    if (budget > 0) await remove(ids(await ctx.db.query("eventSlugAliases").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) {
       const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget);
       for (const row of submissions) {

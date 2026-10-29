@@ -30,7 +30,7 @@ export default defineSchema({
   eventSlugAliases: defineTable({
     slug: v.string(),
     eventId: v.id("events"),
-  }).index("by_slug", ["slug"]),
+  }).index("by_slug", ["slug"]).index("by_event", ["eventId"]),
   organizationStyles: defineTable({
     organizationId: v.string(), name: v.string(), theme: eventThemeValidator,
     preset: v.optional(visualStyleValidator),

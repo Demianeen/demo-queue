@@ -190,6 +190,13 @@ test("old practice events are tidied away, and real events never are", async () 
   const liveId = await liveHackathon(t);
   const { eventId } = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "copy", slug: "devday" }, testSubmissions: 3, testJudges: 2 });
   const fresh = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "demo" }, testSubmissions: 1, testJudges: 0 });
+  // A renamed practice event leaves an old slug, and many change rows to delete a few at a time.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("eventSlugAliases", { slug: "old-practice-slug", eventId });
+    for (let index = 0; index < 45; index += 1) {
+      await ctx.db.insert("eventChanges", { eventId, actor: "test|user_01DEMIAN", via: "app", kind: "test", summary: `change ${index}`, undo: "none", undoLabel: "Undo", docs: [], createdAt: Date.now() });
+    }
+  });
   // The live event is old too, but it is not a practice event.
   vi.setSystemTime(new Date("2026-11-14T18:00:00Z"));
   await t.run((ctx) => ctx.db.patch(fresh.eventId, { updatedAt: Date.now() }));
@@ -201,8 +208,10 @@ test("old practice events are tidied away, and real events never are", async () 
     tracks: await ctx.db.query("eventTracks").withIndex("by_event_and_order", (q) => q.eq("eventId", eventId)).collect(),
     live: await ctx.db.get(liveId),
     fresh: await ctx.db.get(fresh.eventId),
+    aliases: await ctx.db.query("eventSlugAliases").withIndex("by_event", (q) => q.eq("eventId", eventId)).collect(),
+    changes: await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", eventId)).collect(),
   }));
-  expect(rows).toMatchObject({ event: null, submissions: [], tracks: [] });
+  expect(rows).toMatchObject({ event: null, submissions: [], tracks: [], aliases: [], changes: [] });
   expect(rows.live).not.toBeNull();
   expect(rows.fresh).not.toBeNull();
 });

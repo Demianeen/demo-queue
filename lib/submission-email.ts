@@ -1,5 +1,9 @@
 // The confirmation email a team gets after submitting, and again on request.
 // Pure functions so the copy and the escaping can be tested without Convex.
+//
+// Anyone can type someone else's email into the form, so the only link in
+// this email is our own status link. What participants typed is plain text,
+// and their GitHub and video links stay on the status page.
 
 export type SubmissionEmailInput = {
   reason: "submitted" | "resend";
@@ -10,8 +14,6 @@ export type SubmissionEmailInput = {
   teamName?: string;
   people: string[];
   tracks: string[];
-  githubUrl?: string;
-  videoUrl?: string;
   statusUrl: string;
 };
 
@@ -60,15 +62,13 @@ export function buildSubmissionEmail(input: SubmissionEmailInput): SubmissionEma
       : 'Only people with the link can open the status page, so do not forward it outside your team. Teammates can get their own copy: on the submit page, they enter their email and choose "Email me the link again".'
     : "Only people with the link can open the status page, so do not forward it.";
 
-  const rows: Array<[string, string, string?]> = [[isTeam ? "Project" : "Demo", title]];
+  const rows: Array<[string, string]> = [[isTeam ? "Project" : "Demo", title]];
   if (isTeam) {
     const people = input.people.map(oneLine).filter(Boolean).join(", ");
     const team = [oneLine(input.teamName ?? ""), people].filter(Boolean).join(" · ");
     if (team) rows.push(["Team", team]);
   }
   rows.push(["Tracks", input.tracks.length ? input.tracks.map(oneLine).join(" · ") : "None"]);
-  if (input.githubUrl) rows.push(["GitHub", displayUrl(input.githubUrl), input.githubUrl]);
-  if (input.videoUrl) rows.push(["Demo video", displayUrl(input.videoUrl), input.videoUrl]);
 
   const text = [
     heading,
@@ -83,10 +83,7 @@ export function buildSubmissionEmail(input: SubmissionEmailInput): SubmissionEma
   ].join("\n");
 
   const rowHtml = rows
-    .map(([label, value, href]) => {
-      const cell = href && isHttpUrl(href) ? `<a href="${escapeHtml(href)}" style="color:#1a1a18">${escapeHtml(value)}</a>` : escapeHtml(value);
-      return `<tr><td style="padding:8px 12px 8px 0;color:#5a5a52;font-size:13px;vertical-align:top;white-space:nowrap">${escapeHtml(label)}</td><td style="padding:8px 0;font-size:14px;color:#1a1a18">${cell}</td></tr>`;
-    })
+    .map(([label, value]) => `<tr><td style="padding:8px 12px 8px 0;color:#5a5a52;font-size:13px;vertical-align:top;white-space:nowrap">${escapeHtml(label)}</td><td style="padding:8px 0;font-size:14px;color:#1a1a18">${escapeHtml(value)}</td></tr>`)
     .join("");
 
   const html = `<!doctype html>
@@ -105,17 +102,4 @@ export function buildSubmissionEmail(input: SubmissionEmailInput): SubmissionEma
 </body></html>`;
 
   return { subject, html, text };
-}
-
-function isHttpUrl(value: string) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:";
-  } catch {
-    return false;
-  }
-}
-
-function displayUrl(value: string) {
-  return value.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "");
 }

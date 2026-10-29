@@ -110,8 +110,6 @@ export const sendStatusLinkEmail = internalMutation({
       teamName: submission.teamName,
       people: [submission.name, ...members.map((member) => member.name)],
       tracks,
-      githubUrl: submission.githubUrl,
-      videoUrl: submission.videoUrl,
       statusUrl,
     });
     const resend = new Resend(components.resend, { apiKey: config.apiKey, testMode: false });

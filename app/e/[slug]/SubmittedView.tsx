@@ -8,33 +8,6 @@ import { socialUrl, type SocialKind } from "@/lib/social";
 
 export type SubmittedViewData = NonNullable<FunctionReturnType<typeof api.events.getSubmittedView>>;
 
-const STORAGE_PREFIX = "demo-queue:submitted:";
-
-/** The participant token this browser submitted with, if it remembers one. */
-export function readRememberedSubmission(slug: string) {
-  try {
-    return window.localStorage.getItem(STORAGE_PREFIX + slug);
-  } catch {
-    return null;
-  }
-}
-
-export function rememberSubmission(slug: string, participantToken: string) {
-  try {
-    window.localStorage.setItem(STORAGE_PREFIX + slug, participantToken);
-  } catch {
-    // Private windows and blocked storage just skip the locked view.
-  }
-}
-
-export function forgetSubmission(slug: string) {
-  try {
-    window.localStorage.removeItem(STORAGE_PREFIX + slug);
-  } catch {
-    // Nothing to forget.
-  }
-}
-
 const submittedAtFormat = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
   month: "short",

@@ -7,6 +7,7 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { ADMIN_TOOLS } from "./mcpTools";
 import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
+import { summarySourceKey } from "../lib/ai-summary";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts", "!./convex.config.ts"]);
 type Test = ReturnType<typeof setup>;
@@ -820,4 +821,27 @@ test("component tools save GitHub profiles and show them only through the contac
   expect(await success(t, manage.apiKey, "get_submission_contacts", contacts)).toMatchObject({ githubProfile: "https://github.com/sam-ships" });
   expect(JSON.stringify(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug }))).not.toContain("sam-ships");
   expect((await rpc(t, read.apiKey, "tools/call", { name: "get_submission_contacts", arguments: contacts })).status).toBe(403);
+});
+
+test("component tools show each project's AI summary and mark it stale after an edit", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "");
+  const t = setup();
+  const manage = await key(t);
+  const read = await key(t, { access: "read" });
+  const event = createdEvent.parse(await success(t, manage.apiKey, "create_event", { ...eventInput("org_one", "summary-parity"), eventType: "hackathon" }));
+  const person = { name: "Sam", demoTitle: "Guardrail", description: "Policy checks for agent tool calls", phone: "+447700900000" };
+  const fields = { organizationId: "org_one", slug: event.slug, ...person };
+  const added = z.object({ submissionIds: z.array(z.string()) }).parse(await success(t, manage.apiKey, "add_test_submissions", { organizationId: "org_one", slug: event.slug, submissions: [{ ...person, teamName: "Guardrail team" }] }));
+  const submission = { submissionId: added.submissionIds[0] };
+  await success(t, manage.apiKey, "close_submissions", { organizationId: "org_one", slug: event.slug });
+  await t.run(async (ctx) => {
+    const id = ctx.db.normalizeId("submissions", submission.submissionId);
+    const row = id ? await ctx.db.get(id) : null;
+    if (!id || !row) throw new Error("Submission missing");
+    await ctx.db.patch(id, { aiSummary: { whatItDoes: "Checks tool calls.", howItWorks: "A proxy.", demoFocus: "A blocked call.", sourceKey: summarySourceKey(row), model: "test", usedReadme: false, generatedAt: 1 } });
+  });
+  const summary = { whatItDoes: "Checks tool calls.", howItWorks: "A proxy.", demoFocus: "A blocked call.", usedReadme: false };
+  expect(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug })).toMatchObject({ pool: [{ id: submission.submissionId, aiSummary: { ...summary, stale: false } }] });
+  await success(t, manage.apiKey, "update_submission", { ...fields, submissionId: submission.submissionId, description: "A different description" });
+  expect(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug })).toMatchObject({ pool: [{ aiSummary: { ...summary, stale: true } }] });
 });

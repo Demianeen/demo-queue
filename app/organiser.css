@@ -325,3 +325,9 @@ body:has(.dq-app) .admin-modal-field span { font-size: 12px; font-weight: 500; c
 body:has(.dq-app) .admin-modal-error, body:has(.dq-app) .ai-shuffle-error { color: var(--dq-destructive); font-size: 12px; }
 body:has(.dq-app) .split-action-menu { border-radius: 10px; }
 body:has(.dq-app) .split-action-item small { color: var(--dq-fg-2); }
+
+/* Tracks: 0 to many chips per project, or muted "Main event" when it entered none. */
+.dq-track-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.dq-track-chip { height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid var(--dq-line); background: var(--dq-card); color: var(--dq-fg-2); font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; white-space: nowrap; }
+.dq-track-none { font-size: 12px; color: var(--dq-fg-3); white-space: nowrap; }
+.dq-practice-badge { height: 20px; padding: 0 8px; border-radius: 10px; background: var(--dq-warning-fg); color: var(--dq-on-dark); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; flex: none; }

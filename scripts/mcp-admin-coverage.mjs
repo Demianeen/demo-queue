@@ -10,7 +10,7 @@ export const UI_EXCLUSIONS = [
   ...["getStage", "submitDemo", "submitHackathon"].map((name) => ({ file: "app/e/[slug]/ClientPage.tsx", browser: `events.${name}`, reason: "Participant event page, not organization administration." })),
   { file: "app/stage/[slug]/ClientPage.tsx", browser: "events.getStage", reason: "Public stage display. Operator presentation controls have separate tools." },
   ...["getParticipant", "editParticipantContact", "withdrawSubmission"].map((name) => ({ file: "app/s/[slug]/[token]/ClientPage.tsx", browser: `events.${name}`, reason: "Participant capability page. Organization tools must not impersonate participants." })),
-  ...["getMyAssignments", "saveReview"].map((name) => ({ file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: `judging.${name}`, reason: "Judge capability page. Organization tools must not submit judge reviews." })),
+  ...["getJudgeWorkspace", "confirmJudge", "saveReview"].map((name) => ({ file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: `judging.${name}`, reason: "Judge capability page. Organization tools must not confirm, read as, or score as a judge." })),
   { file: "app/metadata.ts", browser: "events.getEventMeta", reason: "Public title metadata used by event routes, including admin navigation. Admin reads expose event metadata already." },
   { file: "app/metadata.ts", browser: "events.getParticipantMeta", reason: "Participant title metadata, not organization administration." },
   ...["memberships", "getRequest", "authorize"].map((name) => ({ file: "components/McpConnectionClient.tsx", browser: `mcpConsent.${name}`, reason: "Human connection consent. A tool must not inspect or approve its own authorization request." })),
@@ -18,7 +18,6 @@ export const UI_EXCLUSIONS = [
   ...["addTrack", "updateTrack", "reorderTracks", "removeTrack"].map((name) => ({ file: "components/TracksAdminPanel.tsx", browser: `tracks.${name}`, reason: "Proposed: track editing stays in the admin page for now; MCP track tools can follow." })),
   ...["checkSubmissionEmail", "requestStatusLinkEmail"].map((name) => ({ file: "components/SubmissionEmailField.tsx", browser: `events.${name}`, reason: "Participant submit page email check and status link resend, not organization administration." })),
   { file: "app/e/[slug]/ClientPage.tsx", browser: "events.getSubmittedView", reason: "Participant capability view of their own submission, not organization administration." },
-  { file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: "judging.getOtherSubmissions", reason: "Judge capability page. Organization tools already read every submission." },
   ...["linkLumaEvent", "unlinkLumaEvent"].map((name) => ({ file: "components/LumaEventSetting.tsx", browser: `luma.${name}`, reason: "Linking uses the deployment's Luma key and is limited to allowed organisations, so it stays in the admin page." })),
   { file: "app/s/[slug]/[token]/ClientPage.tsx", browser: "events.editTeamMemberSocials", reason: "Participant capability page. Organization tools must not impersonate participants." },
   { file: "app/(workspace)/members/actions.ts", browser: "members.reserveInvitations", reason: "Counts Members page invitations against the organization limit. The send_invitations tool uses the same limit internally." },
@@ -33,13 +32,7 @@ export const UI_EXCLUSIONS = [
  * caller; an entry that already has a caller is reported as stale.
  */
 export const UI_PENDING = [
-  "phases.previewPhaseChange", "phases.setPhase", "phases.reopenSubmissions",
-  "judging.setJudgingTimeLeft", "judging.pauseJudgingTimer", "judging.resumeJudgingTimer", "events.setStageTimerRemaining",
-  "changes.listRecentChanges", "changes.undoChange",
-  "judging.getJudgesOverview", "judging.replaceJudgeLink", "judging.moveJudgeScores", "judging.deactivateJudgeAccess",
-  "events.getLiveEvent",
-  "practice.createPracticeEvent", "practice.listPracticeEvents", "practice.addPracticeSubmissions",
-  "practice.scoreAsTestJudges", "practice.skipTimerToLastSeconds", "practice.resetPracticeEvent",
+  // Empty: the new-behaviour UI landed with every caller.
 ].map((browser) => ({ browser, reason: "Proposed: the new-behaviour backend lands before its admin UI." }));
 
 function sourceFile(file, text) {

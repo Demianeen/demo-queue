@@ -25,7 +25,10 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { parseAdminView, adminViewPath } from "@/lib/admin-views";
+import { parseAdminView, adminViewPath, type AdminView } from "@/lib/admin-views";
+import { LiveEventHome } from "@/components/live/LiveEventHome";
+import { UndoToaster } from "@/components/live/changes";
+import { JudgesPage } from "@/components/live/JudgesPage";
 import { useCommands, type Command } from "@/components/shell/commands";
 import { makeSampleHackathonTeam, makeSamplePerson, pickSampleTracks } from "@/lib/sampleData";
 import { TrackPicker, TrackPills, type TrackOption } from "@/components/TrackPicker";
@@ -1164,12 +1167,13 @@ export default function AdminPage() {
   const livePrimaryLabel = shouldStartDemoFromPrimary ? "Start timer" : "Advance";
 
   const lineupName = isHackathonEvent ? "presentation lineup" : "demo queue";
-  const viewTitle = view === "submissions" ? allSubmissionsLabel : view === "judging" ? "Judging" : view === "settings" ? "Settings" : admin.event.name;
+  const viewTitle = view === "submissions" ? allSubmissionsLabel : view === "judging" ? "Judging" : view === "judges" ? "Judges" : view === "settings" ? "Settings" : admin.event.name;
   const viewDescription = view === "submissions"
     ? `Everyone who submitted. Add them to the ${lineupName}, edit, or hide them.`
     : view === "judging" ? "Judges, judge links, progress and results."
+    : view === "judges" ? "One private link per judge. Share them, see who opened theirs, and fix mistakes."
     : "Event type, meet link, Luma and tracks.";
-  const goTo = (next: "queue" | "submissions" | "judging" | "settings") => router.push(adminViewPath(params.slug, next));
+  const goTo = (next: AdminView) => router.push(adminViewPath(params.slug, next));
   const adminCommands: Command[] = [
     queueIsLive && currentLineupItem
       ? { id: "admin-advance", group: "This page", label: livePrimaryLabel, keys: ["A"], run: () => void livePrimaryAction() }
@@ -1180,7 +1184,7 @@ export default function AdminPage() {
     ] : []),
     ...(!queueIsLive ? [{ id: "admin-shuffle", group: "This page", label: `Shuffle ${isHackathonEvent ? "presentation lineup" : "demoers"}`, run: () => void shuffle() }] : []),
     { id: "admin-test-people", group: "This page", label: isHackathonEvent ? "Add test submissions" : "Add test people", run: () => { setTestPeopleMessage(""); setTestPeopleOpen(true); } },
-    ...(isHackathonEvent ? [{ id: "admin-judges", group: "This page", label: admin.event.roundOneJudges.length > 0 ? "Manage judges" : "Assign judges", run: () => { goTo("judging"); openRoundOneJudges(); } }] : []),
+    ...(isHackathonEvent ? [{ id: "admin-judges", group: "This page", label: admin.event.roundOneJudges.length > 0 ? "Manage judges" : "Assign judges", run: () => { goTo("judges"); openRoundOneJudges(); } }] : []),
     { id: "admin-open-stage", group: "This page", label: "Open presentation view", run: () => window.open(stagePath(params.slug), "_blank", "noopener") },
     { id: "admin-open-form", group: "This page", label: "Open submission form", run: () => window.open(submissionPath(params.slug), "_blank", "noopener") },
   ];
@@ -1190,6 +1194,7 @@ export default function AdminPage() {
     <section className="page admin-page">
       <div className="shell admin-shell">
         <AdminCommands commands={adminCommands} context={admin.event.name} />
+        <UndoToaster slug={params.slug} />
         {testPeopleOpen ? (
           <div
             aria-labelledby="test-people-title"
@@ -1310,7 +1315,9 @@ export default function AdminPage() {
         ) : null}
 
 
-        {view !== "queue" ? <header className="admin-view-heading"><h1>{viewTitle}</h1><p>{viewDescription}</p></header> : null}
+        {view !== "queue" && view !== "home" ? <header className="admin-view-heading"><h1>{viewTitle}</h1><p>{viewDescription}</p></header> : null}
+        {view === "home" ? <LiveEventHome slug={params.slug} admin={admin} onSetUpJudging={() => goTo("judging")} /> : null}
+        {view === "judges" && isHackathonEvent ? <JudgesPage slug={params.slug} eventName={admin.event.name} onAddJudges={openRoundOneJudges} /> : null}
         {view === "queue" ? <section className="admin-control-grid">
           <section className="panel panel-pad admin-control-panel">
             <header className="admin-page-header">
@@ -2101,7 +2108,7 @@ function LineupRow({
         <DemoCell item={item} />
       </td>
       <td>
-        <TrackPills tracks={item.tracks} empty="None" />
+        <TrackPills tracks={item.tracks} />
       </td>
       <td>
         <Contact item={item} />
@@ -2172,7 +2179,7 @@ function AllPeopleRow({
         <DemoCell item={item} />
       </td>
       <td>
-        <TrackPills tracks={item.tracks} empty="None" />
+        <TrackPills tracks={item.tracks} />
       </td>
       <td>
         <Contact item={item} />

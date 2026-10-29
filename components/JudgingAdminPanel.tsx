@@ -17,6 +17,9 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Id } from "@/convex/_generated/dataModel";
 import { SubmissionPreviewTrigger, teamShortLabel, type SubmissionPreview } from "@/components/SubmissionPreviewCard";
 import { TrackPills } from "@/components/TrackPicker";
+
+/** The track filter value for projects that entered no track. */
+const MAIN_EVENT_FILTER = "__main_event";
 import styles from "./JudgingAdminPanel.module.css";
 
 const SHOW_FINALIST_TOOLS = false;
@@ -291,7 +294,7 @@ export function JudgingAdminPanel({
     const query = search.trim().toLocaleLowerCase("en");
     return rankedRows.filter((row) => {
       const preview = previews.get(String(row.submissionId));
-      if (trackFilter && !(preview?.tracks ?? []).includes(trackFilter)) return false;
+      if (trackFilter === MAIN_EVENT_FILTER ? (preview?.tracks ?? []).length > 0 : trackFilter && !(preview?.tracks ?? []).includes(trackFilter)) return false;
       if (!query) return true;
       return [row.demoTitle, preview?.teamName ?? "", ...(preview?.people ?? []).map((person) => person.name)]
         .some((value) => value.toLocaleLowerCase("en").includes(query));
@@ -341,6 +344,7 @@ export function JudgingAdminPanel({
               <select aria-label="Filter by track" onChange={(event) => setTrackFilter(event.target.value)} value={trackFilter}>
                 <option value="">All tracks</option>
                 {trackNames.map((name) => <option key={name} value={name}>{name}</option>)}
+                <option value={MAIN_EVENT_FILTER}>Main event only</option>
               </select>
             </label>
             <label>
@@ -369,7 +373,7 @@ export function JudgingAdminPanel({
                 <tr key={String(row.submissionId)}>
                   <td className={styles.rankCol}>{row.rank}</td>
                   <td className={styles.titleCell}>{preview ? <SubmissionPreviewTrigger preview={preview} /> : row.demoTitle}</td>
-                  <td><TrackPills tracks={preview?.tracks ?? []} empty="None" /></td>
+                  <td><TrackPills tracks={preview?.tracks ?? []} /></td>
                   <td className={styles.teamCell} title={preview ? [preview.teamName, preview.people.map((person) => person.name).join(", ")].filter(Boolean).join(": ") : undefined}>
                     {preview ? teamShortLabel(preview) : row.presenterName}
                   </td>

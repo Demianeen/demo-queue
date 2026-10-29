@@ -1,0 +1,38 @@
+/* Practice list and the new practice dialog. Colours come from the organiser tokens. */
+
+.heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.heading > div { flex: 1 1 320px; display: flex; flex-direction: column; gap: 4px; }
+.heading h1 { font-size: 20px; font-weight: 600; }
+.heading p { color: var(--dq-fg-2); }
+
+.table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+.table th { text-align: left; font-size: 12px; font-weight: 500; color: var(--dq-fg-3); padding: 8px 16px; border-bottom: 1px solid var(--dq-divider); }
+.table td { padding: 10px 16px; border-bottom: 1px solid var(--dq-divider-soft); }
+.table tr:last-child td { border-bottom: 0; }
+.row { cursor: pointer; }
+.row:hover { background: var(--dq-row-hover); }
+.name { color: var(--dq-fg); font-weight: 500; text-decoration: none; }
+.name:hover { text-decoration: underline; }
+.muted { color: var(--dq-fg-2); }
+.empty { color: var(--dq-fg-2); padding: 24px 16px !important; }
+.note { font-size: 12px; line-height: 18px; color: var(--dq-fg-3); margin-top: 12px; max-width: 560px; }
+
+.form { display: flex; flex-direction: column; gap: 14px; }
+.form fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.legend { font-size: 12px; font-weight: 500; color: var(--dq-fg-2); margin-bottom: 4px; }
+.field { display: flex; flex-direction: column; gap: 2px; }
+.options { gap: 2px; }
+.option { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 8px; cursor: pointer; }
+.option:hover { background: var(--dq-row-hover); }
+.option[data-disabled] { cursor: not-allowed; opacity: 0.6; }
+.option > span { display: flex; flex-direction: column; gap: 2px; }
+.optionTitle { font-size: 13px; color: var(--dq-fg); }
+.optionDetail { font-size: 12px; color: var(--dq-fg-3); }
+.stepper { display: flex; align-items: center; justify-content: space-between; font-size: 13px; min-height: 32px; }
+.stepperControl { display: inline-flex; align-items: center; border: 1px solid var(--dq-line); border-radius: 7px; height: 28px; }
+.stepperControl button { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--dq-fg-2); cursor: pointer; }
+.stepperControl button:hover:not(:disabled) { color: var(--dq-fg); }
+.stepperControl button:disabled { opacity: 0.4; cursor: not-allowed; }
+.stepperControl button svg { width: 12px; height: 12px; }
+.stepperControl output { min-width: 28px; text-align: center; font-variant-numeric: tabular-nums; }
+.error { font-size: 12px; color: var(--dq-destructive); }

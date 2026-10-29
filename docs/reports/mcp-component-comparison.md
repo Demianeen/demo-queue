@@ -2,6 +2,9 @@
 
 29 October 2026. Evaluation and Production rollout of `@convex-dev/mcp@0.1.0-alpha.7`.
 
+Current release results are in the [Production verification report](mcp-production-verification.md).
+PR #56 is merged and deployed. The comparison evidence below preserves the earlier evaluation.
+
 ## Release direction
 
 Use the component for MCP authorization at `https://hack.outpostcrew.co/mcp`.

@@ -152,6 +152,8 @@
 .description { font-size: 13px; color: var(--dq-fg-2); }
 .projectLinks a, .videoFallback { font-weight: 500; color: var(--dq-fg); text-decoration: underline; text-underline-offset: 3px; }
 .videoFrame, .videoFallback { border-radius: 10px; margin-top: 16px; }
+.videoFallback { display: flex; width: 100%; }
+div.videoFallback { font-weight: 400; color: var(--dq-fg-3); text-decoration: none; }
 .sectionLabel { font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; border-bottom-color: var(--dq-divider); }
 .markdown { font-size: 13px; }
 .scoreHeading h2 { font-size: 13px; margin: 0 0 4px; }

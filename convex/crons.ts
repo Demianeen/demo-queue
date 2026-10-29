@@ -24,4 +24,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "delete change log rows older than 30 days",
+  { hours: 24 },
+  internal.changes.deleteOldChanges,
+  {},
+);
+
 export default crons;

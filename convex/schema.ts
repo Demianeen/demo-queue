@@ -248,8 +248,10 @@ export default defineSchema({
     undoOf: v.optional(v.id("eventChanges")),
     undoneAt: v.optional(v.number()),
     undoneBy: v.optional(v.id("eventChanges")),
+    // Why undo is "none", when it is not the plain "This change can't be undone."
+    noUndoReason: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_event", ["eventId"]),
+  }).index("by_event", ["eventId"]).index("by_createdAt", ["createdAt"]),
 
   // The Getting started guide's own choices, per person and organization.
   gettingStartedGuides: defineTable({

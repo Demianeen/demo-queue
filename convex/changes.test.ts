@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import { CHANGE_RETENTION_MS, hashSecret, storedValueMatches } from "./changeLog";
 import { addProject, createEvent, judgeLink, openJudging, score, setupTest } from "./behaviour.testing";
 
 beforeEach(() => {
@@ -102,7 +103,7 @@ test("added time is undone exactly", async () => {
   expect(await t.query(api.judging.getJudgingTimer, { slug: "hack" })).toMatchObject({ timerStatus: "running", remainingMs: 9 * 60_000 });
 });
 
-test("replacing a link, moving scores and turning a judge off are all undoable", async () => {
+test("replacing a link can't be undone, while moving scores and turning a judge off are", async () => {
   const { t } = setupTest();
   const { eventId } = await createEvent(t, { judges: ["Alex", "Sam", "Taylor"] });
   const projects = [];
@@ -112,14 +113,16 @@ test("replacing a link, moving scores and turning a judge off are all undoable",
   await judgeLink(t, "Taylor");
   await openJudging(t);
 
-  // Replace Alex's link, then undo: the old link works again.
+  // Replace Alex's link: the old link stops, and the old token is not kept to bring back.
   await t.mutation(api.judging.replaceJudgeLink, { slug: "hack", judgeKey: "alex", capabilityToken: "alex-new-token-123456" });
   await expect(t.query(api.judging.getJudgeWorkspace, { slug: "hack", capabilityToken: alex })).rejects.toThrow("Unauthorized");
-  await t.mutation(api.changes.undoChange, { slug: "hack", changeId: (await recent(t))[0].id });
-  await expect(t.query(api.judging.getJudgeWorkspace, { slug: "hack", capabilityToken: alex })).resolves.toMatchObject({ judgeName: "Alex" });
+  const [replaced] = await recent(t);
+  expect(replaced).toMatchObject({ summary: "replaced the judging link for Alex", canUndo: false, undoBlockedReason: "A replaced link can't be brought back." });
+  await expect(t.mutation(api.changes.undoChange, { slug: "hack", changeId: replaced.id })).rejects.toThrow("A replaced link can't be brought back.");
+  const newAlex = "alex-new-token-123456";
 
   // Sam scored on Alex's link: move them, then undo the move.
-  await score(t, alex, projects[0], 6);
+  await score(t, newAlex, projects[0], 6);
   await t.mutation(api.judging.moveJudgeScores, { slug: "hack", fromJudgeKey: "alex", toJudgeKey: "sam" });
   expect(await t.run((ctx) => ctx.db.query("reviews").collect())).toMatchObject([{ judgeKey: "sam" }]);
   const [moved] = await recent(t);
@@ -163,4 +166,81 @@ test("changes made by an assistant are marked, and other organizations see none 
   const colleague = root.withIdentity({ subject: "user_03ANA", org_id: "org_live", tokenIdentifier: "https://api.workos.com/user_management/client_test|user_03ANA" });
   expect((await colleague.query(api.changes.listRecentChanges, { slug: "demo" })).changes[0]).toMatchObject({ isYou: false, actorUserId: "user_01DEMIAN" });
   await expect(colleague.mutation(api.changes.undoChange, { slug: "demo", changeId: "not-an-id" })).rejects.toThrow("Change not found.");
+});
+
+/** Every stored change row, as one string, to check that no secret or contact detail is in it. */
+const storedLog = async (t: ReturnType<typeof setupTest>["t"]) =>
+  JSON.stringify(await t.run((ctx) => ctx.db.query("eventChanges").collect()));
+
+test("a change that can't be undone keeps no documents, so a cleared queue keeps no contact details", async () => {
+  const { t } = setupTest();
+  const { eventId } = await createEvent(t, { slug: "demo", eventType: "demo" });
+  await addProject(t, eventId, 0);
+  await addProject(t, eventId, 1);
+  await t.mutation(api.events.clearQueue, { slug: "demo" });
+  const rows = await t.run((ctx) => ctx.db.query("eventChanges").collect());
+  expect(rows.find((row) => row.kind !== "undo" && row.summary === "cleared every submission")).toMatchObject({ undo: "none", docs: [] });
+  const log = await storedLog(t);
+  for (const secret of ["person0@example.com", "person1@example.com", "+440000000000", "participant-0", "participant-1"]) expect(log).not.toContain(secret);
+});
+
+test("an insert keeps only its id, and undoing it deletes the document", async () => {
+  const { t } = setupTest();
+  await createEvent(t, { judges: ["Alex", "Sam"] });
+  const token = await judgeLink(t, "Alex");
+  const [created] = await recent(t);
+  expect(created).toMatchObject({ summary: "created the judging link for Alex", canUndo: true });
+  const row = await t.run((ctx) => ctx.db.get(created.id));
+  expect(row?.docs).toEqual([{ table: "judgeAccess", id: expect.any(String), op: "insert", fields: [] }]);
+  expect(await storedLog(t)).not.toContain(token);
+
+  await t.mutation(api.changes.undoChange, { slug: "hack", changeId: created.id });
+  expect(await t.run((ctx) => ctx.db.query("judgeAccess").withIndex("by_token", (q) => q.eq("token", token)).unique())).toBeNull();
+  expect(await storedLog(t)).not.toContain(token);
+});
+
+test("undoing an insert refuses once a later change touched the new document", async () => {
+  const { t } = setupTest();
+  await createEvent(t, { judges: ["Alex", "Sam"] });
+  await judgeLink(t, "Alex");
+  const [created] = await recent(t);
+  await t.mutation(api.judging.deactivateJudgeAccess, { slug: "hack", judgeKey: "alex", active: false });
+  expect((await recent(t)).find((row) => row.id === created.id)).toMatchObject({
+    canUndo: false, undoBlockedReason: 'Changed again since: undo "turned off the judging link for Alex" first.',
+  });
+  await expect(t.mutation(api.changes.undoChange, { slug: "hack", changeId: created.id })).rejects.toThrow("first");
+});
+
+test("replacing a judge link keeps neither the old nor the new token", async () => {
+  const { t } = setupTest();
+  await createEvent(t, { judges: ["Alex", "Sam"] });
+  const old = await judgeLink(t, "Alex");
+  await t.mutation(api.judging.replaceJudgeLink, { slug: "hack", judgeKey: "alex", capabilityToken: "alex-new-token-123456" });
+  const log = await storedLog(t);
+  expect(log).not.toContain(old);
+  expect(log).not.toContain("alex-new-token-123456");
+  const [replaced] = await recent(t);
+  expect(replaced).toMatchObject({ canUndo: false, undoBlockedReason: "A replaced link can't be brought back." });
+});
+
+test("a secret kept for the conflict check is a sha256 marker that still compares", async () => {
+  const marker = await hashSecret("some-private-token");
+  expect(marker).toEqual({ hashed: expect.stringMatching(/^[0-9a-f]{64}$/) });
+  expect(JSON.stringify(marker)).not.toContain("some-private-token");
+  expect(await storedValueMatches("judgeAccess", "token", "some-private-token", marker)).toBe(true);
+  expect(await storedValueMatches("judgeAccess", "token", "another-token", marker)).toBe(false);
+  expect(await storedValueMatches("judgeAccess", "token", undefined, marker)).toBe(false);
+  expect(await storedValueMatches("submissions", "status", "hidden", "hidden")).toBe(true);
+});
+
+test("the daily clean-up deletes change rows older than 30 days", async () => {
+  const { t } = setupTest();
+  const { eventId } = await createEvent(t, { slug: "demo", eventType: "demo" });
+  const id = await addProject(t, eventId, 0);
+  await t.mutation(api.events.hideSubmission, { slug: "demo", submissionId: id });
+  vi.advanceTimersByTime(CHANGE_RETENTION_MS + 60_000);
+  await t.mutation(api.events.restoreSubmission, { slug: "demo", submissionId: id });
+  expect(await t.run((ctx) => ctx.db.query("eventChanges").collect())).toHaveLength(2);
+  await expect(t.mutation(internal.changes.deleteOldChanges, {})).resolves.toEqual({ deleted: 1 });
+  expect((await recent(t, "demo")).map((row) => row.summary)).toEqual(["restored Project 0"]);
 });

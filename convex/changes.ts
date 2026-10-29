@@ -1,8 +1,9 @@
 import { ConvexError, v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { requireOrganization, requireOwnedEvent, type OrganizationPrincipal } from "./organizationAuth";
-import { deepEqual, insertChange, type ChangeDoc, type ChangeTable } from "./changeLog";
+import { CHANGE_RETENTION_MS, insertChange, storedValueMatches, type ChangeDoc, type ChangeTable } from "./changeLog";
 import { movePhase } from "./phases";
 import { queueJudgingSheetSync } from "./judgingSheetSync";
 import { eventPhase, PHASE_LABELS } from "../lib/event-phase";
@@ -30,7 +31,10 @@ async function staleParts(ctx: Pick<QueryCtx, "db">, change: Doc<"eventChanges">
       stale.push({ doc, fields: doc.fields.map((field) => field.name), missing: true });
       continue;
     }
-    const fields = doc.fields.filter((field) => !deepEqual(now[field.name], field.after)).map((field) => field.name);
+    const fields: string[] = [];
+    for (const field of doc.fields) {
+      if (!(await storedValueMatches(doc.table, field.name, now[field.name], field.after))) fields.push(field.name);
+    }
     if (fields.length > 0) stale.push({ doc, fields, missing: false });
   }
   return stale;
@@ -39,7 +43,7 @@ async function staleParts(ctx: Pick<QueryCtx, "db">, change: Doc<"eventChanges">
 /** Why a change cannot be undone right now, or null when it can. */
 async function undoBlocker(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, change: Doc<"eventChanges">) {
   if (change.undoneAt !== undefined) return "This change was already undone.";
-  if (change.undo === "none") return "This change can't be undone.";
+  if (change.undo === "none") return change.noUndoReason ?? "This change can't be undone.";
   if (change.undo === "phase") {
     const phase = eventPhase(event);
     if (change.toPhase && phase !== change.toPhase) {
@@ -48,14 +52,18 @@ async function undoBlocker(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, chan
     return null;
   }
   const stale = await staleParts(ctx, change);
-  if (stale.length === 0) return null;
-  const later = await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", event._id)).order("desc").take(CONFLICT_SCAN);
+  // An insert keeps no field values, so a later change to the inserted
+  // document is found by its id instead.
+  const inserted = new Set(change.docs.filter((doc) => doc.op === "insert").map((doc) => `${doc.table}:${doc.id}`));
+  if (stale.length === 0 && inserted.size === 0) return null;
+  const later = (await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", event._id)).order("desc").take(CONFLICT_SCAN))
+    .filter((row) => row._creationTime > change._creationTime && row.undoneAt === undefined && row._id !== change._id);
   const touched = new Set(stale.flatMap((part) => part.fields.map((field) => `${part.doc.table}:${part.doc.id}:${field}`)));
   const blocker = later.find((row) =>
-    row._creationTime > change._creationTime && row.undoneAt === undefined && row._id !== change._id &&
-    row.docs.some((doc) => doc.fields.some((field) => touched.has(`${doc.table}:${doc.id}:${field.name}`))),
+    row.docs.some((doc) => inserted.has(`${doc.table}:${doc.id}`) || doc.fields.some((field) => touched.has(`${doc.table}:${doc.id}:${field.name}`))),
   );
   if (stale.some((part) => part.missing)) return "Something this change touched was deleted since, so it can't be undone.";
+  if (stale.length === 0 && !blocker) return null;
   return blocker
     ? `Changed again since: undo "${blocker.summary}" first.`
     : "This was changed again since, so undoing it would overwrite newer work.";
@@ -80,7 +88,7 @@ async function assertEmailsFree(ctx: MutationCtx, eventId: Id<"events">, doc: Ch
 }
 
 function inverse(doc: ChangeDoc): ChangeDoc {
-  if (doc.op === "insert") return { ...doc, op: "delete", fields: doc.fields.map((field) => ({ name: field.name, before: field.after })) };
+  if (doc.op === "insert") return { ...doc, op: "delete", fields: [] };
   return {
     ...doc,
     fields: doc.fields.map((field) => ({
@@ -196,4 +204,21 @@ export async function listRecentChangesForOrganization(ctx: QueryCtx, args: Infe
 export const listRecentChanges = query({
   args: listRecentChangesArgs,
   handler: async (ctx, args) => listRecentChangesForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+const RETENTION_BATCH = 500;
+
+/**
+ * Daily: deletes change rows older than CHANGE_RETENTION_MS (Proposed: 30
+ * days), a batch at a time, scheduling itself again until none are left.
+ */
+export const deleteOldChanges = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ deleted: number }> => {
+    const cutoff = Date.now() - CHANGE_RETENTION_MS;
+    const rows = await ctx.db.query("eventChanges").withIndex("by_createdAt", (q) => q.lt("createdAt", cutoff)).take(RETENTION_BATCH);
+    for (const row of rows) await ctx.db.delete(row._id);
+    if (rows.length === RETENTION_BATCH) await ctx.scheduler.runAfter(0, internal.changes.deleteOldChanges, {});
+    return { deleted: rows.length };
+  },
 });

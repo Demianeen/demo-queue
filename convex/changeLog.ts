@@ -5,10 +5,16 @@ import type { OrganizationPrincipal } from "./organizationAuth";
 import type { EventPhase } from "../lib/event-phase";
 
 /**
- * The organiser change log behind Recent changes and Undo. Each change keeps
- * the before and after value of every field it changed, per document, so it
- * can be reversed later, and so a reversal can tell when a later change
+ * The organiser change log behind Recent changes and Undo. An undoable patch
+ * keeps the before and after value of every field it changed, per document,
+ * so it can be reversed later, and so a reversal can tell when a later change
  * touched the same fields.
+ *
+ * What it never keeps: the documents of a change that can't be undone, the
+ * fields of an inserted or deleted document (a delete is never undone, and
+ * undoing an insert deletes it by id), and the value of a secret field, which
+ * is kept as a sha256 marker so the conflict check can still compare it.
+ * Rows are deleted after CHANGE_RETENTION_MS.
  */
 
 /** Tables a change may touch and that undo knows how to restore. */
@@ -26,6 +32,47 @@ const IGNORED_FIELDS = new Set([
   "scoreBasisVersion", "confirmedScoreBasisVersion", "assignmentVersion",
   "lastAdvanceSnapshot", "statusLinkEmailedAt", "aiSummary", "submissionSurgeAt",
 ]);
+
+/** Proposed: 30 days, long enough to undo anything from an event night. */
+export const CHANGE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Fields holding a private link or capability token, per table. Never stored
+ * in clear. The retired event admin token is never written any more, so no
+ * diff can hold it, and inserts and deletes keep no fields.
+ */
+export const SECRET_FIELDS: Partial<Record<ChangeTable, ReadonlySet<string>>> = {
+  submissions: new Set(["participantToken"]),
+  judgeAccess: new Set(["token"]),
+};
+
+/** Undoing a change that replaced a secret would need its old value, which is not kept. */
+export const SECRET_NOT_UNDOABLE = "A replaced link can't be brought back.";
+
+export function isSecretField(table: ChangeTable, name: string) {
+  return SECRET_FIELDS[table]?.has(name) ?? false;
+}
+
+export type HashedValue = { hashed: string };
+
+export function isHashedValue(value: unknown): value is HashedValue {
+  return typeof value === "object" && value !== null && !Array.isArray(value) &&
+    Object.keys(value).length === 1 && typeof (value as HashedValue).hashed === "string";
+}
+
+export async function hashSecret(value: unknown): Promise<HashedValue> {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return { hashed: Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("") };
+}
+
+/** Whether a document's current value still matches a stored one, hashed or not. */
+export async function storedValueMatches(table: ChangeTable, name: string, current: unknown, stored: unknown) {
+  if (isSecretField(table, name) && isHashedValue(stored)) {
+    return current !== undefined && (await hashSecret(current)).hashed === stored.hashed;
+  }
+  return deepEqual(current, stored);
+}
 
 export const changeFieldValidator = v.object({
   name: v.string(),
@@ -67,6 +114,8 @@ export type ChangeInput = {
   undoLabel?: UndoLabel;
   /** "phase" reverses by moving back to fromPhase; "none" lists the change without undo. */
   undo?: "snapshot" | "phase" | "none";
+  /** Shown instead of "This change can't be undone." when undo is "none". */
+  noUndoReason?: string;
   fromPhase?: EventPhase;
   toPhase?: EventPhase;
   watch?: ChangeWatch;
@@ -132,9 +181,12 @@ async function readScope(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, watch:
   return docs;
 }
 
-function diffDoc(table: ChangeTable, before: AnyDoc | null, after: AnyDoc | null): ChangeDoc | null {
+async function diffDoc(table: ChangeTable, before: AnyDoc | null, after: AnyDoc | null): Promise<ChangeDoc | null> {
   if (!before && !after) return null;
   const id = (before ?? after)!._id;
+  // Inserts and deletes keep no field values: only the id and the op.
+  if (!before) return { table, id, op: "insert", fields: [] };
+  if (!after) return { table, id, op: "delete", fields: [] };
   const keys = new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]);
   const fields: ChangeDoc["fields"] = [];
   for (const name of keys) {
@@ -142,21 +194,23 @@ function diffDoc(table: ChangeTable, before: AnyDoc | null, after: AnyDoc | null
     const from = before?.[name];
     const to = after?.[name];
     if (deepEqual(from, to)) continue;
-    fields.push({ name, ...(from !== undefined ? { before: from } : {}), ...(to !== undefined ? { after: to } : {}) });
+    const secret = isSecretField(table, name);
+    const kept = async (value: unknown) => (secret ? await hashSecret(value) : value);
+    fields.push({ name, ...(from !== undefined ? { before: await kept(from) } : {}), ...(to !== undefined ? { after: await kept(to) } : {}) });
   }
-  if (before && after && fields.length === 0) return null;
-  return { table, id, op: !before ? "insert" : !after ? "delete" : "patch", fields };
+  if (fields.length === 0) return null;
+  return { table, id, op: "patch", fields };
 }
 
 /** Compares two reads of the same scope. Documents found only after are inserts. */
-function diffScopes(
+async function diffScopes(
   before: Awaited<ReturnType<typeof readScope>>,
   after: Awaited<ReturnType<typeof readScope>>,
 ) {
   const changes: ChangeDoc[] = [];
   for (const key of new Set([...before.keys(), ...after.keys()])) {
     const table = (before.get(key) ?? after.get(key))!.table;
-    const change = diffDoc(table, before.get(key)?.doc ?? null, after.get(key)?.doc ?? null);
+    const change = await diffDoc(table, before.get(key)?.doc ?? null, after.get(key)?.doc ?? null);
     if (change) changes.push(change);
   }
   return changes;
@@ -169,16 +223,18 @@ export async function insertChange(
   extra: { undoOf?: Id<"eventChanges"> } = {},
 ) {
   let undo = input.undo ?? "snapshot";
+  let noUndoReason = input.noUndoReason;
   let stored = docs;
   if (undo === "snapshot") {
-    if (docs.length === 0) undo = "none";
-    else if (docs.some((doc) => doc.op === "delete")) undo = "none";
-    else if (docs.length > MAX_STORED_DOCS || JSON.stringify(docs).length > MAX_STORED_CHANGE_BYTES) {
+    if (docs.length === 0 || docs.some((doc) => doc.op === "delete")) undo = "none";
+    else if (docs.some((doc) => doc.fields.some((field) => isSecretField(doc.table, field.name) && field.before !== undefined))) {
       undo = "none";
-      stored = [];
-    }
+      noUndoReason ??= SECRET_NOT_UNDOABLE;
+    } else if (docs.length > MAX_STORED_DOCS || JSON.stringify(docs).length > MAX_STORED_CHANGE_BYTES) undo = "none";
   }
-  if (undo === "none" && JSON.stringify(stored).length > MAX_STORED_CHANGE_BYTES) stored = [];
+  // A change that can't be undone keeps no documents.
+  if (undo === "none") stored = [];
+  else if (JSON.stringify(stored).length > MAX_STORED_CHANGE_BYTES) stored = [];
   return await ctx.db.insert("eventChanges", {
     eventId: input.event._id,
     actor: input.principal.actor,
@@ -189,6 +245,7 @@ export async function insertChange(
     subjectId: input.subjectId,
     undo,
     undoLabel: input.undoLabel ?? "Undo",
+    ...(undo === "none" && noUndoReason ? { noUndoReason } : {}),
     fromPhase: input.fromPhase,
     toPhase: input.toPhase,
     docs: stored,
@@ -207,7 +264,7 @@ export async function recordChange<T>(ctx: MutationCtx, input: ChangeInput, run:
   const before = await readScope(ctx, input.event, watch);
   const result = await run();
   const after = await readScope(ctx, input.event, watch);
-  const docs = diffScopes(before, after);
+  const docs = await diffScopes(before, after);
   if (docs.length > 0 || input.undo === "phase") await insertChange(ctx, input, docs);
   return result;
 }

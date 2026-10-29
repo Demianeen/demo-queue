@@ -114,6 +114,20 @@ export async function listOrganizationMembers(organizationId: string) {
   });
 }
 
+/** Counts for the Getting started guide: active members, invitations ever sent, and accepted ones. */
+export async function organizationTeamCounts(organizationId: string) {
+  const [memberships, invitations] = await Promise.all([
+    listAll("/user_management/organization_memberships", { organization_id: organizationId, statuses: "active" }, membershipSchema),
+    listAll("/user_management/invitations", { organization_id: organizationId }, invitationSchema),
+  ]);
+  const own = invitations.filter((row) => row.organization_id === organizationId);
+  return {
+    members: memberships.filter((row) => row.organization_id === organizationId && row.status === "active").length,
+    invited: own.length,
+    accepted: own.filter((row) => row.state === "accepted").length,
+  };
+}
+
 export async function listOrganizationInvitations(organizationId: string, memberEmails: string[], now: number) {
   const rows = await listAll("/user_management/invitations", { organization_id: organizationId }, invitationSchema);
   return openInvitations(rows.filter((row) => row.organization_id === organizationId).map(toInvitation), memberEmails, now)

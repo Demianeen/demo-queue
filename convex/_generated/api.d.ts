@@ -18,6 +18,7 @@ import type * as eventOwnership from "../eventOwnership.js";
 import type * as eventSlugs from "../eventSlugs.js";
 import type * as eventTheme from "../eventTheme.js";
 import type * as events from "../events.js";
+import type * as gettingStarted from "../gettingStarted.js";
 import type * as googleSheets from "../googleSheets.js";
 import type * as http from "../http.js";
 import type * as judging from "../judging.js";
@@ -57,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   eventSlugs: typeof eventSlugs;
   eventTheme: typeof eventTheme;
   events: typeof events;
+  gettingStarted: typeof gettingStarted;
   googleSheets: typeof googleSheets;
   http: typeof http;
   judging: typeof judging;

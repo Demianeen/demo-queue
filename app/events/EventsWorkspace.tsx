@@ -10,6 +10,7 @@ import { EventCreationForm } from "@/components/EventCreationForm";
 import { OrganizationStyles } from "@/components/OrganizationStyles";
 import { ChevronRight, Presentation, Code2, Plus } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { GettingStarted } from "@/components/GettingStarted";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { WorkspaceAccountMenu } from "@/components/WorkspaceAccountMenu";
 import { WorkspaceOrganizationContext } from "@/components/WorkspaceOrganizationContext";
@@ -87,6 +88,7 @@ function OrganizationEvents({ organization, view, setView, initialData, showTitl
   if (styleData.organizationId !== organization.id || results.some((event) => event.organizationId !== organization.id)) return <Alert variant="destructive"><AlertDescription>Your organization session changed. <a href="/events">Reload events</a>.</AlertDescription></Alert>;
   return <>
     {title}
+    {view === "events" && <div className="mb-8"><GettingStarted organizationName={organization.name} events={results.map((event) => ({ name: event.name, slug: event.slug }))} styleCount={styleData.styles.length} onCreateEvent={() => setView("create")} onOpenStyles={() => setView("styles")} /></div>}
     <div hidden={view !== "styles"}><OrganizationStyles organizationId={organization.id} organizationName={organization.name} styles={styleData.styles} /></div>
     <div hidden={view === "styles" || view === "members" || view === "details" || view === "admin" || (view !== "create" && results.length > 0)}><EventCreationForm organizationId={organization.id} organizationName={organization.name} firstEvent={!results.length} styles={styleData.styles} onManageStyles={() => setView("styles")} onCancel={results.length ? () => setView("events") : undefined} /></div>
     {view === "events" && results.length > 0 && <section>

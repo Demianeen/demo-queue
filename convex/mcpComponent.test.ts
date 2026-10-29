@@ -951,3 +951,30 @@ test("a removed member's connections lose that organization on the next call", a
   }
   expect(invitations).toEqual([]);
 });
+
+test("the getting started guide ticks off from a real connection, test people and invitations", async () => {
+  const t = setup();
+  const alice = t.withIdentity(identity());
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ connected: false, testPeopleAdded: false, mcpUrl: `${site}/mcp` });
+  expect(await alice.action(api.gettingStarted.teamStatus, {})).toEqual({ members: 1, invited: 0, accepted: 0 });
+
+  // A connection for another organization does not count; one covering this organization does.
+  await key(t, { organizationIds: ["org_two"] });
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ connected: false });
+  const manage = await key(t);
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ connected: true });
+  // Someone else's connection never counts for Alice.
+  expect(await t.withIdentity(identity("user_bob", "org_one")).query(api.gettingStarted.status, {})).toMatchObject({ connected: false });
+
+  const event = createdEvent.parse(await success(t, manage.apiKey, "create_event", eventInput("org_one", "guide-dry-run")));
+  await success(t, manage.apiKey, "add_test_submissions", { organizationId: "org_one", slug: event.slug, submissions: [{ name: "Sam", demoTitle: "Dry run", description: "A rehearsal", phone: "+447700900000" }] });
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ testPeopleAdded: true });
+
+  invitations.push({ id: "invitation_1", email: "new@example.com", state: "accepted", organization_id: "org_one", inviter_user_id: "user_alice", expires_at: "2026-11-05T10:00:00.000Z", created_at: "2026-10-29T10:00:00.000Z" });
+  invitations.push({ id: "invitation_2", email: "other@example.com", state: "pending", organization_id: "org_two", inviter_user_id: "user_alice", expires_at: "2026-11-05T10:00:00.000Z", created_at: "2026-10-29T10:00:00.000Z" });
+  expect(await alice.action(api.gettingStarted.teamStatus, {})).toEqual({ members: 1, invited: 1, accepted: 1 });
+
+  // Disconnecting turns the step back off.
+  await alice.mutation(api.mcpConsent.revokeConnection, { id: manage.id });
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ connected: false });
+});

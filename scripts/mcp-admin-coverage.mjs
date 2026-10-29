@@ -22,6 +22,8 @@ export const UI_EXCLUSIONS = [
   ...["linkLumaEvent", "unlinkLumaEvent"].map((name) => ({ file: "components/LumaEventSetting.tsx", browser: `luma.${name}`, reason: "Linking uses the deployment's Luma key and is limited to allowed organisations, so it stays in the admin page." })),
   { file: "app/s/[slug]/[token]/ClientPage.tsx", browser: "events.editTeamMemberSocials", reason: "Participant capability page. Organization tools must not impersonate participants." },
   { file: "app/(workspace)/members/actions.ts", browser: "members.reserveInvitations", reason: "Counts Members page invitations against the organization limit. The send_invitations tool uses the same limit internally." },
+  ...["status", "teamStatus", "setHidden", "markDryRun"].map((name) => ({ file: "components/GettingStarted.tsx", browser: `gettingStarted.${name}`, reason: "The signed-in person's own onboarding checklist, not event administration." })),
+  { file: "components/McpConnectionClient.tsx", browser: "gettingStarted.mcpAddress", reason: "Shows the MCP address to a person setting up an assistant; an assistant already knows it." },
   ...finalistFunctions.map((name) => ({ file: finalistPath, browser: `judging.${name}`, reason: "Dormant finalist and placement controls require SHOW_FINALIST_TOOLS to remain false.", dormant: true })),
 ];
 

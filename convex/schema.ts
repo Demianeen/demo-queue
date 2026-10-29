@@ -203,7 +203,17 @@ export default defineSchema({
     actor: v.string(),
     details: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_event", ["eventId"]),
+  }).index("by_event", ["eventId"])
+    .index("by_event_and_action", ["eventId", "action"]),
+
+  // The Getting started guide's own choices, per person and organization.
+  gettingStartedGuides: defineTable({
+    ownerAccountKey: v.string(),
+    organizationId: v.string(),
+    hidden: v.boolean(),
+    dryRunMarkedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_owner_and_organization", ["ownerAccountKey", "organizationId"]),
 
   judgeAccess: defineTable({
     eventId: v.id("events"),

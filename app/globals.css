@@ -94,9 +94,12 @@ textarea {
   font: inherit;
 }
 
-button {
-  border: 0;
-  cursor: pointer;
+/* In the base layer, so Tailwind border utilities on <Button> still apply. */
+@layer base {
+  button {
+    border: 0;
+    cursor: pointer;
+  }
 }
 
 a {

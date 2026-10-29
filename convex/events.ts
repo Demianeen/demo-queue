@@ -1437,7 +1437,7 @@ export async function submitHackathonForEvent(ctx: MutationCtx, event: Doc<"even
     if (!options.practiceTest) await queueLumaImport(ctx, event, submissionId);
     // Participants cannot edit after submitting, so the summary can be written now.
     const submitted = await ctx.db.get(submissionId);
-    if (submitted) await queueAiSummaryIfStale(ctx, event, submitted);
+    if (submitted) await queueAiSummaryIfStale(ctx, event, submitted, 0, { source: "participant" });
     return { submissionId };
 }
 
@@ -2261,7 +2261,7 @@ async function updateSubmissionOperation(
     });
     // A changed description gets a new AI summary once submissions are closed.
     const updated = await ctx.db.get(args.submissionId);
-    if (updated) await queueAiSummaryIfStale(ctx, event, updated);
+    if (updated) await queueAiSummaryIfStale(ctx, event, updated, 0, { source: "organiser" });
     await queueJudgingSheetSync(ctx, event);
     if (emailChanged && event.submissionsClosedAt === undefined) await queueLumaImport(ctx, event, args.submissionId);
 }

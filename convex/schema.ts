@@ -104,6 +104,8 @@ export default defineSchema({
     finishedAt: v.optional(v.number()),
     // Set when moving back to submissions paused a running judging timer, so moving forward resumes it.
     judgingTimerPausedByPhase: v.optional(v.boolean()),
+    // AI summary runs queued today (UTC day number), for the per-event daily budget.
+    aiSummaryBudget: v.optional(v.object({ day: v.number(), used: v.number() })),
     // AI summary sections for this event; the defaults in lib/ai-summary.ts when unset.
     aiSummarySections: v.optional(v.array(summarySectionValidator)),
     // A practice event: a real event with only test people, listed apart from real events.
@@ -145,6 +147,8 @@ export default defineSchema({
     trackIds: v.optional(v.array(v.id("eventTracks"))),
     teamName: v.optional(v.string()),
     githubUrl: v.optional(v.string()),
+    // When the next AI summary run is or was scheduled to start, for the per-submission throttle.
+    summaryQueuedFor: v.optional(v.number()),
     // Three lines written by AI from the description and README, for judges and admins.
     // sourceKey says which description and repository it was written from.
     aiSummary: v.optional(

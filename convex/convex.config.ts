@@ -13,6 +13,8 @@ const app = defineApp({
     GOOGLE_OAUTH_REFRESH_TOKEN: v.optional(v.string()),
     OPENAI_API_KEY: v.optional(v.string()),
     OPENAI_MODEL: v.optional(v.string()),
+    // Optional GitHub token for README reads in AI summaries: 5,000 requests an hour instead of 60.
+    GITHUB_TOKEN: v.optional(v.string()),
     // Read-only Luma API key: links events and prefills socials. Without it, both are off.
     LUMA_API_KEY: v.optional(v.string()),
     // Comma separated WorkOS organisation ids that may use the Luma key (its calendar's owners).

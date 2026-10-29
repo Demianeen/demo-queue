@@ -46,23 +46,70 @@ function needsSummary(event: Doc<"events">, submission: Doc<"submissions">, refr
   return refreshReadme && Boolean(submission.githubUrl);
 }
 
+/** Proposed: at most one summary run per submission in this window; later changes wait for it. */
+export const SUMMARY_DEBOUNCE_MS = 10 * 60_000;
+/** Proposed: each event may queue this many runs per submission per day (UTC), and at least the floor. */
+export const SUMMARY_DAILY_RUNS_PER_SUBMISSION = 3;
+export const SUMMARY_DAILY_FLOOR = 20;
+const DAY_MS = 24 * 60 * 60_000;
+
+export type SummaryQueueSource = "participant" | "organiser" | "close";
+
+async function eventSubmissionCount(ctx: MutationCtx, eventId: Id<"events">) {
+  return (await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(1000)).length;
+}
+
+/** Takes one run from the event's daily budget, or returns false when today's is spent. */
+async function takeSummaryBudget(ctx: MutationCtx, eventId: Id<"events">, now: number, submissionCount: number) {
+  const event = await ctx.db.get(eventId);
+  if (!event) return false;
+  const day = Math.floor(now / DAY_MS);
+  const used = event.aiSummaryBudget?.day === day ? event.aiSummaryBudget.used : 0;
+  const cap = Math.max(SUMMARY_DAILY_FLOOR, SUMMARY_DAILY_RUNS_PER_SUBMISSION * submissionCount);
+  if (used >= cap) {
+    console.log(JSON.stringify({ event: "ai-summary", status: "skipped", reason: "daily_budget", eventId }));
+    return false;
+  }
+  await ctx.db.patch(eventId, { aiSummaryBudget: { day, used: used + 1 } });
+  return true;
+}
+
 /**
  * Queues a summary for one submission when it has none, or when its
  * description or repository changed since the last one. Call it after any
  * change to those fields, and after a submit.
+ *
+ * Runs are throttled: a submission gets at most one run per
+ * SUMMARY_DEBOUNCE_MS (a change inside the window is covered by a run at the
+ * end of it, which reads the latest fields), and each event has a daily
+ * budget. Participants queue nothing once submissions are closed; the close
+ * pass itself is not throttled per submission, as it already staggers runs.
  */
 export async function queueAiSummaryIfStale(
   ctx: MutationCtx,
   event: Doc<"events">,
   submission: Doc<"submissions">,
   delayMs = 0,
-  options: { refreshReadme?: boolean } = {},
+  options: { refreshReadme?: boolean; source?: SummaryQueueSource; submissionCount?: number } = {},
 ) {
   if (!aiSummariesConfigured() || !needsSummary(event, submission, options.refreshReadme)) return false;
-  await ctx.scheduler.runAfter(delayMs, internal.aiSummaryAction.generateSubmissionSummary, {
+  const source = options.source ?? "organiser";
+  if (source === "participant" && event.submissionsClosedAt !== undefined) return false;
+  const now = Date.now();
+  let runAt = now + delayMs;
+  if (source !== "close") {
+    const last = submission.summaryQueuedFor;
+    // A run is already waiting; it reads the submission when it starts.
+    if (last !== undefined && last > now) return true;
+    if (last !== undefined && now - last < SUMMARY_DEBOUNCE_MS) runAt = Math.max(runAt, last + SUMMARY_DEBOUNCE_MS);
+  }
+  const count = options.submissionCount ?? (await eventSubmissionCount(ctx, event._id));
+  if (!(await takeSummaryBudget(ctx, event._id, now, count))) return false;
+  await ctx.scheduler.runAfter(runAt - now, internal.aiSummaryAction.generateSubmissionSummary, {
     submissionId: submission._id,
     ...(options.refreshReadme ? { refreshReadme: true } : {}),
   });
+  await ctx.db.patch(submission._id, { summaryQueuedFor: runAt });
   return true;
 }
 
@@ -82,7 +129,7 @@ export const queueEventSummaries = internalMutation({
       .take(1000);
     let queued = 0;
     for (const submission of submissions) {
-      if (await queueAiSummaryIfStale(ctx, event, submission, queued * SUMMARY_STAGGER_MS, { refreshReadme: args.refreshReadme })) queued += 1;
+      if (await queueAiSummaryIfStale(ctx, event, submission, queued * SUMMARY_STAGGER_MS, { refreshReadme: args.refreshReadme, source: "close", submissionCount: submissions.length })) queued += 1;
     }
     return { queued };
   },

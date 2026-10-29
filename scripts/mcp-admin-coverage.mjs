@@ -27,6 +27,21 @@ export const UI_EXCLUSIONS = [
   ...finalistFunctions.map((name) => ({ file: finalistPath, browser: `judging.${name}`, reason: "Dormant finalist and placement controls require SHOW_FINALIST_TOOLS to remain false.", dormant: true })),
 ];
 
+/**
+ * Tools whose admin UI arrives in a later pull request: the backend and its
+ * MCP tool land first. The UI pull request removes each entry as it adds the
+ * caller; an entry that already has a caller is reported as stale.
+ */
+export const UI_PENDING = [
+  "phases.previewPhaseChange", "phases.setPhase", "phases.reopenSubmissions",
+  "judging.setJudgingTimeLeft", "judging.pauseJudgingTimer", "judging.resumeJudgingTimer", "events.setStageTimerRemaining",
+  "changes.listRecentChanges", "changes.undoChange",
+  "judging.getJudgesOverview", "judging.replaceJudgeLink", "judging.moveJudgeScores", "judging.deactivateJudgeAccess",
+  "events.getLiveEvent",
+  "practice.createPracticeEvent", "practice.listPracticeEvents", "practice.addPracticeSubmissions",
+  "practice.scoreAsTestJudges", "practice.skipTimerToLastSeconds", "practice.resetPracticeEvent",
+].map((browser) => ({ browser, reason: "Proposed: the new-behaviour backend lands before its admin UI." }));
+
 function sourceFile(file, text) {
   return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
 }
@@ -214,7 +229,7 @@ export function scanToolMappings(text, legacyText = "") {
   return { mappings, errors, legacyNames: [...legacyNames] };
 }
 
-export function checkCoverage({ sources, toolSource, legacySource = "", exclusions = UI_EXCLUSIONS, requireFinalistGuard = true }) {
+export function checkCoverage({ sources, toolSource, legacySource = "", exclusions = UI_EXCLUSIONS, pending = [], requireFinalistGuard = true }) {
   const ui = scanUiSources(sources);
   const tools = scanToolMappings(toolSource, legacySource);
   const errors = [...ui.errors, ...tools.errors];
@@ -242,7 +257,13 @@ export function checkCoverage({ sources, toolSource, legacySource = "", exclusio
   const enabledFunctions = new Set(enabled.map((entry) => entry.browser));
   const mapped = new Set(tools.mappings.map((entry) => entry.browser));
   for (const entry of enabled) if (!mapped.has(entry.browser)) errors.push(`Unmapped admin function ${entry.browser} at ${entry.file}:${entry.line}.`);
-  for (const entry of tools.mappings) if (!enabledFunctions.has(entry.browser)) errors.push(`Tool ${entry.name} maps ${entry.browser}, which has no enabled organization-admin UI caller.`);
+  const waiting = new Set(pending.map((entry) => entry.browser));
+  for (const entry of pending) {
+    if (!entry.reason?.trim()) errors.push(`Pending UI ${entry.browser} requires a reason.`);
+    if (enabledFunctions.has(entry.browser)) errors.push(`Stale pending UI ${entry.browser}: it has a UI caller now.`);
+    if (!tools.mappings.some((tool) => tool.browser === entry.browser)) errors.push(`Pending UI ${entry.browser} has no tool.`);
+  }
+  for (const entry of tools.mappings) if (!enabledFunctions.has(entry.browser) && !waiting.has(entry.browser)) errors.push(`Tool ${entry.name} maps ${entry.browser}, which has no enabled organization-admin UI caller.`);
   return { references: ui.references, enabled, exclusions, mappings: tools.mappings, errors: [...new Set(errors)] };
 }
 
@@ -261,7 +282,7 @@ export async function checkRepository(root = path.resolve(path.dirname(fileURLTo
     collectSources(root, "app"), collectSources(root, "components"),
     readFile(path.join(root, "convex/mcpTools.ts"), "utf8"), readFile(path.join(root, "convex/mcp.ts"), "utf8"),
   ]);
-  return checkCoverage({ sources: Object.fromEntries([...app, ...components]), toolSource, legacySource });
+  return checkCoverage({ sources: Object.fromEntries([...app, ...components]), toolSource, legacySource, pending: UI_PENDING });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

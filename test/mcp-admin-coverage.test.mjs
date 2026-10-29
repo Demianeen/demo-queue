@@ -126,3 +126,13 @@ test("unused backend functions cannot gain tools by adding a catalog entry", () 
   const report = check("useQuery(api.events.getAdmin, {});", mapping("events.getAdmin") + mapping("events.backfill"));
   assert.match(report.errors.join("\n"), /events.backfill.*no enabled organization-admin UI caller/);
 });
+
+test("a tool may wait for its UI only when listed, and the entry goes stale once the UI calls it", () => {
+  const pending = [{ browser: "phases.setPhase", reason: "UI lands next." }];
+  const waiting = checkCoverage({ sources: { "components/Admin.tsx": importedApi + "useQuery(api.events.getAdmin, {});" }, toolSource: mapping("events.getAdmin") + mapping("phases.setPhase"), exclusions: [], pending, requireFinalistGuard: false });
+  assert.deepEqual(waiting.errors, []);
+  const called = checkCoverage({ sources: { "components/Admin.tsx": importedApi + "useMutation(api.phases.setPhase);" }, toolSource: mapping("phases.setPhase"), exclusions: [], pending, requireFinalistGuard: false });
+  assert.match(called.errors.join("\n"), /Stale pending UI phases.setPhase/);
+  const toolless = checkCoverage({ sources: {}, toolSource: "", exclusions: [], pending, requireFinalistGuard: false });
+  assert.match(toolless.errors.join("\n"), /Pending UI phases.setPhase has no tool/);
+});

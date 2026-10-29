@@ -71,6 +71,8 @@ test("the judge page groups projects into Yours, Help out, Scored and All, with 
   await score(t, tokens.alex, help.id, 8);
   const progress = await t.query(api.judging.getAdminProgress, { slug: "hack" });
   expect(progress.scoring.find((row) => row.submissionId === help.id)).toMatchObject({ completeReviewCount: 1 });
+  expect(progress.tracks.map((track) => track.name)).toEqual(["Developer tools", "AI agents"]);
+  for (const row of progress.scoring) expect(row.tracks).toHaveLength((page.projects.find((project) => project.id === row.submissionId)!.trackIds).length);
   const overview = await t.query(api.judging.getJudgesOverview, { slug: "hack" });
   expect(overview.judges.find((row) => row.judgeKey === "alex")).toMatchObject({ assignedCount: alexOwn.length, assignedScoredCount: 1, helpedCount: 1 });
 });

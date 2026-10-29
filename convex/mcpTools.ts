@@ -345,6 +345,106 @@ export const ADMIN_TOOLS: RegisteredAdminTool[] = [
     description: "Create or reuse the event's real Google judging Sheet. Checks folder access, formats the file, resolves concurrent saves and schedules sync.",
     invoke: (ctx, principal, input) => ctx.runAction(internal.googleSheets.createJudgingSheetMcp, { principal, input }),
   }),
+  defineAdminTool({
+    name: "preview_phase_change", browser: "phases.previewPhaseChange", input: operations.previewPhaseChangeInput, effect: "read",
+    description: "Read what moving the event to a phase (submissions, judging, stage, finished) will do, with each effect's text for the confirmation. Changes nothing.",
+    invoke: (ctx, principal, input) => ctx.runQuery(internal.mcpAdmin.previewPhaseChange, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "set_phase", browser: "phases.setPhase", input: operations.setPhaseInput, effect: "write",
+    description: "Move the event to any phase in either direction. Going back to submissions reopens the submit link and pauses a running judging timer, keeping every score. Call preview_phase_change first and confirm its effects with the person.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.setPhase, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "reopen_submissions", browser: "phases.reopenSubmissions", input: operations.reopenSubmissionsInput, effect: "write",
+    description: "Reopen a hackathon's submit link. Pauses a running judging timer; scores are kept and judges cannot score until submissions close again.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.reopenSubmissions, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "set_judging_time_left", browser: "judging.setJudgingTimeLeft", input: operations.setJudgingTimeLeftInput, effect: "write",
+    description: "Set the judging timer to an exact time left in milliseconds. A running timer keeps running from the new time.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.setJudgingTimeLeft, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "pause_judging_timer", browser: "judging.pauseJudgingTimer", input: operations.pauseJudgingTimerInput, effect: "write",
+    description: "Pause the running judging timer. Judges can still score.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.pauseJudgingTimer, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "resume_judging_timer", browser: "judging.resumeJudgingTimer", input: operations.resumeJudgingTimerInput, effect: "write",
+    description: "Resume a paused judging timer from the time it had left.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.resumeJudgingTimer, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "set_stage_timer_remaining", browser: "events.setStageTimerRemaining", input: operations.setStageTimerRemainingInput, effect: "write",
+    description: "Set the stage timer to an exact time left in milliseconds.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.setStageTimerRemaining, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "list_recent_changes", browser: "changes.listRecentChanges", input: operations.listRecentChangesInput, effect: "read",
+    description: "Read the event's recent organiser changes, newest first, with who made them, whether an assistant did, and whether each can be undone (and why not).",
+    invoke: (ctx, principal, input) => ctx.runQuery(internal.mcpAdmin.listRecentChanges, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "undo_change", browser: "changes.undoChange", input: operations.undoChangeInput, effect: "write",
+    description: "Undo one change from list_recent_changes. Refuses, changing nothing, when a later change touched the same data or the event moved on; the error names what to undo first.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.undoChange, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "get_judges_overview", browser: "judging.getJudgesOverview", input: operations.getJudgesOverviewInput, effect: "sensitive",
+    description: "Explicit sensitive read of the Judges table: each judge's private link path, when they opened it, scored and helped counts, and totals. Never share link paths publicly.",
+    invoke: (ctx, principal, input) => ctx.runQuery(internal.mcpAdmin.getJudgesOverview, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "replace_judge_link", browser: "judging.replaceJudgeLink", input: operations.replaceJudgeLinkInput, effect: "write",
+    description: "Give a judge a new private link. The old link stops working at once; their scores stay. Returns the new sensitive path.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.replaceJudgeLink, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "move_judge_scores", browser: "judging.moveJudgeScores", input: operations.moveJudgeScoresInput, effect: "write",
+    description: "Move scores from one judge to another, for when someone scored on the wrong link. All of the first judge's scores, or only submissionIds. Refuses a project both judges scored.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.moveJudgeScores, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "set_judge_link_active", browser: "judging.deactivateJudgeAccess", input: operations.setJudgeLinkActiveInput, effect: "write",
+    description: "Turn a judge's private link off or back on. Their scores stay.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.setJudgeLinkActive, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "get_live_event", browser: "events.getLiveEvent", input: operations.getLiveEventInput, effect: "read",
+    description: "Read the organization's live event: the newest real event that is not finished, with its phase. Never a practice event. Null when there is none.",
+    invoke: (ctx, principal, input) => ctx.runQuery(internal.mcpAdmin.getLiveEvent, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "create_practice_event", browser: "practice.createPracticeEvent", input: operations.createPracticeEventInput, effect: "action",
+    description: "Make a practice event: a copy of a real event (start kind copy with its slug) or a blank hackathon or demo night, with 0 to 50 test submissions and 0 or 2 to 10 test judges. Test people get plus-addresses of your email, so their emails reach you. Never touches the real event.",
+    invoke: (ctx, principal, input) => ctx.runAction(internal.practice.createPracticeEventMcp, { principal, input: { ...input, expectedOrganizationId: principal.organizationId } }),
+  }),
+  defineAdminTool({
+    name: "list_practice_events", browser: "practice.listPracticeEvents", input: operations.listPracticeEventsInput, effect: "read",
+    description: "Read the organization's practice events, newest first, with who made each and when it will be tidied away. Practice events never appear in list_events.",
+    invoke: (ctx, principal, input) => ctx.runQuery(internal.mcpAdmin.listPracticeEvents, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "add_practice_submissions", browser: "practice.addPracticeSubmissions", input: operations.addPracticeSubmissionsInput, effect: "write",
+    description: "Add 1 to 50 test submissions to a practice event through the real submit form code, with random tracks. Practice events only.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.addPracticeSubmissions, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "score_as_test_judges", browser: "practice.scoreAsTestJudges", input: operations.scoreAsTestJudgesInput, effect: "write",
+    description: "Have the test judges score their own unscored projects with whole numbers, up to limit reviews (all when left out). Practice events only, while judging is open.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.scoreAsTestJudges, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "skip_practice_timer", browser: "practice.skipTimerToLastSeconds", input: operations.skipPracticeTimerInput, effect: "write",
+    description: "Jump a running timer (judging, stage or demo; the running one when left out) to its last seconds, 10 by default. Practice events only.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.skipPracticeTimer, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "reset_practice_event", browser: "practice.resetPracticeEvent", input: operations.resetPracticeEventInput, effect: "destructive",
+    description: "Requires matching reset_practice_event confirmation. Takes a practice event back to the start: deletes its scores, assignments and lineup, and its test submissions too when keepSubmissions is false. Cannot be undone. Practice events only.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.resetPracticeEvent, { principal, input }),
+  }),
 ];
 
 export function registerAdminTools(server: McpServer, ctx: ToolContext, user: ConnectUser, protect: Protect): void {

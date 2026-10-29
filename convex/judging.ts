@@ -913,17 +913,25 @@ export async function getAdminProgressForOrganization(
   const reviews = await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000);
   const access = await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(100);
   const nameByJudgeKey = new Map(access.map((judge) => [judge.judgeKey, judge.judgeName]));
+  const eventTracks = await listEventTracks(ctx, event._id);
+  const trackById = tracksById(eventTracks);
+  const submissionById = new Map(submissions.map((submission) => [String(submission._id), submission]));
   return {
     eventStatus: event.judgingStatus ?? "setup",
+    tracks: eventTracks.map((track) => ({ id: track._id, name: track.name })),
     submissionsClosedAt: event.submissionsClosedAt ?? null,
     assignmentVersion: event.assignmentVersion ?? null,
     totalSubmissions: submissions.length,
-    scoring: scoreSubmissions(submissions, reviews).map((row) => ({
-      ...row,
-      assignedJudges:
-        submissions.find((submission) => submission._id === row.submissionId)
-          ?.roundOneAssignedJudges ?? [],
-    })),
+    scoring: scoreSubmissions(submissions, reviews).map((row) => {
+      const submission = submissionById.get(String(row.submissionId))!;
+      return {
+        ...row,
+        teamName: submission.teamName ?? null,
+        tracks: trackNamesFor(submission, trackById),
+        trackIds: (submission.trackIds ?? []).filter((id) => trackById.has(id)),
+        assignedJudges: submission.roundOneAssignedJudges ?? [],
+      };
+    }),
     reviews: reviews.map((review) => ({
       submissionId: review.submissionId,
       judgeKey: review.judgeKey,

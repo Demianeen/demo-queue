@@ -118,7 +118,7 @@ export function validResourceRequest(request: Request, config: McpConfig) {
   const resource = new URL(config.resource);
   const host = request.headers.get("host");
   const origin = request.headers.get("origin");
-  return url.origin === resource.origin && !url.search && (host === null || host === resource.host) && (origin === null || origin === resource.origin);
+  return url.origin === config.requestOrigin && !url.search && (host === null || host === url.host) && (origin === null || origin === resource.origin);
 }
 
 export const mcp = httpAction(async (ctx, request) => {

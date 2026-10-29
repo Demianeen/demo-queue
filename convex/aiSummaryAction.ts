@@ -10,7 +10,7 @@ import {
   buildSummaryPrompt,
   githubReadmeApiUrl,
   SUMMARY_README_LIMIT,
-  summaryOutputSchema,
+  summaryOutputSchemaFor,
 } from "../lib/ai-summary";
 
 const README_TIMEOUT_MS = 8_000;
@@ -37,14 +37,14 @@ function log(status: string, reason: string) {
 }
 
 /**
- * Writes the three-line summary for one submission with the deployment's
+ * Writes the summary, one line per section, for one submission with the deployment's
  * existing OpenAI setup (OPENAI_API_KEY, OPENAI_MODEL). Without a key, it is
  * skipped and logged. A failure is logged and leaves any older summary alone.
  */
 export const generateSubmissionSummary = internalAction({
-  args: { submissionId: v.id("submissions") },
+  args: { submissionId: v.id("submissions"), refreshReadme: v.optional(v.boolean()) },
   handler: async (ctx, args): Promise<{ saved: boolean }> => {
-    const input = await ctx.runQuery(internal.aiSummaries.summaryInput, { submissionId: args.submissionId });
+    const input = await ctx.runQuery(internal.aiSummaries.summaryInput, { submissionId: args.submissionId, refreshReadme: args.refreshReadme });
     if (!input) {
       log("skipped", "not_needed");
       return { saved: false };
@@ -55,25 +55,29 @@ export const generateSubmissionSummary = internalAction({
       return { saved: false };
     }
     const readme = await fetchReadme(input.githubUrl);
-    const { system, prompt } = buildSummaryPrompt({ ...input, readme });
+    const readmeHash = readme === null ? undefined : createHash("sha256").update(readme).digest("hex");
+    // The description and repository are unchanged: write again only when the README changed.
+    if (input.readmeCheckOnly && (readmeHash ?? null) === input.readmeHash) {
+      log("skipped", "readme_unchanged");
+      return { saved: false };
+    }
+    const { system, prompt } = buildSummaryPrompt({ ...input, readme }, input.sections);
     const model = env.OPENAI_MODEL ?? "gpt-5.4";
     try {
-      // Exactly three capped strings; anything else fails here and is logged.
+      // Exactly one capped string per section; anything else fails here and is logged.
       const { output } = await generateText({
         model: createOpenAI({ apiKey })(model),
-        output: Output.object({ schema: summaryOutputSchema }),
+        output: Output.object({ schema: summaryOutputSchemaFor(input.sections) }),
         system,
         prompt,
       });
       const result = await ctx.runMutation(internal.aiSummaries.saveSummary, {
         submissionId: args.submissionId,
         sourceKey: input.sourceKey,
-        whatItDoes: output.whatItDoes,
-        howItWorks: output.howItWorks,
-        demoFocus: output.demoFocus,
+        lines: input.sections.map((section) => ({ key: section.key, text: String((output as Record<string, unknown>)[section.key] ?? "") })),
         model,
         usedReadme: readme !== null,
-        readmeHash: readme === null ? undefined : createHash("sha256").update(readme).digest("hex"),
+        readmeHash,
       });
       log(result.saved ? "saved" : "rejected", result.reason);
       return { saved: result.saved };

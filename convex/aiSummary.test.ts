@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import tableHistorySchema from "../node_modules/@convex-dev/table-history/src/component/schema";
 import { summarySourceKey } from "../lib/ai-summary";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 
 // The model is never called for real: generateText is replaced, the rest of the SDK stays.
 const generateText = vi.hoisted(() => vi.fn());
@@ -28,6 +29,8 @@ const modules = {
   "./tracks.ts": () => import("./tracks"),
   "./aiSummaries.ts": () => import("./aiSummaries"),
   "./aiSummaryAction.ts": () => import("./aiSummaryAction"),
+  "./phases.ts": () => import("./phases"),
+  "./changeLog.ts": () => import("./changeLog"),
   "./judgingSheetSync.ts": () => import("./judgingSheetSync"),
   "./googleSheets.ts": () => import("./googleSheets"),
 };
@@ -64,6 +67,7 @@ function modelReturns(prefix = "") {
 async function setup() {
   const root = convexTest(schema, modules);
   root.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);
+  rateLimiterTest.register(root);
   const t = root.withIdentity({ subject: "operator", org_id: "org_ai" });
   const eventId = await t.run((ctx) =>
     ctx.db.insert("events", {
@@ -113,9 +117,6 @@ test("closing submissions writes one summary per submission in judging, from pro
   const second = await add(1);
   const withdrawn = await add(2, { status: "withdrawn" });
 
-  // Nothing is written while submissions are open.
-  expect(await t.mutation(internal.aiSummaries.queueEventSummaries, { eventId: (await t.run((ctx) => ctx.db.query("events").first()))!._id })).toEqual({ queued: 0 });
-
   await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
   await runAll(t);
 
@@ -162,6 +163,11 @@ test("judges see the summary, labelled fields only", async () => {
     whatItDoes: "Checks agent tool calls against a policy before they run.",
     howItWorks: "A TypeScript proxy between the agent and its tools.",
     demoFocus: "Watch a blocked call and the reason it gives.",
+    sections: [
+      { key: "whatItDoes", label: "What it does", text: "Checks agent tool calls against a policy before they run." },
+      { key: "howItWorks", label: "How it works", text: "A TypeScript proxy between the agent and its tools." },
+      { key: "demoFocus", label: "Look for in the demo", text: "Watch a blocked call and the reason it gives." },
+    ],
     usedReadme: true,
     generatedAt: expect.any(Number),
     stale: false,
@@ -181,6 +187,11 @@ test("organisers see the summary on the admin board; other organisations cannot 
     whatItDoes: "Checks agent tool calls against a policy before they run.",
     howItWorks: "A TypeScript proxy between the agent and its tools.",
     demoFocus: "Watch a blocked call and the reason it gives.",
+    sections: [
+      { key: "whatItDoes", label: "What it does", text: "Checks agent tool calls against a policy before they run." },
+      { key: "howItWorks", label: "How it works", text: "A TypeScript proxy between the agent and its tools." },
+      { key: "demoFocus", label: "Look for in the demo", text: "Watch a blocked call and the reason it gives." },
+    ],
     usedReadme: true,
     generatedAt: expect.any(Number),
     stale: false,
@@ -196,11 +207,12 @@ test("a changed description is summarised again; an unchanged edit is not", asyn
   const edit = (description: string) =>
     t.mutation(api.events.updateSubmission, { slug: "hack", submissionId: id, name: "Person 0", demoTitle: "Guardrail", description, phone: "+440000000000" });
 
-  // Before submissions close, edits queue nothing.
+  // A submission without a summary gets one from the first edit, before submissions close.
   await edit("Description 0");
   await runAll(t);
-  expect(generateText).not.toHaveBeenCalled();
+  expect(generateText).toHaveBeenCalledTimes(1);
 
+  // Closing submissions rechecks the README; it has not changed, so the model is not called again.
   await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
   await runAll(t);
   expect(generateText).toHaveBeenCalledTimes(1);
@@ -241,8 +253,8 @@ test("a summary written from an older description is not saved", async () => {
     submissionId: id, sourceKey: key, whatItDoes: `line\nbreak ${"x".repeat(400)}`, howItWorks: "b", demoFocus: "c", model: "m", usedReadme: false,
   });
   const saved = await summaryOf(t, id);
-  expect(saved!.whatItDoes.startsWith("line break")).toBe(true);
-  expect(saved!.whatItDoes.length).toBeLessThanOrEqual(220);
+  expect(saved!.whatItDoes!.startsWith("line break")).toBe(true);
+  expect(saved!.whatItDoes!.length).toBeLessThanOrEqual(220);
 });
 
 test("a model failure is logged and leaves the submission alone", async () => {
@@ -357,4 +369,72 @@ test("judges are told when a summary is being written, ready, or not coming", as
   });
   vi.stubEnv("OPENAI_API_KEY", "");
   expect(await status()).toBe("none");
+});
+
+test("a team that submits gets its summary straight away, before submissions close", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  const { t } = await setup();
+  const { submissionId } = await t.mutation(api.events.submitHackathon, {
+    slug: "hack", participantToken: "p-new", clientId: "client-new-1234-abcdef", name: "Ana Ruiz", teamName: "Guardrail team",
+    teamMembers: [], demoTitle: "Guardrail", description: "Policy checks for agent tool calls.", phone: "+447700900123",
+    email: "ana@example.com", githubUrl: "https://github.com/example/guardrail", rulesAccepted: true, videoUrl: "https://example.com/video",
+  }) as { submissionId: Id<"submissions"> };
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(1);
+  expect(await summaryOf(t, submissionId)).toMatchObject({ usedReadme: true, whatItDoes: expect.any(String) });
+});
+
+test("closing submissions rewrites a summary only when the README changed", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const { t, add } = await setup();
+  const id = await add(0);
+  await t.mutation(api.events.updateSubmission, { slug: "hack", submissionId: id, name: "Person 0", demoTitle: "Guardrail", description: "Description 0", phone: "+440000000000" });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(1);
+  const firstHash = (await summaryOf(t, id))!.readmeHash;
+
+  // Same README at close: no new model call.
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(1);
+  expect(log.mock.calls.map(([line]) => String(line))).toContain(JSON.stringify({ event: "ai-summary", status: "skipped", reason: "readme_unchanged" }));
+
+  // The team pushed a new README; closing again (after a reopen) writes a new summary.
+  fetchMock.mockImplementation(async () => new Response("# Guardrail\nNow with a web dashboard.", { status: 200 }));
+  modelReturns("Updated: ");
+  await t.mutation(api.phases.setPhase, { slug: "hack", phase: "submissions" });
+  await t.mutation(api.phases.setPhase, { slug: "hack", phase: "judging" });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(2);
+  const summary = (await summaryOf(t, id))!;
+  expect(summary.readmeHash).not.toBe(firstHash);
+  expect(summary.whatItDoes).toMatch(/^Updated: /);
+  log.mockRestore();
+});
+
+test("an event's own summary sections shape the prompt and the saved summary", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  generateText.mockImplementation(async () => ({ output: { problem: "Agents run risky shell commands.", stack: "TypeScript and a small policy model." } }));
+  const { t, eventId, add } = await setup();
+  await t.run((ctx) => ctx.db.patch(eventId, { aiSummarySections: [
+    { key: "problem", label: "Problem", instruction: "the problem the project solves." },
+    { key: "stack", label: "Stack", instruction: "the main technology." },
+  ] }));
+  const id = await add(0);
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  const { system } = generateText.mock.calls[0][0];
+  expect(system).toContain("Write exactly two plain-text lines");
+  expect(system).toContain("problem: the problem the project solves.");
+  expect(await summaryOf(t, id)).toMatchObject({
+    sections: [
+      { key: "problem", label: "Problem", text: "Agents run risky shell commands." },
+      { key: "stack", label: "Stack", text: "TypeScript and a small policy model." },
+    ],
+  });
+  const admin = await t.query(api.events.getAdmin, { slug: "hack" });
+  expect(admin.pool[0].aiSummary).toMatchObject({ whatItDoes: "", sections: [{ label: "Problem" }, { label: "Stack" }] });
 });

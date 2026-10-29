@@ -133,7 +133,7 @@ test.each<Entry>(["browser", "mcp"])("%s shuffle filters unknown, duplicate and 
   const prompt = provider.generateText.mock.calls[0][0].prompt;
   expect(prompt).toContain("Choose exactly 2 presenters");
   expect(prompt).toContain("Lead with tools");
-  expect(JSON.parse(prompt.split("People (JSON): ")[1])).toEqual([0, 1, 2].map((index) => ({ id: ids[index], name: `Presenter ${index}`, demoTitle: `Demo ${index}`, category: "Tools" })));
+  expect(JSON.parse(prompt.split("People (JSON): ")[1])).toEqual([0, 1, 2].map((index) => ({ id: ids[index], name: `Presenter ${index}`, demoTitle: `Demo ${index}`, tracks: "Tools" })));
   for (const secret of ["private-", "member-", "participantToken", "teamMemberContacts", "description", "email", "phone", "twitter", "linkedin"]) expect(prompt).not.toContain(secret);
   expect((await t.run((ctx) => ctx.db.query("auditLog").collect())).map((row) => row.action)).toEqual(["lineup_ai_ordered"]);
 });

@@ -2,6 +2,7 @@ import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import { api, components } from "./_generated/api.js";
 import schema from "./schema";
+import type { Id } from "./_generated/dataModel";
 import tableHistorySchema from "../node_modules/@convex-dev/table-history/src/component/schema";
 
 const tableHistoryComponentRoot =
@@ -588,4 +589,84 @@ test("normalization decisions, finalist amendments, and placements stay independ
     },
   );
   expect(history.page).toHaveLength(3);
+});
+
+test("judges can read every submission in judging but score only their own", async () => {
+  const { t, eventId } = await createHackathon(["Alex", "Sam", "Taylor"]);
+  const ids: Id<"submissions">[] = [];
+  for (let index = 0; index < 6; index += 1) ids.push(await addSubmission(t, eventId, index));
+  await t.run(async (ctx) => {
+    await ctx.db.patch(ids[0], { teamName: "Night Owls" });
+    for (const name of ["Ana", "Luca"]) {
+      await ctx.db.insert("teamMembers", { eventId, submissionId: ids[0], name, email: `${name}@example.com`, whatsappPhone: "+440000000001", createdAt: 1 });
+    }
+  });
+  const withdrawnId = await addSubmission(t, eventId, 9);
+  await t.run((ctx) => ctx.db.patch(withdrawnId, { status: "withdrawn" }));
+  await t.mutation(api.judging.createJudgeAccess, { slug: "hack", judgeName: "Alex", capabilityToken: "alex-secret" });
+  await t.mutation(api.judging.createJudgeAccess, { slug: "hack", judgeName: "Sam", capabilityToken: "sam-secret" });
+
+  // Nothing is visible before judging opens.
+  expect(await t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "alex-secret" })).toEqual([]);
+  await prepareAssignments(t);
+  expect(await t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "alex-secret" })).toEqual([]);
+  await t.mutation(api.judging.startJudging, { slug: "hack" });
+
+  const mine = await t.query(api.judging.getMyAssignments, { slug: "hack", capabilityToken: "alex-secret" });
+  const others = await t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "alex-secret" });
+  const mineIds = mine.assignments.map((item) => item.id);
+  const otherIds = others.map((item) => item.id);
+  expect(mineIds.length).toBeGreaterThan(0);
+  expect(otherIds.length).toBeGreaterThan(0);
+  // Together they cover every submission in judging exactly once, and never a withdrawn one.
+  expect([...mineIds, ...otherIds].sort()).toEqual([...ids].sort());
+  expect(otherIds).not.toContain(withdrawnId);
+  const submissions = await t.run((ctx) => ctx.db.query("submissions").collect());
+  for (const id of otherIds) {
+    expect(submissions.find((s) => s._id === id)?.roundOneAssignedJudges).not.toContain("Alex");
+  }
+
+  // Team details without anyone's contact details.
+  const team = [...mine.assignments, ...others].find((item) => item.id === ids[0])!;
+  expect(team).toMatchObject({ teamName: "Night Owls", memberCount: 3, demoTitle: "Demo 0", name: "Person 0" });
+  for (const item of others) {
+    expect(Object.keys(item).sort()).toEqual(["aiSummary", "demoTitle", "description", "githubUrl", "id", "memberCount", "name", "teamName", "tracks", "videoUrl"]);
+  }
+  expect(JSON.stringify(others)).not.toMatch(/\+44|@example\.com|participant-/);
+
+  // Scoring someone else's submission is refused and writes nothing.
+  await expect(t.mutation(api.judging.saveReview, {
+    slug: "hack", capabilityToken: "alex-secret", submissionId: otherIds[0], innovation: 8, execution: 8, demoClarity: 8,
+  })).rejects.toThrow("Submission is not assigned to this judge.");
+  expect(await t.run((ctx) => ctx.db.query("reviews").collect())).toEqual([]);
+  await expect(t.mutation(api.judging.saveReview, {
+    slug: "hack", capabilityToken: "alex-secret", submissionId: mineIds[0], innovation: 8, execution: 8, demoClarity: 8,
+  })).resolves.toEqual({ completed: true });
+
+  // Each judge's "others" are their own complement.
+  const samMine = (await t.query(api.judging.getMyAssignments, { slug: "hack", capabilityToken: "sam-secret" })).assignments.map((item) => item.id);
+  const samOthers = (await t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "sam-secret" })).map((item) => item.id);
+  expect([...samMine, ...samOthers].sort()).toEqual([...ids].sort());
+
+  // Reading stays available once judging closes.
+  await t.mutation(api.judging.closeJudging, { slug: "hack" });
+  expect(await t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "alex-secret" })).toHaveLength(otherIds.length);
+});
+
+test("other submissions need an active judge link for that event", async () => {
+  const { t, eventId } = await createHackathon(["Alex", "Sam"]);
+  await addSubmission(t, eventId, 1);
+  await t.mutation(api.judging.createJudgeAccess, { slug: "hack", judgeName: "Alex", capabilityToken: "alex-secret" });
+  await prepareAssignments(t);
+  await t.mutation(api.judging.startJudging, { slug: "hack" });
+  await t.run((ctx) => ctx.db.insert("events", {
+    name: "Other", slug: "other-hack", eventType: "hackathon", workosOrganizationId: "org_other",
+    meetUrl: "https://meet.example", queuePublished: false, judgingStatus: "open", createdAt: 1, updatedAt: 1,
+  }));
+
+  await expect(t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "wrong" })).rejects.toThrow("Unauthorized");
+  await expect(t.query(api.judging.getOtherSubmissions, { slug: "other-hack", capabilityToken: "alex-secret" })).rejects.toThrow("Unauthorized");
+  await expect(t.query(api.judging.getOtherSubmissions, { slug: "missing", capabilityToken: "alex-secret" })).rejects.toThrow("Event not found.");
+  await t.mutation(api.judging.deactivateJudgeAccess, { slug: "hack", judgeKey: "alex", active: false });
+  await expect(t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "alex-secret" })).rejects.toThrow("Unauthorized");
 });

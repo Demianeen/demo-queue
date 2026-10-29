@@ -80,3 +80,25 @@ test("GitHub repository links normalize only repository roots", () => {
   assert.equal(normalizeGithubRepositoryUrl("https://example.com/orbit/launchpad"), null);
   assert.equal(normalizeGithubRepositoryUrl("https://github.com/orbit/launchpad/issues"), null);
 });
+
+test("team contacts keep optional socials and reject bad ones", () => {
+  const parsed = teamContactSchema.parse({
+    name: "Sam Lee",
+    email: "sam@example.com",
+    whatsappPhone: "+44 20 7946 0958",
+    twitter: " @samlee ",
+    linkedin: "",
+    githubProfile: "github.com/samlee",
+  });
+  assert.equal(parsed.twitter, "@samlee");
+  assert.equal(parsed.linkedin, undefined);
+  assert.equal(parsed.githubProfile, "github.com/samlee");
+  const bad = teamContactSchema.safeParse({
+    name: "Sam Lee",
+    email: "sam@example.com",
+    whatsappPhone: "+44 20 7946 0958",
+    githubProfile: "https://gitlab.com/samlee",
+  });
+  assert.equal(bad.success, false);
+  assert.equal(bad.error.issues[0].path[0], "githubProfile");
+});

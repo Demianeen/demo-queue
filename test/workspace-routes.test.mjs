@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { workspaceReturnPath, isEventDetailsPath, isEventAdminPath, eventDetailsPath } from '../lib/workspace-routes.ts';
 
 test('sign-in returns only to local workspace routes', () => {
-  for (const path of ['/events', '/styles', '/events/new', '/events/demo-night-123/overview', '/events/demo-night-123/admin']) assert.equal(workspaceReturnPath(path), path);
+  for (const path of ['/events', '/styles', '/members', '/events/new', '/events/demo-night-123/overview', '/events/demo-night-123/admin']) assert.equal(workspaceReturnPath(path), path);
   for (const path of [null, 'https://example.com', '//example.com', '/events/../admin', '/events/%2fadmin', '/events/demo?next=evil', '/events/demo#hash', '/events/demo/extra', '/events/\\evil']) assert.equal(workspaceReturnPath(path), '/events');
 });
 test('event routes distinguish creation from details and handle unavailable slugs', () => {

@@ -3,6 +3,14 @@ import { v } from "convex/values";
 import { eventThemeValidator } from "./eventTheme";
 import { visualStyleValidator } from "./visualStyle";
 
+/** Where each social came from: typed by the team, or imported from Luma. */
+const socialSource = v.union(v.literal("typed"), v.literal("luma"));
+export const socialSourcesValidator = v.object({
+  twitter: v.optional(socialSource),
+  linkedin: v.optional(socialSource),
+  githubProfile: v.optional(socialSource),
+});
+
 export default defineSchema({
   mcpApprovals: defineTable({
     ownerAccountKey: v.string(), workosUserId: v.string(), actor: v.string(),
@@ -42,6 +50,8 @@ export default defineSchema({
     judgingSheetSyncError: v.optional(v.string()),
     roundOneJudges: v.optional(v.array(v.string())),
     submissionsClosedAt: v.optional(v.number()),
+    // Last time public submits arrived faster than the event-wide limit; the admin warns.
+    submissionSurgeAt: v.optional(v.number()),
     judgingStatus: v.optional(v.union(v.literal("setup"), v.literal("preparing_assignments"), v.literal("ready"), v.literal("open"), v.literal("closed"))),
     judgingTimerDurationMs: v.optional(v.number()),
     judgingTimerRemainingMs: v.optional(v.number()),
@@ -81,6 +91,10 @@ export default defineSchema({
         demoTimerRemainingMs: v.number(),
       }),
     ),
+    // The Luma event whose registrations prefill socials on the submit form.
+    lumaEventId: v.optional(v.string()),
+    lumaEventName: v.optional(v.string()),
+    lumaEventUrl: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"])
@@ -94,11 +108,36 @@ export default defineSchema({
     description: v.string(),
     phone: v.string(),
     email: v.optional(v.string()),
+    // emailKey(email), or "" without an email. Missing only on rows from before it.
+    normalizedEmail: v.optional(v.string()),
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
+    // The presenter's GitHub username or profile link (not the project repo).
+    githubProfile: v.optional(v.string()),
+    socialSources: v.optional(socialSourcesValidator),
+    // When the status link was last emailed, to throttle "email me the link again".
+    statusLinkEmailedAt: v.optional(v.number()),
+    // Legacy free-text category. Kept for existing data; tracks replace it.
     category: v.optional(v.string()),
+    // Ordered by the event's track order. Undefined means tracks were never set.
+    trackIds: v.optional(v.array(v.id("eventTracks"))),
     teamName: v.optional(v.string()),
     githubUrl: v.optional(v.string()),
+    // Three lines written by AI from the description and README, for judges and admins.
+    // sourceKey says which description and repository it was written from.
+    aiSummary: v.optional(
+      v.object({
+        whatItDoes: v.string(),
+        howItWorks: v.string(),
+        demoFocus: v.string(),
+        sourceKey: v.string(),
+        model: v.string(),
+        usedReadme: v.boolean(),
+        // SHA-256 of the README text the summary was written from, when there was one.
+        readmeHash: v.optional(v.string()),
+        generatedAt: v.number(),
+      }),
+    ),
     rulesAcceptedAt: v.optional(v.number()),
     roundOneAssignedJudges: v.optional(v.array(v.string())),
     finalist: v.optional(v.boolean()),
@@ -125,10 +164,20 @@ export default defineSchema({
   })
     .index("by_event", ["eventId"])
     .index("by_event_status", ["eventId", "status"])
+    .index("by_event_and_normalized_email", ["eventId", "normalizedEmail"])
     .index("by_participant_token", ["participantToken"])
     .index("by_screenshot_id", ["screenshotId"])
     .index("by_video_delete_at", ["videoDeleteAt"])
     .index("by_video_storage_id", ["videoStorageId"]),
+
+  eventTracks: defineTable({
+    eventId: v.id("events"),
+    name: v.string(),
+    description: v.optional(v.string()),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_event_and_order", ["eventId", "order"]),
 
   teamMembers: defineTable({
     eventId: v.id("events"),
@@ -136,10 +185,17 @@ export default defineSchema({
     name: v.string(),
     email: v.optional(v.string()),
     whatsappPhone: v.optional(v.string()),
+    twitter: v.optional(v.string()),
+    linkedin: v.optional(v.string()),
+    githubProfile: v.optional(v.string()),
+    // emailKey(email), or "" without an email. Missing only on rows from before it.
+    normalizedEmail: v.optional(v.string()),
+    socialSources: v.optional(socialSourcesValidator),
     createdAt: v.number(),
   })
     .index("by_event", ["eventId"])
-    .index("by_submission", ["submissionId"]),
+    .index("by_submission", ["submissionId"])
+    .index("by_event_and_normalized_email", ["eventId", "normalizedEmail"]),
 
   auditLog: defineTable({
     eventId: v.id("events"),
@@ -147,7 +203,17 @@ export default defineSchema({
     actor: v.string(),
     details: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_event", ["eventId"]),
+  }).index("by_event", ["eventId"])
+    .index("by_event_and_action", ["eventId", "action"]),
+
+  // The Getting started guide's own choices, per person and organization.
+  gettingStartedGuides: defineTable({
+    ownerAccountKey: v.string(),
+    organizationId: v.string(),
+    hidden: v.boolean(),
+    dryRunMarkedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_owner_and_organization", ["ownerAccountKey", "organizationId"]),
 
   judgeAccess: defineTable({
     eventId: v.id("events"),
@@ -192,4 +258,18 @@ export default defineSchema({
     placementStatus: v.union(v.literal("draft"), v.literal("submitted"), v.literal("needs_review")),
     updatedAt: v.number(),
   }).index("by_event", ["eventId"]),
+
+  // Short-lived cache of Luma social lookups, keyed by a hash of the email.
+  // Each row is deleted when it expires.
+  lumaGuestLookups: defineTable({
+    eventId: v.id("events"),
+    lumaEventId: v.string(),
+    emailHash: v.string(),
+    socials: v.object({
+      twitter: v.optional(v.string()),
+      linkedin: v.optional(v.string()),
+      githubProfile: v.optional(v.string()),
+    }),
+    expiresAt: v.number(),
+  }).index("by_event_and_email", ["eventId", "emailHash"]),
 });

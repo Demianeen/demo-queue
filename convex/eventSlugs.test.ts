@@ -1,22 +1,34 @@
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { rename } from "./eventSlugs";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = {
   "./_generated/api.js": () => import("./_generated/api.js"),
   "./_generated/server.js": () => import("./_generated/server.js"),
   "./events.ts": () => import("./events"),
+  "./emails.ts": () => import("./emails"),
   "./judging.ts": () => import("./judging"),
   "./eventSlugs.ts": () => import("./eventSlugs"),
 };
+// Submitting queues an email; keep it queued so it never runs after a test ends.
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const oldSlug = "test-hack-5-1db202";
 const newSlug = "daytona-hacksprint-london-august-2026-1db202";
 const organizationId = "org_outpost";
 
 async function fixture() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const owner = t.withIdentity({ subject: "operator", org_id: organizationId });
   const { eventId } = await owner.mutation(api.events.createEvent, {
     name: "Daytona", slug: oldSlug, eventType: "hackathon",
@@ -73,10 +85,10 @@ test("submission forms remain account-free through an old slug, and creation can
   await t.run((ctx) => ctx.db.patch(eventId, { eventType: "demo" }));
   await t.mutation(internal.eventSlugs.rename, { ...args, dryRun: false });
   for (const slug of [oldSlug, newSlug]) {
-    const { submissionId } = await t.mutation(api.events.submitDemo, {
-      slug, participantToken: `participant-${slug}`, name: "Participant", demoTitle: `Demo ${slug}`,
+    const { submissionId } = (await t.mutation(api.events.submitDemo, {
+      slug, participantToken: `participant-${slug}`, clientId: "test-browser-slugs-0001", name: "Participant", demoTitle: `Demo ${slug}`,
       description: "A working demonstration", phone: "+447700900123", queueOrder: 1,
-    });
+    })) as { submissionId: Id<"submissions"> };
     expect(await t.run((ctx) => ctx.db.get(submissionId))).toMatchObject({ eventId, demoTitle: `Demo ${slug}` });
   }
   await expect(owner.mutation(api.events.createEvent, {

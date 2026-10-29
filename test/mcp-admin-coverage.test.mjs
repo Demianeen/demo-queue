@@ -112,7 +112,7 @@ test("human connection consent exclusions cannot hide new callers or become tool
   const exclusions = UI_EXCLUSIONS.filter((entry) => entry.file === "components/McpConnectionClient.tsx");
   const calls = exclusions.map((entry) => `useAction(api.${entry.browser});`).join("\n");
   const sources = { "components/McpConnectionClient.tsx": importedApi + calls };
-  assert.equal(exclusions.length, 6);
+  assert.equal(exclusions.length, 7);
   assert.deepEqual(checkCoverage({ sources, toolSource: "", exclusions, requireFinalistGuard: false }).errors, []);
   const report = checkCoverage({ sources: { ...sources, "components/Admin.tsx": importedApi + "useAction(api.mcpConsent.authorize); useAction(api.mcpConsent.newOperation);" }, toolSource: mapping("mcpConsent.authorize"), exclusions, requireFinalistGuard: false });
   assert.match(report.errors.join("\n"), /Unmapped admin function mcpConsent.newOperation/);

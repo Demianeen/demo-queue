@@ -1,12 +1,14 @@
 import { convexTest } from "convex-test";
 import { componentsGeneric, queryGeneric, type FunctionReference, type FunctionReturnType } from "convex/server";
 import component from "@convex-dev/mcp/test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { ADMIN_TOOLS } from "./mcpTools";
 import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
+import { summarySourceKey } from "../lib/ai-summary";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts", "!./convex.config.ts"]);
 type Test = ReturnType<typeof setup>;
@@ -33,20 +35,55 @@ beforeEach(() => {
   vi.stubEnv("WORKOS_MCP_ISSUER", "https://login.example.com");
   vi.stubEnv("WORKOS_MCP_RESOURCE", resource);
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com");
-  vi.stubGlobal("fetch", vi.fn(async (input: URL | Request | string) => {
+  invitations.length = 0;
+  workosWrites.length = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: URL | Request | string, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : input);
     if (url.origin !== "https://api.workos.com") throw new Error("Unexpected external provider");
     if (!providerAvailable) throw new Error("private-provider-key private-contact@example.com");
+    const member = workosMembers(url, init?.method ?? "GET", typeof init?.body === "string" ? init.body : undefined);
+    if (member) return member;
     const rows = memberships.get(url.searchParams.get("user_id") ?? "") ?? [];
     const selected = url.searchParams.get("organization_id");
     return Response.json({ data: selected ? rows.filter((row) => row.organization_id === selected) : rows, list_metadata: { after: null } });
   }));
 });
+// A small model of WorkOS users and invitations for the member tools.
+type Invitation = { id: string; email: string; state: "pending" | "accepted" | "expired" | "revoked"; organization_id: string; inviter_user_id: string | null; expires_at: string; created_at: string };
+const invitations: Invitation[] = [];
+const workosWrites: { path: string; body?: unknown }[] = [];
+const workosUsers = [{ id: "user_alice", email: "alice@example.com", first_name: "Alice", last_name: "Smith" }, { id: "user_bob", email: "bob@example.com", first_name: "Bob", last_name: null }];
+function workosMembers(url: URL, method: string, body?: string) {
+  const list = (data: unknown[]) => Response.json({ data, list_metadata: { after: null } });
+  const organization = url.searchParams.get("organization_id");
+  if (url.pathname === "/user_management/organization_memberships" && !url.searchParams.get("user_id")) {
+    return list([...memberships.values()].flat().filter((row) => row.organization_id === organization).map((row, index) => ({ ...row, id: `om_${index}`, created_at: "2026-09-12T10:00:00.000Z" })));
+  }
+  if (url.pathname === "/user_management/users") return list(workosUsers.filter((user) => [...memberships.values()].flat().some((row) => row.user_id === user.id && row.organization_id === organization)));
+  if (url.pathname === "/user_management/invitations" && method === "GET") return list(invitations.filter((row) => row.organization_id === organization));
+  if (url.pathname === "/user_management/invitations" && method === "POST") {
+    const input = z.object({ email: z.string(), organization_id: z.string(), inviter_user_id: z.string(), expires_in_days: z.number() }).parse(JSON.parse(body ?? "{}"));
+    workosWrites.push({ path: url.pathname, body: input });
+    const row: Invitation = { id: `invitation_${invitations.length + 1}`, email: input.email, state: "pending", organization_id: input.organization_id, inviter_user_id: input.inviter_user_id, expires_at: new Date(Date.now() + input.expires_in_days * 86400000).toISOString(), created_at: new Date().toISOString() };
+    invitations.push(row);
+    return Response.json(row, { status: 201 });
+  }
+  const match = /^\/user_management\/invitations\/(invitation_\d+)(\/revoke)?$/.exec(url.pathname);
+  if (match) {
+    const row = invitations.find((invitation) => invitation.id === match[1]);
+    if (!row) return Response.json({ message: "Not found" }, { status: 404 });
+    if (match[2] && method === "POST") { workosWrites.push({ path: url.pathname }); row.state = "revoked"; }
+    return Response.json(row);
+  }
+  return null;
+}
+
 afterEach(() => { vi.clearAllTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); });
 
 function setup() {
   const t = convexTest(schema, modules);
   component.register(t);
+  rateLimiterTest.register(t);
   t.registerComponent("mcp", component.schema, { ...component.modules, "./component/testInspection.ts": async () => ({ dump: queryGeneric({ args: {}, handler: async (ctx) => JSON.stringify({ grants: await ctx.db.query("grants").collect(), tokens: await ctx.db.query("tokens").collect(), requests: await ctx.db.query("authRequests").collect() }) }) }) });
   return t;
 }
@@ -137,7 +174,7 @@ function example(value: unknown): unknown {
   }
 }
 
-test("component OAuth discovery, DCR, PKCE consent, initialize and discovery expose 60 tools without provider token signing", async () => {
+test("component OAuth discovery, DCR, PKCE consent, initialize and discovery expose 64 tools without provider token signing", async () => {
   const t = setup();
   const metadata = await t.fetch("/.well-known/oauth-protected-resource/mcp");
   expect(await metadata.json()).toMatchObject({ resource, authorization_servers: [site], scopes_supported: ["events:read", "events:manage"] });
@@ -149,8 +186,8 @@ test("component OAuth discovery, DCR, PKCE consent, initialize and discovery exp
   expect(await initialized.json()).toMatchObject({ result: { serverInfo: { name: "demo-queue" } } });
   expect(await success(t, connection.access_token, "list_organizations", {})).toEqual({ organizations: [{ id: "org_one", name: "one" }, { id: "org_two", name: "two" }], nextCursor: null, hasMore: false });
   const tools = await listed(t, connection.access_token);
-  expect(tools.map((tool) => tool.name)).toEqual(["list_organizations", "list_events", "get_event", "create_event", "list_styles", "create_style", "set_default_style", ...ADMIN_TOOLS.map((tool) => tool.name)]);
-  expect(tools).toHaveLength(60);
+  expect(tools.map((tool) => tool.name)).toEqual(["list_organizations", "list_events", "get_event", "create_event", "list_styles", "create_style", "set_default_style", "list_members", "list_invitations", "send_invitations", "revoke_invitation", ...ADMIN_TOOLS.map((tool) => tool.name)]);
+  expect(tools).toHaveLength(64);
   expect(await success(t, connection.access_token, "list_events", { organizationId: "org_one" })).toEqual({ page: [], isDone: true, continueCursor: "_end_cursor" });
 });
 
@@ -179,7 +216,7 @@ test("read-only OAuth consent narrows broad requested scopes and blocks every di
   const read = await oauth(t, { access: "read" });
   const fullTools = await listed(t, full.apiKey);
   const readTools = await listed(t, read.access_token);
-  expect(readTools.map((tool) => tool.name).sort()).toEqual(fullTools.filter((tool) => tool.annotations?.readOnlyHint && !["get_submission_contacts", "list_judge_links"].includes(tool.name)).map((tool) => tool.name).sort());
+  expect(readTools.map((tool) => tool.name).sort()).toEqual(fullTools.filter((tool) => tool.annotations?.readOnlyHint && !["get_submission_contacts", "list_judge_links", "list_members", "list_invitations"].includes(tool.name)).map((tool) => tool.name).sort());
   expect(await success(t, read.access_token, "get_event", { organizationId: "org_one", slug: "read-only-event" })).toMatchObject({ slug: "read-only-event" });
   for (const tool of fullTools.filter((tool) => !readTools.some((readTool) => readTool.name === tool.name))) {
     const args = z.record(z.string(), z.unknown()).parse(example(tool.inputSchema));
@@ -199,7 +236,7 @@ test("manage-only OAuth requests include reads and respect read-only consent", a
   expect(managedToken.scope).toBe("events:manage");
   await success(t, managedToken.access_token, "create_event", eventInput("org_one", "manage-implies-read"));
   expect(await success(t, managedToken.access_token, "list_events", { organizationId: "org_one" })).toMatchObject({ page: [{ slug: "manage-implies-read" }] });
-  expect((await listed(t, managedToken.access_token))).toHaveLength(60);
+  expect((await listed(t, managedToken.access_token))).toHaveLength(64);
 
   const read = await approve(t, await start(t, undefined, "events:manage"), { access: "read" });
   const readResponse = await exchange(t, read);
@@ -260,10 +297,10 @@ test("API keys are disclosed once, store no plaintext, stay owner scoped and sto
   expect(JSON.stringify(storedCredentials)).toContain("hash");
   expect((await bob.query(api.mcpConsent.listConnections, { paginationOpts: { numItems: 100, cursor: null } })).page.map((connection) => connection.id).sort()).toEqual([bobFull.id, bobRead.id].sort());
   await expect(bob.mutation(api.mcpConsent.revokeConnection, { id: issued.id })).rejects.toThrow();
-  expect((await listed(t, issued.apiKey))).toHaveLength(60);
+  expect((await listed(t, issued.apiKey))).toHaveLength(64);
   await alice.mutation(api.mcpConsent.revokeConnection, { id: issued.id });
   expect((await rpc(t, issued.apiKey, "tools/list")).status).toBe(401);
-  expect((await listed(t, bobFull.apiKey))).toHaveLength(60);
+  expect((await listed(t, bobFull.apiKey))).toHaveLength(64);
   expect((await listed(t, bobRead.apiKey)).some((tool) => tool.name === "create_event")).toBe(false);
 });
 
@@ -295,7 +332,7 @@ test("PKCE mismatch, code replay, wrong client, redirect and resource never issu
   const correct = await approve(t, await start(t));
   expect(await (await exchange(t, correct, { resource: "https://evil.example/mcp" })).json()).toMatchObject({ error: "invalid_target" });
   const exchanged = tokensSchema.parse(await (await exchange(t, correct)).json());
-  expect((await listed(t, exchanged.access_token))).toHaveLength(60);
+  expect((await listed(t, exchanged.access_token))).toHaveLength(64);
   expect(await (await exchange(t, correct)).json()).toMatchObject({ error: "invalid_grant" });
 });
 
@@ -313,7 +350,7 @@ test("expired authorization requests, codes and access tokens are rejected and r
   expect((await rpc(t, connection.access_token, "tools/list")).status).toBe(401);
   const refreshed = await form(t, "token", { grant_type: "refresh_token", client_id: connection.clientId, refresh_token: connection.refresh_token });
   expect(refreshed.status).toBe(200);
-  expect((await listed(t, tokensSchema.parse(await refreshed.json()).access_token))).toHaveLength(60);
+  expect((await listed(t, tokensSchema.parse(await refreshed.json()).access_token))).toHaveLength(64);
 });
 
 test("refresh tokens rotate, reject wrong clients and revoke their connection on old-generation reuse", async () => {
@@ -332,7 +369,7 @@ test("refresh tokens rotate, reject wrong clients and revoke their connection on
     current = next.refresh_token;
     latest = next.access_token;
   }
-  expect((await listed(t, latest))).toHaveLength(60);
+  expect((await listed(t, latest))).toHaveLength(64);
   const replay = await form(t, "token", { grant_type: "refresh_token", client_id: connection.clientId, refresh_token: connection.refresh_token });
   expect(await replay.json()).toMatchObject({ error: "invalid_grant" });
   expect((await rpc(t, latest, "tools/list")).status).toBe(401);
@@ -346,7 +383,7 @@ test("two approvals for one OAuth client exchange in reverse order with independ
   const second = await approve(t, await start(t, clientId), { organizationIds: ["org_two"], access: "read" });
   const secondToken = tokensSchema.parse(await (await exchange(t, second)).json());
   const firstToken = tokensSchema.parse(await (await exchange(t, first)).json());
-  expect((await listed(t, firstToken.access_token))).toHaveLength(60);
+  expect((await listed(t, firstToken.access_token))).toHaveLength(64);
   expect((await listed(t, secondToken.access_token)).some((tool) => tool.name === "create_event")).toBe(false);
   expect((await call(t, firstToken.access_token, "list_events", { organizationId: "org_two" })).value).toEqual({ error: "access_denied" });
   expect((await call(t, secondToken.access_token, "list_events", { organizationId: "org_one" })).value).toEqual({ error: "access_denied" });
@@ -452,7 +489,7 @@ test("malformed admin arguments return structured safe errors through component 
   expect(await success(t, connection.apiKey, "get_event_admin", { organizationId: "org_one", slug: "safe-validation" })).toMatchObject({ event: { slug: "safe-validation" } });
 });
 
-test("all 60 component tools preserve the existing flat argument names and required fields", async () => {
+test("the 60 tools from the earlier server keep their flat argument names and required fields", async () => {
   const t = setup();
   const { createToolServer, serveMcp } = await import("./mcpWorkos");
   const legacy = toolsSchema.parse(JSON.parse(await t.run(async (ctx) => {
@@ -465,8 +502,12 @@ test("all 60 component tools preserve the existing flat argument names and requi
     const parsed = z.object({ properties: z.record(z.string(), z.unknown()), required: z.array(z.string()).optional(), additionalProperties: z.boolean().optional() }).parse(value);
     return { fields: Object.keys(parsed.properties).sort(), required: (parsed.required ?? []).sort(), additionalProperties: parsed.additionalProperties };
   };
-  expect(componentTools.map((tool) => tool.name)).toEqual(legacy.result.tools.map((tool) => tool.name));
-  for (const tool of componentTools) {
+  // Member and invitation tools are new on the component server only.
+  const memberTools = ["list_members", "list_invitations", "send_invitations", "revoke_invitation"];
+  const earlierTools = componentTools.filter((tool) => !memberTools.includes(tool.name));
+  expect(earlierTools.map((tool) => tool.name)).toEqual(legacy.result.tools.map((tool) => tool.name));
+  expect(earlierTools).toHaveLength(60);
+  for (const tool of earlierTools) {
     const previous = legacy.result.tools.find((item) => item.name === tool.name);
     if (!previous) throw new Error(`Missing legacy tool ${tool.name}`);
     expect(argumentShape(tool.inputSchema), tool.name).toEqual(argumentShape(previous.inputSchema));
@@ -646,9 +687,11 @@ test("device codes are client bound and expire before consent or token exchange"
   expect(await expired.json()).toEqual({ error: "expired_token" });
 });
 
-test("component lint allows only the two explicit sensitive reads requiring manage access", async () => {
+test("component lint allows only the four explicit sensitive reads requiring manage access", async () => {
   const { mcp } = await import("./mcp");
   expect(mcp.lint()).toEqual([
+    'Tool "list_members" is read-only but requires the write-like scope "events:manage"; read-only connections can\'t use it.',
+    'Tool "list_invitations" is read-only but requires the write-like scope "events:manage"; read-only connections can\'t use it.',
     'Tool "get_submission_contacts" is read-only but requires the write-like scope "events:manage"; read-only connections can\'t use it.',
     'Tool "list_judge_links" is read-only but requires the write-like scope "events:manage"; read-only connections can\'t use it.',
   ]);
@@ -703,7 +746,7 @@ for (const transport of ["oauth", "apiKey"] as const) {
     expect((await call(t, bearer, "list_events", { organizationId: "org_one" })).value).toEqual({ error: "access_denied" });
     await owner.mutation(api.mcpConsent.revokeConnection, { id: all.id });
     expect((await rpc(t, bearer, "tools/list")).status).toBe(401);
-    expect((await listed(t, selected.apiKey))).toHaveLength(60);
+    expect((await listed(t, selected.apiKey))).toHaveLength(64);
     expect((await t.run((ctx) => ctx.db.query("events").collect())).map((event) => event.slug)).toEqual([futureSlug]);
   });
 
@@ -775,5 +818,163 @@ test("connection pagination keeps older active grants reachable after unused app
   expect(found).not.toContain(other.id);
   await owner.mutation(api.mcpConsent.revokeConnection, { id: oldest.id });
   expect((await rpc(t, oldest.apiKey, "tools/list")).status).toBe(401);
-  expect((await listed(t, newest.apiKey))).toHaveLength(60);
+  expect((await listed(t, newest.apiKey))).toHaveLength(64);
+});
+
+test("component tools take event track ids, show track names and keep tracks inside their event", async () => {
+  const t = setup();
+  const manage = await key(t);
+  const read = await key(t, { access: "read" });
+  const event = createdEvent.parse(await success(t, manage.apiKey, "create_event", eventInput("org_one", "track-parity")));
+  const other = createdEvent.parse(await success(t, manage.apiKey, "create_event", eventInput("org_one", "track-other")));
+  const [tools, robots, foreign] = await t.run(async (ctx) => {
+    const insert = (eventId: string, name: string, order: number) => {
+      const id = ctx.db.normalizeId("events", eventId);
+      if (!id) throw new Error("Event missing");
+      return ctx.db.insert("eventTracks", { eventId: id, name, order, createdAt: 0, updatedAt: 0 });
+    };
+    return [await insert(event.id, "Tools", 0), await insert(event.id, "Robots", 1), await insert(other.id, "Elsewhere", 0)];
+  });
+  const fields = { organizationId: "org_one", slug: event.slug, name: "Sam", demoTitle: "Track demo", description: "Live", phone: "+447700900000" };
+  const submission = createdSubmission.parse(await success(t, manage.apiKey, "add_submission", { ...fields, queueOrder: 0, trackIds: [robots, tools] }));
+  const admin = z.object({ tracks: z.array(z.object({ id: z.string(), name: z.string(), submissionCount: z.number() })), lineup: z.array(z.object({ id: z.string(), tracks: z.array(z.string()), trackIds: z.array(z.string()) })) })
+    .parse(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug }));
+  expect(admin.tracks).toEqual([{ id: tools, name: "Tools", submissionCount: 1 }, { id: robots, name: "Robots", submissionCount: 1 }]);
+  expect(admin.lineup).toEqual([expect.objectContaining({ id: submission.submissionId, tracks: ["Tools", "Robots"], trackIds: [tools, robots] })]);
+  await success(t, manage.apiKey, "update_submission", { ...fields, submissionId: submission.submissionId, trackIds: [robots] });
+  expect(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug })).toMatchObject({ lineup: [{ tracks: ["Robots"], trackIds: [robots] }] });
+  const crossEvent = await call(t, manage.apiKey, "update_submission", { ...fields, submissionId: submission.submissionId, trackIds: [foreign] });
+  expect(crossEvent.result.isError).toBe(true);
+  const readWrite = await rpc(t, read.apiKey, "tools/call", { name: "add_submission", arguments: { ...fields, queueOrder: 1, trackIds: [tools] } });
+  expect(readWrite.status).toBe(403);
+  expect((await t.run((ctx) => ctx.db.query("submissions").collect())).map((row) => row.trackIds)).toEqual([[robots]]);
+});
+
+test("component tools save GitHub profiles and show them only through the contacts tool", async () => {
+  const t = setup();
+  const manage = await key(t);
+  const read = await key(t, { access: "read" });
+  const event = createdEvent.parse(await success(t, manage.apiKey, "create_event", eventInput("org_one", "github-parity")));
+  const fields = { organizationId: "org_one", slug: event.slug, name: "Sam", demoTitle: "Social demo", description: "Live", phone: "+447700900000" };
+  const submission = createdSubmission.parse(await success(t, manage.apiKey, "add_submission", { ...fields, queueOrder: 0, githubProfile: "https://github.com/sam-builds" }));
+  const contacts = { organizationId: "org_one", slug: event.slug, submissionId: submission.submissionId };
+  expect(await success(t, manage.apiKey, "get_submission_contacts", contacts)).toMatchObject({ githubProfile: "https://github.com/sam-builds" });
+  await success(t, manage.apiKey, "update_submission", { ...fields, submissionId: submission.submissionId, githubProfile: "https://github.com/sam-ships" });
+  expect(await success(t, manage.apiKey, "get_submission_contacts", contacts)).toMatchObject({ githubProfile: "https://github.com/sam-ships" });
+  expect(JSON.stringify(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug }))).not.toContain("sam-ships");
+  expect((await rpc(t, read.apiKey, "tools/call", { name: "get_submission_contacts", arguments: contacts })).status).toBe(403);
+});
+
+test("component tools show each project's AI summary and mark it stale after an edit", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "");
+  const t = setup();
+  const manage = await key(t);
+  const read = await key(t, { access: "read" });
+  const event = createdEvent.parse(await success(t, manage.apiKey, "create_event", { ...eventInput("org_one", "summary-parity"), eventType: "hackathon" }));
+  const person = { name: "Sam", demoTitle: "Guardrail", description: "Policy checks for agent tool calls", phone: "+447700900000" };
+  const fields = { organizationId: "org_one", slug: event.slug, ...person };
+  const added = z.object({ submissionIds: z.array(z.string()) }).parse(await success(t, manage.apiKey, "add_test_submissions", { organizationId: "org_one", slug: event.slug, submissions: [{ ...person, teamName: "Guardrail team" }] }));
+  const submission = { submissionId: added.submissionIds[0] };
+  await success(t, manage.apiKey, "close_submissions", { organizationId: "org_one", slug: event.slug });
+  await t.run(async (ctx) => {
+    const id = ctx.db.normalizeId("submissions", submission.submissionId);
+    const row = id ? await ctx.db.get(id) : null;
+    if (!id || !row) throw new Error("Submission missing");
+    await ctx.db.patch(id, { aiSummary: { whatItDoes: "Checks tool calls.", howItWorks: "A proxy.", demoFocus: "A blocked call.", sourceKey: summarySourceKey(row), model: "test", usedReadme: false, generatedAt: 1 } });
+  });
+  const summary = { whatItDoes: "Checks tool calls.", howItWorks: "A proxy.", demoFocus: "A blocked call.", usedReadme: false };
+  expect(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug })).toMatchObject({ pool: [{ id: submission.submissionId, aiSummary: { ...summary, stale: false } }] });
+  await success(t, manage.apiKey, "update_submission", { ...fields, submissionId: submission.submissionId, description: "A different description" });
+  expect(await success(t, read.apiKey, "get_event_admin", { organizationId: "org_one", slug: event.slug })).toMatchObject({ pool: [{ aiSummary: { ...summary, stale: true } }] });
+});
+
+test("member tools list members, send and revoke invitations, and need manage access", async () => {
+  const t = setup();
+  const manage = await key(t);
+  const read = await key(t, { access: "read" });
+  expect(await success(t, manage.apiKey, "list_members", { organizationId: "org_one" })).toEqual({ members: [{ userId: "user_alice", name: "Alice Smith", email: "alice@example.com", joinedAt: "2026-09-12T10:00:00.000Z" }] });
+  const sent = z.object({ results: z.array(z.object({ email: z.string(), status: z.string(), message: z.string().optional() })) })
+    .parse(await success(t, manage.apiKey, "send_invitations", { organizationId: "org_one", emails: ["New@Example.com", "alice@example.com", "not-an-email", "new@example.com"] }));
+  expect(sent.results).toEqual([
+    { email: "new@example.com", status: "sent" },
+    { email: "alice@example.com", status: "skipped", message: "alice@example.com is already a member." },
+    { email: "not-an-email", status: "skipped", message: "not-an-email is not a valid email address." },
+    { email: "new@example.com", status: "skipped", message: "new@example.com is listed twice." },
+  ]);
+  expect(workosWrites).toEqual([{ path: "/user_management/invitations", body: { email: "new@example.com", organization_id: "org_one", inviter_user_id: "user_alice", expires_in_days: 7 } }]);
+  const open = z.object({ invitations: z.array(z.object({ id: z.string(), email: z.string(), status: z.string() })) }).parse(await success(t, manage.apiKey, "list_invitations", { organizationId: "org_one" }));
+  expect(open.invitations).toEqual([expect.objectContaining({ email: "new@example.com", status: "pending" })]);
+  expect(await success(t, manage.apiKey, "send_invitations", { organizationId: "org_one", emails: ["new@example.com"] })).toEqual({ results: [{ email: "new@example.com", status: "skipped", message: "new@example.com already has a pending invitation." }] });
+  // Another organization's invitation cannot be revoked from this one.
+  invitations.push({ id: "invitation_99", email: "x@example.com", state: "pending", organization_id: "org_bob", inviter_user_id: "user_bob", expires_at: "2099-01-01T00:00:00.000Z", created_at: "2026-10-01T00:00:00.000Z" });
+  expect((await call(t, manage.apiKey, "revoke_invitation", { organizationId: "org_one", invitationId: "invitation_99" })).value).toEqual({ error: "invalid_operation", message: "Invitation not found." });
+  expect(await success(t, manage.apiKey, "revoke_invitation", { organizationId: "org_one", invitationId: open.invitations[0].id })).toEqual({ id: open.invitations[0].id, email: "new@example.com", status: "revoked" });
+  expect(await success(t, manage.apiKey, "list_invitations", { organizationId: "org_one" })).toEqual({ invitations: [] });
+  for (const [name, args] of [["list_members", {}], ["list_invitations", {}], ["send_invitations", { emails: ["read@example.com"] }], ["revoke_invitation", { invitationId: "invitation_99" }]] as const) {
+    const response = await rpc(t, read.apiKey, "tools/call", { name, arguments: { organizationId: "org_one", ...args } });
+    expect(response.status, name).toBe(403);
+  }
+  expect(invitations.find((row) => row.id === "invitation_99")?.state).toBe("pending");
+});
+
+test("invitation sending is rate limited per organization", async () => {
+  const t = setup();
+  const manage = await key(t, { organizationIds: ["org_one", "org_two"] });
+  const emails = (prefix: string, count: number) => Array.from({ length: count }, (_, index) => `${prefix}${index}@example.com`);
+  const first = z.object({ results: z.array(z.object({ status: z.string() })) }).parse(await success(t, manage.apiKey, "send_invitations", { organizationId: "org_one", emails: emails("a", 20) }));
+  expect(first.results.every((row) => row.status === "sent")).toBe(true);
+  expect((await call(t, manage.apiKey, "send_invitations", { organizationId: "org_one", emails: ["late@example.com"] })).value).toEqual({ error: "invalid_operation", message: "Too many invitations sent recently. Try again later." });
+  expect(invitations.some((row) => row.email === "late@example.com")).toBe(false);
+  // Another organization has its own limit.
+  await success(t, manage.apiKey, "send_invitations", { organizationId: "org_two", emails: ["other@example.com"] });
+  vi.advanceTimersByTime(10 * 60_000);
+  await success(t, manage.apiKey, "send_invitations", { organizationId: "org_one", emails: ["later@example.com"] });
+});
+
+test("a removed member's connections lose that organization on the next call", async () => {
+  const t = setup();
+  const oauthAll = await oauth(t, { allOrganizations: true });
+  const selected = await key(t, { organizationIds: ["org_one", "org_two"] });
+  for (const bearer of [oauthAll.access_token, selected.apiKey]) {
+    await success(t, bearer, "list_events", { organizationId: "org_one" });
+    await success(t, bearer, "list_members", { organizationId: "org_one" });
+  }
+  // The Members page removes the membership in WorkOS.
+  memberships.set("user_alice", [{ user_id: "user_alice", organization_id: "org_two", organization_name: "two", status: "active" }]);
+  for (const bearer of [oauthAll.access_token, selected.apiKey]) {
+    for (const name of ["list_events", "list_members", "send_invitations"]) {
+      const denied = await call(t, bearer, name, { organizationId: "org_one", ...(name === "send_invitations" ? { emails: ["x@example.com"] } : {}) });
+      expect(denied.value, name).toEqual({ error: "access_denied" });
+    }
+    expect(await success(t, bearer, "list_organizations", {})).toMatchObject({ organizations: [{ id: "org_two" }] });
+    await success(t, bearer, "list_events", { organizationId: "org_two" });
+  }
+  expect(invitations).toEqual([]);
+});
+
+test("the getting started guide ticks off from a real connection, test people and invitations", async () => {
+  const t = setup();
+  const alice = t.withIdentity(identity());
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ connected: false, testPeopleAdded: false, mcpUrl: `${site}/mcp` });
+  expect(await alice.action(api.gettingStarted.teamStatus, {})).toEqual({ members: 1, invited: 0, accepted: 0 });
+
+  // A connection for another organization does not count; one covering this organization does.
+  await key(t, { organizationIds: ["org_two"] });
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ connected: false });
+  const manage = await key(t);
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ connected: true });
+  // Someone else's connection never counts for Alice.
+  expect(await t.withIdentity(identity("user_bob", "org_one")).query(api.gettingStarted.status, {})).toMatchObject({ connected: false });
+
+  const event = createdEvent.parse(await success(t, manage.apiKey, "create_event", eventInput("org_one", "guide-dry-run")));
+  await success(t, manage.apiKey, "add_test_submissions", { organizationId: "org_one", slug: event.slug, submissions: [{ name: "Sam", demoTitle: "Dry run", description: "A rehearsal", phone: "+447700900000" }] });
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ testPeopleAdded: true });
+
+  invitations.push({ id: "invitation_1", email: "new@example.com", state: "accepted", organization_id: "org_one", inviter_user_id: "user_alice", expires_at: "2026-11-05T10:00:00.000Z", created_at: "2026-10-29T10:00:00.000Z" });
+  invitations.push({ id: "invitation_2", email: "other@example.com", state: "pending", organization_id: "org_two", inviter_user_id: "user_alice", expires_at: "2026-11-05T10:00:00.000Z", created_at: "2026-10-29T10:00:00.000Z" });
+  expect(await alice.action(api.gettingStarted.teamStatus, {})).toEqual({ members: 1, invited: 1, accepted: 1 });
+
+  // Disconnecting turns the step back off.
+  await alice.mutation(api.mcpConsent.revokeConnection, { id: manage.id });
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ connected: false });
 });

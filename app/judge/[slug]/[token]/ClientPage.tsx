@@ -12,6 +12,8 @@ import {
   ExternalLinkIcon,
   GitForkIcon,
   LockKeyholeIcon,
+  SearchIcon,
+  SparklesIcon,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -24,6 +26,7 @@ import {
   JUDGING_CRITERION_LABELS,
 } from "@/lib/judging-rubric";
 import { Id } from "../../../../convex/_generated/dataModel";
+import { youtubeEmbedUrl } from "@/lib/video-embed";
 import styles from "./judge.module.css";
 
 type Criterion = (typeof JUDGING_CRITERIA)[number];
@@ -54,25 +57,6 @@ function useSignedTimer(timer: { remainingMs: number; serverNow: number; running
   }, [timer?.running, timer?.serverNow, timer?.remainingMs]);
   if (!timer) return 0;
   return timer.running ? timer.remainingMs - (now - timer.serverNow) : timer.remainingMs;
-}
-
-function youtubeEmbedUrl(value: string | null) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    const host = url.hostname.replace(/^www\./, "").toLowerCase();
-    let id = "";
-    if (host === "youtu.be") id = url.pathname.split("/").filter(Boolean)[0] ?? "";
-    if (host === "youtube.com" || host === "m.youtube.com") {
-      if (url.pathname === "/watch") id = url.searchParams.get("v") ?? "";
-      else id = url.pathname.match(/^\/(?:embed|shorts)\/([^/]+)/)?.[1] ?? "";
-    }
-    return /^[A-Za-z0-9_-]{6,}$/.test(id)
-      ? `https://www.youtube-nocookie.com/embed/${id}`
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 function genericVideoEmbedUrl(value: string | null) {
@@ -131,9 +115,66 @@ function Readme({ repositoryUrl }: { repositoryUrl: string | null }) {
   );
 }
 
+type JudgeEntry = {
+  id: Id<"submissions">;
+  demoTitle: string;
+  description: string;
+  name: string;
+  teamName: string | null;
+  memberCount: number;
+  tracks: string[];
+  githubUrl: string | null;
+  videoUrl: string | null;
+  aiSummary: AiSummary | null;
+  review: { completed: boolean } | null;
+  assigned: boolean;
+  number: number;
+};
+
+type AiSummary = {
+  whatItDoes: string;
+  howItWorks: string;
+  demoFocus: string;
+  usedReadme: boolean;
+  stale: boolean;
+};
+
+function AiSummaryPanel({ summary }: { summary: AiSummary }) {
+  return (
+    <section aria-labelledby="ai-summary-heading" className={styles.aiSummary}>
+      <h2 className={styles.aiSummaryHeading} id="ai-summary-heading"><SparklesIcon aria-hidden="true" /> AI summary</h2>
+      <ul>
+        <li><strong>What it does:</strong> {summary.whatItDoes}</li>
+        <li><strong>How it works:</strong> {summary.howItWorks}</li>
+        <li><strong>What to look for in the demo:</strong> {summary.demoFocus}</li>
+      </ul>
+      <p className={styles.aiSummaryNote}>
+        {`Written by AI from the team's description${summary.usedReadme ? " and README" : ""}. Check it against the demo.`}
+        {summary.stale ? " The project changed since; a new summary is on its way." : null}
+      </p>
+    </section>
+  );
+}
+
+function matchesSearch(entry: JudgeEntry, search: string) {
+  if (!search) return true;
+  return [entry.demoTitle, entry.name, entry.teamName ?? "", ...entry.tracks].some((value) =>
+    value.toLocaleLowerCase("en").includes(search),
+  );
+}
+
+function teamLine(entry: JudgeEntry) {
+  if (!entry.teamName) return entry.name;
+  return `${entry.teamName} · ${entry.memberCount} ${entry.memberCount === 1 ? "member" : "members"}`;
+}
+
 export default function JudgeClientPage() {
   const params = useParams<{ slug: string; token: string }>();
   const data = useQuery(api.judging.getMyAssignments, {
+    slug: params.slug,
+    capabilityToken: params.token,
+  });
+  const others = useQuery(api.judging.getOtherSubmissions, {
     slug: params.slug,
     capabilityToken: params.token,
   });
@@ -141,7 +182,29 @@ export default function JudgeClientPage() {
   const [scores, setScores] = useState<Record<string, ScoreState>>({});
   const [saveState, setSaveState] = useState<Record<string, "saving" | "saved" | "error">>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [trackFilter, setTrackFilter] = useState<string | null>(null);
   const remainingMs = useSignedTimer(data?.timer);
+
+  // Assigned submissions first, then everyone else, numbered in that order.
+  const entries = useMemo<JudgeEntry[]>(() => {
+    if (!data) return [];
+    const mine = data.assignments.map((assignment, index) => ({ ...assignment, assigned: true, number: index + 1 }));
+    const rest = (others ?? []).map((other, index) => ({ ...other, review: null, assigned: false, number: mine.length + index + 1 }));
+    return [...mine, ...rest];
+  }, [data, others]);
+  const trackNames = useMemo(() => {
+    const names = [...(data?.trackNames ?? [])];
+    for (const entry of entries) for (const track of entry.tracks) if (!names.includes(track)) names.push(track);
+    return names;
+  }, [data, entries]);
+  const searchKey = search.trim().toLocaleLowerCase("en");
+  const visible = useMemo(
+    () => entries.filter((entry) => (!trackFilter || entry.tracks.includes(trackFilter)) && matchesSearch(entry, searchKey)),
+    [entries, trackFilter, searchKey],
+  );
+  const visibleMine = visible.filter((entry) => entry.assigned);
+  const visibleOthers = visible.filter((entry) => !entry.assigned);
 
   useEffect(() => {
     if (!data) return;
@@ -156,11 +219,21 @@ export default function JudgeClientPage() {
       }
       return next;
     });
-    setSelectedId((current) => {
-      if (current && data.assignments.some((assignment) => String(assignment.id) === current)) return current;
-      return String(data.assignments.find((assignment) => !assignment.review?.completed)?.id ?? data.assignments[0]?.id ?? "") || null;
-    });
   }, [data]);
+
+  useEffect(() => {
+    if (!data) return;
+    setSelectedId((current) => {
+      if (current && entries.some((entry) => String(entry.id) === current)) return current;
+      const first = data.assignments.find((assignment) => !assignment.review?.completed) ?? entries[0];
+      return first ? String(first.id) : null;
+    });
+  }, [data, entries]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    document.getElementById(`judge-row-${selectedId}`)?.scrollIntoView({ block: "nearest" });
+  }, [selectedId]);
 
   const completedCount = useMemo(
     () => data?.assignments.filter((assignment) => {
@@ -169,27 +242,34 @@ export default function JudgeClientPage() {
     }).length ?? 0,
     [data, scores],
   );
-  const selectedIndex = data?.assignments.findIndex((assignment) => String(assignment.id) === selectedId) ?? -1;
-  const selected = selectedIndex >= 0 ? data?.assignments[selectedIndex] : undefined;
+  const selected = entries.find((entry) => String(entry.id) === selectedId);
+  const selectedIndex = visible.findIndex((entry) => String(entry.id) === selectedId);
   const isOpen = data?.judgingStatus === "open";
   const isClosed = data?.judgingStatus === "closed";
 
+  // J and K walk the visible list: your assignments first, then the rest.
+  function stepTarget(offset: number) {
+    if (selectedIndex < 0) return offset > 0 ? visible[0] : undefined;
+    return visible[selectedIndex + offset];
+  }
+
   function selectOffset(offset: number) {
-    if (!data || selectedIndex < 0) return;
-    const next = data.assignments[selectedIndex + offset];
+    const next = stepTarget(offset);
     if (next) setSelectedId(String(next.id));
   }
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) return;
       const offset = event.key.toLowerCase() === "j" ? -1 : event.key.toLowerCase() === "k" ? 1 : 0;
-      const next = data?.assignments[selectedIndex + offset];
-      if (offset && next) setSelectedId(String(next.id));
+      if (!offset) return;
+      const next = selectedIndex < 0 ? (offset > 0 ? visible[0] : undefined) : visible[selectedIndex + offset];
+      if (next) setSelectedId(String(next.id));
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [data, selectedIndex]);
+  }, [visible, selectedIndex]);
 
   async function updateScore(submissionId: string, criterion: Criterion, value: string) {
     const numeric = value === "" ? undefined : Number(value);
@@ -226,9 +306,10 @@ export default function JudgeClientPage() {
     );
   }
 
-  const currentScores = selected ? scores[String(selected.id)] ?? {} : {};
-  const currentSaveState = selected ? saveState[String(selected.id)] : undefined;
-  const currentComplete = scoreIsComplete(currentScores);
+  const canScore = Boolean(isOpen && selected?.assigned);
+  const currentScores = selected?.assigned ? scores[String(selected.id)] ?? {} : {};
+  const currentSaveState = selected?.assigned ? saveState[String(selected.id)] : undefined;
+  const currentComplete = selected?.assigned ? scoreIsComplete(currentScores) : false;
   const youtubeUrl = youtubeEmbedUrl(selected?.videoUrl ?? null);
   const embedUrl = youtubeUrl ?? genericVideoEmbedUrl(selected?.videoUrl ?? null);
   const saveStateClass = currentSaveState === "error"
@@ -236,6 +317,34 @@ export default function JudgeClientPage() {
     : currentSaveState === "saved" || currentComplete
       ? styles.saveState
       : styles.savePending;
+  const saveLabel = !selected || !selected.assigned
+    ? "Read only"
+    : currentSaveState === "saving" ? "Saving…" : currentSaveState === "error" ? "Could not save" : currentSaveState === "saved" || currentComplete ? "Saved" : "Not started";
+  const hasPrevious = Boolean(stepTarget(-1));
+  const hasNext = Boolean(stepTarget(1));
+
+  function rowFor(entry: JudgeEntry) {
+    const id = String(entry.id);
+    const active = id === selectedId;
+    if (!entry.assigned) {
+      return (
+        <button aria-current={active ? "true" : undefined} className={active ? styles.otherActive : styles.otherRow} id={`judge-row-${id}`} key={id} onClick={() => setSelectedId(id)} type="button">
+          <span className={styles.rowNumber}>{entry.number}</span>
+          <span className={styles.otherTitle}>{entry.demoTitle}</span>
+          <span className={styles.otherTrack}>{entry.tracks[0] ?? ""}</span>
+        </button>
+      );
+    }
+    const localScores = scores[id];
+    const complete = localScores ? scoreIsComplete(localScores) : Boolean(entry.review?.completed);
+    return (
+      <button aria-current={active ? "true" : undefined} className={active ? styles.assignmentActive : styles.assignmentButton} id={`judge-row-${id}`} key={id} onClick={() => setSelectedId(id)} type="button">
+        <span className={styles.rowNumber}>{entry.number}</span>
+        <span className={styles.assignmentText}><strong>{entry.demoTitle}</strong><small>{entry.tracks.join(" · ") || entry.name}</small></span>
+        {complete ? <CheckCircle2Icon aria-label="Scored" className={styles.completeIcon} /> : <CircleIcon aria-label="Not scored" className={styles.incompleteIcon} />}
+      </button>
+    );
+  }
 
   return (
     <main className={styles.workspace}>
@@ -250,34 +359,41 @@ export default function JudgeClientPage() {
           <strong className={remainingMs < 0 ? styles.overtime : undefined}>{formatTimer(remainingMs)}</strong>
         </div>
         <div className={styles.topActions}>
-          <Button variant="outline" disabled={selectedIndex <= 0} onClick={() => selectOffset(-1)}><ChevronLeftIcon /> Previous</Button>
-          <Button disabled={selectedIndex < 0 || selectedIndex >= data.assignments.length - 1} onClick={() => selectOffset(1)}>Next <ChevronRightIcon /></Button>
+          <Button variant="outline" disabled={!hasPrevious} onClick={() => selectOffset(-1)}><ChevronLeftIcon /> Previous</Button>
+          <Button disabled={!hasNext} onClick={() => selectOffset(1)}>Next <ChevronRightIcon /></Button>
         </div>
       </header>
 
       <div className={styles.columns}>
         <aside className={styles.assignmentRail}>
           <div className={styles.railHeader}>
-            <strong>Your assignments</strong>
-            <span>{completedCount} of {data.assignments.length} complete</span>
-            <div className={styles.progressTrack}><span style={{ width: `${data.assignments.length ? (completedCount / data.assignments.length) * 100 : 0}%` }} /></div>
+            <label className={styles.searchField}>
+              <span className={styles.visuallyHidden}>Search submissions</span>
+              <SearchIcon aria-hidden="true" />
+              <input onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${entries.length} submissions`} type="search" value={search} />
+            </label>
+            {trackNames.length ? (
+              <div aria-label="Filter by track" className={styles.trackFilters} role="group">
+                {[null, ...trackNames].map((track) => (
+                  <button aria-pressed={trackFilter === track} className={trackFilter === track ? styles.trackChipOn : styles.trackChip} key={track ?? "all"} onClick={() => setTrackFilter(track)} type="button">
+                    {track ?? "All tracks"}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
-          <nav className={styles.assignmentList} aria-label="Assigned submissions">
-            {data.assignments.map((assignment, index) => {
-              const id = String(assignment.id);
-              const localScores = scores[id];
-              const complete = localScores ? scoreIsComplete(localScores) : Boolean(assignment.review?.completed);
-              const active = id === selectedId;
-              return (
-                <button className={active ? styles.assignmentActive : styles.assignmentButton} key={id} onClick={() => setSelectedId(id)} type="button">
-                  <span className={styles.assignmentNumber}>{index + 1}</span>
-                  <span className={styles.assignmentText}><strong>{assignment.demoTitle}</strong><small>{assignment.name}</small></span>
-                  {complete ? <CheckCircle2Icon className={styles.completeIcon} /> : <CircleIcon className={styles.incompleteIcon} />}
-                </button>
-              );
-            })}
+          <nav className={styles.assignmentList} aria-label="Submissions">
+            <h2 className={styles.mineHeading}><span>Assigned to you</span><span>{completedCount} of {data.assignments.length} scored</span></h2>
+            {visibleMine.map(rowFor)}
+            {!visibleMine.length ? <p className={styles.railEmpty}>{data.assignments.length ? "None of yours match." : "Nothing is assigned to you."}</p> : null}
+            <h2 className={styles.othersHeading}><span>All other submissions</span><span>{others === undefined ? "" : visibleOthers.length}</span></h2>
+            {others === undefined ? (
+              <div className={styles.railLoading}><Skeleton h={14} /><Skeleton w="80%" h={14} /><Skeleton w="65%" h={14} /></div>
+            ) : visibleOthers.length ? visibleOthers.map(rowFor) : (
+              <p className={styles.railEmpty}>{others.length ? "No other submissions match." : "No other submissions."}</p>
+            )}
           </nav>
-          <p className={styles.shortcutHint}>Press <kbd>J</kbd> <kbd>K</kbd> to navigate</p>
+          <p className={styles.shortcutHint}><kbd>J</kbd> and <kbd>K</kbd> move through yours first, then the rest</p>
         </aside>
 
         <article className={styles.projectPane}>
@@ -285,7 +401,12 @@ export default function JudgeClientPage() {
             <>
               <div className={styles.projectIntro}>
                 <h1>{selected.demoTitle}</h1>
-                <p className={styles.projectMeta}>{selected.name}{selected.category ? ` · ${selected.category}` : ""}</p>
+                <div className={styles.projectMeta}>
+                  <strong>{teamLine(selected)}</strong>
+                  {selected.tracks.map((track) => <span className={styles.trackPill} key={track}>{track}</span>)}
+                  <span className={styles.assignmentPill}>{selected.assigned ? "Assigned to you" : "Not assigned to you"}</span>
+                </div>
+                {selected.aiSummary ? <AiSummaryPanel summary={selected.aiSummary} /> : null}
                 <p className={styles.description}>{selected.description}</p>
                 <div className={styles.projectLinks}>
                   {selected.githubUrl ? <a href={selected.githubUrl} target="_blank" rel="noreferrer"><GitForkIcon /> GitHub repository <ExternalLinkIcon /></a> : null}
@@ -310,17 +431,18 @@ export default function JudgeClientPage() {
               )}
               <Readme repositoryUrl={selected.githubUrl} />
             </>
-          ) : <p className={styles.emptyCopy}>No submissions are assigned to this judge.</p>}
+          ) : <p className={styles.emptyCopy}>No submissions are in judging yet.</p>}
         </article>
 
         <aside className={styles.scorePanel}>
           <div className={styles.scoreHeading}>
             <div><h2>Score this project</h2><p>Score each criterion from 0 to 10.</p></div>
-            <span className={saveStateClass} role="status">
-              {currentSaveState === "saving" ? "Saving…" : currentSaveState === "error" ? "Could not save" : currentSaveState === "saved" || currentComplete ? "Saved" : "Not started"}
-            </span>
+            <span className={selected?.assigned ? saveStateClass : styles.savePending} role="status">{saveLabel}</span>
           </div>
           {isClosed ? <div className={styles.closedNotice}>Scores are read-only because judging is closed.</div> : null}
+          {selected && !selected.assigned ? (
+            <div className={styles.closedNotice}>This project is assigned to other judges. You can read it, but only they score it.</div>
+          ) : null}
           <div className={styles.criteria}>
             {JUDGING_CRITERIA.map((criterion) => (
               <fieldset className={styles.criterion} key={criterion}>
@@ -333,9 +455,9 @@ export default function JudgeClientPage() {
                       <button
                         aria-checked={selectedScore}
                         className={selectedScore ? styles.scoreSelected : styles.scoreOption}
-                        disabled={!isOpen || !selected}
+                        disabled={!canScore}
                         key={value}
-                        onClick={() => selected && void updateScore(String(selected.id), criterion, String(value))}
+                        onClick={() => selected && canScore && void updateScore(String(selected.id), criterion, String(value))}
                         role="radio"
                         type="button"
                       >
@@ -347,7 +469,7 @@ export default function JudgeClientPage() {
               </fieldset>
             ))}
           </div>
-          <Button className={styles.nextProject} disabled={selectedIndex < 0 || selectedIndex >= data.assignments.length - 1} onClick={() => selectOffset(1)}>Next project <ChevronRightIcon /></Button>
+          <Button className={styles.nextProject} disabled={!hasNext} onClick={() => selectOffset(1)}>Next project <ChevronRightIcon /></Button>
         </aside>
       </div>
     </main>

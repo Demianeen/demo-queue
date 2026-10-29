@@ -6,7 +6,9 @@ import { Doc } from "./_generated/dataModel";
 import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment, sameJudge } from "../lib/judging-assignment";
 import { isCompleteReview, isJudgingScore } from "../lib/judging-rubric";
 import { TableHistory } from "@convex-dev/table-history";
-import { components } from "./_generated/api";
+import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
+import { components, internal } from "./_generated/api";
+import { aiSummariesConfigured, publicAiSummary } from "./aiSummaries";
 import type { DataModel } from "./_generated/dataModel";
 import {
   adjusted,
@@ -122,6 +124,12 @@ export async function closeSubmissionsForOrganization(
   }
   const now = Date.now();
   await ctx.db.patch(event._id, { submissionsClosedAt: now, judgingStatus: "setup", updatedAt: now });
+  // Judges get a short AI summary of each project, written once submissions are final.
+  if (aiSummariesConfigured()) {
+    await ctx.scheduler.runAfter(0, internal.aiSummaries.queueEventSummaries, { eventId: event._id });
+  } else {
+    console.log(JSON.stringify({ event: "ai-summary", status: "skipped", reason: "not_configured" }));
+  }
   return { judgingStatus: "setup" };
 }
 
@@ -383,28 +391,75 @@ export const applyRedistribution = mutation({
     applyRedistributionForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
+/** Judges see submissions only once judging is open, and keep read access after it closes. */
+function judgingVisible(event: Doc<"events">) {
+  const judgingStatus = event.judgingStatus ?? "setup";
+  return judgingStatus === "open" || judgingStatus === "closed";
+}
+
+function isAssignedTo(submission: Doc<"submissions">, judgeName: string) {
+  return (submission.roundOneAssignedJudges ?? []).some((judge) => sameJudge(judge, judgeName));
+}
+
+/**
+ * What a judge may read about a submission: the project, its team and its links.
+ * Never phones, emails or tokens.
+ */
+async function judgeSubmissionViews(
+  ctx: QueryCtx,
+  event: Doc<"events">,
+  submissions: Doc<"submissions">[],
+) {
+  const byId = tracksById(await listEventTracks(ctx, event._id));
+  const members = await ctx.db
+    .query("teamMembers")
+    .withIndex("by_event", (q) => q.eq("eventId", event._id))
+    .take(5000);
+  const memberCount = new Map<string, number>();
+  for (const member of members) {
+    memberCount.set(String(member.submissionId), (memberCount.get(String(member.submissionId)) ?? 0) + 1);
+  }
+  return submissions.map((submission) => ({
+    id: submission._id,
+    demoTitle: submission.demoTitle,
+    description: submission.description,
+    name: submission.name,
+    teamName: submission.teamName ?? null,
+    // The presenter plus everyone they listed.
+    memberCount: 1 + (memberCount.get(String(submission._id)) ?? 0),
+    tracks: trackNamesFor(submission, byId),
+    githubUrl: submission.githubUrl ?? null,
+    videoUrl: submission.videoUrl ?? null,
+    aiSummary: publicAiSummary(submission),
+  }));
+}
+
+async function judgeEvent(ctx: QueryCtx, slug: string, token: string) {
+  const event = await findEventBySlug(ctx, slug);
+  if (!event || event.eventType !== "hackathon") throw new ConvexError("Event not found.");
+  const access = await judgeAccess(ctx, event._id, token);
+  return { event, access };
+}
+
 export const getMyAssignments = query({
   args: { slug: v.string(), capabilityToken: v.string() },
   handler: async (ctx, args) => {
-    const event = await findEventBySlug(ctx, args.slug);
-    if (!event || event.eventType !== "hackathon") throw new ConvexError("Event not found.");
-    const access = await judgeAccess(ctx, event._id, args.capabilityToken);
+    const { event, access } = await judgeEvent(ctx, args.slug, args.capabilityToken);
     const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
     const assigned = submissions.filter(
       (submission: Doc<"submissions">) =>
-        isJudgingSubmission(submission) &&
-        (submission.roundOneAssignedJudges ?? []).some((judge) =>
-          sameJudge(judge, access.judgeName),
-        ),
+        isJudgingSubmission(submission) && isAssignedTo(submission, access.judgeName),
     );
     const reviews = await ctx.db.query("reviews").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", access.judgeKey)).take(1000);
     const reviewBySubmission = new Map(reviews.map((r: Doc<"reviews">) => [r.submissionId, r]));
+    const eventTracks = await listEventTracks(ctx, event._id);
     const now = Date.now();
     const remainingMs =
       event.judgingTimerStatus === "running" && event.judgingTimerEndsAt !== undefined
         ? event.judgingTimerEndsAt - now
         : event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS;
     const judgingStatus = event.judgingStatus ?? "setup";
+    const visible = judgingVisible(event);
     return {
       eventName: event.name,
       judgeName: access.judgeName,
@@ -414,20 +469,31 @@ export const getMyAssignments = query({
         serverNow: now,
         running: event.judgingTimerStatus === "running",
       },
-      assignments:
-        judgingStatus === "open" || judgingStatus === "closed"
-          ? assigned.map((submission) => ({
-              id: submission._id,
-              demoTitle: submission.demoTitle,
-              description: submission.description,
-              name: submission.name,
-              category: submission.category,
-              githubUrl: submission.githubUrl ?? null,
-              videoUrl: submission.videoUrl ?? null,
-              review: reviewBySubmission.get(submission._id) ?? null,
-            }))
-          : [],
+      trackNames: visible ? eventTracks.map((track) => track.name) : [],
+      assignments: visible
+        ? (await judgeSubmissionViews(ctx, event, assigned)).map((view) => ({
+            ...view,
+            review: reviewBySubmission.get(view.id) ?? null,
+          }))
+        : [],
     };
+  },
+});
+
+/**
+ * Every other submission in judging, so a judge can open any project.
+ * Read only: saveReview still accepts scores only from a submission's assigned judges.
+ */
+export const getOtherSubmissions = query({
+  args: { slug: v.string(), capabilityToken: v.string() },
+  handler: async (ctx, args) => {
+    const { event, access } = await judgeEvent(ctx, args.slug, args.capabilityToken);
+    if (!judgingVisible(event)) return [];
+    const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
+    const others = submissions.filter(
+      (submission) => isJudgingSubmission(submission) && !isAssignedTo(submission, access.judgeName),
+    );
+    return await judgeSubmissionViews(ctx, event, others);
   },
 });
 
@@ -438,7 +504,7 @@ export const saveReview = mutation({
     if (!event || event.judgingStatus !== "open") throw new ConvexError("Judging is not open.");
     const access = await judgeAccess(ctx, event._id, args.capabilityToken);
     const submission = await ctx.db.get(args.submissionId);
-    if (!submission || submission.eventId !== event._id || !(submission.roundOneAssignedJudges ?? []).some((j) => sameJudge(j, access.judgeName))) throw new ConvexError("Submission is not assigned to this judge.");
+    if (!submission || submission.eventId !== event._id || !isAssignedTo(submission, access.judgeName)) throw new ConvexError("Submission is not assigned to this judge.");
     for (const value of [args.innovation, args.execution, args.demoClarity]) if (value !== undefined && !isJudgingScore(value)) throw new ConvexError("Scores must be whole numbers from 0 to 10.");
     const existing = await ctx.db.query("reviews").withIndex("by_submission_and_judge", (q) => q.eq("submissionId", submission._id).eq("judgeKey", access.judgeKey)).unique();
     const now = Date.now();

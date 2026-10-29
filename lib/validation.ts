@@ -11,6 +11,7 @@ export const SUBMISSION_FIELD_LIMITS = {
   email: 254,
   twitter: 200,
   linkedin: 300,
+  githubProfile: 100,
   category: 30,
 } as const;
 
@@ -29,6 +30,7 @@ export const SUBMISSION_FIELD_LABELS: Record<SubmissionFieldName, string> = {
   email: "Email",
   twitter: "Twitter/X",
   linkedin: "LinkedIn",
+  githubProfile: "GitHub",
   category: "Category",
 };
 
@@ -52,6 +54,7 @@ export const submissionTextSchema = z.object({
   email: optionalLimitedString("email"),
   twitter: optionalLimitedString("twitter"),
   linkedin: optionalLimitedString("linkedin"),
+  githubProfile: optionalLimitedString("githubProfile"),
   category: optionalLimitedString("category"),
 });
 
@@ -60,6 +63,7 @@ export const contactTextSchema = submissionTextSchema.pick({
   email: true,
   twitter: true,
   linkedin: true,
+  githubProfile: true,
 });
 
 export type SubmissionTextInput = z.input<typeof submissionTextSchema>;
@@ -125,6 +129,37 @@ export function isValidTwitter(value: string) {
   } catch {
     return false;
   }
+}
+
+// Accept a GitHub username (optionally with @) or a github.com/username link.
+export function isValidGithubProfile(value: string) {
+  if (/^@?[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value)) return true;
+  try {
+    const url = new URL(value.startsWith("http") ? value : `https://${value}`);
+    return /(^|\.)github\.com$/.test(url.hostname) && /^\/[A-Za-z0-9-]{1,39}\/?$/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** The first problem with a person's social links, or "" when they are fine. */
+export function socialLinksError(links: { twitter?: string; linkedin?: string; githubProfile?: string }) {
+  if (links.twitter && !isValidTwitter(links.twitter)) return "Enter an X @handle or an x.com link.";
+  if (links.linkedin && !isValidLinkedin(links.linkedin)) return "Enter a linkedin.com/in/... link.";
+  if (links.githubProfile && !isValidGithubProfile(links.githubProfile)) return "Enter a GitHub username or github.com link.";
+  return "";
+}
+
+const emailFormat = z.email();
+
+/** A well-formed email address of at most 254 characters. */
+export function isValidEmail(value: string) {
+  return value.length <= SUBMISSION_FIELD_LIMITS.email && emailFormat.safeParse(value).success;
+}
+
+/** Emails compare without case or surrounding spaces. */
+export function emailKey(email: string) {
+  return email.normalize("NFKC").trim().toLowerCase();
 }
 
 // Accept a linkedin.com/... URL or an "in/handle" path.

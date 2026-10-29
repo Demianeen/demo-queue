@@ -18,7 +18,7 @@ export type JudgingSheetSubmission = {
   name: string;
   demoTitle: string;
   description: string;
-  category?: string;
+  tracks?: string[];
   videoUrl?: string | null;
   githubUrl?: string;
   roundOneAssignedJudges?: string[];
@@ -152,7 +152,7 @@ export function buildJudgingSubmissionRow(submission: JudgingSheetSubmission) {
     members,
     submission.demoTitle,
     submission.description,
-    submission.category ?? "",
+    (submission.tracks ?? []).join(" · "),
     submission.videoUrl ?? "",
     submission.name,
     submission.email ?? "",

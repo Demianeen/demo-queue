@@ -15,32 +15,58 @@
 .timeBlock strong { color: var(--app-ink); font-size: 22px; font-variant-numeric: tabular-nums; }
 .timeBlock strong.overtime { color: var(--app-bad); }
 .topActions { justify-content: flex-end; gap: 8px; }
-.columns { min-height: 0; display: grid; grid-template-columns: 270px minmax(500px, 1fr) 370px; gap: 10px; padding: 10px; }
+.columns { min-height: 0; display: grid; grid-template-columns: 300px minmax(500px, 1fr) 370px; gap: 10px; padding: 10px; }
 .assignmentRail, .projectPane, .scorePanel { min-height: 0; border: 1px solid var(--app-line); border-radius: 16px; background: color-mix(in srgb, var(--app-paper) 94%, transparent); box-shadow: 0 14px 50px rgba(34, 36, 64, .055); }
 .assignmentRail { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
-.railHeader { display: grid; gap: 9px; padding: 22px 18px 17px; border-bottom: 1px solid var(--app-line); }
-.railHeader strong { font-size: 14px; }
-.railHeader span { color: var(--app-muted); font-size: 12px; }
-.progressTrack { height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--app-line) 84%, white); overflow: hidden; }
-.progressTrack span { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width .2s ease; }
+.railHeader { display: grid; gap: 8px; padding: 12px; border-bottom: 1px solid var(--app-line); }
+.visuallyHidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.searchField { position: relative; display: block; }
+.searchField svg { position: absolute; top: 50%; left: 11px; width: 15px; height: 15px; color: var(--app-muted); transform: translateY(-50%); pointer-events: none; }
+.searchField input { width: 100%; height: 36px; padding: 0 12px 0 32px; border: 1px solid var(--app-line); border-radius: 10px; background: color-mix(in srgb, var(--app-bg) 60%, white); color: var(--app-ink); font: inherit; font-size: 13px; }
+.searchField input:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent); outline-offset: 0; border-color: var(--primary); }
+.trackFilters { display: flex; flex-wrap: wrap; gap: 6px; }
+.trackChip, .trackChipOn { height: 28px; padding: 0 10px; border: 1px solid var(--app-line); border-radius: 14px; background: transparent; color: var(--app-muted); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.trackChip:hover { color: var(--app-ink); border-color: color-mix(in srgb, var(--app-ink) 30%, var(--app-line)); }
+.trackChipOn { border-color: var(--app-ink); background: var(--app-ink); color: var(--app-paper); }
+.trackChip:focus-visible, .trackChipOn:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 32%, transparent); outline-offset: 1px; }
 .assignmentList { overflow-y: auto; }
-.assignmentButton, .assignmentActive { width: 100%; min-height: 72px; display: grid; grid-template-columns: 24px minmax(0, 1fr) 18px; align-items: center; gap: 8px; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--app-line); background: transparent; color: inherit; text-align: left; cursor: pointer; }
-.assignmentButton:hover { background: color-mix(in srgb, var(--primary) 4%, transparent); }
-.assignmentActive { background: color-mix(in srgb, var(--primary) 9%, transparent); box-shadow: inset 2px 0 var(--primary); }
-.assignmentNumber { align-self: start; padding-top: 2px; color: var(--app-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.assignmentText { min-width: 0; display: grid; gap: 4px; }
+.mineHeading, .othersHeading { display: flex; justify-content: space-between; gap: 8px; margin: 0; padding: 10px 12px 6px; font-size: 11px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.mineHeading { color: var(--primary); }
+.othersHeading { margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--app-line); color: var(--app-muted); }
+.assignmentButton, .assignmentActive { width: 100%; min-height: 44px; display: grid; grid-template-columns: 22px minmax(0, 1fr) 18px; align-items: center; gap: 8px; padding: 4px 12px 4px 9px; border: 0; border-left: 3px solid transparent; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.assignmentButton:hover, .otherRow:hover { background: color-mix(in srgb, var(--primary) 4%, transparent); }
+.assignmentButton:focus-visible, .assignmentActive:focus-visible, .otherRow:focus-visible, .otherActive:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 32%, transparent); outline-offset: -3px; }
+.rowNumber { color: var(--app-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.assignmentText { min-width: 0; display: grid; gap: 1px; }
 .assignmentText strong, .assignmentText small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .assignmentText strong { font-size: 13px; }
-.assignmentText small { color: var(--app-muted); font-size: 11px; }
+.assignmentText small { color: var(--app-muted); font-size: 12px; }
+.otherRow, .otherActive { width: 100%; min-height: 36px; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 2px 12px 2px 9px; border: 0; border-left: 3px solid transparent; background: transparent; color: var(--app-muted); text-align: left; cursor: pointer; }
+.assignmentActive, .otherActive { border-left-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.otherActive { color: var(--app-ink); }
+.otherTitle { min-width: 0; overflow: hidden; color: inherit; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.otherActive .otherTitle { font-weight: 650; }
+.otherTrack { max-width: 96px; overflow: hidden; color: var(--app-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.railEmpty { margin: 0; padding: 6px 12px 10px; color: var(--app-muted); font-size: 12px; }
+.railLoading { display: grid; gap: 10px; padding: 8px 12px 12px; }
 .completeIcon, .incompleteIcon { width: 17px; height: 17px; }
 .completeIcon { color: #1c9b56; }
 .incompleteIcon { color: color-mix(in srgb, var(--app-muted) 58%, transparent); }
-.shortcutHint { margin: 0; padding: 12px; border-top: 1px solid var(--app-line); color: var(--app-muted); font-size: 11px; text-align: center; }
-.shortcutHint kbd { min-width: 22px; display: inline-grid; place-items: center; margin: 0 2px; padding: 2px 5px; border: 1px solid var(--app-line); border-radius: 5px; background: white; color: var(--app-ink); font: inherit; }
+.shortcutHint { margin: 0; padding: 10px 12px; border-top: 1px solid var(--app-line); color: var(--app-muted); font-size: 11px; text-align: center; white-space: nowrap; }
+.shortcutHint kbd { min-width: 18px; display: inline-grid; place-items: center; margin: 0 1px; padding: 1px 4px; border: 1px solid var(--app-line); border-radius: 5px; background: white; color: var(--app-ink); font: inherit; }
 .projectPane { overflow-x: hidden; overflow-y: auto; padding: 24px 28px 36px; }
 .projectIntro { display: grid; gap: 8px; }
 .projectIntro h1 { margin: 0; font-size: clamp(26px, 2.2vw, 36px); letter-spacing: -.035em; line-height: 1.1; }
-.projectMeta { margin: 0; font-size: 13px; font-weight: 700; }
+.projectMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.projectMeta strong { font-weight: 650; }
+.trackPill, .assignmentPill { height: 22px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 11px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.trackPill { background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); }
+.assignmentPill { background: color-mix(in srgb, var(--app-muted) 12%, transparent); color: var(--app-muted); font-weight: 500; }
+.aiSummary { display: grid; gap: 8px; margin-top: 8px; padding: 14px 16px; border-radius: 14px; background: color-mix(in srgb, var(--primary) 7%, var(--app-paper)); }
+.aiSummaryHeading { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--primary); font-size: 12px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.aiSummaryHeading svg { width: 14px; height: 14px; }
+.aiSummary ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.45; }
+.aiSummaryNote { margin: 0; color: var(--app-muted); font-size: 12px; }
 .description { margin: 6px 0 0; color: var(--app-muted); font-size: 14px; line-height: 1.55; }
 .projectLinks { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 6px; }
 .projectLinks a, .videoFallback { display: inline-flex; align-items: center; gap: 6px; color: var(--primary); font-size: 13px; font-weight: 720; text-decoration: none; }

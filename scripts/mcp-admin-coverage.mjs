@@ -15,6 +15,15 @@ export const UI_EXCLUSIONS = [
   { file: "app/metadata.ts", browser: "events.getParticipantMeta", reason: "Participant title metadata, not organization administration." },
   ...["memberships", "getRequest", "authorize"].map((name) => ({ file: "components/McpConnectionClient.tsx", browser: `mcpConsent.${name}`, reason: "Human connection consent. A tool must not inspect or approve its own authorization request." })),
   ...["createApiKey", "revokeConnection", "listConnections"].map((name) => ({ file: "components/McpConnectionClient.tsx", browser: `mcpConsent.${name}`, reason: "Human credential management. Connection credentials and their lifecycle stay in the signed-in browser." })),
+  ...["addTrack", "updateTrack", "reorderTracks", "removeTrack"].map((name) => ({ file: "components/TracksAdminPanel.tsx", browser: `tracks.${name}`, reason: "Proposed: track editing stays in the admin page for now; MCP track tools can follow." })),
+  ...["checkSubmissionEmail", "requestStatusLinkEmail"].map((name) => ({ file: "components/SubmissionEmailField.tsx", browser: `events.${name}`, reason: "Participant submit page email check and status link resend, not organization administration." })),
+  { file: "app/e/[slug]/ClientPage.tsx", browser: "events.getSubmittedView", reason: "Participant capability view of their own submission, not organization administration." },
+  { file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: "judging.getOtherSubmissions", reason: "Judge capability page. Organization tools already read every submission." },
+  ...["linkLumaEvent", "unlinkLumaEvent"].map((name) => ({ file: "components/LumaEventSetting.tsx", browser: `luma.${name}`, reason: "Linking uses the deployment's Luma key and is limited to allowed organisations, so it stays in the admin page." })),
+  { file: "app/s/[slug]/[token]/ClientPage.tsx", browser: "events.editTeamMemberSocials", reason: "Participant capability page. Organization tools must not impersonate participants." },
+  { file: "app/(workspace)/members/actions.ts", browser: "members.reserveInvitations", reason: "Counts Members page invitations against the organization limit. The send_invitations tool uses the same limit internally." },
+  ...["status", "teamStatus", "setHidden", "markDryRun"].map((name) => ({ file: "components/GettingStarted.tsx", browser: `gettingStarted.${name}`, reason: "The signed-in person's own onboarding checklist, not event administration." })),
+  { file: "components/McpConnectionClient.tsx", browser: "gettingStarted.mcpAddress", reason: "Shows the MCP address to a person setting up an assistant; an assistant already knows it." },
   ...finalistFunctions.map((name) => ({ file: finalistPath, browser: `judging.${name}`, reason: "Dormant finalist and placement controls require SHOW_FINALIST_TOOLS to remain false.", dormant: true })),
 ];
 

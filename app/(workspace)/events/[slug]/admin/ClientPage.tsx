@@ -2,7 +2,7 @@
 
 import React, { FormEvent, createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -25,6 +25,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { parseAdminView, adminViewPath } from "@/lib/admin-views";
+import { useCommands, type Command } from "@/components/shell/commands";
 import { makeSampleHackathonTeam, makeSamplePerson, pickSampleTracks } from "@/lib/sampleData";
 import { TrackPicker, TrackPills, type TrackOption } from "@/components/TrackPicker";
 import { TracksAdminPanel } from "@/components/TracksAdminPanel";
@@ -300,6 +302,7 @@ function useTimerView(timer: StageTimer | undefined) {
 
 export default function AdminPage() {
   const params = useParams<{ slug: string }>();
+  const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
   const admin = useQuery(api.events.getAdmin, isAuthenticated ? { slug: params.slug } : "skip");
 
@@ -391,7 +394,10 @@ export default function AdminPage() {
   const [judgesBusy, setJudgesBusy] = useState(false);
   const [judgesMessage, setJudgesMessage] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
-  const [activeTab, setActiveTab] = useState<AdminTab>("all");
+  const searchParams = useSearchParams();
+  const view = parseAdminView(searchParams.get("view"), admin?.event.eventType);
+  const [activeTab, setActiveTab] = useState<AdminTab>(view === "queue" ? "lineup" : "all");
+  useEffect(() => { setActiveTab(view === "queue" ? "lineup" : "all"); }, [view]);
   const [queueTimerMinutesInput, setQueueTimerMinutesInput] = useState("");
   const [demoTimerMinutesInput, setDemoTimerMinutesInput] = useState("");
   const [queueTimerOverride, setQueueTimerOverride] = useState<StageTimer | null>(null);
@@ -1157,11 +1163,155 @@ export default function AdminPage() {
     activeTimerMode === "demo" && activeTimerVisible && demoTimerView.status === "idle";
   const livePrimaryLabel = shouldStartDemoFromPrimary ? "Start timer" : "Advance";
 
+  const lineupName = isHackathonEvent ? "presentation lineup" : "demo queue";
+  const viewTitle = view === "submissions" ? allSubmissionsLabel : view === "judging" ? "Judging" : view === "settings" ? "Settings" : admin.event.name;
+  const viewDescription = view === "submissions"
+    ? `Everyone who submitted. Add them to the ${lineupName}, edit, or hide them.`
+    : view === "judging" ? "Judges, judge links, progress and results."
+    : "Event type, meet link, Luma and tracks.";
+  const goTo = (next: "queue" | "submissions" | "judging" | "settings") => router.push(adminViewPath(params.slug, next));
+  const adminCommands: Command[] = [
+    queueIsLive && currentLineupItem
+      ? { id: "admin-advance", group: "This page", label: livePrimaryLabel, keys: ["A"], run: () => void livePrimaryAction() }
+      : { id: "admin-publish", group: "This page", label: isHackathonEvent ? "Publish presentation lineup" : "Make queue live", disabled: queueIsLive, run: () => void publish() },
+    ...(queueIsLive && currentLineupItem ? [
+      { id: "admin-skip", group: "This page", label: "Skip for now", run: () => void skip() },
+      { id: "admin-no-show", group: "This page", label: "Mark no-show", run: () => void noShow() },
+    ] : []),
+    ...(!queueIsLive ? [{ id: "admin-shuffle", group: "This page", label: `Shuffle ${isHackathonEvent ? "presentation lineup" : "demoers"}`, run: () => void shuffle() }] : []),
+    { id: "admin-test-people", group: "This page", label: isHackathonEvent ? "Add test submissions" : "Add test people", run: () => { setTestPeopleMessage(""); setTestPeopleOpen(true); } },
+    ...(isHackathonEvent ? [{ id: "admin-judges", group: "This page", label: admin.event.roundOneJudges.length > 0 ? "Manage judges" : "Assign judges", run: () => { goTo("judging"); openRoundOneJudges(); } }] : []),
+    { id: "admin-open-stage", group: "This page", label: "Open presentation view", run: () => window.open(stagePath(params.slug), "_blank", "noopener") },
+    { id: "admin-open-form", group: "This page", label: "Open submission form", run: () => window.open(submissionPath(params.slug), "_blank", "noopener") },
+  ];
+
   return (
     <EventTracksContext.Provider value={admin.tracks}>
     <section className="page admin-page">
       <div className="shell admin-shell">
-        <section className="admin-control-grid">
+        <AdminCommands commands={adminCommands} context={admin.event.name} />
+        {testPeopleOpen ? (
+          <div
+            aria-labelledby="test-people-title"
+            aria-modal="true"
+            className="admin-modal-backdrop"
+            role="dialog"
+          >
+            <form className="admin-modal" onSubmit={addTestPeople}>
+              <div className="admin-modal-heading">
+                <h2 id="test-people-title">
+                  {isHackathonEvent ? "Add test submissions" : "Add test people"}
+                </h2>
+                <p>
+                  {isHackathonEvent
+                    ? "Add generated submissions with team, project, working video, and README-backed GitHub links to All submissions."
+                    : "Add generated people to All people. Move any of them into Demoers to test presenter flow."}
+                </p>
+              </div>
+              <label className="admin-modal-field">
+                <span>{isHackathonEvent ? "Submissions to add" : "People to add"}</span>
+                <input
+                  autoFocus
+                  aria-label={
+                    isHackathonEvent
+                      ? "Number of test submissions"
+                      : "Number of test people"
+                  }
+                  inputMode="numeric"
+                  maxLength={4}
+                  pattern="[0-9]*"
+                  type="text"
+                  value={testPeopleCount}
+                  onChange={(event) => {
+                    setTestPeopleCount(event.currentTarget.value.replace(/\D/g, "").slice(0, 4));
+                    setTestPeopleMessage("");
+                  }}
+                />
+              </label>
+              <p className="admin-modal-help">
+                Maximum 1000. They start in {allSubmissionsLabel}, not {isHackathonEvent ? "the presentation lineup" : "Demoers"}.
+              </p>
+              {testPeopleMessage ? (
+                <p className="admin-modal-error">{testPeopleMessage}</p>
+              ) : null}
+              <div className="admin-modal-actions">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setTestPeopleOpen(false);
+                    setTestPeopleMessage("");
+                  }}
+                  disabled={testPeopleBusy}
+                  type="button"
+                >
+                  Cancel
+                </Button>
+                <Button disabled={testPeopleBusy} type="submit">
+                  {testPeopleBusy
+                    ? "Adding..."
+                    : isHackathonEvent
+                      ? "Add submissions"
+                      : "Add people"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        ) : null}
+
+        {judgesOpen ? (
+          <div
+            aria-labelledby="round-one-judges-title"
+            aria-modal="true"
+            className="admin-modal-backdrop"
+            role="dialog"
+          >
+            <form className="admin-modal" onSubmit={saveJudges}>
+              <div className="admin-modal-heading">
+                <h2 id="round-one-judges-title">Judges</h2>
+                <p>
+                  Paste one judge name per line. You will distribute submissions after entries close.
+                </p>
+              </div>
+              <label className="admin-modal-field">
+                <span>Judge names</span>
+                <textarea
+                  autoFocus
+                  value={judgesText}
+                  onChange={(event) => {
+                    setJudgesText(event.currentTarget.value);
+                    setJudgesMessage("");
+                  }}
+                  placeholder={"Alex Morgan\nSam Lee\nJordan Taylor"}
+                  rows={8}
+                />
+              </label>
+              <p className="admin-modal-help">
+                At least 2 unique names. Blank lines and duplicate names are ignored. Existing assignments stay fixed.
+              </p>
+              {judgesMessage ? <p className="admin-modal-error">{judgesMessage}</p> : null}
+              <div className="admin-modal-actions">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setJudgesOpen(false);
+                    setJudgesMessage("");
+                  }}
+                  disabled={judgesBusy}
+                  type="button"
+                >
+                  Cancel
+                </Button>
+                <Button disabled={judgesBusy} type="submit">
+                  {judgesBusy ? "Saving..." : "Save judges"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        ) : null}
+
+
+        {view !== "queue" ? <header className="admin-view-heading"><h1>{viewTitle}</h1><p>{viewDescription}</p></header> : null}
+        {view === "queue" ? <section className="admin-control-grid">
           <section className="panel panel-pad admin-control-panel">
             <header className="admin-page-header">
               <div className="admin-console-kicker">
@@ -1245,46 +1395,6 @@ export default function AdminPage() {
               >
                 {isHackathonEvent ? "Add test submissions" : "Add test people"}
               </Button>
-              {admin.event.eventType === "hackathon" ? (
-                <>
-                  <Button variant="outline" onClick={openRoundOneJudges} type="button">
-                    {admin.event.roundOneJudges.length > 0
-                      ? `Manage judges (${admin.event.roundOneJudges.length})`
-                      : "Assign judges"}
-                  </Button>
-                  {admin.event.judgingSheetUrl ? (
-                    <a
-                      className={cn(buttonVariants({ variant: "link" }), "underline")}
-                      href={admin.event.judgingSheetUrl}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Open judging sheet
-                    </a>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      onClick={createJudgingSheetFile}
-                      disabled={sheetBusy}
-                      type="button"
-                    >
-                      <FileSpreadsheet size={16} aria-hidden />
-                      {sheetBusy ? "Creating sheet..." : "Create judging sheet"}
-                    </Button>
-                  )}
-                  {admin.event.judgingSheetUrl ? (
-                    <Button
-                      variant="ghost"
-                      onClick={syncJudgingSheetNow}
-                      disabled={sheetBusy || judgingSheetSyncPending}
-                      type="button"
-                    >
-                      <RotateCcw size={16} aria-hidden />
-                      {judgingSheetSyncPending ? "Syncing..." : "Sync now"}
-                    </Button>
-                  ) : null}
-                </>
-              ) : null}
               {allPeopleRows.length > 0 ? (
                 <Button variant="destructive" onClick={clearAll} type="button">
                   Clear all
@@ -1318,166 +1428,6 @@ export default function AdminPage() {
               {testPeopleMessage ? (
                 <p className="admin-action-note">{testPeopleMessage}</p>
               ) : null}
-              {sheetMessage ? <p className="admin-action-note">{sheetMessage}</p> : null}
-              {judgesMessage && !judgesOpen ? (
-                <p className="admin-action-note">{judgesMessage}</p>
-              ) : null}
-              {judgingSheetSyncStatus ? (
-                <p className="admin-action-note">{judgingSheetSyncStatus}</p>
-              ) : null}
-
-              {testPeopleOpen ? (
-                <div
-                  aria-labelledby="test-people-title"
-                  aria-modal="true"
-                  className="admin-modal-backdrop"
-                  role="dialog"
-                >
-                  <form className="admin-modal" onSubmit={addTestPeople}>
-                    <div className="admin-modal-heading">
-                      <h2 id="test-people-title">
-                        {isHackathonEvent ? "Add test submissions" : "Add test people"}
-                      </h2>
-                      <p>
-                        {isHackathonEvent
-                          ? "Add generated submissions with team, project, working video, and README-backed GitHub links to All submissions."
-                          : "Add generated people to All people. Move any of them into Demoers to test presenter flow."}
-                      </p>
-                    </div>
-                    <label className="admin-modal-field">
-                      <span>{isHackathonEvent ? "Submissions to add" : "People to add"}</span>
-                      <input
-                        autoFocus
-                        aria-label={
-                          isHackathonEvent
-                            ? "Number of test submissions"
-                            : "Number of test people"
-                        }
-                        inputMode="numeric"
-                        maxLength={4}
-                        pattern="[0-9]*"
-                        type="text"
-                        value={testPeopleCount}
-                        onChange={(event) => {
-                          setTestPeopleCount(event.currentTarget.value.replace(/\D/g, "").slice(0, 4));
-                          setTestPeopleMessage("");
-                        }}
-                      />
-                    </label>
-                    <p className="admin-modal-help">
-                      Maximum 1000. They start in {allSubmissionsLabel}, not {isHackathonEvent ? "the presentation lineup" : "Demoers"}.
-                    </p>
-                    {testPeopleMessage ? (
-                      <p className="admin-modal-error">{testPeopleMessage}</p>
-                    ) : null}
-                    <div className="admin-modal-actions">
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setTestPeopleOpen(false);
-                          setTestPeopleMessage("");
-                        }}
-                        disabled={testPeopleBusy}
-                        type="button"
-                      >
-                        Cancel
-                      </Button>
-                      <Button disabled={testPeopleBusy} type="submit">
-                        {testPeopleBusy
-                          ? "Adding..."
-                          : isHackathonEvent
-                            ? "Add submissions"
-                            : "Add people"}
-                      </Button>
-                    </div>
-                  </form>
-                </div>
-              ) : null}
-
-              {judgesOpen ? (
-                <div
-                  aria-labelledby="round-one-judges-title"
-                  aria-modal="true"
-                  className="admin-modal-backdrop"
-                  role="dialog"
-                >
-                  <form className="admin-modal" onSubmit={saveJudges}>
-                    <div className="admin-modal-heading">
-                      <h2 id="round-one-judges-title">Judges</h2>
-                      <p>
-                        Paste one judge name per line. You will distribute submissions after entries close.
-                      </p>
-                    </div>
-                    <label className="admin-modal-field">
-                      <span>Judge names</span>
-                      <textarea
-                        autoFocus
-                        value={judgesText}
-                        onChange={(event) => {
-                          setJudgesText(event.currentTarget.value);
-                          setJudgesMessage("");
-                        }}
-                        placeholder={"Alex Morgan\nSam Lee\nJordan Taylor"}
-                        rows={8}
-                      />
-                    </label>
-                    <p className="admin-modal-help">
-                      At least 2 unique names. Blank lines and duplicate names are ignored. Existing assignments stay fixed.
-                    </p>
-                    {judgesMessage ? <p className="admin-modal-error">{judgesMessage}</p> : null}
-                    <div className="admin-modal-actions">
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setJudgesOpen(false);
-                          setJudgesMessage("");
-                        }}
-                        disabled={judgesBusy}
-                        type="button"
-                      >
-                        Cancel
-                      </Button>
-                      <Button disabled={judgesBusy} type="submit">
-                        {judgesBusy ? "Saving..." : "Save judges"}
-                      </Button>
-                    </div>
-                  </form>
-                </div>
-              ) : null}
-
-            <div className="admin-section-label">Event settings</div>
-            <div className="admin-event-settings">
-              <div className="field">
-                <label htmlFor="adminEventType">Event type</label>
-                <EventTypeSelect
-                  id="adminEventType"
-                  value={admin.event.eventType}
-                  onValueChange={(eventType) => void selectEventType(eventType)}
-                />
-                <span className="muted form-help">Changing type resets submissions and uploaded files.</span>
-              </div>
-
-            <div className="field">
-              <div className="field-heading">
-                <label htmlFor="meetUrl">Meet link</label>
-                <label className="stage-meet-toggle">
-                  <input
-                    type="checkbox"
-                    checked={admin.event.showMeetLinkOnStage ?? false}
-                    disabled={!queueIsLive}
-                    onChange={(event) => toggleStageMeetLink(event.currentTarget.checked)}
-                  />
-                  <span>Show in presentation view</span>
-                </label>
-              </div>
-              <input id="meetUrl" readOnly value={admin.event.meetUrl} />
-              <span className="muted" style={{ fontSize: 12 }}>
-                Published {admin.event.eventType === "hackathon" ? "presenters" : "demoers"} see it on their status pages. It stays hidden in the
-                presentation view unless you enable it after publishing.
-              </span>
-            </div>
-            <LumaEventSetting available={admin.event.luma.available} lumaEvent={admin.event.luma.event} slug={params.slug} />
-            </div>
 
             <div className="admin-section-label">Presentation timer</div>
             <div className={`stage-timer-admin${activeTimerView.remainingMs < 0 ? " is-overtime" : ""}`}>
@@ -1663,16 +1613,108 @@ export default function AdminPage() {
               setStageScreenMode({ slug: params.slug, mode })
             }
           />
-        </section>
+        </section> : null}
 
-        <TracksAdminPanel
-          slug={params.slug}
-          tracks={admin.tracks}
-          noTrackCount={admin.noTrackCount}
-          legacyCategoryCount={admin.legacyCategoryCount}
-        />
+        {view === "settings" ? <>
+          <section className="panel panel-pad admin-settings-panel" aria-label="Event settings">
+            <div className="admin-section-label">Event settings</div>
+            <div className="admin-event-settings">
+              <div className="field">
+                <label htmlFor="adminEventType">Event type</label>
+                <EventTypeSelect
+                  id="adminEventType"
+                  value={admin.event.eventType}
+                  onValueChange={(eventType) => void selectEventType(eventType)}
+                />
+                <span className="muted form-help">Changing type resets submissions and uploaded files.</span>
+              </div>
 
-        {isHackathonEvent ? (
+            <div className="field">
+              <div className="field-heading">
+                <label htmlFor="meetUrl">Meet link</label>
+                <label className="stage-meet-toggle">
+                  <input
+                    type="checkbox"
+                    checked={admin.event.showMeetLinkOnStage ?? false}
+                    disabled={!queueIsLive}
+                    onChange={(event) => toggleStageMeetLink(event.currentTarget.checked)}
+                  />
+                  <span>Show in presentation view</span>
+                </label>
+              </div>
+              <input id="meetUrl" readOnly value={admin.event.meetUrl} />
+              <span className="muted" style={{ fontSize: 12 }}>
+                Published {admin.event.eventType === "hackathon" ? "presenters" : "demoers"} see it on their status pages. It stays hidden in the
+                presentation view unless you enable it after publishing.
+              </span>
+            </div>
+            <LumaEventSetting available={admin.event.luma.available} lumaEvent={admin.event.luma.event} slug={params.slug} />
+            </div>
+
+          </section>
+          <TracksAdminPanel
+            slug={params.slug}
+            tracks={admin.tracks}
+            noTrackCount={admin.noTrackCount}
+            legacyCategoryCount={admin.legacyCategoryCount}
+          />
+        </> : null}
+
+        {view === "judging" && isHackathonEvent ? (
+          <section className="panel panel-pad admin-judges-panel" aria-label="Judges and judging sheet">
+            <div className="actions admin-primary-actions">
+              {isHackathonEvent ? (
+                <>
+                  <Button variant="outline" onClick={openRoundOneJudges} type="button">
+                    {admin.event.roundOneJudges.length > 0
+                      ? `Manage judges (${admin.event.roundOneJudges.length})`
+                      : "Assign judges"}
+                  </Button>
+                  {admin.event.judgingSheetUrl ? (
+                    <a
+                      className={cn(buttonVariants({ variant: "link" }), "underline")}
+                      href={admin.event.judgingSheetUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Open judging sheet
+                    </a>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      onClick={createJudgingSheetFile}
+                      disabled={sheetBusy}
+                      type="button"
+                    >
+                      <FileSpreadsheet size={16} aria-hidden />
+                      {sheetBusy ? "Creating sheet..." : "Create judging sheet"}
+                    </Button>
+                  )}
+                  {admin.event.judgingSheetUrl ? (
+                    <Button
+                      variant="ghost"
+                      onClick={syncJudgingSheetNow}
+                      disabled={sheetBusy || judgingSheetSyncPending}
+                      type="button"
+                    >
+                      <RotateCcw size={16} aria-hidden />
+                      {judgingSheetSyncPending ? "Syncing..." : "Sync now"}
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+              {sheetMessage ? <p className="admin-action-note">{sheetMessage}</p> : null}
+              {judgesMessage && !judgesOpen ? (
+                <p className="admin-action-note">{judgesMessage}</p>
+              ) : null}
+              {judgingSheetSyncStatus ? (
+                <p className="admin-action-note">{judgingSheetSyncStatus}</p>
+              ) : null}
+          </section>
+        ) : null}
+
+        {view === "judging" && isHackathonEvent ? (
           <JudgingAdminPanel
             previews={submissionPreviews}
             trackNames={admin.tracks.map((track) => track.name)}
@@ -1684,7 +1726,7 @@ export default function AdminPage() {
           />
         ) : null}
 
-        <DndContext
+        {view === "queue" || view === "submissions" ? <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={onDragStart}
@@ -1875,7 +1917,7 @@ export default function AdminPage() {
               </article>
             ) : null}
           </DragOverlay>
-        </DndContext>
+        </DndContext> : null}
 
       </div>
     </section>
@@ -2508,4 +2550,10 @@ function SubmissionSurgeNotice({ at }: { at?: number }) {
       </AlertDescription>
     </Alert>
   );
+}
+
+/** Registers the admin page's actions in the command menu while it is open. */
+function AdminCommands({ commands, context }: { commands: Command[]; context: string }) {
+  useCommands("event-admin", commands, context);
+  return null;
 }

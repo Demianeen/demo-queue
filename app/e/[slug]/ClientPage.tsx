@@ -1,6 +1,6 @@
 "use client";
 
-import { eventThemeProperties } from "@/lib/event-theme";
+import { eventRootProps } from "@/lib/event-theme-contract";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
@@ -422,7 +422,7 @@ export function SubmissionPage({
   );
 
   return (
-    <main data-event-style={visualStyle} style={visualStyle === "neutral" ? eventThemeProperties(stage.event.theme) : undefined} className={isDevDay ? "devday-public-page" : isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
+    <main data-event-style={visualStyle} {...eventRootProps(visualStyle, stage.event.theme)} className={isDevDay ? "devday-public-page" : isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
       {isDevDay ? (
         <DevDayHero eventName={stage.event.name} eventType={stage.event.eventType} mode="submission" />
       ) : null}

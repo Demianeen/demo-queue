@@ -31,7 +31,7 @@ export function WorkspaceEventDetails({ slug, organizationId, initial }: { slug:
     <Link className="workspace-back-link" href="/events"><ArrowLeft aria-hidden />All events</Link>
     <div className="workspace-detail-heading">
       <div><h1>{event.name}</h1><p><span className="workspace-event-kind">{event.eventType === "hackathon" ? "Hackathon" : "Demo"}</span><span>Created {eventCreatedDate(event.createdAt)}</span></p></div>
-      <a href={managePath} className={buttonVariants()} data-slot="button">Manage event<ArrowUpRight aria-hidden /></a>
+      <a href={managePath} className={buttonVariants()} data-slot="button" data-variant="default">Manage event<ArrowUpRight aria-hidden /></a>
     </div>
     <div className="workspace-event-stats" aria-label="Event activity">
       <div><span>Submissions</span><strong>{event.submissionCount}{event.submissionCountCapped ? "+" : ""}</strong><small>{event.submissionsClosed ? "Submissions closed" : "Accepting submissions"}</small></div>

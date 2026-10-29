@@ -21,6 +21,8 @@ import rehypeSanitize from "rehype-sanitize";
 import { api } from "../../../../convex/_generated/api";
 import { Skeleton } from "@/app/Skeleton";
 import { Button } from "@/components/ui/button";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { ShortcutTooltip } from "@/components/shell/commands";
 import {
   JUDGING_CRITERIA,
   JUDGING_CRITERION_LABELS,
@@ -292,11 +294,11 @@ export default function JudgeClientPage() {
   }
 
   if (!data) {
-    return <main className={styles.loadingPage}><section className={styles.loadingPanel}><Skeleton w={170} h={12} /><Skeleton w="48%" h={38} style={{ marginTop: 18 }} /><Skeleton h={520} style={{ marginTop: 22 }} /></section></main>;
+    return <main className={`dq-app ${styles.loadingPage}`}><section className={styles.loadingPanel}><Skeleton w={170} h={12} /><Skeleton w="48%" h={38} style={{ marginTop: 18 }} /><Skeleton h={520} style={{ marginTop: 22 }} /></section></main>;
   }
   if (!isOpen && !isClosed) {
     return (
-      <main className={styles.waitingPage}>
+      <main className={`dq-app ${styles.waitingPage}`}>
         <section className={styles.waitingPanel}>
           <div className={styles.privateLabel}><LockKeyholeIcon /> Private judge link</div>
           <h1>{data.eventName}</h1>
@@ -347,20 +349,21 @@ export default function JudgeClientPage() {
   }
 
   return (
-    <main className={styles.workspace}>
+    <TooltipProvider delay={1000}>
+    <main className={`dq-app ${styles.workspace}`}>
       <header className={styles.topbar}>
         <div className={styles.eventIdentity}>
-          <span className={styles.privateLabel}><LockKeyholeIcon /> Private judge link</span>
-          <span className={styles.divider} />
+          <span className={styles.eventMark} aria-hidden>{data.eventName.slice(0, 1).toUpperCase()}</span>
           <span className={styles.eventName}>{data.eventName}</span>
-        </div>
-        <div className={styles.timeBlock}>
-          <span>{isClosed ? "Judging closed" : "Time remaining"}</span>
-          <strong className={remainingMs < 0 ? styles.overtime : undefined}>{formatTimer(remainingMs)}</strong>
+          <span className={styles.divider} />
+          <span className={styles.timeBlock}>
+            <span>{isClosed ? "Judging closed" : "Time remaining"}</span>
+            <strong className={remainingMs < 0 ? styles.overtime : undefined}>{formatTimer(remainingMs)}</strong>
+          </span>
         </div>
         <div className={styles.topActions}>
-          <Button variant="outline" disabled={!hasPrevious} onClick={() => selectOffset(-1)}><ChevronLeftIcon /> Previous</Button>
-          <Button disabled={!hasNext} onClick={() => selectOffset(1)}>Next <ChevronRightIcon /></Button>
+          <span className={styles.progress}>Yours: {completedCount} of {data.assignments.length} scored</span>
+          <span className={styles.privateLabel}><LockKeyholeIcon /> Private judge link</span>
         </div>
       </header>
 
@@ -393,7 +396,6 @@ export default function JudgeClientPage() {
               <p className={styles.railEmpty}>{others.length ? "No other submissions match." : "No other submissions."}</p>
             )}
           </nav>
-          <p className={styles.shortcutHint}><kbd>J</kbd> and <kbd>K</kbd> move through yours first, then the rest</p>
         </aside>
 
         <article className={styles.projectPane}>
@@ -469,9 +471,13 @@ export default function JudgeClientPage() {
               </fieldset>
             ))}
           </div>
-          <Button className={styles.nextProject} disabled={!hasNext} onClick={() => selectOffset(1)}>Next project <ChevronRightIcon /></Button>
+          <div className={styles.scoreNav}>
+            <ShortcutTooltip label="Previous project" keys={["K"]}><Button variant="outline" disabled={!hasPrevious} onClick={() => selectOffset(-1)}><ChevronLeftIcon /> Previous</Button></ShortcutTooltip>
+            <ShortcutTooltip label="Next project, yours first" keys={["J"]}><Button className={styles.nextProject} disabled={!hasNext} onClick={() => selectOffset(1)}>Next project <ChevronRightIcon /></Button></ShortcutTooltip>
+          </div>
         </aside>
       </div>
     </main>
+    </TooltipProvider>
   );
 }

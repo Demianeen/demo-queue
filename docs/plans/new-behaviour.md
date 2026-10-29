@@ -179,6 +179,18 @@ The judge page functions (`judging.getJudgeWorkspace`,
   is empty.
 - Verified on a local anonymous Convex deployment with a WorkOS mock:
   screenshots in `docs/reports/new-behaviour/`. No deploy.
+- Done (review findings, 29 October 2026): AI summary limits and public
+  READMEs only, undo safety (versions, dependent scores and members,
+  moved-score clashes, timer phases), turned-off judges, practice tidy,
+  the queue helper, Move scores clashes, the judge summary sections, timer
+  shortcuts, the phase confirm and the Live now group. Each has a test.
+
+## After merge
+
+- Proposed: set `GITHUB_TOKEN` on the production Convex deployment for
+  README reads (5,000 requests an hour instead of 60). It must be a
+  fine-grained token with "Public repositories (read-only)" access and no
+  other repository access. Without it, reads stay unauthenticated.
 
 ## Proposed
 
@@ -229,3 +241,16 @@ The judge page functions (`judging.getJudgeWorkspace`,
   paused by reopened submissions reads "Judging paused".
 - Adding test submissions is off once submissions close, with the note
   "Submissions are closed. Move back to Submissions to add more."
+- AI summaries: at most one run per submission per 10 minutes, and a
+  daily budget per event of 3 runs per submission, at least 20.
+  Participants queue none once submissions are closed.
+- A rate-limited README read is retried up to 3 times, then the run gives
+  up without saving a summary.
+- README text is read only from repositories GitHub reports as public.
+- Going back from Stage to Submissions on a demo night leaves the lineup
+  published; the confirm says "The lineup stays published."
+- Recent changes checks up to 1,000 stored documents per list, newest
+  change first; a change past that shows "This change is too large to
+  check here. Undo newer changes first."
+- A timer change can be undone only in the phase it was made in.
+- "What the numbers mean" on the judge page is collapsed by default.

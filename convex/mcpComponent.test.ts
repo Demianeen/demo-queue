@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { componentsGeneric, queryGeneric, type FunctionReference } from "convex/server";
+import { componentsGeneric, queryGeneric, type FunctionReference, type FunctionReturnType } from "convex/server";
 import component from "@convex-dev/mcp/test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { z } from "zod";
@@ -216,7 +216,7 @@ test("settings report effective permissions when a client requests only reads", 
   const t = setup();
   const approval = await approve(t, await start(t, undefined, "events:read"), { access: "manage" });
   expect((await exchange(t, approval)).status).toBe(200);
-  const connections = await t.withIdentity(identity()).query(api.mcpConsent.listConnections, {});
+  const connections = (await t.withIdentity(identity()).query(api.mcpConsent.listConnections, { paginationOpts: { numItems: 100, cursor: null } })).page;
   expect(connections).toHaveLength(1);
   expect(connections[0]).toMatchObject({ access: "read", organizationIds: ["org_one"] });
 });
@@ -249,7 +249,7 @@ test("API keys are disclosed once, store no plaintext, stay owner scoped and sto
   const bobRead = await key(t, { subject: "user_bob", organizationIds: ["org_bob"], access: "read" });
   expect(issued.apiKey).toMatch(/^mcp_/);
   expect(issued.url).toBe(resource);
-  const connections = await alice.query(api.mcpConsent.listConnections, {});
+  const connections = (await alice.query(api.mcpConsent.listConnections, { paginationOpts: { numItems: 100, cursor: null } })).page;
   expect(connections).toMatchObject([{ id: issued.id, name: "Alice laptop", organizationIds: ["org_one"], access: "manage" }]);
   expect(JSON.stringify(connections)).not.toContain(issued.apiKey);
   const appRows = await t.run(async (ctx) => ({ approvals: await ctx.db.query("mcpApprovals").collect(), organizations: await ctx.db.query("mcpApprovalOrganizations").collect() }));
@@ -258,7 +258,7 @@ test("API keys are disclosed once, store no plaintext, stay owner scoped and sto
   const storedCredentials = await t.query(inspect, {});
   expect(JSON.stringify(storedCredentials)).not.toContain(issued.apiKey);
   expect(JSON.stringify(storedCredentials)).toContain("hash");
-  expect((await bob.query(api.mcpConsent.listConnections, {})).map((connection) => connection.id).sort()).toEqual([bobFull.id, bobRead.id].sort());
+  expect((await bob.query(api.mcpConsent.listConnections, { paginationOpts: { numItems: 100, cursor: null } })).page.map((connection) => connection.id).sort()).toEqual([bobFull.id, bobRead.id].sort());
   await expect(bob.mutation(api.mcpConsent.revokeConnection, { id: issued.id })).rejects.toThrow();
   expect((await listed(t, issued.apiKey))).toHaveLength(60);
   await alice.mutation(api.mcpConsent.revokeConnection, { id: issued.id });
@@ -352,7 +352,7 @@ test("two approvals for one OAuth client exchange in reverse order with independ
   expect((await call(t, secondToken.access_token, "list_events", { organizationId: "org_one" })).value).toEqual({ error: "access_denied" });
   expect(await success(t, secondToken.access_token, "list_events", { organizationId: "org_two" })).toEqual({ page: [], isDone: true, continueCursor: "_end_cursor" });
   const alice = t.withIdentity(identity());
-  const connections = await alice.query(api.mcpConsent.listConnections, {});
+  const connections = (await alice.query(api.mcpConsent.listConnections, { paginationOpts: { numItems: 100, cursor: null } })).page;
   expect(connections).toHaveLength(2);
   const firstConnection = connections.find((connection) => connection.organizationIds.includes("org_one"));
   if (!firstConnection) throw new Error("First connection missing");
@@ -371,7 +371,7 @@ test("denying OAuth consent redirects safely and never creates a usable connecti
   expect(url.origin + url.pathname).toBe(redirectUri);
   expect(url.searchParams.get("error")).toBe("access_denied");
   expect(url.searchParams.get("state")).toBe("client-state");
-  expect(await t.withIdentity(identity()).query(api.mcpConsent.listConnections, {})).toEqual([]);
+  expect((await t.withIdentity(identity()).query(api.mcpConsent.listConnections, { paginationOpts: { numItems: 100, cursor: null } })).page).toEqual([]);
   await expect(approve(t, request)).rejects.toThrow();
 });
 
@@ -662,7 +662,7 @@ for (const transport of ["oauth", "apiKey"] as const) {
     const connection = transport === "oauth" ? await oauth(t, { allOrganizations: true }) : await key(t, { allOrganizations: true });
     const bearer = "access_token" in connection ? connection.access_token : connection.apiKey;
     const owner = t.withIdentity(identity());
-    const connections = await owner.query(api.mcpConsent.listConnections, {});
+    const connections = (await owner.query(api.mcpConsent.listConnections, { paginationOpts: { numItems: 100, cursor: null } })).page;
     const all = connections.find((row) => row.allOrganizations);
     if (!all) throw new Error("All-organization approval missing");
     expect(all).toMatchObject({ organizationIds: [], allOrganizations: true, access: "manage" });
@@ -742,4 +742,38 @@ test("internal key approval rejects conflicting organization policies atomically
   })).rejects.toThrow("Choose either all organizations or specific organizations.");
   expect(await t.run((ctx) => ctx.db.query("mcpApprovals").collect())).toEqual([]);
   expect(await t.run((ctx) => ctx.db.query("mcpApprovalOrganizations").collect())).toEqual([]);
+});
+
+
+test("connection pagination keeps older active grants reachable after unused approvals", async () => {
+  const t = setup();
+  const oldest = await key(t, { name: "Old active connection" });
+  await t.run(async (ctx) => {
+    const id = ctx.db.normalizeId("mcpApprovals", oldest.id);
+    const original = id ? await ctx.db.get("mcpApprovals", id) : null;
+    if (!original) throw new Error("Approval missing");
+    for (let i = 0; i < 125; i++) await ctx.db.insert("mcpApprovals", {
+      ownerAccountKey: original.ownerAccountKey, workosUserId: original.workosUserId, actor: original.actor,
+      source: "oauth", name: `Unused ${i}`, access: "read", requestedScopes: ["events:read"], approvedScopes: ["events:read"],
+      ...(i % 2 === 0 ? { revokedAt: Date.now() } : {}),
+    });
+  });
+  const newest = await key(t, { name: "New active connection" });
+  const other = await key(t, { subject: "user_bob", organizationIds: ["org_bob"] });
+  const owner = t.withIdentity(identity());
+  let cursor: string | null = null;
+  const found: string[] = [];
+  let pages = 0;
+  do {
+    const response: FunctionReturnType<typeof api.mcpConsent.listConnections> = await owner.query(api.mcpConsent.listConnections, { paginationOpts: { numItems: 20, cursor } });
+    found.push(...response.page.map((connection) => connection.id));
+    pages++;
+    cursor = response.isDone ? null : response.continueCursor;
+  } while (cursor);
+  expect(pages).toBeGreaterThan(5);
+  expect(found).toEqual([newest.id, oldest.id]);
+  expect(found).not.toContain(other.id);
+  await owner.mutation(api.mcpConsent.revokeConnection, { id: oldest.id });
+  expect((await rpc(t, oldest.apiKey, "tools/list")).status).toBe(401);
+  expect((await listed(t, newest.apiKey))).toHaveLength(60);
 });

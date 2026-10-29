@@ -20,8 +20,8 @@ Keep current WorkOS membership, permission and revocation checks.
 - [x] Sync canonical development and verify the local rendered flow.
 - [x] Review the diff, update PR #56 and verify its final checks.
 
-Production remains unchanged. This extends the development-only component
-comparison and does not authorize merging it as a Production rollout.
+This completed development phase left Production unchanged. The later
+Production rollout is tracked separately in [mcp-production-rollout.md](mcp-production-rollout.md).
 
 ## Verification
 

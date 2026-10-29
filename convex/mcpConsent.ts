@@ -1,3 +1,4 @@
+import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { normalizeUserCode } from "@convex-dev/mcp";
 import { components, internal } from "./_generated/api";
@@ -117,12 +118,12 @@ export const createApiKey = action({
 });
 
 export const listConnections = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
     const owner = connectionIdentity(await ctx.auth.getUserIdentity());
-    const approvals = await ctx.db.query("mcpApprovals").withIndex("by_ownerAccountKey", (q) => q.eq("ownerAccountKey", owner.ownerAccountKey)).order("desc").take(100);
+    const approvals = await ctx.db.query("mcpApprovals").withIndex("by_ownerAccountKey", (q) => q.eq("ownerAccountKey", owner.ownerAccountKey)).order("desc").paginate(paginationOpts);
     const connections = [];
-    for (const approval of approvals) {
+    for (const approval of approvals.page) {
       if (approval.revokedAt !== undefined) continue;
       const grants = await ctx.runQuery(components.mcp.grants.list, { userId: approval._id });
       if (grants.length === 0) continue;
@@ -130,7 +131,7 @@ export const listConnections = query({
       connections.push({ id: approval._id, name: approval.name, organizationIds: organizations.map((org) => org.organizationId), allOrganizations: approval.allOrganizations, access: approval.access, createdAt: approval._creationTime,
         lastUsedAt: grants.reduce<number | undefined>((latest, grant) => grant.lastUsedAt === undefined ? latest : Math.max(latest ?? 0, grant.lastUsedAt), undefined), kind: approval.source === "apiKey" ? "apiKey" : "oauth" });
     }
-    return connections;
+    return { ...approvals, page: connections };
   },
 });
 

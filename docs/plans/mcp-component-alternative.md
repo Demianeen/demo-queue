@@ -6,6 +6,10 @@ created: 2026-10-29
 updated: 2026-10-29
 ---
 
+## Completed evaluation phase
+
+The subsequent Production rollout is tracked in [mcp-production-rollout.md](mcp-production-rollout.md).
+
 ## Outcome
 
 Build a development alternative using `@convex-dev/mcp`. Keep WorkOS for human

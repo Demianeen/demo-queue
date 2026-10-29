@@ -1,22 +1,24 @@
 # MCP authorization comparison
 
-29 October 2026. Development evaluation of `@convex-dev/mcp@0.1.0-alpha.7`.
+29 October 2026. Evaluation and Production rollout of `@convex-dev/mcp@0.1.0-alpha.7`.
 
-## Recommendation
+## Release direction
 
-Use the component as the target for the next MCP version. It supports the
-requested experience: one connection approved for Outpost and Test, an explicit
-read-only option, and connection management inside the app. Keep Production on
-WorkOS MCP authorization until a separate rollout is reviewed and authorized.
+Use the component for MCP authorization at `https://hack.outpostcrew.co/mcp`.
+Keep WorkOS for Google sign-in, invitations and active organization memberships.
+PR #56 now includes exact Production configuration, all public OAuth routes,
+and paginated connection settings. The earlier development-only restriction is
+superseded by the Production rollout tracked in
+[the rollout plan](../plans/mcp-production-rollout.md).
 
-This evaluation PR is a draft and must not be merged as a Production rollout.
-Its component HTTP server deliberately accepts only the canonical development
-deployment. Production routing, component installation, configuration and
-reauthorization need their own rollout change.
+Existing WorkOS MCP clients must reconnect once. Their old grants are not
+converted or widened. Production deployment runs through the existing CI
+pipeline after merge. Actual Production deployment and authenticated smoke-test
+results are recorded in [PR #56](https://github.com/Demianeen/demo-queue/pull/56).
 
 ## What changes for you
 
-| Behavior | Current WorkOS integration | Component alternative tested here |
+| Behavior | Previous WorkOS integration | Component alternative tested here |
 | --- | --- | --- |
 | Google sign-in and invitation access | WorkOS | WorkOS |
 | Approve an assistant | WorkOS-hosted page | Demo Queue page |
@@ -38,7 +40,7 @@ an assistant's approval.
 
 ## Review links
 
-[Draft evaluation PR](https://github.com/Demianeen/demo-queue/pull/56).
+[Release PR](https://github.com/Demianeen/demo-queue/pull/56).
 [Hosted development settings](https://demo-queue-git-codex-mcp-compo-38ce98-netlyukh-demians-projects.vercel.app/events/connections).
 The hosted Preview completed personal Google sign-in and loaded the existing
 multi-org connection. Native MCP approval currently uses the proven local app.
@@ -49,7 +51,7 @@ Production settings were unchanged by the branch-scoped Preview configuration.
 | Check | Result | Evidence |
 | --- | --- | --- |
 | Public Production endpoint | Deployed and authenticated | [PR #55](https://github.com/Demianeen/demo-queue/pull/55), public resource `https://hack.outpostcrew.co/mcp` |
-| Two Production organization connections | Passed in one fresh native process | Outpost, Test, Outpost, Test returned 6, 19, 6, 19 events. Opposite-org calls were denied. Ten read-only calls; no Production records changed. |
+| Previous WorkOS Production connections | Passed in one fresh native process | Outpost, Test, Outpost, Test returned 6, 19, 6, 19 events. Opposite-org calls were denied. Ten read-only calls; no Production records changed. |
 | One development component connection, both organizations | Passed browser approval and native calls | Approved Outpost and Test together. Eight initial read calls succeeded. |
 | Development writes across both organizations | Passed native calls and readback | Created unpublished `mcp-comparison-outpost-20261029` and `mcp-comparison-test-20261029`; both read back in their owning organization. These test fixtures remain in development. |
 | Read-only key | Passed live HTTP probe | Test read succeeded, unapproved Outpost denied, writes returned 403, foreign Origin denied and event list remained unchanged. |
@@ -57,7 +59,7 @@ Production settings were unchanged by the branch-scoped Preview configuration.
 | Two live owners | Twelve checks passed against development | A passwordless Test-only WorkOS fixture could read Test, could not access Outpost or another owner's connections, and could not revoke another owner's access. Used privileged CLI identity injection followed by real bearer HTTP, not a second Google browser login. All three temporary credentials were revoked and returned 401. |
 | All current and future organizations | Nineteen live development checks passed | The same read-only key gained Outpost after membership creation and lost it after removal. A selected-Test key stayed restricted. Unknown orgs and writes were denied, original memberships restored and both temporary keys revoked with 401 readback. Public consent actions used privileged CLI identity injection, followed by real MCP HTTP. |
 | Administrative tool parity | Passed automated HTTP comparison | All 60 names and flat argument fields match. Success workflows cover 59 distinct tools. |
-| Component authorization and lifecycle | 33 automated cases passed | `convex/mcpComponent.test.ts` |
+| Component authorization and lifecycle | 34 component cases and 5 deployment-configuration cases passed | `convex/mcpComponent.test.ts`, `convex/mcpConfiguration.test.ts` |
 
 The native write test initially requested an invalid list limit of 100. Those
 calls failed without changes and succeeded after retry with the supported
@@ -106,8 +108,8 @@ required upgrading the experiment's Convex dependency from 1.40.0 to 1.48.0.
 There is no demonstrated performance or price advantage. Incremental Convex
 usage was not measured.
 
-Connections settings currently read at most 100 approval records. Before broad
-adoption, add pagination rather than silently relying on this limit. Current
+Connection settings now paginate owner-scoped approval rows. A regression
+finds and revokes an active connection behind 125 newer unused approvals. Current
 tool schemas retain the input fields but are not byte-identical to the old
 Zod-generated JSON Schema. Runtime input and domain validation remain in place.
 Most existing tool return objects still use the existing safe DTO code rather
@@ -115,7 +117,8 @@ than new component return validators.
 
 ## Explicit proof boundaries
 
-- No component-based Production deployment or event migration occurred.
+- Production live results are recorded in PR #56 after CI deployment. No existing
+  event migration is required; new connection tables are additive.
 - A successful external `create_judging_sheet` call was not tested. The AI
   shuffle success path uses an empty queue. Sheet sync proves enqueueing only.
   Existing provider implementations were retained.
@@ -145,16 +148,15 @@ approval and passes that approval ID as the component principal. Token exchange
 preserves that ID. Tool authentication resolves it to its original owner,
 organization policy and effective permissions. An explicit all-organizations policy stores no organization snapshot; a missing policy flag retains the original selected-organization behavior.
 
-The experiment currently serves the canonical development MCP endpoint.
-Development clients previously authorized through WorkOS need to authorize the
-component again. Production connections retain WorkOS authorization.
+The server supports the two canonical deployments. Production advertises the
+public app origin; development keeps its canonical Convex origin. Clients
+previously authorized through WorkOS reconnect to the component once.
 
 Two unpublished event fixtures, one passwordless synthetic WorkOS user with
 Test membership, and one native multi-org OAuth connection remain for review.
 Temporary API-key connections were revoked. Existing user data was not
-removed. Connection settings scan the latest 100 approval rows, including
-revoked and pending rows, before filtering active grants. Pagination is required
-before broad adoption so older active connections remain visible.
+removed. Connection settings paginate approval rows and filter active grants
+without imposing a latest-100 limit.
 
 ## Review and rerun
 

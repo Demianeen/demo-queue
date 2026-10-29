@@ -29,15 +29,25 @@ export function connectionIdentity(identity: UserIdentity | null) {
 }
 
 export function componentSiteUrl() {
-  const url = process.env.CONVEX_SITE_URL;
-  if (!url || new URL(url).origin !== "https://precious-elk-564.convex.site") throw new Error("MCP component is development-only.");
-  return new URL(url).origin;
+  switch (process.env.CONVEX_SITE_URL) {
+    case "https://precious-elk-564.convex.site": return "https://precious-elk-564.convex.site";
+    case "https://giant-egret-456.convex.site": return "https://hack.outpostcrew.co";
+    default: throw new Error("MCP requires a canonical Convex site URL.");
+  }
 }
 
-export function componentConsentUrl() {
-  const url = new URL(process.env.MCP_CONSENT_URL ?? "http://localhost:3002/events/connect");
-  if (url.origin !== "http://localhost:3002" && url.protocol !== "https:") throw new Error("Invalid MCP consent URL.");
-  return url.href;
+export function componentConfiguration() {
+  const siteUrl = componentSiteUrl();
+  if (siteUrl === "https://hack.outpostcrew.co") {
+    return { siteUrl, consentUrl: `${siteUrl}/events/connect`, allowedOrigins: [siteUrl] };
+  }
+  const consentUrl = process.env.MCP_CONSENT_URL ?? "http://localhost:3002/events/connect";
+  const url = new URL(consentUrl);
+  if ((url.origin !== "http://localhost:3002" && url.protocol !== "https:") ||
+    url.username || url.password || consentUrl !== `${url.origin}/events/connect`) {
+    throw new Error("Invalid MCP consent URL.");
+  }
+  return { siteUrl, consentUrl, allowedOrigins: [...new Set(["http://localhost:3002", url.origin])] };
 }
 
 const membershipPage = z.object({

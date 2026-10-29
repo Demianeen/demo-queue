@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery, usePaginatedQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -23,7 +23,7 @@ export function McpConnectionClient({ requestId, settings }: { requestId?: strin
   const createApiKey = useAction(api.mcpConsent.createApiKey);
   const revoke = useMutation(api.mcpConsent.revokeConnection);
   const request = useQuery(api.mcpConsent.getRequest, isAuthenticated && requestId ? { requestId } : "skip");
-  const connections = useQuery(api.mcpConsent.listConnections, isAuthenticated && settings ? {} : "skip");
+  const { results: connections, status: connectionStatus, loadMore } = usePaginatedQuery(api.mcpConsent.listConnections, isAuthenticated && settings ? {} : "skip", { initialNumItems: 20 });
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
   const [selection, setSelection] = useState<OrganizationSelection>({ kind: "selected", organizationIds: [] });
   const [access, setAccess] = useState<Access>("read");
@@ -103,8 +103,10 @@ export function McpConnectionClient({ requestId, settings }: { requestId?: strin
             finally { setBusy(false); }
           }}>Disconnect</Button>
         </li>)}
-        {connections?.length === 0 && <li>No assistants connected yet.</li>}
+        {connections.length === 0 && connectionStatus === "Exhausted" && <li>No assistants connected yet.</li>}
       </ul>}
+      {settings && connectionStatus === "CanLoadMore" && <Button variant="outline" disabled={busy} onClick={() => loadMore(20)}>Load more connections</Button>}
+      {settings && (connectionStatus === "LoadingFirstPage" || connectionStatus === "LoadingMore") && <p role="status">Loading connections...</p>}
       {settings && <h2>Create a script key</h2>}
       {settings && <p>Optional. Use a key for a script or CLI that cannot sign in through a browser.</p>}
       <fieldset disabled={busy} className={styles.fieldset}>

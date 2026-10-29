@@ -111,6 +111,11 @@ test("moving scores refuses a project both judges scored, and moves the rest", a
   await score(t, tokens.taylor, alexOwn[0], 4);
   await expect(t.mutation(api.judging.moveJudgeScores, { slug: "hack", fromJudgeKey: "alex", toJudgeKey: "taylor" })).rejects.toThrow(/Taylor already scored Project \d\. Leave those out/);
   expect(await t.run((ctx) => ctx.db.query("reviews").withIndex("by_event_and_judge", (q) => q).collect())).toHaveLength(alexOwn.length + 1);
+  // The judges table lists each judge's reviewed projects, so the dialog can show the clash and leave it out.
+  const overview = await t.query(api.judging.getJudgesOverview, { slug: "hack" });
+  const row = (key: string) => overview.judges.find((judge) => judge.judgeKey === key)!;
+  expect(row("alex").reviewedProjects.map((project) => project.submissionId).sort()).toEqual([...alexOwn].sort());
+  expect(row("taylor").reviewedProjects).toEqual([{ submissionId: alexOwn[0], demoTitle: expect.stringMatching(/^Project \d$/) }]);
   const result = await t.mutation(api.judging.moveJudgeScores, { slug: "hack", fromJudgeKey: "alex", toJudgeKey: "taylor", submissionIds: alexOwn.slice(1) });
   expect(result).toEqual({ moved: alexOwn.length - 1 });
   const reviews = await t.run((ctx) => ctx.db.query("reviews").collect());

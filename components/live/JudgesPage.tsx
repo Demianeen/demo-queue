@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ShortcutTooltip, useCommands, type Command } from "@/components/shell/commands";
 import { absoluteUrl } from "@/lib/routes";
 import { randomToken } from "@/lib/tokens";
@@ -209,27 +210,44 @@ function MoveScoresDialog({ slug, from, judges, open, onOpenChange }: { slug: st
   const [to, setTo] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => { if (open) { setTo(targets[0]?.judgeKey ?? ""); setError(""); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  const scored = from.assignedScoredCount + from.helpedCount + from.inProgressCount;
+  const [left, setLeft] = useState<Set<string>>(new Set());
+  useEffect(() => { if (open) { setTo(targets[0]?.judgeKey ?? ""); setError(""); setLeft(new Set()); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const target = targets.find((row) => row.judgeKey === to);
+  // A project the other judge already reviewed can't move: it would overwrite their score.
+  const clashes = new Set((target?.reviewedProjects ?? []).map((project) => String(project.submissionId)));
+  const projects = from.reviewedProjects.map((project) => ({ ...project, clash: clashes.has(String(project.submissionId)) }));
+  const chosen = projects.filter((project) => !project.clash && !left.has(String(project.submissionId)));
+  const clashCount = projects.filter((project) => project.clash).length;
   async function move() {
     setBusy(true); setError("");
     try {
-      await moveJudgeScores({ slug, fromJudgeKey: from.judgeKey, toJudgeKey: to });
-      toast(`Moved ${from.judgeName}'s scores to ${targets.find((row) => row.judgeKey === to)?.judgeName ?? "the other judge"}`);
+      await moveJudgeScores({ slug, fromJudgeKey: from.judgeKey, toJudgeKey: to, submissionIds: chosen.map((project) => project.submissionId) });
+      toast(`Moved ${chosen.length} of ${from.judgeName}'s scores to ${target?.judgeName ?? "the other judge"}`);
       onOpenChange(false);
     } catch (failure) { setError(errorText(failure, "Could not move the scores.")); } finally { setBusy(false); }
   }
+  const toggle = (id: string) => setLeft((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   return <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
     <DialogContent>
-      <DialogHeader><DialogTitle>Move {from.judgeName}&apos;s scores</DialogTitle><DialogDescription>For when someone scored on the wrong link. {scored === 0 ? `${from.judgeName} has no scores to move.` : `${scored} score${scored === 1 ? "" : "s"} move. Projects the other judge already scored are left alone.`}</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>Move {from.judgeName}&apos;s scores</DialogTitle><DialogDescription>For when someone scored on the wrong link. {projects.length === 0 ? `${from.judgeName} has no scores to move.` : clashCount > 0 ? `${target?.judgeName ?? "The other judge"} already scored ${clashCount === 1 ? "one of these" : `${clashCount} of these`}, so ${clashCount === 1 ? "it stays" : "they stay"} with ${from.judgeName}.` : "Choose the projects to move."}</DialogDescription></DialogHeader>
       <label className={styles.field}><span>Move to</span>
         <Select value={to} onValueChange={(value) => setTo(String(value))}>
           <SelectTrigger className="w-full"><SelectValue placeholder="Choose a judge" /></SelectTrigger>
           <SelectContent>{targets.map((row) => <SelectItem key={row.judgeKey} value={row.judgeKey}>{row.judgeName}</SelectItem>)}</SelectContent>
         </Select>
       </label>
+      {projects.length > 0 && <ul className={styles.moveList} aria-label="Projects to move">
+        {projects.map((project) => {
+          const id = String(project.submissionId);
+          return <li key={id}><label className={styles.moveRow} data-disabled={project.clash ? "" : undefined}>
+            <Checkbox checked={!project.clash && !left.has(id)} disabled={project.clash || busy} onCheckedChange={() => toggle(id)} />
+            <span>{project.demoTitle}</span>
+            {project.clash && <span className={styles.moveNote}>{target?.judgeName} already scored this</span>}
+          </label></li>;
+        })}
+      </ul>}
       {error && <p role="alert" className={styles.error}>{error}</p>}
-      <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button><Button disabled={busy || !to || scored === 0} onClick={() => void move()}>Move scores</Button></DialogFooter>
+      <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button><Button disabled={busy || !to || chosen.length === 0} onClick={() => void move()}>{chosen.length === 0 ? "Move scores" : `Move ${chosen.length} score${chosen.length === 1 ? "" : "s"}`}</Button></DialogFooter>
     </DialogContent>
   </Dialog>;
 }

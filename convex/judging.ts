@@ -179,6 +179,7 @@ export async function getJudgesOverviewForOrganization(
   const roster = event.roundOneJudges ?? [];
   const linkByKey = new Map(links.map((link) => [link.judgeKey, link]));
   const keys = [...roster.map(normalizeJudgeKey), ...links.map((link) => link.judgeKey).filter((key) => !roster.some((judge) => normalizeJudgeKey(judge) === key))];
+  const titleById = new Map(submissions.map((submission) => [String(submission._id), submission.demoTitle || submission.teamName || submission.name]));
   const completeBySubmission = new Map<string, number>();
   for (const review of reviews) {
     if (review.completed && judgingIds.has(String(review.submissionId))) {
@@ -209,6 +210,11 @@ export async function getJudgesOverviewForOrganization(
       // Started but not finished, on any project.
       inProgressCount: started.filter((review) => !review.completed).length,
       lastScoredAt: started.reduce<number | null>((latest, review) => Math.max(latest ?? 0, review.updatedAt), null),
+      // Every project this judge has a review of, finished or not: what Move scores moves.
+      reviewedProjects: reviews.filter((review) => review.judgeKey === judgeKey).map((review) => ({
+        submissionId: review.submissionId,
+        demoTitle: titleById.get(String(review.submissionId)) ?? "A project",
+      })),
     };
   });
   return {

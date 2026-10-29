@@ -42,6 +42,8 @@ export default defineSchema({
     judgingSheetSyncError: v.optional(v.string()),
     roundOneJudges: v.optional(v.array(v.string())),
     submissionsClosedAt: v.optional(v.number()),
+    // Last time public submits arrived faster than the event-wide limit; the admin warns.
+    submissionSurgeAt: v.optional(v.number()),
     judgingStatus: v.optional(v.union(v.literal("setup"), v.literal("preparing_assignments"), v.literal("ready"), v.literal("open"), v.literal("closed"))),
     judgingTimerDurationMs: v.optional(v.number()),
     judgingTimerRemainingMs: v.optional(v.number()),

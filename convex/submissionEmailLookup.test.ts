@@ -1,6 +1,8 @@
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
-import { expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = {
@@ -15,12 +17,25 @@ const modules = {
   "./googleSheets.ts": () => import("./googleSheets"),
 };
 
+// Scheduled emails stay queued unless a test runs them.
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+// One browser for instant checks; each submit gets its own, like separate people.
+const CLIENT = "test-browser-check-0001";
+let clients = 0;
+const nextClient = () => `test-browser-${String((clients += 1)).padStart(6, "0")}`;
 const organizationId = "org_outpost";
 const identity = { subject: "user_operator", issuer: "https://api.workos.com/user_management/client_test", org_id: organizationId };
 
 
 async function fixture(eventType: "demo" | "hackathon") {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const owner = t.withIdentity(identity);
   const slug = `${eventType}-night`;
   await owner.mutation(api.events.createEvent, {
@@ -42,7 +57,7 @@ function submitDemo(t: ReturnType<typeof convexTest>, slug: string, email: strin
   const participantToken = token();
   return t
     .mutation(api.events.submitDemo, {
-      slug, participantToken, name: "Participant", demoTitle: `Demo ${counter}`, description: "A working demonstration",
+      slug, participantToken, clientId: nextClient(), name: "Participant", demoTitle: `Demo ${counter}`, description: "A working demonstration",
       phone: "+447911123456", email, queueOrder: counter,
     })
     .then((result) => ({ ...result, participantToken }));
@@ -81,13 +96,20 @@ async function row(t: T, participantToken: string) {
   return t.run(async (ctx) => (await ctx.db.query("submissions").collect()).find((submission) => submission.participantToken === participantToken)!);
 }
 
-const taken = (t: T, slug: string, email: string) => t.query(api.events.checkSubmissionEmail, { slug, email });
+/** A public submit that must create a submission, not answer "taken". */
+async function created(result: Promise<{ submissionId: Id<"submissions"> } | { emailTaken: true }>) {
+  const value = await result;
+  if (!("submissionId" in value)) throw new Error("Expected a new submission, got emailTaken");
+  return value;
+}
+
+const taken = (t: T, slug: string, email: string) => t.mutation(api.events.checkSubmissionEmail, { slug, email, clientId: CLIENT });
 
 test("a duplicate is caught however many submissions the event holds, and nothing caps the event", async () => {
   const { t, owner, slug } = await fixture("demo");
   // The old scan read the first 1000 rows only; this email sits after them.
   await seed(t, slug, [...filler(1000), { email: "Ada@Example.com", normalizedEmail: "ada@example.com" }]);
-  await expect(submitDemo(t, slug, "ada@example.com")).rejects.toThrow(TAKEN);
+  await expect(submitDemo(t, slug, "ada@example.com")).resolves.toMatchObject({ emailTaken: true });
   expect(await taken(t, slug, "ADA@example.com")).toEqual({ taken: true });
   await expect(submitDemo(t, slug, "grace@example.com")).resolves.toBeTruthy();
   await expect(
@@ -112,20 +134,20 @@ test("withdrawing frees the email for a new submission, and only the active row 
 
 test("hiding frees a team's emails; restoring checks them again", async () => {
   const { t, owner, slug } = await fixture("hackathon");
-  const team = await t.mutation(api.events.submitHackathon, {
-    slug, participantToken: token(), name: "Presenter", teamName: "Team", teamMembers: ["Mate"],
+  const team = await created(t.mutation(api.events.submitHackathon, {
+    slug, participantToken: token(), clientId: nextClient(), name: "Presenter", teamName: "Team", teamMembers: ["Mate"],
     teamMemberContacts: [{ name: "Mate", email: "mate@example.com", whatsappPhone: "+447911123401" }],
     demoTitle: "Project", description: "A working project", phone: "+447911123400", email: "lead@example.com",
     githubUrl: "https://github.com/team/project", rulesAccepted: true, videoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-  });
+  }));
   await owner.mutation(api.events.hideSubmission, { slug, submissionId: team.submissionId });
   expect(await taken(t, slug, "mate@example.com")).toEqual({ taken: false });
   // While hidden, someone else submits with the team member's email.
-  const other = await t.mutation(api.events.submitHackathon, {
-    slug, participantToken: token(), name: "Mate", teamName: "Solo", teamMembers: [], teamMemberContacts: [],
+  const other = await created(t.mutation(api.events.submitHackathon, {
+    slug, participantToken: token(), clientId: nextClient(), name: "Mate", teamName: "Solo", teamMembers: [], teamMemberContacts: [],
     demoTitle: "Solo", description: "A working project", phone: "+447911123401", email: "Mate@example.com",
     githubUrl: "https://github.com/solo/project", rulesAccepted: true, videoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-  });
+  }));
   await expect(owner.mutation(api.events.restoreSubmission, { slug, submissionId: team.submissionId })).rejects.toThrow(RESTORE_TAKEN);
   await expect(owner.mutation(api.events.moveToPool, { slug, submissionId: team.submissionId })).rejects.toThrow(RESTORE_TAKEN);
   await expect(owner.mutation(api.events.reorderLineup, { slug, orderedIds: [team.submissionId] })).rejects.toThrow(RESTORE_TAKEN);

@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi, type MockInstance } from "vitest";
 import { api, internal } from "./_generated/api";
 import { STATUS_EMAIL_LIMITS } from "./emails";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = {
@@ -53,9 +54,10 @@ async function team() {
     tracks: [{ name: "AI agents" }, { name: "Developer tools" }],
   });
   const stage = await t.query(api.events.getStage, { slug });
-  const { submissionId } = await t.mutation(api.events.submitHackathon, {
+  const { submissionId } = (await t.mutation(api.events.submitHackathon, {
     slug,
     participantToken: token,
+    clientId: "test-browser-email-0001",
     name: "Sam Lee",
     teamName: "Night Owls",
     teamMembers: ["Ana Ruiz", "Luca Romano"],
@@ -72,7 +74,7 @@ async function team() {
     rulesAccepted: true,
     videoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     trackIds: [stage.event.tracks[1].id],
-  });
+  })) as { submissionId: Id<"submissions"> };
   const eventId = (await t.run((ctx) => ctx.db.get(submissionId)))!.eventId;
   return { t, owner, submissionId, eventId };
 }

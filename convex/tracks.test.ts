@@ -1,3 +1,4 @@
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -36,6 +37,7 @@ const input = {
 
 async function fixture(tracks = [{ name: "AI agents", description: "Agents that act" }, { name: "Developer tools" }, { name: "Open track" }]) {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const owner = t.withIdentity(identity(organizationId));
   const { eventId } = await owner.mutation(api.events.createEvent, { ...input, tracks });
   const ids = async () => {
@@ -46,18 +48,26 @@ async function fixture(tracks = [{ name: "AI agents", description: "Agents that 
 }
 
 let tokenCounter = 0;
+/** For public submits that must create a submission rather than answer emailTaken. */
+async function created<R extends object>(result: Promise<R>) {
+  const value = await result;
+  if (!("submissionId" in value)) throw new Error("Expected a new submission, got emailTaken");
+  return value as Extract<R, { submissionId: unknown }>;
+}
+
 function submit(t: ReturnType<typeof convexTest>, trackIds?: Id<"eventTracks">[], slug = input.slug) {
   tokenCounter += 1;
-  return t.mutation(api.events.submitDemo, {
+  return created(t.mutation(api.events.submitDemo, {
     slug,
     participantToken: `participant-${tokenCounter}`,
+    clientId: `test-browser-${String(tokenCounter).padStart(6, "0")}`,
     name: "Participant",
     demoTitle: `Demo ${tokenCounter}`,
     description: "A working demonstration",
     phone: "+447700900123",
     queueOrder: tokenCounter,
     trackIds,
-  });
+  }));
 }
 
 test("event creation saves tracks in order and the stage and form can read them", async () => {

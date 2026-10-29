@@ -18,7 +18,8 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
+import { components, internal } from "./_generated/api";
+import { HOUR, RateLimiter } from "@convex-dev/rate-limiter";
 import {
   emailKey,
   isValidEmail,
@@ -880,6 +881,7 @@ export async function getAdminForOrganization(
         stageTimer: publicStageTimer(event),
         demoTimer: publicDemoTimer(event),
         canRestorePrevious: event.lastAdvanceSnapshot !== undefined,
+        submissionSurgeAt: event.submissionSurgeAt,
       },
       tracks: tracks.map((track) => ({ ...publicTrack(track), submissionCount: trackCounts.get(track._id) ?? 0 })),
       noTrackCount,
@@ -1035,17 +1037,99 @@ export const getSubmittedView = query({
 });
 
 /**
+ * Limits for the public submit page. Submits are refused per browser and per
+ * email, never for the whole event: a full event bucket only logs and warns
+ * the organiser, so nobody can lock real participants out. A browser can
+ * change its id; organisers hide what gets through.
+ *
+ * The instant check and a submit both answer whether an email is taken, so
+ * they draw on the same per browser budget. A submit spends its tokens before
+ * looking at emails and answers "taken" as a result, not an error, so the
+ * spent tokens commit. Everything that can fail runs before that point.
+ */
+export const PUBLIC_FORM_LIMITS = {
+  emailCheckPerCaller: { kind: "token bucket", rate: 60, period: HOUR, capacity: 20 },
+  // Only the instant check: when it runs out the form shows nothing and submit still checks.
+  emailCheckPerEvent: { kind: "token bucket", rate: 2000, period: HOUR, capacity: 300 },
+  submitPerCaller: { kind: "token bucket", rate: 10, period: HOUR, capacity: 3 },
+  // Bounds withdraw and resubmit rounds with one email.
+  submitPerEmail: { kind: "token bucket", rate: 6, period: HOUR, capacity: 3 },
+  // Soft: never refuses, only marks the event so the admin shows a warning.
+  submitPerEvent: { kind: "token bucket", rate: 600, period: HOUR, capacity: 200 },
+} as const;
+
+const publicFormLimiter = new RateLimiter(components.rateLimiter, PUBLIC_FORM_LIMITS);
+
+export const EMAIL_CHECK_LIMITED_MESSAGE = "Too many email checks. Try again in a few minutes.";
+export const SUBMIT_LIMITED_MESSAGE = "Too many submissions from this browser. Try again in a few minutes.";
+export const SUBMIT_EMAIL_LIMITED_MESSAGE = "Too many submissions with this email. Try again in an hour.";
+// Mark the event again at most this often while submissions keep pouring in.
+const SUBMISSION_SURGE_MARK_MS = 10 * 60 * 1000;
+const CLIENT_ID = /^[A-Za-z0-9_-]{16,64}$/;
+
+function assertClientId(clientId: string) {
+  if (!CLIENT_ID.test(clientId)) throw new ConvexError("Reload the page and try again.");
+}
+
+async function limitEmailCheck(ctx: MutationCtx, eventId: Id<"events">, clientId: string) {
+  assertClientId(clientId);
+  const perCaller = await publicFormLimiter.limit(ctx, "emailCheckPerCaller", { key: `${eventId}:${clientId}` });
+  if (!perCaller.ok) throw new ConvexError(EMAIL_CHECK_LIMITED_MESSAGE);
+  const perEvent = await publicFormLimiter.limit(ctx, "emailCheckPerEvent", { key: eventId });
+  if (!perEvent.ok) throw new ConvexError(EMAIL_CHECK_LIMITED_MESSAGE);
+}
+
+/** Refuses per browser and per email; an event-wide surge only warns the organiser. */
+async function limitSubmit(ctx: MutationCtx, event: Doc<"events">, clientId: string, emails: Array<string | undefined>) {
+  assertClientId(clientId);
+  const callerKey = { key: `${event._id}:${clientId}` };
+  const perCaller = await publicFormLimiter.limit(ctx, "submitPerCaller", callerKey);
+  if (!perCaller.ok) throw new ConvexError(SUBMIT_LIMITED_MESSAGE);
+  // A submit also answers "is this email taken", so it spends the instant check's budget too.
+  const asked = await publicFormLimiter.limit(ctx, "emailCheckPerCaller", callerKey);
+  if (!asked.ok) throw new ConvexError(SUBMIT_LIMITED_MESSAGE);
+  for (const email of emails) {
+    if (!email?.trim()) continue;
+    const perEmail = await publicFormLimiter.limit(ctx, "submitPerEmail", { key: `${event._id}:${emailKey(email)}` });
+    if (!perEmail.ok) throw new ConvexError(SUBMIT_EMAIL_LIMITED_MESSAGE);
+  }
+  const perEvent = await publicFormLimiter.limit(ctx, "submitPerEvent", { key: event._id });
+  if (!perEvent.ok) {
+    const now = Date.now();
+    if (event.submissionSurgeAt === undefined || now - event.submissionSurgeAt > SUBMISSION_SURGE_MARK_MS) {
+      console.warn("Submission surge", { eventId: event._id });
+      await ctx.db.patch(event._id, { submissionSurgeAt: now });
+    }
+  }
+}
+
+/** What a public submit answers when an email is already in the event; the spent limits commit. */
+const EMAIL_TAKEN_RESULT = { emailTaken: true } as const;
+
+/** emailFields for the public form: null instead of an error when the email is taken. */
+async function publicEmailFields(ctx: MutationCtx, eventId: Id<"events">, email: string | undefined) {
+  try {
+    return await emailFields(ctx, eventId, email);
+  } catch (error) {
+    if (error instanceof ConvexError && error.data === EMAIL_TAKEN_MESSAGE) return null;
+    throw error;
+  }
+}
+
+/**
  * Whether someone in this event already submitted with this email, as a
  * presenter or a team member. Never says which submission.
  */
-export const checkSubmissionEmail = query({
-  args: { slug: v.string(), email: v.string() },
+/** A mutation rather than a query, so every answer counts against the limits. */
+export const checkSubmissionEmail = mutation({
+  args: { slug: v.string(), email: v.string(), clientId: v.string() },
   handler: async (ctx, args) => {
     const key = emailKey(args.email);
     if (!isValidEmail(key)) throw new ConvexError("Enter a valid email address.");
     const event = await findEventBySlug(ctx, args.slug);
     // Says nothing about events that are not taking submissions.
     if (!event || event.submissionsClosedAt !== undefined) return { taken: false };
+    await limitEmailCheck(ctx, event._id, args.clientId);
     return { taken: (await emailOwners(ctx, event._id, key)).length > 0 };
   },
 });
@@ -1082,6 +1166,7 @@ export const submitDemo = mutation({
   args: {
     slug: v.string(),
     participantToken: v.string(),
+    clientId: v.string(),
     name: v.string(),
     demoTitle: v.string(),
     description: v.string(),
@@ -1104,9 +1189,11 @@ export const submitDemo = mutation({
     const now = Date.now();
     const fields = normalizeSubmissionTextFields(args);
     assertSocialLinks(fields);
-    const email = await emailFields(ctx, event._id, fields.email);
     const tracks = await trackSelection(ctx, event, args.trackIds);
     if (args.screenshotId) await requireUnattachedSubmissionFile(ctx, args.screenshotId);
+    await limitSubmit(ctx, event, args.clientId, [fields.email]);
+    const email = await publicEmailFields(ctx, event._id, fields.email);
+    if (!email) return EMAIL_TAKEN_RESULT;
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
@@ -1134,6 +1221,7 @@ export const submitHackathon = mutation({
   args: {
     slug: v.string(),
     participantToken: v.string(),
+    clientId: v.string(),
     name: v.string(),
     teamName: v.string(),
     teamMembers: v.array(v.string()),
@@ -1202,11 +1290,18 @@ export const submitHackathon = mutation({
       throw new ConvexError("Confirm that your submission meets the event rules.");
     }
     assertSocialLinks(fields);
-    assertDistinctEmails([presenter?.email ?? fields.email, ...teamMemberContacts.map((member) => member.email)]);
-    const presenterEmail = await emailFields(ctx, event._id, presenter?.email ?? fields.email);
-    const memberEmails = [];
-    for (const contact of teamMemberContacts) memberEmails.push(await emailFields(ctx, event._id, contact.email));
+    const emails = [presenter?.email ?? fields.email, ...teamMemberContacts.map((member) => member.email)];
+    assertDistinctEmails(emails);
     const tracks = await trackSelection(ctx, event, args.trackIds);
+    await limitSubmit(ctx, event, args.clientId, emails);
+    const presenterEmail = await publicEmailFields(ctx, event._id, emails[0]);
+    if (!presenterEmail) return EMAIL_TAKEN_RESULT;
+    const memberEmails = [];
+    for (const contact of teamMemberContacts) {
+      const memberEmail = await publicEmailFields(ctx, event._id, contact.email);
+      if (!memberEmail) return EMAIL_TAKEN_RESULT;
+      memberEmails.push(memberEmail);
+    }
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,

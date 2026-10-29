@@ -14,6 +14,7 @@ import {
 } from "@/lib/event-state";
 import { socialUrl } from "@/lib/social";
 import { randomToken } from "@/lib/tokens";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -1139,6 +1140,8 @@ export default function AdminPage() {
               </div>
               <h1 className="admin-event-title">{admin.event.name}</h1>
             </header>
+
+            <SubmissionSurgeNotice at={admin.event.submissionSurgeAt} />
 
             <div className="status-strip admin-status-strip">
               <span className={queueIsLive ? "pill green" : "pill yellow"}>
@@ -2450,5 +2453,26 @@ function ContactSocials({ person }: { person: ContactPerson }) {
         );
       })}
     </span>
+  );
+}
+
+// Show the warning for this long after the last surge.
+const SUBMISSION_SURGE_NOTICE_MS = 2 * 60 * 60 * 1000;
+
+function SubmissionSurgeNotice({ at }: { at?: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (at === undefined) return;
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, [at]);
+  if (at === undefined || now - at > SUBMISSION_SURGE_NOTICE_MS) return null;
+  return (
+    <Alert className="mb-4">
+      <AlertTitle>Submissions arrived unusually fast</AlertTitle>
+      <AlertDescription>
+        Nothing was refused. Check the pool for spam and hide anything that is not real; hidden submissions free their emails.
+      </AlertDescription>
+    </Alert>
   );
 }

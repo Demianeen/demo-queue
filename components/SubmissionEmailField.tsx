@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { browserClientId } from "@/lib/client-id";
 import { emailKey, isValidEmail } from "@/lib/validation";
 
 const CHECK_DELAY_MS = 350;
@@ -20,15 +21,31 @@ function useDebounced<T>(value: T, delayMs: number) {
 
 /**
  * Checks, while the person types, whether this email already submitted to the
- * event (as a presenter or a team member). The server enforces the same rule.
+ * event (as a presenter or a team member). The server enforces the same rule
+ * on submit, so a failed or rate limited check just shows nothing.
  */
 export function useEmailTaken(slug: string, email: string) {
+  const check = useMutation(api.events.checkSubmissionEmail);
+  const [answers, setAnswers] = useState<Record<string, boolean>>({});
   const trimmed = email.trim();
   const debounced = useDebounced(trimmed, CHECK_DELAY_MS);
+  const key = emailKey(debounced);
   // The server refuses malformed emails, so only well-formed ones are checked.
-  const ready = debounced === trimmed && isValidEmail(emailKey(trimmed));
-  const result = useQuery(api.events.checkSubmissionEmail, ready ? { slug, email: debounced } : "skip");
-  return ready && result?.taken === true;
+  const ready = debounced === trimmed && isValidEmail(key);
+  const known = ready && key in answers;
+
+  useEffect(() => {
+    if (!ready || known) return;
+    let current = true;
+    check({ slug, email: debounced, clientId: browserClientId() })
+      .then((result) => current && setAnswers((previous) => ({ ...previous, [key]: result.taken })))
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [check, debounced, key, known, ready, slug]);
+
+  return ready && answers[key] === true;
 }
 
 export function SubmissionEmailField({

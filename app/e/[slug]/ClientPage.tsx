@@ -6,7 +6,8 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { TrackPicker } from "@/components/TrackPicker";
-import { SubmissionEmailField } from "@/components/SubmissionEmailField";
+import { EMAIL_TAKEN_MESSAGE, SubmissionEmailField } from "@/components/SubmissionEmailField";
+import { browserClientId } from "@/lib/client-id";
 import { SubmittedView, forgetSubmission, readRememberedSubmission, rememberSubmission } from "./SubmittedView";
 import { LockKeyholeIcon, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
@@ -364,6 +365,7 @@ export function SubmissionPage({
       const sharedFields = {
         slug,
         participantToken,
+        clientId: browserClientId(),
         name: presenter?.name ?? read("name"),
         demoTitle: read("demoTitle"),
         description: read("description"),
@@ -373,8 +375,8 @@ export function SubmissionPage({
         ...presenterSocials,
       };
 
-      if (isHackathon) {
-        await submitHackathon({
+      const result = isHackathon
+        ? await submitHackathon({
           ...sharedFields,
           teamName,
           teamMembers: additionalContacts.map((member) => member.name),
@@ -382,9 +384,12 @@ export function SubmissionPage({
           githubUrl,
           rulesAccepted,
           videoUrl,
-        });
-      } else {
-        await submitDemo({ ...sharedFields, queueOrder: randomQueueOrder() });
+        })
+        : await submitDemo({ ...sharedFields, queueOrder: randomQueueOrder() });
+      if (typeof result === "object" && result !== null && "emailTaken" in result) {
+        setIsSubmitting(false);
+        setSubmissionError(EMAIL_TAKEN_MESSAGE);
+        return;
       }
       rememberSubmission(slug, participantToken);
       onSubmitted(participantToken);

@@ -21,6 +21,7 @@ export const UI_EXCLUSIONS = [
   { file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: "judging.getOtherSubmissions", reason: "Judge capability page. Organization tools already read every submission." },
   ...["linkLumaEvent", "unlinkLumaEvent"].map((name) => ({ file: "components/LumaEventSetting.tsx", browser: `luma.${name}`, reason: "Linking uses the deployment's Luma key and is limited to allowed organisations, so it stays in the admin page." })),
   { file: "app/s/[slug]/[token]/ClientPage.tsx", browser: "events.editTeamMemberSocials", reason: "Participant capability page. Organization tools must not impersonate participants." },
+  { file: "app/(workspace)/members/actions.ts", browser: "members.reserveInvitations", reason: "Counts Members page invitations against the organization limit. The send_invitations tool uses the same limit internally." },
   ...finalistFunctions.map((name) => ({ file: finalistPath, browser: `judging.${name}`, reason: "Dormant finalist and placement controls require SHOW_FINALIST_TOOLS to remain false.", dormant: true })),
 ];
 

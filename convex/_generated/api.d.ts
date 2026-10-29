@@ -33,6 +33,7 @@ import type * as mcpRuntime from "../mcpRuntime.js";
 import type * as mcpSchema from "../mcpSchema.js";
 import type * as mcpTools from "../mcpTools.js";
 import type * as mcpWorkos from "../mcpWorkos.js";
+import type * as members from "../members.js";
 import type * as migrations from "../migrations.js";
 import type * as organizationAuth from "../organizationAuth.js";
 import type * as organizationStyles from "../organizationStyles.js";
@@ -71,6 +72,7 @@ declare const fullApi: ApiFromModules<{
   mcpSchema: typeof mcpSchema;
   mcpTools: typeof mcpTools;
   mcpWorkos: typeof mcpWorkos;
+  members: typeof members;
   migrations: typeof migrations;
   organizationAuth: typeof organizationAuth;
   organizationStyles: typeof organizationStyles;

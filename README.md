@@ -251,7 +251,7 @@ https://vercel.com/docs/environment-variables/system-environment-variables
 
 ## Organization access and styles
 
-`/events` and `/styles` require a WorkOS session and active organization membership.
+`/events`, `/styles` and `/members` require a WorkOS session and active organization membership.
 New events belong to the organization in the verified access token. Event lists,
 overviews, and organization defaults are scoped to that organization. Membership
 lists are cached per user and environment for at most 60 seconds; organization
@@ -272,6 +272,16 @@ Styles provides existing-style previews, event selection, and organization
 defaults. Existing events keep their saved appearance. Style authoring is deferred
 to a separate MCP change. The admin interface always uses Base; public pages use
 the event's selected style.
+
+Members (`/members`) lists the organization's members and pending invitations.
+Any member can invite people by email, resend or revoke an invitation, and remove
+another member (not themselves). The server action checks the caller's active
+membership in the session's organization in WorkOS; the organization never comes
+from the browser. WorkOS sends the invitation email; the link goes through
+`/events/sign-in/initiated` and lands the person in the organization. Invitations
+share a per-organization limit in Convex (20 at once, then about one every three
+minutes) with the MCP `send_invitations` tool. A removed member's MCP connections
+lose that organization on their next call, because every call checks membership.
 
 ### WorkOS configuration before merging or deploying
 
@@ -333,10 +343,10 @@ Consent offers All current and future organizations or Choose organizations,
 plus Read only or Manage events. A selected grant never gains another
 organization automatically. Both policies still check active WorkOS membership
 on every tool call and enforce the approved permissions. Read-only connections
-exclude writes, participant contacts and private judge links.
+exclude writes, participant contacts, member emails and private judge links.
 
-The [60-tool catalog](docs/reports/mcp-tools.md) covers event administration,
-styles, submissions, queues, stage controls, timers, judging and external actions.
+The [64-tool catalog](docs/reports/mcp-tools.md) covers event administration,
+members and invitations, styles, submissions, queues, stage controls, timers, judging and external actions.
 New events remain unpublished. Destructive tools require explicit confirmations.
 The server exposes these fixed tools, not arbitrary database queries or mutations.
 

@@ -58,6 +58,8 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
   const eventView = view === "details" || view === "admin";
   // These views render their server page instead of the events list.
   const pageView = eventView || view === "members" || view === "connections";
+  // Connections belong to the person, not an organization, so they open without one.
+  const personalView = view === "connections";
   const setView = (next: View) => router.push(next === "styles" ? "/styles" : next === "create" ? "/events/new" : "/events");
   const { isAuthenticated, isLoading } = useConvexAuth();
   const unavailable = switching || (!isLoading && !isAuthenticated);
@@ -92,6 +94,7 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
       {signInFailed && <Alert variant="destructive" className="mb-4"><AlertDescription>Sign-in could not be completed. Your previous session is still active. <a href="/events/sign-in">Try signing in again</a>.</AlertDescription></Alert>}
       {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error} <a href="/events">Reload memberships</a></AlertDescription></Alert>}
       {switching ? <p role="status" className="dq-secondary">Switching organization…</p>
+        : personalView && (!active || !initialData) ? (!isLoading && !isAuthenticated ? <Alert variant="destructive"><AlertDescription>Your session could not be verified. <a href="/events/connections">Retry connection</a> or <a href="/events/sign-in">sign in again</a>.</AlertDescription></Alert> : children)
         : !organizations.length ? <section className="workspace-heading"><h1>You need an invitation</h1><p>Ask an organizer to invite {email} to their organization, then <a href="/events">reload this page</a>.</p></section>
         : !isLoading && !isAuthenticated ? <Alert variant="destructive"><AlertDescription>Your event session could not be verified. <a href="/events">Retry connection</a> or <a href="/events/sign-in">sign in again</a>.</AlertDescription></Alert>
         : !active || !initialData ? <section className="workspace-heading"><h1>Choose your workspace</h1><p>You already have access to these organizations. Choose one to manage its events.</p><div className="workspace-choices">{organizations.map((org) => <Button variant="outline" key={org.id} onClick={() => void switchOrganization(org.id)}>{org.name}</Button>)}</div></section> : null}

@@ -132,7 +132,7 @@ function errorMessage(error: unknown, fallback: string) {
 function WithdrawPanel({ slug, token, participant, withdraw, resubmit }: Pick<ParticipantPageProps, "slug" | "token" | "withdraw" | "resubmit"> & { participant: NonNullable<ParticipantPageProps["participant"]> }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ message: string; statusPath?: string | null } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const { demoTitle } = participant.submission;
   const hackathon = participant.event.eventType === "hackathon";
   const closed = participant.event.submissionsClosed;
@@ -144,7 +144,7 @@ function WithdrawPanel({ slug, token, participant, withdraw, resubmit }: Pick<Pa
       await withdraw({ slug, participantToken: token });
       setConfirming(false);
     } catch (failure) {
-      setError({ message: errorMessage(failure, "Could not withdraw. Try again.") });
+      setError(errorMessage(failure, "Could not withdraw. Try again."));
     } finally {
       setBusy(false);
     }
@@ -155,24 +155,22 @@ function WithdrawPanel({ slug, token, participant, withdraw, resubmit }: Pick<Pa
     setError(null);
     try {
       const result = await resubmit({ slug, participantToken: token, clientId: browserClientId() });
-      if (!result.restored && result.reason === "email_taken") setError({ message: result.message, statusPath: result.statusPath });
+      if (!result.restored && result.reason === "email_taken") setError(result.message);
     } catch (failure) {
-      setError({ message: errorMessage(failure, "Could not submit again. Try again.") });
+      setError(errorMessage(failure, "Could not submit again. Try again."));
     } finally {
       setBusy(false);
     }
   }
 
-  const errorLine = error ? (
-    <p role="alert" className="withdraw-error">
-      {error.message}
-      {error.statusPath ? <> <a href={error.statusPath}>Open that entry&apos;s status page</a></> : null}
-    </p>
-  ) : null;
+  const errorLine = error ? <p role="alert" className="withdraw-error">{error}</p> : null;
 
   if (participant.submission.status === "withdrawn") {
     if (closed) {
       return <div className="copy-line withdraw-panel" role="status"><strong>Submissions have closed.</strong> {demoTitle} stays withdrawn.</div>;
+    }
+    if (!participant.submission.canSubmitAgain) {
+      return <div className="copy-line withdraw-panel" role="status"><strong>{demoTitle} was withdrawn.</strong> Ask the event team if it should come back.</div>;
     }
     return (
       <div className="copy-line withdraw-panel" role="region" aria-label="Withdrawn">
@@ -184,7 +182,7 @@ function WithdrawPanel({ slug, token, participant, withdraw, resubmit }: Pick<Pa
       </div>
     );
   }
-  if (closed) return null;
+  if (closed || !participant.submission.canWithdraw) return null;
   if (!confirming) {
     return (
       <div className="actions">

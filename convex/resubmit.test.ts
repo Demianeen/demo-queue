@@ -2,7 +2,10 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { createEvent, setupTest, type TestClient } from "./behaviour.testing";
-import { PUBLIC_FORM_LIMITS, SUBMIT_AGAIN_CLOSED_MESSAGE, SUBMIT_AGAIN_TAKEN_MESSAGE, SUBMIT_EMAIL_LIMITED_MESSAGE } from "./events";
+import {
+  PUBLIC_FORM_LIMITS, SUBMIT_AGAIN_CLOSED_MESSAGE, SUBMIT_AGAIN_NOT_ALLOWED_MESSAGE, SUBMIT_AGAIN_TAKEN_MESSAGE, SUBMIT_EMAIL_LIMITED_MESSAGE,
+  WITHDRAW_ACTED_ON_MESSAGE, WITHDRAW_HIDDEN_MESSAGE,
+} from "./events";
 
 // Frozen time keeps the rate limit buckets from refilling.
 beforeEach(() => {
@@ -93,21 +96,99 @@ test("the submit limits still apply to withdraw and Submit again rounds", async 
   expect((await row(t, entry.submissionId))!.status).toBe("withdrawn");
 });
 
-test("a newer entry with the same email blocks Submit again and links to it; another person's entry is named without a link", async () => {
+const statusEmails = (t: TestClient) =>
+  t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect())
+    .filter((row) => row.name.includes("sendStatusLinkEmail") && (row.args[0] as { reason: string }).reason === "resend")
+    .map((row) => row.args[0] as { submissionId: string; to: string }));
+
+test("an email clash never returns another entry's link or token; that entry's status link is emailed to the address on file", async () => {
   const { t } = setupTest();
-  // Same person: they submitted a new entry, so link to its status page instead.
+  // Same person: they submitted a new entry meanwhile.
   const { slug } = await createEvent(t);
   const first = await submit(t, slug, "ana@example.com");
   await t.mutation(api.events.withdrawSubmission, { slug, participantToken: first.participantToken });
   const newer = await submit(t, slug, "Ana@Example.com");
-  expect(await again(t, slug, first.participantToken)).toEqual({ restored: false, reason: "email_taken", message: SUBMIT_AGAIN_TAKEN_MESSAGE, statusPath: `/s/${slug}/${newer.participantToken}` });
+  // Past the two minutes after its own confirmation email.
+  vi.setSystemTime(Date.now() + 3 * 60_000);
+  const result = await again(t, slug, first.participantToken);
+  expect(result).toEqual({ restored: false, reason: "email_taken", message: SUBMIT_AGAIN_TAKEN_MESSAGE });
+  expect(JSON.stringify(result)).not.toContain(newer.participantToken);
+  expect(JSON.stringify(result)).not.toContain("/s/");
+  expect(await statusEmails(t)).toEqual([{ submissionId: newer.submissionId, to: "Ana@Example.com", reason: "resend" }]);
   expect((await row(t, first.submissionId))!.status).toBe("withdrawn");
 
-  // A teammate submitted on their own: say so, with no link to their entry.
+  // The attack: a withdrawn entry's email changed to someone else's. Their link goes only to them.
   const other = await createEvent(t, { slug: "hack-two" });
-  const team = await submit(t, other.slug, "ana@example.com", "luca@example.com");
-  await t.mutation(api.events.withdrawSubmission, { slug: other.slug, participantToken: team.participantToken });
-  await submit(t, other.slug, "luca@example.com");
-  expect(await again(t, other.slug, team.participantToken)).toEqual({ restored: false, reason: "email_taken", message: SUBMIT_AGAIN_TAKEN_MESSAGE, statusPath: null });
-  expect((await row(t, team.submissionId))!.status).toBe("withdrawn");
+  const victim = await submit(t, other.slug, "victim@example.com");
+  const attacker = await submit(t, other.slug, "attacker@example.com");
+  await t.mutation(api.events.withdrawSubmission, { slug: other.slug, participantToken: attacker.participantToken });
+  await t.run((ctx) => ctx.db.patch(attacker.submissionId, { email: "victim@example.com" }));
+  vi.setSystemTime(Date.now() + 3 * 60_000);
+  const stolen = await again(t, other.slug, attacker.participantToken);
+  expect(stolen).toEqual({ restored: false, reason: "email_taken", message: SUBMIT_AGAIN_TAKEN_MESSAGE });
+  expect(JSON.stringify(stolen)).not.toContain(victim.participantToken);
+  const sent = (await statusEmails(t)).filter((email) => email.submissionId === victim.submissionId);
+  expect(sent).toEqual([{ submissionId: victim.submissionId, to: "victim@example.com", reason: "resend" }]);
+  expect((await statusEmails(t)).some((email) => email.to === "attacker@example.com")).toBe(false);
+});
+
+test("a hidden entry can't be withdrawn, so it can't be brought back either", async () => {
+  const { t } = setupTest();
+  const { slug } = await createEvent(t);
+  const entry = await submit(t, slug, "ana@example.com");
+  await t.mutation(api.events.hideSubmission, { slug, submissionId: entry.submissionId });
+  await expect(t.mutation(api.events.withdrawSubmission, { slug, participantToken: entry.participantToken })).rejects.toThrow(WITHDRAW_HIDDEN_MESSAGE);
+  expect(await again(t, slug, entry.participantToken)).toEqual({ restored: false, reason: "not_withdrawn" });
+  expect((await row(t, entry.submissionId))!.status).toBe("hidden");
+  for (const status of ["done", "no_show", "current", "up_next"] as const) {
+    await t.run((ctx) => ctx.db.patch(entry.submissionId, { status }));
+    await expect(t.mutation(api.events.withdrawSubmission, { slug, participantToken: entry.participantToken })).rejects.toThrow(WITHDRAW_ACTED_ON_MESSAGE);
+  }
+});
+
+test("a queued entry comes back queued, at the end of the lineup", async () => {
+  const { t } = setupTest();
+  const { slug } = await createEvent(t);
+  const entry = await submit(t, slug, "ana@example.com");
+  const other = await submit(t, slug, "sam@example.com");
+  await t.run(async (ctx) => {
+    await ctx.db.patch(entry.submissionId, { status: "queued", queueOrder: 1 });
+    await ctx.db.patch(other.submissionId, { status: "queued", queueOrder: 2 });
+  });
+  await t.mutation(api.events.withdrawSubmission, { slug, participantToken: entry.participantToken });
+  expect((await row(t, entry.submissionId))!).toMatchObject({ status: "withdrawn", withdrawnFromStatus: "queued", withdrawnBy: "participant" });
+  expect(await again(t, slug, entry.participantToken)).toEqual({ restored: true });
+  const back = (await row(t, entry.submissionId))!;
+  expect(back).toMatchObject({ status: "queued", queueOrder: 3 });
+  expect(back.withdrawnFromStatus).toBeUndefined();
+  expect(back.withdrawnBy).toBeUndefined();
+});
+
+test("an entry the team did not withdraw themselves can't be brought back by them", async () => {
+  const { t } = setupTest();
+  const { slug } = await createEvent(t);
+  const entry = await submit(t, slug, "ana@example.com");
+  await t.run((ctx) => ctx.db.patch(entry.submissionId, { status: "withdrawn", withdrawnBy: "organiser", withdrawnFromStatus: "candidate", normalizedEmail: "" }));
+  await expect(again(t, slug, entry.participantToken)).rejects.toThrow(SUBMIT_AGAIN_NOT_ALLOWED_MESSAGE);
+  // An older withdraw, from before the record, is refused too.
+  await t.run((ctx) => ctx.db.patch(entry.submissionId, { withdrawnBy: undefined, withdrawnFromStatus: undefined }));
+  await expect(again(t, slug, entry.participantToken)).rejects.toThrow(SUBMIT_AGAIN_NOT_ALLOWED_MESSAGE);
+  expect((await row(t, entry.submissionId))!.status).toBe("withdrawn");
+  const page = await t.query(api.events.getParticipant, { slug, participantToken: entry.participantToken });
+  expect(page.submission).toMatchObject({ canWithdraw: false, canSubmitAgain: false });
+});
+
+test("an organiser's Restore still works on a withdrawn entry, and its Undo puts the team's withdraw back", async () => {
+  const { t } = setupTest();
+  const { slug } = await createEvent(t);
+  const entry = await submit(t, slug, "ana@example.com");
+  await t.mutation(api.events.withdrawSubmission, { slug, participantToken: entry.participantToken });
+  await t.mutation(api.events.restoreSubmission, { slug, submissionId: entry.submissionId });
+  const restored = (await row(t, entry.submissionId))!;
+  expect(restored).toMatchObject({ status: "candidate", normalizedEmail: "ana@example.com" });
+  expect(restored.withdrawnBy).toBeUndefined();
+  const [change] = (await t.query(api.changes.listRecentChanges, { slug })).changes;
+  await t.mutation(api.changes.undoChange, { slug, changeId: change.id });
+  expect((await row(t, entry.submissionId))!).toMatchObject({ status: "withdrawn", withdrawnBy: "participant", withdrawnFromStatus: "candidate" });
+  expect(await again(t, slug, entry.participantToken)).toEqual({ restored: true });
 });

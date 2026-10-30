@@ -162,16 +162,24 @@ track names and track ids, with the event's tracks, for the track filter.
 ### 11. Withdraw and submit again
 
 - The status page asks before withdrawing, inline: it names the project and
-  says it leaves the lineup and judging, and judges stop seeing it.
+  says it leaves the lineup and judging, and judges stop seeing it. A team
+  can withdraw only an entry that is waiting or in the lineup, never one the
+  event team hid or moved on (done, no-show, current). The withdraw stores
+  `withdrawnFromStatus` and `withdrawnBy`.
 - `events.resubmitWithdrawnSubmission` (Proposed), checked by the participant
   token: while submissions are open, brings the same entry back with all its
-  details and the same status link. The submit limits apply. It does nothing
-  for an entry that is not withdrawn. It shows in Recent changes as the
-  team's, without Undo.
+  details and the same status link, to the status it was withdrawn from. Only
+  for an entry the team withdrew themselves. The submit limits apply. It
+  does nothing for an entry that is not withdrawn. It shows in Recent
+  changes as the team's, without Undo.
 - Once submissions are closed, the page says "Submissions have closed" and
   has no button.
-- When a newer entry holds one of its emails, it says so, and links to that
-  entry's status page when it has the same presenter email.
+- When another entry holds one of its emails, it says "An entry with this
+  email already exists. We've emailed its status link to that address." and
+  emails that entry's status link to the address on file, through the
+  status-link email limits. It never returns another entry's link or token.
+- An organiser's Restore still works on a withdrawn entry and clears the
+  withdraw record; its Undo puts it back.
 
 ### MCP
 
@@ -221,12 +229,9 @@ The judge page functions (`judging.getJudgeWorkspace`,
 
 ## Proposed
 
-- Submit again on the status page, for a withdrawn entry while submissions
-  are open. It brings the entry back to the pool, not to its old lineup
-  place, as the organiser's Restore does.
-- On an email clash, Submit again links to the newer entry's status page
-  only when it has the same presenter email; a teammate's entry is named
-  without a link.
+- Submit again on the status page, for an entry the team withdrew while
+  submissions are open. A queued entry comes back at the end of the lineup,
+  not its old place.
 
 - The phase is stored on the event; old events derive it.
 - A demo night has three phases: Submissions, Stage, Finished. Its submit

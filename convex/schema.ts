@@ -199,6 +199,10 @@ export default defineSchema({
       v.literal("withdrawn"),
     ),
     queueOrder: v.optional(v.number()),
+    // Set while withdrawn: the status before, and who withdrew it. Submit again
+    // works only for an entry the team withdrew from candidate or queued.
+    withdrawnFromStatus: v.optional(v.union(v.literal("candidate"), v.literal("queued"))),
+    withdrawnBy: v.optional(v.union(v.literal("participant"), v.literal("organiser"))),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

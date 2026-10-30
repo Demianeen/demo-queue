@@ -443,7 +443,21 @@ async function patchSubmissionStatus(
       await ctx.db.patch(member._id, await emailFields(ctx, submission.eventId, member.email, options));
     }
   }
-  await ctx.db.patch(submission._id, patch);
+  await ctx.db.patch(submission._id, {
+    ...patch,
+    ...(submission.status === "withdrawn" && patch.status !== "withdrawn" ? { withdrawnFromStatus: undefined, withdrawnBy: undefined } : {}),
+  });
+}
+
+/**
+ * Emails the status link to an address already on an entry in this event,
+ * at most once every two minutes per entry, through the email rate limits.
+ */
+async function emailStatusLinkToOwner(ctx: MutationCtx, owner: EmailOwner) {
+  const now = Date.now();
+  if (owner.submission.statusLinkEmailedAt !== undefined && now - owner.submission.statusLinkEmailedAt < STATUS_LINK_RESEND_MS) return;
+  await ctx.db.patch(owner.submission._id, { statusLinkEmailedAt: now });
+  await ctx.scheduler.runAfter(0, internal.emails.sendStatusLinkEmail, { submissionId: owner.submission._id, to: owner.email, reason: "resend" });
 }
 
 /** Emails the team their status link once the submission is saved. */
@@ -1058,6 +1072,9 @@ export const getParticipant = query({
         videoDeleteAt: submission.videoDeleteAt,
         videoDeletedAt: submission.videoDeletedAt,
         createdAt: submission.createdAt,
+        // Withdraw only while waiting or in the lineup; Submit again only for the team's own withdraw.
+        canWithdraw: submission.status === "candidate" || submission.status === "queued",
+        canSubmitAgain: canSubmitAgain(submission),
       },
       meetUrl: mayJoin ? event.meetUrl : null,
     };
@@ -1223,18 +1240,7 @@ export const requestStatusLinkEmail = mutation({
     if (!isValidEmail(key)) throw new ConvexError("Enter a valid email address.");
     const event = await eventBySlug(ctx, args.slug);
     const [owner] = await emailOwners(ctx, event._id, key);
-    if (!owner) return { ok: true };
-    const { submission } = owner;
-    const now = Date.now();
-    if (submission.statusLinkEmailedAt !== undefined && now - submission.statusLinkEmailedAt < STATUS_LINK_RESEND_MS) {
-      return { ok: true };
-    }
-    await ctx.db.patch(submission._id, { statusLinkEmailedAt: now });
-    await ctx.scheduler.runAfter(0, internal.emails.sendStatusLinkEmail, {
-      submissionId: submission._id,
-      to: owner.email,
-      reason: "resend",
-    });
+    if (owner) await emailStatusLinkToOwner(ctx, owner);
     return { ok: true };
   },
 });
@@ -1674,6 +1680,15 @@ export const editTeamMemberSocials = mutation({
   },
 });
 
+export const WITHDRAW_HIDDEN_MESSAGE = "The event team hid this entry, so it can't be withdrawn here. Ask them instead.";
+export const WITHDRAW_ACTED_ON_MESSAGE = "The event team has already moved this entry on, so it can't be withdrawn here. Ask them instead.";
+
+/** Whether the team can Submit again: they withdrew it themselves, from candidate or queued. */
+export function canSubmitAgain(submission: Pick<Doc<"submissions">, "status" | "withdrawnBy" | "withdrawnFromStatus">) {
+  return submission.status === "withdrawn" && submission.withdrawnBy === "participant" &&
+    (submission.withdrawnFromStatus === "candidate" || submission.withdrawnFromStatus === "queued");
+}
+
 export const withdrawSubmission = mutation({
   args: { slug: v.string(), participantToken: v.string() },
   handler: async (ctx, args) => {
@@ -1687,27 +1702,35 @@ export const withdrawSubmission = mutation({
       throw new ConvexError("Submission not found");
     }
     if (event.submissionsClosedAt !== undefined) throw new ConvexError("Submissions are closed.");
+    if (submission.status === "withdrawn") return;
+    // Only an entry still waiting or in the lineup: never one the event team hid or moved on.
+    if (submission.status === "hidden") throw new ConvexError(WITHDRAW_HIDDEN_MESSAGE);
+    if (submission.status !== "candidate" && submission.status !== "queued") throw new ConvexError(WITHDRAW_ACTED_ON_MESSAGE);
 
     await patchSubmissionStatus(ctx, submission, { status: "withdrawn", updatedAt: Date.now() });
+    await ctx.db.patch(submission._id, { withdrawnFromStatus: submission.status, withdrawnBy: "participant" });
     await logAction(ctx, event._id, "submission_withdrawn", "participant", submission._id);
     await queueJudgingSheetSync(ctx, event);
   },
 });
 
 export const SUBMIT_AGAIN_CLOSED_MESSAGE = "Submissions have closed.";
-export const SUBMIT_AGAIN_TAKEN_MESSAGE = "A newer entry in this event uses an email from this one, so this one can't come back.";
+export const SUBMIT_AGAIN_TAKEN_MESSAGE = "An entry with this email already exists. We've emailed its status link to that address.";
+export const SUBMIT_AGAIN_NOT_ALLOWED_MESSAGE = "This entry can't be submitted again here. Ask the event team.";
 
 /**
  * Submit again (Proposed): brings a withdrawn entry back while submissions
  * are open, with all its details and the same status link. The participant
  * token is the capability, as for withdraw. The submit limits apply. It does
- * nothing for an entry that is not withdrawn. When another entry now holds
- * one of its emails, it says so instead, with that entry's status link only
- * when it is the same person's (the same presenter email).
+ * nothing for an entry that is not withdrawn, and refuses one the team did
+ * not withdraw themselves from candidate or queued. It returns to that
+ * status. When another entry now holds one of its emails, it says so with a
+ * generic message and emails that entry's status link to the address on
+ * file; it never returns another entry's link or token.
  */
 export const resubmitWithdrawnSubmission = mutation({
   args: { slug: v.string(), participantToken: v.string(), clientId: v.string() },
-  handler: async (ctx, args): Promise<{ restored: true } | { restored: false; reason: "not_withdrawn" } | { restored: false; reason: "email_taken"; message: string; statusPath: string | null }> => {
+  handler: async (ctx, args): Promise<{ restored: true } | { restored: false; reason: "not_withdrawn" } | { restored: false; reason: "email_taken"; message: string }> => {
     const event = await eventBySlug(ctx, args.slug);
     const submission = await ctx.db
       .query("submissions")
@@ -1715,6 +1738,7 @@ export const resubmitWithdrawnSubmission = mutation({
       .unique();
     if (!submission || submission.eventId !== event._id) throw new ConvexError("Submission not found");
     if (submission.status !== "withdrawn") return { restored: false, reason: "not_withdrawn" };
+    if (!canSubmitAgain(submission)) throw new ConvexError(SUBMIT_AGAIN_NOT_ALLOWED_MESSAGE);
     if (event.submissionsClosedAt !== undefined) throw new ConvexError(SUBMIT_AGAIN_CLOSED_MESSAGE);
 
     const members = await ctx.db
@@ -1729,18 +1753,19 @@ export const resubmitWithdrawnSubmission = mutation({
       if (!email?.trim()) continue;
       const owner = (await emailOwners(ctx, event._id, emailKey(email))).find((row) => row.submission._id !== submission._id);
       if (!owner) continue;
-      const samePerson = Boolean(submission.email && owner.submission.email) && emailKey(submission.email!) === emailKey(owner.submission.email!);
-      return {
-        restored: false,
-        reason: "email_taken",
-        message: SUBMIT_AGAIN_TAKEN_MESSAGE,
-        statusPath: samePerson ? `/s/${event.slug}/${owner.submission.participantToken}` : null,
-      };
+      // The link goes to the address on that entry, never back to the caller.
+      await emailStatusLinkToOwner(ctx, owner);
+      return { restored: false, reason: "email_taken", message: SUBMIT_AGAIN_TAKEN_MESSAGE };
     }
 
     const now = Date.now();
-    // Back in the pool, as an organiser's Restore does; the organiser places it in the lineup.
-    await patchSubmissionStatus(ctx, submission, { status: "candidate", queueOrder: undefined, updatedAt: now });
+    // Back to where it was: the pool, or the end of the lineup.
+    let queueOrder: number | undefined;
+    if (submission.withdrawnFromStatus === "queued") {
+      const lineup = lineupSorted(await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect());
+      queueOrder = Math.max(0, ...lineup.map((entry) => entry.queueOrder ?? 0)) + 1;
+    }
+    await patchSubmissionStatus(ctx, submission, { status: submission.withdrawnFromStatus!, queueOrder, updatedAt: now });
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_resubmitted", "participant", submission._id);
     await insertChange(ctx, {

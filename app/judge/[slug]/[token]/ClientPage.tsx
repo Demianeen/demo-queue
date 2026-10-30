@@ -28,7 +28,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ShortcutTooltip } from "@/components/shell/commands";
 import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { youtubeEmbedUrl } from "@/lib/video-embed";
+import { videoEmbedUrl, youtubeEmbedUrl } from "@/lib/video-embed";
 import styles from "./judge.module.css";
 
 type Workspace = FunctionReturnType<typeof api.judging.getJudgeWorkspace>;
@@ -95,16 +95,6 @@ function useJudgingClock(timer: { remainingMs: number; serverNow: number; runnin
   }, [timer?.running, timer?.serverNow, timer?.remainingMs]);
   if (!timer) return 0;
   return timer.running ? timer.remainingMs - (now - offset - timer.serverNow) : timer.remainingMs;
-}
-
-function genericVideoEmbedUrl(value: string | null) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
 }
 
 function Readme({ repositoryUrl }: { repositoryUrl: string | null }) {
@@ -366,7 +356,8 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   const saveLabel = !selected ? "" : currentSaveState === "saving" ? "Saving…" : currentSaveState === "error" ? "Could not save" : currentSaveState === "saved" || currentComplete ? "Saved" : Object.keys(currentScores).length ? "Saved" : "Not started";
   const saveClass = currentSaveState === "error" ? styles.saveError : saveLabel === "Saved" ? styles.saveState : styles.savePending;
   const youtubeUrl = youtubeEmbedUrl(selected?.videoUrl ?? null);
-  const embedUrl = youtubeUrl ?? genericVideoEmbedUrl(selected?.videoUrl ?? null);
+  // Only known video hosts play inline; any other link opens in a new tab.
+  const embedUrl = videoEmbedUrl(selected?.videoUrl ?? null);
   const showOption = SHOW_OPTIONS.find((option) => option.value === show)!;
   const trackLabel = tracks.length === 0 ? "All" : tracks.length === 1 ? (tracks[0] === MAIN_EVENT ? "Main event only" : data.tracks.find((track) => String(track.id) === tracks[0])?.name ?? "1 track") : `${tracks.length} selected`;
   const note = selected ? reviewNote(selected, data.reviewTarget) : null;

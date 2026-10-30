@@ -253,11 +253,11 @@ test("a summary written from an older description is not saved", async () => {
   })).toMatchObject({ saved: false });
   expect(await summaryOf(t, id)).toBeNull();
 
-  // Lines are kept to one short line each, and empty output is not saved.
+  // Lines are kept to one short line each, and output with every line empty is not saved.
   const key = summarySourceKey({ description: "Changed meanwhile", githubUrl: "https://github.com/example/guardrail" });
   expect(await t.mutation(internal.aiSummaries.saveSummary, {
-    submissionId: id, sourceKey: key, whatItDoes: " ", howItWorks: "b", demoFocus: "c", model: "m", usedReadme: false,
-  })).toMatchObject({ saved: false });
+    submissionId: id, sourceKey: key, whatItDoes: " ", howItWorks: "", demoFocus: "  ", model: "m", usedReadme: false,
+  })).toMatchObject({ saved: false, reason: "invalid_output" });
   await t.mutation(internal.aiSummaries.saveSummary, {
     submissionId: id, sourceKey: key, whatItDoes: `line\nbreak ${"x".repeat(400)}`, howItWorks: "b", demoFocus: "c", model: "m", usedReadme: false,
   });
@@ -643,4 +643,38 @@ test("a model error ends the run with No summary for judges", async () => {
   await runAll(t);
   expect(await statusOf(t, id)).toBe("none");
   log.mockRestore();
+});
+
+test("a section the data says nothing about is saved empty, and judges see it as Not described", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  generateText.mockImplementation(async () => ({
+    output: { whatItDoes: "Checks agent tool calls against a policy.", howItWorks: "", demoFocus: "A blocked call and the reason it gives." },
+  }));
+  const { t, add } = await setup();
+  const id = await add(0);
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  expect((await summaryOf(t, id))!.sections).toEqual([
+    { key: "whatItDoes", label: "What it does", text: "Checks agent tool calls against a policy." },
+    { key: "howItWorks", label: "How it works", text: "" },
+    { key: "demoFocus", label: "Look for in the demo", text: "A blocked call and the reason it gives." },
+  ]);
+  expect(await statusOf(t, id)).toBe("ready");
+});
+
+test("an explicit refresh rewrites a summary written with an older prompt, even when nothing changed", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  const { t, eventId, add } = await setup();
+  const id = await add(1);
+  const key = summarySourceKey({ description: "Description 1", githubUrl: undefined });
+  await t.run((ctx) => ctx.db.patch(id, { aiSummary: { whatItDoes: "Old.", howItWorks: "Main technology is unknown.", demoFocus: "Old.", sourceKey: key, model: "m", usedReadme: false, generatedAt: 1 } }));
+  await t.mutation(internal.aiSummaries.queueEventSummaries, { eventId, refreshReadme: true });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(1);
+  expect(await summaryOf(t, id)).toMatchObject({ howItWorks: "A TypeScript proxy between the agent and its tools.", promptVersion: 2 });
+  // Written with this prompt: the next refresh leaves it alone.
+  await t.mutation(internal.aiSummaries.queueEventSummaries, { eventId, refreshReadme: true });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(1);
 });

@@ -153,11 +153,12 @@ function AiSummarySlot({ summary, status }: { summary: AiSummary | null; status:
 
 function AiSummaryPanel({ summary }: { summary: AiSummary }) {
   // The event's own sections, in order; the stored list already covers older three-line summaries.
-  const rows = summary.sections.filter((section) => section.text).map((section) => [section.label, section.text] as const);
+  // An empty section means the team's text says nothing about it.
+  const rows = summary.sections.map((section) => [section.label, section.text] as const);
   return (
     <section aria-labelledby="ai-summary-heading" className={styles.aiSummary}>
       <h2 className={styles.aiSummaryHeading} id="ai-summary-heading"><SparklesIcon aria-hidden="true" /> AI summary</h2>
-      <dl className={styles.aiSummaryRows}>{rows.map(([label, text]) => <div key={label}><dt>{label}</dt><dd>{text}</dd></div>)}</dl>
+      <dl className={styles.aiSummaryRows}>{rows.map(([label, text]) => <div key={label}><dt>{label}</dt>{text ? <dd>{text}</dd> : <dd className={styles.aiSummaryMissing}>Not described</dd>}</div>)}</dl>
       <p className={styles.aiSummaryNote}>
         {`Written by AI from the team's description${summary.usedReadme ? " and README" : ""}. Check it against the demo.`}
         {summary.stale ? " The project changed since; a new summary is on its way." : null}

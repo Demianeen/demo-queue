@@ -225,3 +225,5 @@ div.videoFallback { font-weight: 400; color: var(--dq-fg-3); text-decoration: no
 .guide dd { margin: 0; color: var(--dq-fg-2); }
 .guide dd strong { color: var(--dq-fg); font-weight: 500; }
 .guide p { margin: 8px 0 0; color: var(--dq-fg-3); }
+
+.aiSummaryMissing { color: var(--dq-fg-3); font-style: italic; }

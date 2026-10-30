@@ -9,6 +9,7 @@ import {
   findEvaluativeLanguage,
   normalizeSummarySections,
   normalizeSummaryText,
+  SUMMARY_PROMPT_VERSION,
   stripSectionPrefix,
   summaryOutputSchemaFor,
   summarySourceKey,
@@ -45,7 +46,8 @@ function inJudging(event: Doc<"events">, submission: Doc<"submissions">) {
 function needsSummary(event: Doc<"events">, submission: Doc<"submissions">, refreshReadme = false) {
   if (!inJudging(event, submission)) return false;
   if (submission.aiSummary?.sourceKey !== summarySourceKey(submission)) return true;
-  return refreshReadme && Boolean(submission.githubUrl);
+  // An explicit refresh also rewrites a summary from an older prompt.
+  return refreshReadme && (Boolean(submission.githubUrl) || submission.aiSummary?.promptVersion !== SUMMARY_PROMPT_VERSION);
 }
 
 /** Proposed: at most one summary run per submission in this window; later changes wait for it. */
@@ -155,7 +157,7 @@ export const summaryInput = internalQuery({
       sourceKey,
       sections: summarySections(event),
       // Only the README can have changed: skip the model when its hash is the same.
-      readmeCheckOnly: submission.aiSummary?.sourceKey === sourceKey,
+      readmeCheckOnly: submission.aiSummary?.sourceKey === sourceKey && submission.aiSummary?.promptVersion === SUMMARY_PROMPT_VERSION,
       readmeHash: submission.aiSummary?.readmeHash ?? null,
     };
   },
@@ -198,6 +200,8 @@ export const saveSummary = internalMutation({
     const output = summaryOutputSchemaFor(sections).safeParse(cleaned);
     if (!output.success) return { saved: false, reason: "invalid_output" };
     const lines = output.data as Record<string, string>;
+    // A section may be empty ("Not described"), but not all of them.
+    if (sections.every((section) => !lines[section.key])) return { saved: false, reason: "invalid_output" };
     // Only tracks the organizer defined may be named; never the team's free-text category.
     const byId = tracksById(await listEventTracks(ctx, submission.eventId));
     const adminTracks = (submission.trackIds ?? []).flatMap((id) => byId.get(id)?.name ?? []);
@@ -213,6 +217,7 @@ export const saveSummary = internalMutation({
         model: args.model,
         usedReadme: args.usedReadme,
         readmeHash: args.readmeHash,
+        promptVersion: SUMMARY_PROMPT_VERSION,
         generatedAt: Date.now(),
       },
       aiSummaryGaveUp: undefined,

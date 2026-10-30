@@ -121,9 +121,9 @@ export function SubmissionPreviewTrigger({ preview, className }: { preview: Subm
               <div className="submission-preview-summary">
                 <strong><SparklesIcon aria-hidden="true" /> AI summary</strong>
                 <ul>
-                  <li><b>What it does:</b> {preview.aiSummary.whatItDoes}</li>
-                  <li><b>How it works:</b> {preview.aiSummary.howItWorks}</li>
-                  <li><b>What to look for in the demo:</b> {preview.aiSummary.demoFocus}</li>
+                  <li><b>What it does:</b> {preview.aiSummary.whatItDoes || "Not described"}</li>
+                  <li><b>How it works:</b> {preview.aiSummary.howItWorks || "Not described"}</li>
+                  <li><b>What to look for in the demo:</b> {preview.aiSummary.demoFocus || "Not described"}</li>
                 </ul>
                 <small>
                   {`Written by AI from the team's description${preview.aiSummary.usedReadme ? " and README" : ""}. Check it against the demo.`}

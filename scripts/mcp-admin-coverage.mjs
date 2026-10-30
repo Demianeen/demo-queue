@@ -3,7 +3,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
-const finalistPath = "components/JudgingAdminPanel.tsx";
 const finalistFunctions = ["getFinalistDecision", "saveFinalistDraft", "submitFinalists", "savePlacementDraft", "submitPlacements"];
 
 export const UI_EXCLUSIONS = [
@@ -23,7 +22,7 @@ export const UI_EXCLUSIONS = [
   { file: "app/(workspace)/members/actions.ts", browser: "members.reserveInvitations", reason: "Counts Members page invitations against the organization limit. The send_invitations tool uses the same limit internally." },
   ...["status", "teamStatus", "setHidden", "markDryRun"].map((name) => ({ file: "components/GettingStarted.tsx", browser: `gettingStarted.${name}`, reason: "The signed-in person's own onboarding checklist, not event administration." })),
   { file: "components/McpConnectionClient.tsx", browser: "gettingStarted.mcpAddress", reason: "Shows the MCP address to a person setting up an assistant; an assistant already knows it." },
-  ...finalistFunctions.map((name) => ({ file: finalistPath, browser: `judging.${name}`, reason: "Dormant finalist and placement controls require SHOW_FINALIST_TOOLS to remain false.", dormant: true })),
+  ...finalistFunctions.map((name) => ({ file: "components/judging/FinalistsView.tsx", browser: `judging.${name}`, reason: "Proposed: finalist and winner picking stays in the admin page for now; MCP tools can follow." })),
 ];
 
 /**
@@ -34,6 +33,16 @@ export const UI_EXCLUSIONS = [
 export const UI_PENDING = [
   // Empty: the new-behaviour UI landed with every caller.
 ].map((browser) => ({ browser, reason: "Proposed: the new-behaviour backend lands before its admin UI." }));
+
+/**
+ * Narrow reads an assistant keeps after the admin page moved to a wider one:
+ * the Judging page reads the clock from the event and judge links from the
+ * judges overview, while these tools still answer the one question.
+ */
+export const TOOL_ONLY = [
+  { browser: "judging.listJudgeAccess", reason: "Proposed: the Judging page shows links through getJudgesOverview; list_judge_links stays for assistants." },
+  { browser: "judging.getJudgingTimer", reason: "Proposed: every clock in the app reads the event's judging timer; get_judging_timer stays for assistants." },
+];
 
 function sourceFile(file, text) {
   return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
@@ -222,7 +231,7 @@ export function scanToolMappings(text, legacyText = "") {
   return { mappings, errors, legacyNames: [...legacyNames] };
 }
 
-export function checkCoverage({ sources, toolSource, legacySource = "", exclusions = UI_EXCLUSIONS, pending = [], requireFinalistGuard = true }) {
+export function checkCoverage({ sources, toolSource, legacySource = "", exclusions = UI_EXCLUSIONS, pending = [] }) {
   const ui = scanUiSources(sources);
   const tools = scanToolMappings(toolSource, legacySource);
   const errors = [...ui.errors, ...tools.errors];
@@ -231,19 +240,6 @@ export function checkCoverage({ sources, toolSource, legacySource = "", exclusio
   for (const exclusion of exclusions) {
     if (!exclusion.reason?.trim()) errors.push(`Exclusion ${key(exclusion)} requires a reason.`);
     if (!used.has(key(exclusion))) errors.push(`Stale exclusion ${key(exclusion)}.`);
-  }
-  if (requireFinalistGuard) {
-    const file = sourceFile(finalistPath, sources[finalistPath] ?? "");
-    let guards = 0;
-    function visit(node) {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "SHOW_FINALIST_TOOLS") {
-        guards++;
-        if (node.initializer?.kind !== ts.SyntaxKind.FalseKeyword || !(node.parent.flags & ts.NodeFlags.Const)) errors.push("SHOW_FINALIST_TOOLS must be a literal const false before dormant controls can be excluded.");
-      }
-      ts.forEachChild(node, visit);
-    }
-    visit(file);
-    if (guards !== 1) errors.push("Expected exactly one SHOW_FINALIST_TOOLS=false guard in JudgingAdminPanel.");
   }
   const excluded = new Set(exclusions.map(key));
   const enabled = ui.references.filter((entry) => !excluded.has(key(entry)));
@@ -275,7 +271,7 @@ export async function checkRepository(root = path.resolve(path.dirname(fileURLTo
     collectSources(root, "app"), collectSources(root, "components"),
     readFile(path.join(root, "convex/mcpTools.ts"), "utf8"), readFile(path.join(root, "convex/mcp.ts"), "utf8"),
   ]);
-  return checkCoverage({ sources: Object.fromEntries([...app, ...components]), toolSource, legacySource, pending: UI_PENDING });
+  return checkCoverage({ sources: Object.fromEntries([...app, ...components]), toolSource, legacySource, pending: [...UI_PENDING, ...TOOL_ONLY] });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

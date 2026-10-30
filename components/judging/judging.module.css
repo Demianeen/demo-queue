@@ -1,0 +1,143 @@
+/* Judging: Progress, Ranking and Finalists. Colours come from the organiser tokens. */
+
+.page { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.main { flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.side { flex: 1 1 340px; max-width: 400px; display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 1023px) { .side { max-width: none; } }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.toolbarFill { flex: 1 1 auto; }
+.evenOut { font-size: 12px; color: var(--dq-fg-2); }
+.search { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--dq-input); border-radius: 14px; background: var(--dq-card); color: var(--dq-fg-3); }
+.search svg { width: 13px; height: 13px; }
+.search input { border: 0; outline: 0; background: transparent; font: inherit; font-size: 12px; color: var(--dq-fg); width: 140px; }
+.sheet { display: inline-flex; align-items: center; gap: 6px; }
+.sheetStatus { font-size: 12px; color: var(--dq-fg-3); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.listWrap { display: flex; flex-direction: column; gap: 8px; }
+.list { padding: 0; overflow: hidden; }
+.listHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--dq-divider); font-size: 13px; }
+.listHead strong { font-weight: 600; margin-right: auto; }
+.filterBar { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dq-fg-2); }
+.groupHead { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 13px; font-weight: 600; background: var(--dq-app-bg); border-bottom: 1px solid var(--dq-divider-soft); }
+section + section .groupHead { border-top: 1px solid var(--dq-divider); }
+.count { color: var(--dq-fg-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.groupEmpty { padding: 10px 14px; font-size: 12px; color: var(--dq-fg-3); border-bottom: 1px solid var(--dq-divider-soft); }
+
+.row, .rankHead { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 14px; font-size: 13px; border-bottom: 1px solid var(--dq-divider-soft); }
+.row { cursor: pointer; }
+.row:hover { background: var(--dq-row-hover); }
+.row[data-selected] { background: var(--dq-accent-soft); }
+.rankHead { min-height: 32px; font-size: 12px; color: var(--dq-fg-3); cursor: default; }
+.selectButton { border: 0; background: transparent; padding: 0; color: inherit; font: inherit; cursor: pointer; display: inline-flex; align-items: center; }
+.rank { flex: 0 0 24px; text-align: right; color: var(--dq-fg-3); font-variant-numeric: tabular-nums; justify-content: flex-end; }
+.tick { flex: 0 0 18px; display: inline-flex; }
+.title { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; overflow: hidden; white-space: nowrap; }
+.titleTrigger, .titleText { font-weight: 500; color: var(--dq-fg); overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+.team { color: var(--dq-fg-3); overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.tracks { flex: none; display: inline-flex; }
+@media (max-width: 1279px) { .tracks { display: none; } }
+.chips { flex: none; display: inline-flex; gap: 6px; justify-content: flex-end; }
+.final { flex: 0 0 52px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.final svg { width: 12px; height: 12px; }
+.rankHead .final { font-weight: 500; color: var(--dq-fg); }
+.more { width: 100%; text-align: left; padding: 10px 14px; font-size: 12px; color: var(--dq-fg-2); background: transparent; border: 0; cursor: pointer; }
+.more:hover { background: var(--dq-row-hover); color: var(--dq-fg); }
+.empty { padding: 24px 14px; font-size: 13px; color: var(--dq-fg-2); }
+.footnote { font-size: 12px; line-height: 18px; color: var(--dq-fg-3); max-width: 760px; }
+
+.status { width: 14px; height: 14px; border-radius: 7px; border: 1px dashed var(--dq-fg-3); display: inline-flex; align-items: center; justify-content: center; color: var(--dq-on-dark); }
+.status[data-group="another"] { border: 1px solid var(--dq-accent); background: linear-gradient(90deg, var(--dq-accent) 50%, transparent 50%); }
+.status[data-group="done"] { border: 0; background: var(--dq-accent); }
+.status svg { width: 10px; height: 10px; }
+
+/* Judge chips: initials, then an average (Progress) or three digits (Ranking). A dashed chip has no review yet. */
+.chip, .chipWide, .chipEmpty, .chipEmptyWide { height: 22px; border-radius: 11px; display: inline-flex; align-items: center; gap: 4px; padding: 0 7px 0 3px; font-size: 12px; color: var(--dq-fg); background: var(--dq-card); border: 1px solid var(--dq-line); cursor: default; outline-offset: 2px; }
+.chip { width: 60px; }
+.chipWide { width: 88px; gap: 3px; }
+.chipEmpty, .chipEmptyWide { border-style: dashed; background: transparent; }
+.chipEmpty { width: 60px; }
+.chipEmptyWide { width: 88px; }
+.chipInitials { flex: none; width: 16px; height: 16px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 600; color: var(--dq-accent); background: var(--dq-accent-soft); }
+.digit { width: 17px; text-align: center; }
+.letters { width: 88px; display: inline-flex; gap: 3px; padding: 0 7px 0 3px; }
+.letters::before { content: ""; width: 16px; flex: none; }
+.letter { width: 17px; text-align: center; cursor: default; }
+.tip { padding: 8px 10px; }
+.tipBody { display: flex; flex-direction: column; gap: 2px; min-width: 132px; }
+.tipLine { display: flex; justify-content: space-between; gap: 12px; }
+.tipNote { opacity: 0.7; }
+
+/* Side cards */
+.card { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.cardHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; }
+.cardHead .muted { font-weight: 400; font-size: 12px; }
+.muted { color: var(--dq-fg-3); font-size: 12px; }
+.help { font-size: 12px; line-height: 18px; color: var(--dq-fg-2); }
+.warning { font-size: 12px; line-height: 18px; color: var(--dq-warning-fg); background: var(--dq-warning-bg); border: 1px solid var(--dq-warning-line); border-radius: 8px; padding: 8px 10px; }
+.warningText { font-size: 12px; color: var(--dq-warning-fg); }
+.clockRow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.clockValue { font-size: 32px; line-height: 40px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--dq-fg); background: transparent; border: 0; padding: 0; border-radius: 6px; cursor: text; }
+.clockValue:hover:not(:disabled) { background: var(--dq-hover); }
+.clockValue[data-state="up"] { color: var(--dq-destructive); }
+.clockForm { display: flex; align-items: center; gap: 6px; }
+.clockInput { width: 96px; height: 32px; border: 1px solid var(--dq-input); border-radius: 7px; padding: 0 8px; font: inherit; font-size: 16px; font-variant-numeric: tabular-nums; background: var(--dq-card); color: var(--dq-fg); }
+.clockActions { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.bar { height: 4px; border-radius: 2px; background: var(--dq-segment); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--dq-accent); border-radius: 2px; }
+
+.detail { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.detailHead { display: flex; align-items: center; gap: 8px; }
+.detailHead h2 { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detailFinal { font-size: 22px; font-weight: 600; }
+.detailMeta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.inlinePreview { position: static !important; width: auto !important; max-width: none !important; box-shadow: none !important; border: 0 !important; padding: 0 !important; background: transparent !important; }
+.judgeScores { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--dq-divider); padding-top: 12px; }
+.judgeScore { display: flex; gap: 10px; }
+.avatar { flex: none; width: 22px; height: 22px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; color: var(--dq-accent); background: var(--dq-accent-soft); }
+.judgeScoreBody { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.judgeScoreTop { display: flex; justify-content: space-between; gap: 8px; }
+.judgeScoreTop strong { font-weight: 500; }
+.judgeScoreLine { font-size: 12px; color: var(--dq-fg-2); }
+.inlineButton { align-self: flex-start; padding: 0 !important; height: auto !important; }
+.detailActions { display: flex; flex-wrap: wrap; gap: 6px; border-top: 1px solid var(--dq-divider); padding-top: 12px; }
+
+/* Finalists */
+.emptyCard { padding: 32px 24px; display: flex; flex-direction: column; gap: 6px; max-width: 640px; }
+.emptyCard h3 { font-size: 14px; font-weight: 600; }
+.emptyCard p { font-size: 13px; line-height: 20px; color: var(--dq-fg-2); }
+.steps { display: flex; align-items: center; gap: 10px; list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--dq-fg-2); }
+.steps li { display: inline-flex; align-items: center; gap: 6px; }
+.steps li > span, .steps li > svg { width: 16px; height: 16px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; }
+.steps li > span { border: 1px solid var(--dq-line); color: var(--dq-fg-3); }
+.steps li[data-current] { color: var(--dq-fg); font-weight: 500; }
+.steps li[data-current] > span { background: var(--dq-fg); border-color: var(--dq-fg); color: var(--dq-panel); }
+.steps li[data-done] > svg { background: var(--dq-success); color: var(--dq-on-dark); padding: 3px; }
+.stepLine { flex: 0 0 32px; height: 1px; background: var(--dq-line); }
+.saved { margin-left: auto; color: var(--dq-fg-3); }
+.finalists { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.finalist { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 2px; font-size: 13px; border-bottom: 1px solid var(--dq-divider-soft); background: var(--dq-card); }
+.finalist[data-dragging] { position: relative; z-index: 1; box-shadow: 0 6px 16px rgb(0 0 0 / 0.12); border-radius: 8px; }
+.finalistTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.place { flex: 0 0 28px; font-size: 12px; font-weight: 600; color: var(--dq-fg); }
+.finalist:not([data-winner]) .place { color: transparent; }
+.handle { flex: none; width: 20px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--dq-fg-3); cursor: grab; border-radius: 4px; touch-action: none; }
+.handle:focus-visible { outline: 2px solid var(--dq-focus); }
+.handle svg { width: 14px; height: 14px; }
+.winnerLine { font-size: 11px; color: var(--dq-fg-3); padding: 6px 0 6px 30px; border-bottom: 1px dashed var(--dq-line); }
+.cardFoot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; }
+.cardFoot .help { flex: 1 1 auto; }
+
+/* Overview while judging: the clock wide, the three review counts, then the judges. */
+.now { display: flex; flex-direction: column; gap: 14px; }
+.wide { display: flex; flex-direction: column; gap: 10px; }
+.wide .cardHead { font-size: 15px; align-items: center; }
+.wide .cardHead > span { display: inline-flex; align-items: center; gap: 8px; }
+.wide .clockValue { font-size: 48px; line-height: 56px; letter-spacing: -0.03em; }
+.openLink { font-size: 13px; font-weight: 500; color: var(--dq-fg-2); text-decoration: none; }
+.openLink:hover { color: var(--dq-fg); }
+.groupCards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.groupCard { display: flex; flex-direction: column; gap: 4px; padding: 14px; font-size: 13px; color: var(--dq-fg-2); text-decoration: none; }
+.groupCard strong { font-size: 22px; line-height: 28px; font-weight: 600; color: var(--dq-fg); font-variant-numeric: tabular-nums; }
+a.groupCard:hover { background: var(--dq-row-hover); }
+@media (max-width: 640px) { .groupCards { grid-template-columns: 1fr; } .wide .clockValue { font-size: 40px; line-height: 48px; } }

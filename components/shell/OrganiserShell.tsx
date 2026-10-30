@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useMemo, type ReactNode } from "react";
 import { Building2, CalendarDays, Check, ChevronsUpDown, Code2, FlaskConical, ListChecks, Palette, Plug, Plus, Presentation, Search, Users } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarInset,
-  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, SidebarProvider, SidebarTrigger,
+  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,10 +19,11 @@ import { WorkspaceAccountMenu } from "@/components/WorkspaceAccountMenu";
 import { CommandProvider, ShortcutTooltip, useCommandRegistry, useCommands, type Command } from "./commands";
 import { CommandMenu } from "./CommandMenu";
 import { ShortcutSheet } from "./ShortcutSheet";
-import { ADMIN_VIEW_KEYS, adminViewPath, adminViewsFor, parseAdminView, type AdminView } from "@/lib/admin-views";
+import { ADMIN_VIEW_KEYS, adminViewPath, adminViewsFor, judgingPath, JUDGES_KEY } from "@/lib/admin-views";
+import { PHASE_LABELS, type EventPhase } from "@/lib/event-phase";
 
 type Organization = { id: string; name: string };
-export type ShellEvent = { name: string; slug: string; eventType: "demo" | "hackathon"; practice?: boolean };
+export type ShellEvent = { name: string; slug: string; eventType: "demo" | "hackathon"; practice?: boolean; phase?: EventPhase };
 
 export type ShellProps = {
   organizations: Organization[];
@@ -56,16 +57,8 @@ export function OrganiserShell(props: ShellProps) {
   </div>;
 }
 
-function useActiveAdminView(): AdminView | undefined {
-  const pathname = usePathname();
-  const search = useSearchParams();
-  if (!/^\/events\/[^/]+\/admin$/.test(pathname)) return undefined;
-  return parseAdminView(search.get("view"), "hackathon");
-}
-
 function ShellSidebar({ organizations, activeOrganizationId, email, displayName, switching, onSelectOrganization, liveEvent, openEvent }: ShellProps) {
   const pathname = usePathname();
-  const adminView = useActiveAdminView();
   const { setMenuOpen } = useCommandRegistry();
   const active = organizations.find((org) => org.id === activeOrganizationId);
   const inEvent = (event: ShellEvent | null | undefined) => !!event && pathname.startsWith(`/events/${event.slug}/`);
@@ -105,12 +98,12 @@ function ShellSidebar({ organizations, activeOrganizationId, email, displayName,
         <SidebarMenu>
           {liveEvent === undefined ? <SidebarMenuItem><div className="flex h-7 items-center px-2"><Skeleton className="h-3 w-32" /></div></SidebarMenuItem>
             : liveEvent === null ? <SidebarMenuItem><SidebarMenuButton render={<Link href="/events/new" />} className="text-[var(--dq-fg-2)]"><Plus aria-hidden /><span>No live event. Create one</span></SidebarMenuButton></SidebarMenuItem>
-            : <EventNav event={liveEvent} active={inEvent(liveEvent)} adminView={adminView} />}
+            : <EventNav event={liveEvent} active={inEvent(liveEvent)} />}
         </SidebarMenu>
       </SidebarGroup>}
       {active && other && <SidebarGroup>
         <SidebarGroupLabel>{other.practice ? "Practice event" : "Open event"}</SidebarGroupLabel>
-        <SidebarMenu><EventNav event={other} active={inEvent(other)} adminView={adminView} /></SidebarMenu>
+        <SidebarMenu><EventNav event={other} active={inEvent(other)} /></SidebarMenu>
       </SidebarGroup>}
       <SidebarGroup>
         <SidebarGroupLabel>Workspace</SidebarGroupLabel>
@@ -135,18 +128,13 @@ function ShellSidebar({ organizations, activeOrganizationId, email, displayName,
   </Sidebar>;
 }
 
-/** An event and its sections in the sidebar. */
-function EventNav({ event, active, adminView }: { event: ShellEvent; active: boolean; adminView: AdminView | undefined }) {
-  const [home, ...sections] = adminViewsFor(event.eventType);
+/** An event in the sidebar: one item with its phase. Its sections are the tabs on its page. */
+function EventNav({ event, active }: { event: ShellEvent; active: boolean }) {
   return <SidebarMenuItem>
-    <SidebarMenuButton render={<Link href={adminViewPath(event.slug, home.view)} />} isActive={active && adminView === "home"}>
+    <SidebarMenuButton render={<Link href={adminViewPath(event.slug, "home")} />} isActive={active}>
       {event.practice ? <FlaskConical aria-hidden /> : event.eventType === "hackathon" ? <Code2 aria-hidden /> : <Presentation aria-hidden />}<span className="truncate">{event.name}</span>
+      {event.phase && <span className="dq-nav-phase" data-phase={event.phase}>{PHASE_LABELS[event.phase]}</span>}
     </SidebarMenuButton>
-    <SidebarMenuSub>
-      {sections.map((item) => <SidebarMenuSubItem key={item.view}>
-        <SidebarMenuSubButton render={<Link href={adminViewPath(event.slug, item.view)} />} isActive={active && adminView === item.view}><span>{item.label}</span></SidebarMenuSubButton>
-      </SidebarMenuSubItem>)}
-    </SidebarMenuSub>
   </SidebarMenuItem>;
 }
 
@@ -178,6 +166,8 @@ function GlobalCommands({ liveEvent, organizations, activeOrganizationId, switch
       for (const item of adminViewsFor(liveEvent.eventType)) {
         list.push({ id: `go-${item.view}`, group: "Live now", label: `${liveEvent.name}: ${item.label.toLowerCase()}`, keys: ["G", ADMIN_VIEW_KEYS[item.view]], run: () => router.push(adminViewPath(liveEvent.slug, item.view)) });
       }
+      // The Judges page is part of Judging now; its key still opens the judges.
+      if (liveEvent.eventType === "hackathon") list.push({ id: "go-judges", group: "Live now", label: `${liveEvent.name}: judges`, keys: ["G", JUDGES_KEY], run: () => router.push(judgingPath(liveEvent.slug)) });
     }
     if (organizations.length > 1) for (const org of organizations) {
       if (org.id === activeOrganizationId) continue;

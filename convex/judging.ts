@@ -1486,6 +1486,7 @@ export const getFinalistDecision = query({
       placementIds: decision?.placementIds ?? [],
       placementStatus: decision?.placementStatus ?? "draft",
       placementVersion: decision?.placementVersion ?? 0,
+      updatedAt: decision?.updatedAt ?? null,
     };
   },
 });

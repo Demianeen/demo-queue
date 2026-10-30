@@ -4,7 +4,7 @@ import { UI_EXCLUSIONS, checkCoverage, checkRepository, scanUiSources, scanToolM
 
 const importedApi = 'import { api } from "@/convex/_generated/api";';
 const mapping = (browser) => `defineAdminTool({ name: "${browser.replaceAll(".", "_")}", browser: "${browser}" });`;
-const check = (text, toolSource = "", exclusions = []) => checkCoverage({ sources: { "components/Admin.tsx": importedApi + text }, toolSource, exclusions, requireFinalistGuard: false });
+const check = (text, toolSource = "", exclusions = []) => checkCoverage({ sources: { "components/Admin.tsx": importedApi + text }, toolSource, exclusions });
 
 test("the actual app has a tool or exact exclusion for every runtime API reference", async () => {
   const report = await checkRepository();
@@ -64,16 +64,8 @@ test("exclusions apply only to their exact path and function, and stale exclusio
   const exclusion = { file: "components/Admin.tsx", browser: "events.publicRead", reason: "Public metadata." };
   assert.deepEqual(check("useQuery(api.events.publicRead, {});", "", [exclusion]).errors, []);
   assert.match(check("useQuery(api.events.newRead, {});", "", [exclusion]).errors.join("\n"), /Stale exclusion/);
-  const report = checkCoverage({ sources: { "components/AnotherAdmin.tsx": importedApi + "useQuery(api.events.publicRead, {});" }, toolSource: "", exclusions: [exclusion], requireFinalistGuard: false });
+  const report = checkCoverage({ sources: { "components/AnotherAdmin.tsx": importedApi + "useQuery(api.events.publicRead, {});" }, toolSource: "", exclusions: [exclusion] });
   assert.match(report.errors.join("\n"), /Unmapped admin function events.publicRead/);
-});
-
-test("dormant exclusions require the literal false guard and cannot gain a tool", () => {
-  for (const guard of ["true", "getFlag()", "false"]) {
-    const browser = "judging.getFinalistDecision";
-    const report = checkCoverage({ sources: { "components/JudgingAdminPanel.tsx": importedApi + `const SHOW_FINALIST_TOOLS = ${guard}; useQuery(api.judging.getFinalistDecision, SHOW_FINALIST_TOOLS ? {} : "skip");` }, toolSource: guard === "false" ? mapping(browser) : "", exclusions: [{ file: "components/JudgingAdminPanel.tsx", browser, reason: "Dormant." }] });
-    assert.match(report.errors.join("\n"), guard === "false" ? /no enabled organization-admin UI caller/ : /must be a literal const false/);
-  }
 });
 
 test("legacy mappings must name actual registrations and new tools need literal associations", () => {
@@ -113,12 +105,12 @@ test("human connection consent exclusions cannot hide new callers or become tool
   const calls = exclusions.map((entry) => `useAction(api.${entry.browser});`).join("\n");
   const sources = { "components/McpConnectionClient.tsx": importedApi + calls };
   assert.equal(exclusions.length, 7);
-  assert.deepEqual(checkCoverage({ sources, toolSource: "", exclusions, requireFinalistGuard: false }).errors, []);
-  const report = checkCoverage({ sources: { ...sources, "components/Admin.tsx": importedApi + "useAction(api.mcpConsent.authorize); useAction(api.mcpConsent.newOperation);" }, toolSource: mapping("mcpConsent.authorize"), exclusions, requireFinalistGuard: false });
+  assert.deepEqual(checkCoverage({ sources, toolSource: "", exclusions }).errors, []);
+  const report = checkCoverage({ sources: { ...sources, "components/Admin.tsx": importedApi + "useAction(api.mcpConsent.authorize); useAction(api.mcpConsent.newOperation);" }, toolSource: mapping("mcpConsent.authorize"), exclusions });
   assert.match(report.errors.join("\n"), /Unmapped admin function mcpConsent.newOperation/);
-  const exposed = checkCoverage({ sources, toolSource: mapping("mcpConsent.authorize"), exclusions, requireFinalistGuard: false });
+  const exposed = checkCoverage({ sources, toolSource: mapping("mcpConsent.authorize"), exclusions });
   assert.match(exposed.errors.join("\n"), /mcpConsent.authorize.*no enabled organization-admin UI caller/);
-  const relocated = checkCoverage({ sources: { ...sources, "components/Admin.tsx": importedApi + "useAction(api.mcpConsent.authorize);" }, toolSource: "", exclusions, requireFinalistGuard: false });
+  const relocated = checkCoverage({ sources: { ...sources, "components/Admin.tsx": importedApi + "useAction(api.mcpConsent.authorize);" }, toolSource: "", exclusions });
   assert.match(relocated.errors.join("\n"), /Unmapped admin function mcpConsent.authorize at components\/Admin.tsx/);
 });
 
@@ -129,10 +121,10 @@ test("unused backend functions cannot gain tools by adding a catalog entry", () 
 
 test("a tool may wait for its UI only when listed, and the entry goes stale once the UI calls it", () => {
   const pending = [{ browser: "phases.setPhase", reason: "UI lands next." }];
-  const waiting = checkCoverage({ sources: { "components/Admin.tsx": importedApi + "useQuery(api.events.getAdmin, {});" }, toolSource: mapping("events.getAdmin") + mapping("phases.setPhase"), exclusions: [], pending, requireFinalistGuard: false });
+  const waiting = checkCoverage({ sources: { "components/Admin.tsx": importedApi + "useQuery(api.events.getAdmin, {});" }, toolSource: mapping("events.getAdmin") + mapping("phases.setPhase"), exclusions: [], pending });
   assert.deepEqual(waiting.errors, []);
-  const called = checkCoverage({ sources: { "components/Admin.tsx": importedApi + "useMutation(api.phases.setPhase);" }, toolSource: mapping("phases.setPhase"), exclusions: [], pending, requireFinalistGuard: false });
+  const called = checkCoverage({ sources: { "components/Admin.tsx": importedApi + "useMutation(api.phases.setPhase);" }, toolSource: mapping("phases.setPhase"), exclusions: [], pending });
   assert.match(called.errors.join("\n"), /Stale pending UI phases.setPhase/);
-  const toolless = checkCoverage({ sources: {}, toolSource: "", exclusions: [], pending, requireFinalistGuard: false });
+  const toolless = checkCoverage({ sources: {}, toolSource: "", exclusions: [], pending });
   assert.match(toolless.errors.join("\n"), /Pending UI phases.setPhase has no tool/);
 });

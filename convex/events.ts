@@ -71,6 +71,7 @@ import { ZodError } from "zod";
 import { amountOfTime, submissionTitle, withChange } from "./changeWrap";
 import { changeSummaryName, insertChange, recordChange } from "./changeLog";
 import { judgingRemaining, phaseFields } from "./phases";
+import { REVIEW_TARGET } from "./judging";
 
 const STAGE_LINEUP_LIMIT = 10;
 const DEFAULT_STAGE_TIMER_MS = 5 * 60 * 1000;
@@ -729,11 +730,23 @@ export async function getOrganizationEventDetailsForOrganization(
     const { organizationId } = principal;
     const event = await findEventBySlug(ctx, slug);
     if (!event || event.workosOrganizationId !== organizationId) return null;
-    const [submissions, decision] = await Promise.all([
+    const isHackathon = eventType(event) === "hackathon";
+    const [submissions, decision, reviews] = await Promise.all([
       ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1001),
       ctx.db.query("judgingDecisions").withIndex("by_event", (q) => q.eq("eventId", event._id)).unique(),
+      isHackathon ? ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(4000) : [],
     ]);
-    const isHackathon = eventType(event) === "hackathon";
+    // The event tabs' counts: presenters in the lineup, and judging scores in of the scores needed.
+    const judgingIds = new Set(submissions.filter((submission) => submission.status === "candidate" || submission.status === "queued").map((submission) => String(submission._id)));
+    // A helper's extra review never counts past a project's target.
+    const perProject = new Map<string, number>();
+    for (const review of reviews) {
+      const id = String(review.submissionId);
+      if (review.completed && judgingIds.has(id)) perProject.set(id, (perProject.get(id) ?? 0) + 1);
+    }
+    const scores = isHackathon
+      ? { complete: [...perProject.values()].reduce((sum, count) => sum + Math.min(count, REVIEW_TARGET), 0), target: judgingIds.size * REVIEW_TARGET }
+      : null;
     let resultsStatus: "not_applicable" | "pending" | "needs_review" | "confirmed" = isHackathon ? (decision?.placementStatus === "needs_review" || decision?.finalistStatus === "needs_review") ? "needs_review" : "pending" : "not_applicable";
     let winners: { place: number; demoTitle: string; teamName: string }[] = [];
     if (isHackathon && event.judgingStatus === "closed" && decision?.finalistStatus === "submitted" && decision.placementStatus === "submitted") {
@@ -751,6 +764,7 @@ export async function getOrganizationEventDetailsForOrganization(
       ...phaseFields(event), practice: practiceView(event),
       judgingStatus: isHackathon ? event.judgingStatus ?? "setup" : null,
       submissionCount: Math.min(submissions.length, 1000), submissionCountCapped: submissions.length > 1000,
+      lineupCount: submissions.filter((submission) => submission.status === "queued").length, scores,
       resultsStatus, winners,
     };
 }

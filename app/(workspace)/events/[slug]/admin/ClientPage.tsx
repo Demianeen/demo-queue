@@ -25,17 +25,16 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { parseAdminView, adminViewPath, type AdminView } from "@/lib/admin-views";
+import { parseAdminView, adminViewPath, judgingPath, type AdminView } from "@/lib/admin-views";
 import { LiveEventHome } from "@/components/live/LiveEventHome";
 import { UndoToaster } from "@/components/live/changes";
-import { JudgesPage } from "@/components/live/JudgesPage";
 import { useCommands, type Command } from "@/components/shell/commands";
 import { makeSampleHackathonTeam, makeSamplePerson, pickSampleTracks } from "@/lib/sampleData";
 import { TrackPicker, TrackPills, type TrackOption } from "@/components/TrackPicker";
 import { TracksAdminPanel } from "@/components/TracksAdminPanel";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { LumaEventSetting } from "@/components/LumaEventSetting";
-import { JudgingAdminPanel } from "@/components/JudgingAdminPanel";
+import { JudgingPage } from "@/components/judging/JudgingPage";
 import { SubmissionPreviewTrigger, type SubmissionPreview } from "@/components/SubmissionPreviewCard";
 import { SubmissionRowActions } from "@/components/SubmissionRowActions";
 import { Skeleton } from "@/app/Skeleton";
@@ -74,7 +73,6 @@ import {
   QrCode,
   RotateCcw,
   Undo2,
-  FileSpreadsheet,
   UserPlus,
 } from "lucide-react";
 
@@ -394,6 +392,14 @@ export default function AdminPage() {
   const view = parseAdminView(searchParams.get("view"), admin?.event.eventType);
   const [activeTab, setActiveTab] = useState<AdminTab>(view === "queue" ? "lineup" : "all");
   useEffect(() => { setActiveTab(view === "queue" ? "lineup" : "all"); }, [view]);
+  const rawView = searchParams.get("view");
+  useEffect(() => {
+    if (rawView === "judges") router.replace(judgingPath(params.slug));
+  }, [rawView, router, params.slug]);
+  const editParam = view === "submissions" ? searchParams.get("edit") : null;
+  useEffect(() => {
+    if (editParam) setEditingId(editParam as Id<"submissions">);
+  }, [editParam]);
   const [queueTimerMinutesInput, setQueueTimerMinutesInput] = useState("");
   const [demoTimerMinutesInput, setDemoTimerMinutesInput] = useState("");
   const [queueTimerOverride, setQueueTimerOverride] = useState<StageTimer | null>(null);
@@ -1160,11 +1166,9 @@ export default function AdminPage() {
   const livePrimaryLabel = shouldStartDemoFromPrimary ? "Start timer" : "Advance";
 
   const lineupName = isHackathonEvent ? "presentation lineup" : "demo queue";
-  const viewTitle = view === "submissions" ? allSubmissionsLabel : view === "judging" ? "Judging" : view === "judges" ? "Judges" : view === "settings" ? "Settings" : admin.event.name;
+  const viewTitle = view === "submissions" ? allSubmissionsLabel : view === "settings" ? "Settings" : admin.event.name;
   const viewDescription = view === "submissions"
     ? `Everyone who submitted. Add them to the ${lineupName}, edit, or hide them.`
-    : view === "judging" ? "Judges, judge links, progress and results."
-    : view === "judges" ? "One private link per judge. Share them, see who opened theirs, and fix mistakes."
     : "Event type, meet link, Luma and tracks.";
   const goTo = (next: AdminView) => router.push(adminViewPath(params.slug, next));
   const adminCommands: Command[] = [
@@ -1177,7 +1181,7 @@ export default function AdminPage() {
     ] : []),
     ...(!queueIsLive ? [{ id: "admin-shuffle", group: "This page", label: `Shuffle ${isHackathonEvent ? "presentation lineup" : "demoers"}`, run: () => void shuffle() }] : []),
     { id: "admin-test-people", group: "This page", label: isHackathonEvent ? "Add test submissions" : "Add test people", run: () => { setTestPeopleMessage(""); setTestPeopleOpen(true); } },
-    ...(isHackathonEvent ? [{ id: "admin-judges", group: "This page", label: admin.event.roundOneJudges.length > 0 ? "Manage judges" : "Assign judges", run: () => { goTo("judges"); openRoundOneJudges(); } }] : []),
+    ...(isHackathonEvent ? [{ id: "admin-judges", group: "This page", label: admin.event.roundOneJudges.length > 0 ? "Manage judges" : "Assign judges", run: () => { goTo("judging"); openRoundOneJudges(); } }] : []),
     { id: "admin-open-stage", group: "This page", label: "Open presentation view", run: () => window.open(stagePath(params.slug), "_blank", "noopener") },
     { id: "admin-open-form", group: "This page", label: "Open submission form", run: () => window.open(submissionPath(params.slug), "_blank", "noopener") },
   ];
@@ -1308,9 +1312,8 @@ export default function AdminPage() {
         ) : null}
 
 
-        {view !== "queue" && view !== "home" ? <header className="admin-view-heading"><h1>{viewTitle}</h1><p>{viewDescription}</p></header> : null}
+        {view === "submissions" || view === "settings" ? <header className="admin-view-heading"><h1>{viewTitle}</h1><p>{viewDescription}</p></header> : null}
         {view === "home" ? <LiveEventHome slug={params.slug} admin={admin} onSetUpJudging={() => goTo("judging")} /> : null}
-        {view === "judges" && isHackathonEvent ? <JudgesPage slug={params.slug} eventName={admin.event.name} onAddJudges={openRoundOneJudges} /> : null}
         {view === "queue" ? <section className="admin-control-grid">
           <section className="panel panel-pad admin-control-panel">
             <header className="admin-page-header">
@@ -1661,68 +1664,24 @@ export default function AdminPage() {
         </> : null}
 
         {view === "judging" && isHackathonEvent ? (
-          <section className="panel panel-pad admin-judges-panel" aria-label="Judges and judging sheet">
-            <div className="actions admin-primary-actions">
-              {isHackathonEvent ? (
-                <>
-                  <Button variant="outline" onClick={openRoundOneJudges} type="button">
-                    {admin.event.roundOneJudges.length > 0
-                      ? `Manage judges (${admin.event.roundOneJudges.length})`
-                      : "Assign judges"}
-                  </Button>
-                  {admin.event.judgingSheetUrl ? (
-                    <a
-                      className={cn(buttonVariants({ variant: "link" }), "underline")}
-                      href={admin.event.judgingSheetUrl}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Open judging sheet
-                    </a>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      onClick={createJudgingSheetFile}
-                      disabled={sheetBusy}
-                      type="button"
-                    >
-                      <FileSpreadsheet size={16} aria-hidden />
-                      {sheetBusy ? "Creating sheet..." : "Create judging sheet"}
-                    </Button>
-                  )}
-                  {admin.event.judgingSheetUrl ? (
-                    <Button
-                      variant="ghost"
-                      onClick={syncJudgingSheetNow}
-                      disabled={sheetBusy || judgingSheetSyncPending}
-                      type="button"
-                    >
-                      <RotateCcw size={16} aria-hidden />
-                      {judgingSheetSyncPending ? "Syncing..." : "Sync now"}
-                    </Button>
-                  ) : null}
-                </>
-              ) : null}
-            </div>
-              {sheetMessage ? <p className="admin-action-note">{sheetMessage}</p> : null}
-              {judgesMessage && !judgesOpen ? (
-                <p className="admin-action-note">{judgesMessage}</p>
-              ) : null}
-              {judgingSheetSyncStatus ? (
-                <p className="admin-action-note">{judgingSheetSyncStatus}</p>
-              ) : null}
-          </section>
-        ) : null}
-
-        {view === "judging" && isHackathonEvent ? (
-          <JudgingAdminPanel
-            previews={submissionPreviews}
-            trackNames={admin.tracks.map((track) => track.name)}
+          <JudgingPage
             slug={params.slug}
-                        judges={admin.event.roundOneJudges}
-            lineupSubmissionIds={board.lineup}
+            admin={admin}
+            previews={submissionPreviews}
+            lineupIds={board.lineup}
             onAddToLineup={addToLineup}
             onRemoveFromLineup={removeFromLineup}
+            onHide={hide}
+            onManageJudges={openRoundOneJudges}
+            sheet={{
+              url: admin.event.judgingSheetUrl,
+              busy: sheetBusy,
+              syncPending: judgingSheetSyncPending,
+              status: judgingSheetSyncStatus,
+              message: judgesMessage && !judgesOpen ? judgesMessage : sheetMessage,
+              onCreate: () => void createJudgingSheetFile(),
+              onSync: () => void syncJudgingSheetNow(),
+            }}
           />
         ) : null}
 

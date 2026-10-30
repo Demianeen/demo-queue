@@ -185,6 +185,22 @@ test("the stage carries the judging clock only while judges score", async () => 
   expect((await t.query(api.events.getStage, { slug: "hack" })).judgingTimer).toBeNull();
 });
 
+test("event details carry the tab counts: lineup and judging scores", async () => {
+  const { t, eventId } = await createHackathon(["Alex", "Sam"]);
+  for (const index of [1, 2, 3]) await addSubmission(t, eventId, index);
+  const before = await t.query(api.events.getOrganizationEventDetails, { slug: "hack" });
+  expect(before?.scores).toEqual({ complete: 0, target: 6 });
+  expect(before?.lineupCount).toBe((await t.run((ctx) => ctx.db.query("submissions").collect())).filter((row) => row.status === "queued").length);
+
+  const [first] = await t.run((ctx) => ctx.db.query("submissions").collect());
+  await t.run(async (ctx) => {
+    for (const judgeKey of ["alex", "sam", "helper"]) {
+      await ctx.db.insert("reviews", { eventId, submissionId: first._id, judgeKey, innovation: 7, execution: 7, demoClarity: 7, completed: true, createdAt: Date.now(), updatedAt: Date.now() });
+    }
+  });
+  expect((await t.query(api.events.getOrganizationEventDetails, { slug: "hack" }))?.scores).toEqual({ complete: 2, target: 6 });
+});
+
 test("visual style is available to stage and private participant pages", async () => {
   const root = convexTest(schema, modules);
   root.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);

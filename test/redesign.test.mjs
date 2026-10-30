@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { adminViewPath, adminViewsFor, parseAdminView } from '../lib/admin-views.ts';
+import { adminViewPath, adminViewsFor, judgingPath, parseAdminView, parseJudgingView } from '../lib/admin-views.ts';
 import { baseContract, eventRootProps, eventThemeContract, eventTokenProperties } from '../lib/event-theme-contract.ts';
 import { commandForKeys, matchSequence } from '../lib/key-sequence.ts';
 import { VISUAL_STYLES } from '../lib/visual-style.ts';
@@ -10,14 +10,24 @@ test('admin views live in the address and fall back to the live event home', () 
   assert.equal(parseAdminView('settings', 'demo'), 'settings');
   assert.equal(parseAdminView('nonsense', 'hackathon'), 'home');
   assert.equal(parseAdminView('judging', 'hackathon'), 'judging');
-  assert.equal(parseAdminView('judges', 'hackathon'), 'judges');
+  // The old Judges page is part of Judging now, so its links still open.
+  assert.equal(parseAdminView('judges', 'hackathon'), 'judging');
   assert.equal(parseAdminView('judging', 'demo'), 'home');
   assert.equal(parseAdminView('judges', 'demo'), 'home');
   assert.equal(adminViewPath('demo-night', 'home'), '/events/demo-night/admin');
   assert.equal(adminViewPath('demo-night', 'queue'), '/events/demo-night/admin?view=queue');
   assert.equal(adminViewPath('demo-night', 'settings'), '/events/demo-night/admin?view=settings');
   assert.deepEqual(adminViewsFor('demo').map((item) => item.view), ['home', 'queue', 'submissions', 'settings']);
-  assert.deepEqual(adminViewsFor('hackathon').map((item) => item.view), ['home', 'queue', 'judging', 'submissions', 'judges', 'settings']);
+  assert.deepEqual(adminViewsFor('hackathon').map((item) => item.view), ['home', 'queue', 'judging', 'submissions', 'settings']);
+});
+
+test('judging keeps its view, project and filters in the address', () => {
+  assert.equal(parseJudgingView(null), 'progress');
+  assert.equal(parseJudgingView('ranking'), 'ranking');
+  assert.equal(parseJudgingView('nonsense'), 'progress');
+  assert.equal(judgingPath('hack'), '/events/hack/admin?view=judging');
+  assert.equal(judgingPath('hack', { judging: 'ranking', project: 'p1', track: null }), '/events/hack/admin?view=judging&judging=ranking&project=p1');
+  assert.equal(judgingPath('hack', { judging: 'progress', group: 'first' }), '/events/hack/admin?view=judging&group=first');
 });
 
 test('key sequences: longer ones win, and a sequence start never runs a single key', () => {

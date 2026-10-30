@@ -20,6 +20,7 @@ import { eventDetailsPath, isEventDetailsPath, isEventAdminPath } from "@/lib/wo
 import { adminViewPath, adminViewsFor, parseAdminView } from "@/lib/admin-views";
 import { EventHeaderActions } from "@/components/live/EventHeaderActions";
 import { PracticeBar } from "@/components/live/PracticeTools";
+import { EventTabs } from "@/components/live/EventTabs";
 import { selectOrganization } from "./actions";
 
 type Organization = { id: string; name: string };
@@ -71,11 +72,11 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
   const events = useOrganizationEventList(active ? initialData : null);
   // One live event per org: the newest real event that is not finished. Never a practice event.
   const live = useQuery(api.events.getLiveEvent, active && initialData && isAuthenticated ? {} : "skip");
-  const liveEvent = !active || !initialData ? null : live === undefined ? undefined : live && { name: live.name, slug: live.slug, eventType: live.eventType };
+  const liveEvent = !active || !initialData ? null : live === undefined ? undefined : live && { name: live.name, slug: live.slug, eventType: live.eventType, phase: live.phase };
   const eventSlug = eventView ? decodeURIComponent(pathname.split("/")[2] ?? "") : undefined;
   // Null rather than an error for an event outside the org, so the page's own error state shows.
   const openDetails = useQuery(api.events.getOrganizationEventDetails, view === "admin" && eventSlug && active && isAuthenticated ? { slug: eventSlug } : "skip");
-  const openEvent = openDetails ? { name: openDetails.name, slug: openDetails.slug, eventType: openDetails.eventType, practice: openDetails.practice !== null } : null;
+  const openEvent = openDetails ? { name: openDetails.name, slug: openDetails.slug, eventType: openDetails.eventType, practice: openDetails.practice !== null, phase: openDetails.phase } : null;
   const eventName = eventSlug ? openEvent?.name ?? events.results.find((event) => event.slug === eventSlug)?.name ?? eventSlug : undefined;
 
   const switchOrganization = useCallback(async (id: string) => {
@@ -98,12 +99,17 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
     : view === "create" ? [{ label: "Events", href: "/events" }, { label: "New event" }]
     : [{ label: VIEW_TITLES[view] }];
 
+  // An event's admin page gets its tabs under the header, with their counts.
+  const withTabs = (body: ReactNode) => view === "admin" && openDetails && eventSlug
+    ? <EventTabs slug={eventSlug} eventType={openDetails.eventType} active={adminView} counts={{ lineup: openDetails.lineupCount, submissions: openDetails.submissionCount, scores: openDetails.scores }}>{body}</EventTabs>
+    : body;
+
   return <OrganiserShell organizations={organizations} activeOrganizationId={activeOrganizationId} email={email} displayName={displayName} switching={switching} onSelectOrganization={switchOrganization} liveEvent={liveEvent} openEvent={openEvent}>
     {(switching || !active || (!isLoading && !isAuthenticated)) && <title>{`${VIEW_TITLES[view]} | Demo Queue`}</title>}
     {openEvent?.practice && eventSlug && <div className="px-4 pt-3"><PracticeBar slug={eventSlug} /></div>}
     <PageHeader crumbs={crumbs} actions={view === "events" && active && events.results.length > 0 ? <ShortcutTooltip label="New event" keys={["C"]}><Button size="sm" render={<Link href="/events/new" />} nativeButton={false}><Plus aria-hidden />New event</Button></ShortcutTooltip>
       : view === "admin" && openEvent && eventSlug ? <EventHeaderActions slug={eventSlug} eventName={openEvent.name} /> : undefined} />
-    <div className={view === "admin" ? "dq-page-wide" : "dq-page"}>
+    {withTabs(<div className={view === "admin" ? "dq-page-wide" : "dq-page"}>
       {signInFailed && <Alert variant="destructive" className="mb-4"><AlertDescription>Sign-in could not be completed. Your previous session is still active. <a href="/events/sign-in">Try signing in again</a>.</AlertDescription></Alert>}
       {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error} <a href="/events">Reload memberships</a></AlertDescription></Alert>}
       {switching ? <p role="status" className="dq-secondary">Switching organization…</p>
@@ -112,7 +118,7 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
         : !isLoading && !isAuthenticated ? <Alert variant="destructive"><AlertDescription>Your event session could not be verified. <a href="/events">Retry connection</a> or <a href="/events/sign-in">sign in again</a>.</AlertDescription></Alert>
         : !active || !initialData ? <section className="workspace-heading"><h1>Choose your workspace</h1><p>You already have access to these organizations. Choose one to manage its events.</p><div className="workspace-choices">{organizations.map((org) => <Button variant="outline" key={org.id} onClick={() => void switchOrganization(org.id)}>{org.name}</Button>)}</div></section> : null}
       {active && initialData && <div hidden={unavailable} inert={unavailable}><OrganizationEvents key={active.id} organization={active} view={view} setView={setView} initialData={initialData} events={events} showTitle={!unavailable && !pageView} />{pageView && !unavailable && <WorkspaceOrganizationContext value={active.id}>{children}</WorkspaceOrganizationContext>}</div>}
-    </div>
+    </div>)}
   </OrganiserShell>;
 }
 

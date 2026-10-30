@@ -160,6 +160,9 @@ body:has(.dq-app) [data-slot="checkbox"][data-checked], body:has(.dq-app) [data-
 .dq-shell [data-slot="sidebar-menu-button"] > svg { color: var(--dq-fg-3); }
 .dq-shell [data-slot="sidebar-menu-button"][data-active] { background: var(--dq-selected); color: var(--dq-fg); font-weight: 500; }
 .dq-shell [data-slot="sidebar-menu-button"][data-active] > svg { color: var(--dq-fg); }
+/* The event's phase at the right of its sidebar item: accent while judges score. */
+.dq-nav-phase { margin-left: auto; flex: none; font-size: 11px; font-weight: 400; color: var(--dq-fg-3); }
+.dq-nav-phase[data-phase="judging"] { color: var(--dq-accent); }
 .dq-shell [data-slot="sidebar-menu-sub-button"] { height: 26px; font-size: 13px; color: var(--dq-fg-2); border-radius: 6px; }
 .dq-shell [data-slot="sidebar-menu-sub-button"][data-active] { color: var(--dq-fg); background: var(--dq-selected); font-weight: 500; }
 .dq-shell [data-slot="sidebar-group-label"] { font-size: 11px; font-weight: 500; color: var(--dq-fg-3); height: 24px; }
@@ -176,6 +179,12 @@ body:has(.dq-app) [data-slot="checkbox"][data-checked], body:has(.dq-app) [data-
 .dq-header-title li:not(:last-child)::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--dq-fg-3); border-top: 1.5px solid var(--dq-fg-3); transform: rotate(45deg); margin: 0 4px 0 0; }
 .dq-header-title a { text-decoration: none; color: inherit; overflow: hidden; text-overflow: ellipsis; }
 .dq-header-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+/* An event's tabs, under its header. Its page's own actions sit at the right. */
+.dq-event-tabs { min-height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 16px; border-bottom: 1px solid var(--dq-divider); overflow-x: auto; scrollbar-width: none; }
+.dq-event-tabs .dq-pill-tabs { gap: 6px; }
+.dq-event-tabs .dq-pill-tab { border-color: var(--dq-line); background: var(--dq-card); white-space: nowrap; }
+.dq-event-tabs .dq-pill-tab[aria-current="page"] { background: var(--dq-segment); border-color: var(--dq-line); }
+.dq-event-tab-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
 .dq-page { padding: 24px 32px 48px; max-width: 1120px; }
 .dq-page-wide { padding: 16px 16px 48px; }
 @media (max-width: 767px) { .dq-page, .dq-page-wide { padding: 16px; } }

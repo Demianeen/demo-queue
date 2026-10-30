@@ -76,11 +76,24 @@ function seeded(seed: number) {
 }
 
 const PROJECT_WORDS = ["Guardrail", "Bus Buddy", "SearchLight", "Hanzi Dungeon", "Wild GTMs", "TrySDK", "Inbox Zero", "QuickABTest", "Outpost Radar", "Policy Pilot", "Delay Repay", "Volley Bot"];
-const DESCRIPTIONS = [
-  "A practice project that turns team notes into a weekly summary with links to every source.",
-  "A practice project that checks shell commands from coding agents before they run.",
-  "A practice project that finds the next bus home and warns when it is late.",
-  "A practice project that turns a spreadsheet into a small web app for the team.",
+/**
+ * Test projects point at small, well-known public repositories, with a
+ * description of what each one does, so README reads and AI summaries work.
+ */
+export const PRACTICE_PROJECTS = [
+  { description: "A command-line tool that filters and reshapes JSON, for scripts and quick checks.", githubUrl: "https://github.com/jqlang/jq" },
+  { description: "A fast and simple alternative to find for searching files by name in the terminal.", githubUrl: "https://github.com/sharkdp/fd" },
+  { description: "A cat replacement that adds syntax highlighting and Git changes in the terminal.", githubUrl: "https://github.com/sharkdp/bat" },
+  { description: "A smarter cd command that remembers the folders you use most.", githubUrl: "https://github.com/ajeetdsouza/zoxide" },
+  { description: "Short, community-written examples for common command-line tools.", githubUrl: "https://github.com/tldr-pages/tldr" },
+  { description: "A friendly command-line HTTP client for testing and debugging APIs.", githubUrl: "https://github.com/httpie/cli" },
+];
+
+/** Stable, embeddable open movies from the Blender Foundation, as stand-in demo videos. */
+export const PRACTICE_VIDEOS = [
+  "https://www.youtube.com/watch?v=aqz-KE-bpKQ", // Big Buck Bunny
+  "https://www.youtube.com/watch?v=eRsGyueVLvQ", // Sintel
+  "https://www.youtube.com/watch?v=R6MlUcmOul8", // Tears of Steel
 ];
 
 function practiceSlug(name: string, random: () => number) {
@@ -123,13 +136,14 @@ export async function addPracticeSubmissionsForEvent(ctx: MutationCtx, event: Do
       email: plusAddress(ownerEmail, `dq-test-${people}`),
       phone: `${TEST_PHONE_PREFIX}${String(people % 1000).padStart(3, "0")}`,
     };
+    const project = pick(PRACTICE_PROJECTS);
     const common = {
       slug: event.slug,
       participantToken: crypto.randomUUID(),
       clientId: "practice-tools-0000",
       name: person.name,
       demoTitle: `${pick(PROJECT_WORDS)} ${number}`,
-      description: pick(DESCRIPTIONS),
+      description: project.description,
       phone: person.phone,
       email: person.email,
       trackIds: chosenTracks,
@@ -150,9 +164,9 @@ export async function addPracticeSubmissionsForEvent(ctx: MutationCtx, event: Do
         teamName: `Test team ${number}`,
         teamMembers: members.map((member) => member.name),
         teamMemberContacts: members,
-        githubUrl: `https://github.com/demo-queue/practice-project-${number}`,
+        githubUrl: project.githubUrl,
         rulesAccepted: true,
-        videoUrl: `https://example.com/practice-video-${number}`,
+        videoUrl: PRACTICE_VIDEOS[number % PRACTICE_VIDEOS.length],
       }, { practiceTest: true });
     } else {
       result = await submitDemoForEvent(ctx, event, { ...common, queueOrder: 0 }, { practiceTest: true });

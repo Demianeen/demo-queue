@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { ACTOR_SUBJECT, ORG, addProject, createEvent, setupTest, type TestClient } from "./behaviour.testing";
-import { plusAddress } from "./practice";
+import { PRACTICE_PROJECTS, PRACTICE_VIDEOS, plusAddress } from "./practice";
+import { videoEmbedUrl } from "../lib/video-embed";
 
 const OWNER_EMAIL = "Demian@Example.com";
 
@@ -74,7 +75,7 @@ test("a copy of the live event brings its setup, test judges and test submission
   }
   expect(new Set(submissions.map((row) => row.normalizedEmail)).size).toBe(6);
   for (const row of submissions) {
-    expect(row).toMatchObject({ status: "candidate", githubUrl: expect.stringMatching(/^https:\/\/github\.com\/demo-queue\//), videoUrl: expect.stringMatching(/^https:\/\//) });
+    expect(row).toMatchObject({ status: "candidate", githubUrl: expect.stringMatching(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/), videoUrl: expect.stringMatching(/^https:\/\/www\.youtube\.com\/watch\?v=/) });
     for (const trackId of row.trackIds ?? []) expect(tracks.map((track) => track._id)).toContain(trackId);
   }
 
@@ -214,4 +215,20 @@ test("old practice events are tidied away, and real events never are", async () 
   expect(rows).toMatchObject({ event: null, submissions: [], tracks: [], aliases: [], changes: [] });
   expect(rows.live).not.toBeNull();
   expect(rows.fresh).not.toBeNull();
+});
+
+test("test projects use real public repositories and embeddable open-movie videos", async () => {
+  const { t } = setupTest();
+  await liveHackathon(t);
+  const { eventId } = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "copy", slug: "devday" }, testSubmissions: 6, testJudges: 0 });
+  const rows = await t.run((ctx) => ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", eventId)).collect());
+  expect(rows).toHaveLength(6);
+  const repos = new Map(PRACTICE_PROJECTS.map((project) => [project.githubUrl, project.description]));
+  for (const row of rows) {
+    // The description matches its repository, so the summary and the README agree.
+    expect(repos.get(row.githubUrl!)).toBe(row.description);
+    expect(PRACTICE_VIDEOS).toContain(row.videoUrl);
+    expect(videoEmbedUrl(row.videoUrl)).toMatch(/^https:\/\/www\.youtube-nocookie\.com\/embed\//);
+  }
+  expect(new Set(rows.map((row) => row.videoUrl)).size).toBe(PRACTICE_VIDEOS.length);
 });

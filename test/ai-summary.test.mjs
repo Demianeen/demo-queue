@@ -8,6 +8,7 @@ import {
   normalizeSummaryText,
   githubReadmeApiUrl,
   SUMMARY_README_LIMIT,
+  stripSectionPrefix,
   summarySourceKey,
 } from "../lib/ai-summary.ts";
 
@@ -112,4 +113,25 @@ test("summary lines are one short line", () => {
   const long = cleanSummaryLine("word ".repeat(100));
   assert.ok(long.length <= 220);
   assert.ok(long.endsWith("…"));
+});
+
+test("a leading field name or label is stripped in any case, and nothing else", () => {
+  const section = { key: "whatItDoes", label: "What it does" };
+  assert.equal(stripSectionPrefix("whatItDoes: Checks tool calls.", section), "Checks tool calls.");
+  assert.equal(stripSectionPrefix("WHATITDOES : Checks tool calls.", section), "Checks tool calls.");
+  assert.equal(stripSectionPrefix("What it does: Checks tool calls.", section), "Checks tool calls.");
+  assert.equal(stripSectionPrefix("**What it does:** Checks tool calls.", section), "Checks tool calls.");
+  assert.equal(stripSectionPrefix("whatItDoes: whatItDoes: Checks tool calls.", section), "Checks tool calls.");
+  // Another section's name, or the word in the middle of a sentence, stays.
+  assert.equal(stripSectionPrefix("demoFocus: Checks tool calls.", section), "demoFocus: Checks tool calls.");
+  assert.equal(stripSectionPrefix("It shows what it does: checks tool calls.", section), "It shows what it does: checks tool calls.");
+  assert.equal(stripSectionPrefix("Checks tool calls.", section), "Checks tool calls.");
+});
+
+test("the prompt names each field without inviting a prefix", () => {
+  const { system } = buildSummaryPrompt({ demoTitle: "A", description: "B", tracks: [], readme: null });
+  assert.match(system, /Fill exactly three fields/);
+  assert.match(system, /- The "whatItDoes" field, shown to judges as "What it does": what the project does and for whom\./);
+  assert.match(system, /Never start it with the field name, its label or a colon\./);
+  assert.doesNotMatch(system, /^whatItDoes:/m);
 });

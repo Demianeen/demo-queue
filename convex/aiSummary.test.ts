@@ -430,8 +430,8 @@ test("an event's own summary sections shape the prompt and the saved summary", a
   await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
   await runAll(t);
   const { system } = generateText.mock.calls[0][0];
-  expect(system).toContain("Write exactly two plain-text lines");
-  expect(system).toContain("problem: the problem the project solves.");
+  expect(system).toContain("Fill exactly two fields");
+  expect(system).toContain('- The "problem" field, shown to judges as "Problem": the problem the project solves.');
   expect(await summaryOf(t, id)).toMatchObject({
     sections: [
       { key: "problem", label: "Problem", text: "Agents run risky shell commands." },
@@ -546,4 +546,33 @@ test("a private repository's README is never read, even when the token could rea
     expect(await summaryOf(t, id)).toMatchObject({ usedReadme: false });
   }
   expect(JSON.stringify(generateText.mock.calls)).not.toContain("Secret plans");
+});
+
+test("a field name the model repeats before a line is dropped, on save and for summaries saved earlier", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  generateText.mockImplementation(async () => ({
+    output: {
+      whatItDoes: "whatItDoes: Guardrail checks agent tool calls against a written policy.",
+      howItWorks: "HOW IT WORKS : It sits between the agent and its tools.",
+      demoFocus: "**Look for in the demo:** A blocked call and the reason it gives.",
+    },
+  }));
+  const { t, add } = await setup();
+  const id = await add(0);
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  const { system } = generateText.mock.calls[0][0];
+  expect(system).toContain("Never start it with the field name, its label or a colon.");
+  expect((await summaryOf(t, id))!.sections).toEqual([
+    { key: "whatItDoes", label: "What it does", text: "Guardrail checks agent tool calls against a written policy." },
+    { key: "howItWorks", label: "How it works", text: "It sits between the agent and its tools." },
+    { key: "demoFocus", label: "Look for in the demo", text: "A blocked call and the reason it gives." },
+  ]);
+  // A summary stored before the fix still reads cleanly.
+  await t.run(async (ctx) => {
+    const submission = (await ctx.db.get(id))!;
+    await ctx.db.patch(id, { aiSummary: { ...submission.aiSummary!, whatItDoes: "whatItDoes: Old line.", sections: [{ key: "whatItDoes", label: "What it does", text: "whatItDoes: Old line." }] } });
+  });
+  const admin = await t.query(api.events.getAdmin, { slug: "hack" });
+  expect(admin.pool[0].aiSummary).toMatchObject({ whatItDoes: "Old line.", sections: [{ text: "Old line." }] });
 });

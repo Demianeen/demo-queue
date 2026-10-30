@@ -8,6 +8,8 @@ import {
   cleanSummaryLine,
   findEvaluativeLanguage,
   normalizeSummarySections,
+  normalizeSummaryText,
+  stripSectionPrefix,
   summaryOutputSchemaFor,
   summarySourceKey,
   type SummarySection,
@@ -190,7 +192,9 @@ export const saveSummary = internalMutation({
     for (const key of ["whatItDoes", "howItWorks", "demoFocus"] as const) {
       if (args[key] !== undefined && given[key] === undefined) given[key] = args[key]!;
     }
-    const cleaned = Object.fromEntries(Object.entries(given).map(([key, text]) => [key, cleanSummaryLine(text)]));
+    // The model sometimes repeats the field name first ("whatItDoes: ..."): drop it.
+    const sectionFor = (key: string) => sections.find((section) => section.key === key) ?? { key, label: key };
+    const cleaned = Object.fromEntries(Object.entries(given).map(([key, text]) => [key, cleanSummaryLine(stripSectionPrefix(normalizeSummaryText(text), sectionFor(key)))]));
     const output = summaryOutputSchemaFor(sections).safeParse(cleaned);
     if (!output.success) return { saved: false, reason: "invalid_output" };
     const lines = output.data as Record<string, string>;
@@ -227,10 +231,11 @@ export function aiSummaryStatus(event: Doc<"events">, submission: Doc<"submissio
 
 /** The sections of a stored summary; older summaries hold only the three default lines. */
 function storedSections(summary: NonNullable<Doc<"submissions">["aiSummary"]>) {
-  if (summary.sections && summary.sections.length > 0) return summary.sections;
+  // Summaries saved before the prefix fix may still start with "whatItDoes: ".
+  if (summary.sections && summary.sections.length > 0) return summary.sections.map((section) => ({ ...section, text: stripSectionPrefix(section.text, section) }));
   return DEFAULT_SUMMARY_SECTIONS.flatMap((section) => {
     const text = summary[section.key as "whatItDoes" | "howItWorks" | "demoFocus"];
-    return text ? [{ key: section.key, label: section.label, text }] : [];
+    return text ? [{ key: section.key, label: section.label, text: stripSectionPrefix(text, section) }] : [];
   });
 }
 

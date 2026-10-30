@@ -43,7 +43,9 @@ process.exit(${exitCode});
   ));
   const result = spawnSync(process.execPath, [script], {
     cwd: directory,
-    env: { ...cleanEnvironment, ...preview, ...overrides, PATH: `${directory}:${process.env.PATH}` },
+    // An override of undefined leaves the variable unset.
+    env: Object.fromEntries(Object.entries({ ...cleanEnvironment, ...preview, ...overrides, PATH: `${directory}:${process.env.PATH}` })
+      .filter(([, value]) => value !== undefined)),
     encoding: "utf8",
     timeout: 5_000,
   });
@@ -74,6 +76,14 @@ test("Preview builds Next.js with canonical auth and removes inherited Convex cr
     apiKeyPresent: true,
     cookiePresent: true,
   });
+});
+
+test("Preview derives the callback from the branch host when none is set", async (t) => {
+  for (const callback of [undefined, ""]) {
+    const result = await runBuild(t, { NEXT_PUBLIC_WORKOS_REDIRECT_URI: callback });
+    assert.equal(result.status, 0);
+    assert.equal(result.call.callback, `https://${branchHost}/callback`);
+  }
 });
 
 test("Production retains the exact deploy command and its existing environment", async (t) => {
@@ -124,7 +134,7 @@ test("Preview requires this project's stable branch host and its exact callback"
     assert.equal(result.call, null);
     assert.deepEqual(JSON.parse(result.stderr), { status: "configuration_error", reason: "preview_branch_host_invalid" });
   }
-  for (const callback of ["", "http://localhost:3000/callback", "https://demo-queue-tau.vercel.app/callback", `https://${branchHost}/other`, `https://${branchHost}/callback?code=private`]) {
+  for (const callback of ["http://localhost:3000/callback", "https://demo-queue-tau.vercel.app/callback", `https://${branchHost}/other`, `https://${branchHost}/callback?code=private`]) {
     const result = await runBuild(t, { NEXT_PUBLIC_WORKOS_REDIRECT_URI: callback });
     assert.equal(result.status, 1);
     assert.equal(result.call, null);

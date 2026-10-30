@@ -155,8 +155,11 @@ body:has(.dq-app) [data-slot="checkbox"][data-checked], body:has(.dq-app) [data-
 /* Shell: sidebar on the app background, an inset main panel 8px from the edge */
 .dq-shell { --sidebar-width: 236px; min-height: 100svh; }
 .dq-shell [data-slot="sidebar-inner"] { background: var(--dq-app-bg); }
-.dq-shell [data-slot="sidebar-menu-button"] { height: 28px; font-size: 13px; border-radius: 6px; color: var(--dq-fg); }
-.dq-shell [data-slot="sidebar-menu-button"][data-active] { background: var(--dq-selected); font-weight: 500; }
+/* Like Linear: sidebar text and icons are secondary; only the selected item is full contrast */
+.dq-shell [data-slot="sidebar-menu-button"] { height: 28px; font-size: 13px; border-radius: 6px; color: var(--dq-fg-2); }
+.dq-shell [data-slot="sidebar-menu-button"] > svg { color: var(--dq-fg-3); }
+.dq-shell [data-slot="sidebar-menu-button"][data-active] { background: var(--dq-selected); color: var(--dq-fg); font-weight: 500; }
+.dq-shell [data-slot="sidebar-menu-button"][data-active] > svg { color: var(--dq-fg); }
 .dq-shell [data-slot="sidebar-menu-sub-button"] { height: 26px; font-size: 13px; color: var(--dq-fg-2); border-radius: 6px; }
 .dq-shell [data-slot="sidebar-menu-sub-button"][data-active] { color: var(--dq-fg); background: var(--dq-selected); font-weight: 500; }
 .dq-shell [data-slot="sidebar-group-label"] { font-size: 11px; font-weight: 500; color: var(--dq-fg-3); height: 24px; }

@@ -15,13 +15,18 @@ function previewEnvironment(env) {
   if (!host || !/^demo-queue-git-[a-z0-9-]+-netlyukh-demians-projects\.vercel\.app$/.test(host)) {
     throw new Error("preview_branch_host_invalid");
   }
-  if (env.NEXT_PUBLIC_WORKOS_REDIRECT_URI !== `https://${host}/callback`) {
+  // Every branch shares one Preview environment, so the callback comes from the branch host.
+  const callback = `https://${host}/callback`;
+  if (env.NEXT_PUBLIC_WORKOS_REDIRECT_URI && env.NEXT_PUBLIC_WORKOS_REDIRECT_URI !== callback) {
     throw new Error("preview_callback_mismatch");
   }
-  return Object.fromEntries(Object.entries(env).filter(([key]) =>
-    !key.startsWith("CONVEX_") &&
-    (!key.startsWith("NEXT_PUBLIC_CONVEX_") || key === "NEXT_PUBLIC_CONVEX_URL"),
-  ));
+  return {
+    ...Object.fromEntries(Object.entries(env).filter(([key]) =>
+      !key.startsWith("CONVEX_") &&
+      (!key.startsWith("NEXT_PUBLIC_CONVEX_") || key === "NEXT_PUBLIC_CONVEX_URL"),
+    )),
+    NEXT_PUBLIC_WORKOS_REDIRECT_URI: callback,
+  };
 }
 
 function main() {

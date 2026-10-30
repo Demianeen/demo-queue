@@ -93,6 +93,9 @@ export const SUMMARY_DAILY_RUNS_PER_SUBMISSION = 3;
 export const SUMMARY_DAILY_FLOOR = 20;
 const DAY_MS = 24 * 60 * 60_000;
 
+/** How many summary runs an event with this many submissions may queue per UTC day. */
+export const summaryDailyCap = (submissionCount: number) => Math.max(SUMMARY_DAILY_FLOOR, SUMMARY_DAILY_RUNS_PER_SUBMISSION * submissionCount);
+
 export type SummaryQueueSource = "participant" | "organiser" | "close";
 
 async function eventSubmissionCount(ctx: MutationCtx, eventId: Id<"events">) {
@@ -105,7 +108,7 @@ async function takeSummaryBudget(ctx: MutationCtx, eventId: Id<"events">, now: n
   if (!event) return false;
   const day = Math.floor(now / DAY_MS);
   const used = event.aiSummaryBudget?.day === day ? event.aiSummaryBudget.used : 0;
-  const cap = Math.max(SUMMARY_DAILY_FLOOR, SUMMARY_DAILY_RUNS_PER_SUBMISSION * submissionCount);
+  const cap = summaryDailyCap(submissionCount);
   if (used >= cap) {
     console.log(JSON.stringify({ event: "ai-summary", status: "skipped", reason: "daily_budget", eventId }));
     return false;
@@ -197,6 +200,8 @@ export const summaryInput = internalQuery({
     const byId = tracksById(await listEventTracks(ctx, event._id));
     const sourceKey = summarySourceKey(submission);
     return {
+      // For the usage log only; the prompt takes the project fields below.
+      eventId: event._id,
       demoTitle: submission.demoTitle,
       description: submission.description,
       githubUrl: submission.githubUrl ?? null,

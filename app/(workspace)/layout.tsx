@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceSignInLink } from "@/components/WorkspaceSignInLink";
 import { WorkspaceLogin } from "@/components/WorkspaceLogin";
 import { Suspense } from "react";
@@ -51,10 +52,10 @@ async function WorkspaceContent({ children }: { children: React.ReactNode }) {
   } catch (error) {
     unstable_rethrow(error);
     console.error("workspace-load-failed", workspaceFailureDiagnostic(phase, error));
-    return <WorkspaceMessage title="Could not load your workspace"><p>We couldn’t verify your access or load your events and styles. Please try again.</p><a className="button" href="">Try again</a><WorkspaceSignInLink>Sign in again</WorkspaceSignInLink></WorkspaceMessage>;
+    return <WorkspaceMessage title="Could not load your workspace"><p>We couldn’t verify your access or load your events and styles. Please try again.</p><div className="dq-message-actions"><a className={buttonVariants()} data-slot="button" data-variant="default" href="">Try again</a><WorkspaceSignInLink>Sign in again</WorkspaceSignInLink></div></WorkspaceMessage>;
   }
 }
 
 function WorkspaceMessage({ title, children }: { title: string; children: React.ReactNode }) {
-  return <main className="workspace workspace-sign-in"><section className="workspace-login-content"><title>{`${title} | Demo Queue`}</title><Link href="/events" className="workspace-brand">Demo Queue</Link><h1>{title}</h1>{children}</section></main>;
+  return <main className="dq-app dq-message-page"><section className="dq-card dq-message"><title>{`${title} | Demo Queue`}</title><Link href="/events" className="dq-brand">Demo Queue</Link><h1>{title}</h1>{children}</section></main>;
 }

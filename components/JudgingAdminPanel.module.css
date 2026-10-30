@@ -1,13 +1,13 @@
-.panel { display: grid; gap: 16px; margin: 18px 0; padding: 18px; }
+.panel { display: grid; gap: 16px; margin: 0; padding: 16px; }
 .heading, .row, .timerActions { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
 .heading h2, .card h3 { margin: 0 0 4px; }
 .heading p, .help { color: var(--app-muted); font-size: 13px; margin: 0; }
-.status { border: 1px solid var(--app-line); border-radius: 999px; font-size: 12px; font-weight: 800; padding: 5px 9px; text-transform: uppercase; }
+.status { border: 1px solid var(--app-line); border-radius: 6px; font-size: 12px; font-weight: 500; padding: 2px 8px; text-transform: capitalize; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.card { display: grid; gap: 10px; border: 1px solid var(--app-line); border-radius: 12px; padding: 14px; }
+.card { display: grid; gap: 10px; border: 1px solid var(--app-line); border-radius: 10px; padding: 12px; }
 .row { border-top: 1px solid var(--app-line); padding-top: 8px; }
-.timer { font-size: 42px; font-variant-numeric: tabular-nums; font-weight: 850; }
+.timer { font-family: var(--dq-font-mono, ui-monospace, monospace); font-size: 32px; font-variant-numeric: tabular-nums; font-weight: 500; letter-spacing: -0.02em; }
 .overtime { color: var(--app-bad); }
 .timerActions { justify-content: flex-start; flex-wrap: wrap; }
 .timerActions input, .timerActions select { min-height: 36px; border: 1px solid var(--app-line); border-radius: 8px; padding: 0 8px; }
@@ -25,7 +25,7 @@
 .progressFilters select, .progressFilters input { min-height: 32px; border: 1px solid var(--app-line); border-radius: 8px; background: var(--app-paper, #fff); color: var(--app-ink); font: inherit; font-size: 13px; padding: 0 8px; }
 .progressFilters input { width: 220px; }
 .visuallyHidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.table th { color: var(--app-muted); font-size: 11px; text-transform: uppercase; }
+.table th { color: var(--app-muted); font-size: 12px; font-weight: 500; }
 .judgeReviews { display: flex; flex-wrap: wrap; gap: 6px; }
 .judgeReview, .judgeReviewPending { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-height: 34px; padding: 5px 9px; border: 1px solid var(--app-line); border-radius: 9px; background: color-mix(in srgb, var(--app-paper) 86%, white); color: var(--app-ink); font: inherit; cursor: help; }
 .judgeName { font-weight: 700; }

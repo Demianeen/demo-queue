@@ -8,7 +8,7 @@ export function isEventAdminPath(path: string) {
 
 export function workspaceReturnPath(path: string | null) {
   if (path === "/events/connections" || path === "/events/connect" || (path && /^\/events\/connect\?request=[A-Za-z0-9_-]{1,128}$/.test(path))) return path;
-  return path && (path === "/styles" || path === "/members" || path === "/events/new" || /^\/events\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:overview|admin)$/.test(path)) ? path : "/events";
+  return path && (path === "/styles" || path === "/members" || path === "/events/new" || path === "/events/getting-started" || /^\/events\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:overview|admin)$/.test(path)) ? path : "/events";
 }
 
 export function eventDetailsPath(slug: string) { return `/events/${slug}/overview`; }

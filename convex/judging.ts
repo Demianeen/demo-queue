@@ -8,7 +8,7 @@ import { isCompleteReview, isJudgingScore } from "../lib/judging-rubric";
 import { TableHistory } from "@convex-dev/table-history";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { components, internal } from "./_generated/api";
-import { aiSummariesConfigured, publicAiSummary } from "./aiSummaries";
+import { aiSummariesConfigured, aiSummaryStatus, publicAiSummary } from "./aiSummaries";
 import type { DataModel } from "./_generated/dataModel";
 import {
   adjusted,
@@ -431,6 +431,7 @@ async function judgeSubmissionViews(
     githubUrl: submission.githubUrl ?? null,
     videoUrl: submission.videoUrl ?? null,
     aiSummary: publicAiSummary(submission),
+    aiSummaryStatus: aiSummaryStatus(event, submission),
   }));
 }
 

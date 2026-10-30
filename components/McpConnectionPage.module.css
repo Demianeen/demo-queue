@@ -27,3 +27,14 @@
 .footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 22px; font-size: 13px; color: #62656f; }
 .footer a { text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 600px) { .page { padding: 20px 16px 40px; } .header { margin-bottom: 28px; align-items: flex-start; flex-direction: column; gap: 8px; } .card { padding: 25px 20px; } }
+
+/* Inside the organiser shell (Connections): the app's tokens and sizes. */
+:global(.dq-app) .content { max-width: 720px; margin: 0; }
+:global(.dq-app) .card { max-width: none; margin: 0; padding: 16px; gap: 12px; border-color: var(--dq-line); border-radius: 10px; box-shadow: none; }
+:global(.dq-app) .card h1 { font-size: 15px; line-height: 20px; letter-spacing: 0; }
+:global(.dq-app) .card h2 { font-size: 13px; line-height: 18px; margin: 0; }
+:global(.dq-app) .card p { color: var(--dq-fg-2); line-height: 18px; }
+:global(.dq-app) .eyebrow { font-size: 11px; letter-spacing: 0; text-transform: none; font-weight: 500; color: var(--dq-fg-3); }
+:global(.dq-app) .connections li { padding: 10px 0; border-color: var(--dq-divider-soft); }
+:global(.dq-app) .choice, :global(.dq-app) .request { border-color: var(--dq-line); font-size: 13px; }
+:global(.dq-app) .footer { color: var(--dq-fg-2); font-size: 12px; }

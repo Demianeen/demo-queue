@@ -334,3 +334,27 @@ test("the saved summary is the normalised text the check looked at", async () =>
   })).toEqual({ saved: true, reason: "ok" });
   expect((await summaryOf(t, id))?.whatItDoes).toBe("A policy layer for agent tool calls.");
 });
+
+test("judges are told when a summary is being written, ready, or not coming", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  const { t, add } = await setup();
+  await add(0);
+  await t.mutation(api.events.saveRoundOneJudges, { slug: "hack", judges: ["Alex", "Sam"] });
+  await t.mutation(api.judging.createJudgeAccess, { slug: "hack", judgeName: "Alex", capabilityToken: "alex-secret" });
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await t.mutation(api.judging.startAssignmentPreparation, { slug: "hack" });
+  while (!(await t.mutation(api.judging.prepareAssignmentBatch, { slug: "hack" })).done);
+  await t.mutation(api.judging.startJudging, { slug: "hack" });
+  const status = async () =>
+    (await t.query(api.judging.getMyAssignments, { slug: "hack", capabilityToken: "alex-secret" })).assignments[0].aiSummaryStatus;
+  expect(await status()).toBe("writing");
+  await runAll(t);
+  expect(await status()).toBe("ready");
+  await t.run(async (ctx) => {
+    const [submission] = await ctx.db.query("submissions").take(1);
+    await ctx.db.patch(submission._id, { aiSummary: undefined });
+  });
+  vi.stubEnv("OPENAI_API_KEY", "");
+  expect(await status()).toBe("none");
+});

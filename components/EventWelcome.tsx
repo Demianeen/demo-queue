@@ -1,10 +1,11 @@
 import { QRCodeSVG } from "qrcode.react";
-import { DEFAULT_EVENT_THEME, eventThemeProperties, type EventTheme } from "@/lib/event-theme";
+import { DEFAULT_EVENT_THEME, type EventTheme } from "@/lib/event-theme";
+import { baseContract, eventTokenProperties } from "@/lib/event-theme-contract";
 
 export function EventWelcome({ name, eventType, submissionUrl, closed = false, theme = DEFAULT_EVENT_THEME }: {
   name: string; eventType: "demo" | "hackathon"; submissionUrl: string; closed?: boolean; theme?: EventTheme;
 }) {
-  return <div className="event-welcome" style={eventThemeProperties(theme)}>
+  return <div className="event-welcome" style={eventTokenProperties(baseContract(theme))}>
     <h2>{name.trim() || "Demo Night"}</h2>
     <p>{closed ? "Submissions are closed" : eventType === "hackathon" ? "Ready to share your project?" : "Ready for your demo?"}</p>
     {!closed && <><a className="event-welcome-action" href={submissionUrl}>{eventType === "hackathon" ? "Submit your project" : "Join the queue"}</a>

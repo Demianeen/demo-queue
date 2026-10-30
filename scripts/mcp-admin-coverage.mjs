@@ -9,7 +9,7 @@ const finalistFunctions = ["getFinalistDecision", "saveFinalistDraft", "submitFi
 export const UI_EXCLUSIONS = [
   ...["getStage", "submitDemo", "submitHackathon"].map((name) => ({ file: "app/e/[slug]/ClientPage.tsx", browser: `events.${name}`, reason: "Participant event page, not organization administration." })),
   { file: "app/stage/[slug]/ClientPage.tsx", browser: "events.getStage", reason: "Public stage display. Operator presentation controls have separate tools." },
-  ...["getParticipant", "editParticipantContact", "withdrawSubmission"].map((name) => ({ file: "app/s/[slug]/[token]/ClientPage.tsx", browser: `events.${name}`, reason: "Participant capability page. Organization tools must not impersonate participants." })),
+  ...["getParticipant", "editParticipantContact", "withdrawSubmission", "resubmitWithdrawnSubmission"].map((name) => ({ file: "app/s/[slug]/[token]/ClientPage.tsx", browser: `events.${name}`, reason: "Participant capability page. Organization tools must not impersonate participants." })),
   ...["getJudgeWorkspace", "confirmJudge", "saveReview"].map((name) => ({ file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: `judging.${name}`, reason: "Judge capability page. Organization tools must not confirm, read as, or score as a judge." })),
   { file: "app/metadata.ts", browser: "events.getEventMeta", reason: "Public title metadata used by event routes, including admin navigation. Admin reads expose event metadata already." },
   { file: "app/metadata.ts", browser: "events.getParticipantMeta", reason: "Participant title metadata, not organization administration." },

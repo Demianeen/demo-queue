@@ -123,6 +123,8 @@ export type ChangeWatch = {
 export type ChangeInput = {
   event: Doc<"events">;
   principal: Pick<OrganizationPrincipal, "actor" | "mcp">;
+  /** Set for a change the team made from their status page. */
+  byParticipant?: boolean;
   kind: string;
   summary: string;
   subjectId?: string;
@@ -256,7 +258,7 @@ export async function insertChange(
     eventId: input.event._id,
     actor: input.principal.actor,
     actorUserId: actorUserId(input.principal.actor),
-    via: input.principal.mcp ? "assistant" : "app",
+    via: input.byParticipant ? "participant" : input.principal.mcp ? "assistant" : "app",
     kind: input.kind,
     summary: input.summary,
     subjectId: input.subjectId,

@@ -69,7 +69,7 @@ import { publicAiSummary, queueAiSummaryIfStale } from "./aiSummaries";
 import { lumaOrganizationAllowed, queueLumaImport, participantSocialEditPatch, participantSocials, socialEditPatch, typedSocialSources } from "./luma";
 import { ZodError } from "zod";
 import { amountOfTime, submissionTitle, withChange } from "./changeWrap";
-import { recordChange } from "./changeLog";
+import { changeSummaryName, insertChange, recordChange } from "./changeLog";
 import { judgingRemaining, phaseFields } from "./phases";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -1691,6 +1691,68 @@ export const withdrawSubmission = mutation({
     await patchSubmissionStatus(ctx, submission, { status: "withdrawn", updatedAt: Date.now() });
     await logAction(ctx, event._id, "submission_withdrawn", "participant", submission._id);
     await queueJudgingSheetSync(ctx, event);
+  },
+});
+
+export const SUBMIT_AGAIN_CLOSED_MESSAGE = "Submissions have closed.";
+export const SUBMIT_AGAIN_TAKEN_MESSAGE = "A newer entry in this event uses an email from this one, so this one can't come back.";
+
+/**
+ * Submit again (Proposed): brings a withdrawn entry back while submissions
+ * are open, with all its details and the same status link. The participant
+ * token is the capability, as for withdraw. The submit limits apply. It does
+ * nothing for an entry that is not withdrawn. When another entry now holds
+ * one of its emails, it says so instead, with that entry's status link only
+ * when it is the same person's (the same presenter email).
+ */
+export const resubmitWithdrawnSubmission = mutation({
+  args: { slug: v.string(), participantToken: v.string(), clientId: v.string() },
+  handler: async (ctx, args): Promise<{ restored: true } | { restored: false; reason: "not_withdrawn" } | { restored: false; reason: "email_taken"; message: string; statusPath: string | null }> => {
+    const event = await eventBySlug(ctx, args.slug);
+    const submission = await ctx.db
+      .query("submissions")
+      .withIndex("by_participant_token", (q) => q.eq("participantToken", args.participantToken))
+      .unique();
+    if (!submission || submission.eventId !== event._id) throw new ConvexError("Submission not found");
+    if (submission.status !== "withdrawn") return { restored: false, reason: "not_withdrawn" };
+    if (event.submissionsClosedAt !== undefined) throw new ConvexError(SUBMIT_AGAIN_CLOSED_MESSAGE);
+
+    const members = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
+      .collect();
+    const emails = [submission.email, ...members.map((member) => member.email)];
+    // The same limits as a submit, so withdraw and submit again can't be looped.
+    await limitSubmit(ctx, event, args.clientId, emails);
+
+    for (const email of emails) {
+      if (!email?.trim()) continue;
+      const owner = (await emailOwners(ctx, event._id, emailKey(email))).find((row) => row.submission._id !== submission._id);
+      if (!owner) continue;
+      const samePerson = Boolean(submission.email && owner.submission.email) && emailKey(submission.email!) === emailKey(owner.submission.email!);
+      return {
+        restored: false,
+        reason: "email_taken",
+        message: SUBMIT_AGAIN_TAKEN_MESSAGE,
+        statusPath: samePerson ? `/s/${event.slug}/${owner.submission.participantToken}` : null,
+      };
+    }
+
+    const now = Date.now();
+    // Back in the pool, as an organiser's Restore does; the organiser places it in the lineup.
+    await patchSubmissionStatus(ctx, submission, { status: "candidate", queueOrder: undefined, updatedAt: now });
+    await clearAdvanceSnapshot(ctx, event, now);
+    await logAction(ctx, event._id, "submission_resubmitted", "participant", submission._id);
+    await insertChange(ctx, {
+      event, principal: { actor: "participant" }, byParticipant: true,
+      kind: "submission_resubmitted", summary: `submitted ${changeSummaryName(submission)} again after withdrawing it`,
+      subjectId: submission._id, undo: "none",
+      noUndoReason: "The team brought this back themselves. Hide it if it should not take part.",
+    }, []);
+    await queueJudgingSheetSync(ctx, event);
+    const restored = await ctx.db.get(submission._id);
+    if (restored) await queueAiSummaryIfStale(ctx, event, restored, 0, { source: "participant" });
+    return { restored: true };
   },
 });
 

@@ -181,6 +181,11 @@ export function DevDayPreview() {
             setParticipant((current) => ({ ...current, submission: { ...current.submission, status: "withdrawn" } }));
             setNotice("This sample submission was withdrawn in the preview only.");
           }}
+          resubmit={async () => {
+            setParticipant((current) => ({ ...current, submission: { ...current.submission, status: "candidate" } }));
+            setNotice("This sample submission came back in the preview only.");
+            return { restored: true as const };
+          }}
         />
       ) : null}
       {view === "stage" || view === "qr" ? <StagePresentation stage={stage} submissionUrl={previewUrl} /> : null}

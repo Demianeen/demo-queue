@@ -31,6 +31,8 @@ export function useMemberNames() {
 }
 
 export function whoDid(change: Pick<RecentChange, "isYou" | "via" | "actorUserId">, names: Record<string, string>) {
+  // A participant's own change, such as Submit again from their status page.
+  if (change.via === "participant") return "The team";
   const name = change.isYou ? "You" : (change.actorUserId && names[change.actorUserId]) || "A teammate";
   return change.via === "assistant" ? `${name}, via assistant` : name;
 }
@@ -105,7 +107,7 @@ export function RecentChanges({ slug, compact = 5 }: { slug: string; compact?: n
       : <ol className={styles.changeList}>{rows.map((change) => {
         const who = whoDid(change, names);
         return <li key={change.id} className={styles.changeRow} data-undone={change.undoneAt !== null ? "" : undefined}>
-          <span className={styles.avatar} aria-hidden data-you={change.isYou ? "" : undefined}>{initials((change.actorUserId && names[change.actorUserId]) || (change.isYou ? "You" : "A teammate"))}</span>
+          <span className={styles.avatar} aria-hidden data-you={change.isYou ? "" : undefined}>{initials(who)}</span>
           <div className={styles.changeText}>
             <p><strong>{who}</strong> {change.summary}<span className={styles.changeWhen}> · {timeAgo(change.createdAt, now)}</span></p>
             {!change.canUndo && change.undoBlockedReason && change.undoneAt === null && <p className={styles.changeBlocked}>{change.undoBlockedReason}</p>}

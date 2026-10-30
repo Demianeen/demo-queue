@@ -251,7 +251,8 @@ export default defineSchema({
     eventId: v.id("events"),
     actor: v.string(),
     actorUserId: v.optional(v.string()),
-    via: v.union(v.literal("app"), v.literal("assistant")),
+    // "participant": the team did it from their status page (Submit again).
+    via: v.union(v.literal("app"), v.literal("assistant"), v.literal("participant")),
     kind: v.string(),
     // A short phrase after the person's name: "hid Bus Buddy II".
     summary: v.string(),

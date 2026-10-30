@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { requireOrganization, requireOwnedEvent, type OrganizationPrincipal } from "./organizationAuth";
-import { aiSummariesConfigured } from "./aiSummaries";
+import { aiSummariesConfigured, summaryMode } from "./aiSummaries";
 import { recordChange } from "./changeLog";
 import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment, sameJudge } from "../lib/judging-assignment";
 import {
@@ -59,7 +59,8 @@ async function assignNewSubmissions(ctx: MutationCtx, event: Doc<"events">) {
 
 async function queueSummaries(ctx: MutationCtx, event: Doc<"events">) {
   // Judges get a short AI summary of each project; this pass also refreshes ones whose README changed.
-  if (aiSummariesConfigured()) {
+  // A practice event on sample summaries needs no model key.
+  if (aiSummariesConfigured() || summaryMode(event) === "sample") {
     await ctx.scheduler.runAfter(0, internal.aiSummaries.queueEventSummaries, { eventId: event._id, refreshReadme: true });
   } else {
     console.log(JSON.stringify({ event: "ai-summary", status: "skipped", reason: "not_configured" }));

@@ -141,3 +141,17 @@ test("real events ignore the setting and always use the model; the switch refuse
   expect(row.aiSummary!.sample).toBeUndefined();
   await expect(t.mutation(api.practice.setPracticeAiSummaries, { slug, mode: "model" })).rejects.toThrow("practice event");
 });
+
+test("closing a sample practice event fills any missing sample summary, with no model key", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "");
+  const { t } = setupTest();
+  const created = await practiceHackathon(t);
+  const [first] = await submissionsOf(t, created.eventId);
+  await t.run((ctx) => ctx.db.patch(first._id, { aiSummary: undefined }));
+  await t.mutation(api.judging.closeSubmissions, { slug: created.slug });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect((await row(t, first._id))!.aiSummary).toMatchObject({ sample: true });
+  expect(generateText).not.toHaveBeenCalled();
+});
+
+const row = (t: TestClient, id: Id<"submissions">) => t.run((ctx) => ctx.db.get(id));

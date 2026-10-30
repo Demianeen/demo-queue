@@ -215,6 +215,7 @@ export const saveSummary = internalMutation({
         readmeHash: args.readmeHash,
         generatedAt: Date.now(),
       },
+      aiSummaryGaveUp: undefined,
     });
     return { saved: true, reason: "ok" };
   },
@@ -226,8 +227,25 @@ export const saveSummary = internalMutation({
  */
 export function aiSummaryStatus(event: Doc<"events">, submission: Doc<"submissions">): "ready" | "writing" | "none" {
   if (submission.aiSummary) return "ready";
+  // The last run for these fields gave up: nothing more is coming until they change.
+  if (submission.aiSummaryGaveUp?.sourceKey === summarySourceKey(submission)) return "none";
   return aiSummariesConfigured() && needsSummary(event, submission) ? "writing" : "none";
 }
+
+/**
+ * Records that a run ended without a summary, so the judge page stops saying
+ * one is being written. Ignored when the fields changed meanwhile, since a
+ * newer run covers them.
+ */
+export const markSummaryGaveUp = internalMutation({
+  args: { submissionId: v.id("submissions"), sourceKey: v.string(), reason: v.string() },
+  handler: async (ctx, args) => {
+    const submission = await ctx.db.get(args.submissionId);
+    if (!submission || summarySourceKey(submission) !== args.sourceKey) return false;
+    await ctx.db.patch(submission._id, { aiSummaryGaveUp: { sourceKey: args.sourceKey, reason: args.reason, at: Date.now() } });
+    return true;
+  },
+});
 
 /** The sections of a stored summary; older summaries hold only the three default lines. */
 function storedSections(summary: NonNullable<Doc<"submissions">["aiSummary"]>) {

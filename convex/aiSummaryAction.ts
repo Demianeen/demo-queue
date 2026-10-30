@@ -96,6 +96,7 @@ export const generateSubmissionSummary = internalAction({
       const attempt = (args.readmeAttempt ?? 0) + 1;
       if (attempt > README_RETRY_LIMIT) {
         log("skipped", "readme_rate_limited");
+        await ctx.runMutation(internal.aiSummaries.markSummaryGaveUp, { submissionId: args.submissionId, sourceKey: input.sourceKey, reason: "readme_rate_limited" });
         return { saved: false };
       }
       await ctx.scheduler.runAfter(fetched.retryAfterMs, internal.aiSummaryAction.generateSubmissionSummary, {
@@ -113,29 +114,47 @@ export const generateSubmissionSummary = internalAction({
       log("skipped", "readme_unchanged");
       return { saved: false };
     }
-    const { system, prompt } = buildSummaryPrompt({ ...input, readme }, input.sections);
     const model = env.OPENAI_MODEL ?? "gpt-5.4";
-    try {
-      // Exactly one capped string per section; anything else fails here and is logged.
-      const { output } = await generateText({
-        model: createOpenAI({ apiKey })(model),
-        output: Output.object({ schema: summaryOutputSchemaFor(input.sections) }),
-        system,
-        prompt,
-      });
-      const result = await ctx.runMutation(internal.aiSummaries.saveSummary, {
-        submissionId: args.submissionId,
-        sourceKey: input.sourceKey,
-        lines: input.sections.map((section) => ({ key: section.key, text: String((output as Record<string, unknown>)[section.key] ?? "") })),
-        model,
-        usedReadme: readme !== null,
-        readmeHash,
-      });
-      log(result.saved ? "saved" : "rejected", result.reason);
-      return { saved: result.saved };
-    } catch (error) {
-      log("failed", error instanceof Error ? error.name : "unknown");
+    const giveUp = (reason: string) =>
+      ctx.runMutation(internal.aiSummaries.markSummaryGaveUp, { submissionId: args.submissionId, sourceKey: input.sourceKey, reason });
+    // Proposed: when the language check rejects a summary, try once more with a stricter instruction.
+    for (const stricter of [false, true]) {
+      const { system, prompt } = buildSummaryPrompt({ ...input, readme }, input.sections, { stricter });
+      let result: { saved: boolean; reason: string };
+      try {
+        // Exactly one capped string per section; anything else fails here and is logged.
+        const { output } = await generateText({
+          model: createOpenAI({ apiKey })(model),
+          output: Output.object({ schema: summaryOutputSchemaFor(input.sections) }),
+          system,
+          prompt,
+        });
+        result = await ctx.runMutation(internal.aiSummaries.saveSummary, {
+          submissionId: args.submissionId,
+          sourceKey: input.sourceKey,
+          lines: input.sections.map((section) => ({ key: section.key, text: String((output as Record<string, unknown>)[section.key] ?? "") })),
+          model,
+          usedReadme: readme !== null,
+          readmeHash,
+        });
+      } catch (error) {
+        log("failed", error instanceof Error ? error.name : "unknown");
+        await giveUp("model_failed");
+        return { saved: false };
+      }
+      if (result.saved) {
+        log("saved", result.reason);
+        return { saved: true };
+      }
+      if (!stricter && result.reason.startsWith("evaluative_language")) {
+        log("retrying", result.reason);
+        continue;
+      }
+      log("rejected", result.reason);
+      // A newer run covers changed fields; anything else is final for these fields.
+      if (result.reason !== "source_changed") await giveUp(result.reason);
       return { saved: false };
     }
+    return { saved: false };
   },
 });

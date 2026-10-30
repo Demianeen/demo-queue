@@ -4,7 +4,8 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import tableHistorySchema from "../node_modules/@convex-dev/table-history/src/component/schema";
-import { summarySourceKey } from "../lib/ai-summary";
+import { STRICTER_SUMMARY_INSTRUCTION, summarySourceKey } from "../lib/ai-summary";
+import { aiSummaryStatus } from "./aiSummaries";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 
 // The model is never called for real: generateText is replaced, the rest of the SDK stays.
@@ -98,6 +99,11 @@ async function setup() {
   return { root, t, eventId, add };
 }
 
+const statusOf = (t: Awaited<ReturnType<typeof setup>>["t"], id: Id<"submissions">) =>
+  t.run(async (ctx) => {
+    const submission = (await ctx.db.get(id))!;
+    return aiSummaryStatus((await ctx.db.get(submission.eventId))!, submission);
+  });
 const runAll = (t: Awaited<ReturnType<typeof setup>>["t"]) => t.finishAllScheduledFunctions(vi.runAllTimers);
 const summaryOf = (t: Awaited<ReturnType<typeof setup>>["t"], id: Id<"submissions">) =>
   t.run(async (ctx) => (await ctx.db.get(id))?.aiSummary ?? null);
@@ -310,7 +316,11 @@ test("a README that tries to steer the summary cannot get praise saved", async (
   // Nothing is saved, and the rejection is logged without the text.
   expect(await summaryOf(t, id)).toBeNull();
   const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary"));
-  expect(lines).toEqual([expect.stringMatching(/^{"event":"ai-summary","status":"rejected","reason":"evaluative_language:[a-z ]+"}$/)]);
+  // One stricter retry, then the rejection is final.
+  expect(lines).toEqual([
+    expect.stringMatching(/^{"event":"ai-summary","status":"retrying","reason":"evaluative_language:[a-z ]+"}$/),
+    expect.stringMatching(/^{"event":"ai-summary","status":"rejected","reason":"evaluative_language:[a-z ]+"}$/),
+  ]);
   log.mockRestore();
 });
 
@@ -525,6 +535,9 @@ test("a README read that stays rate limited gives up without saving a summary", 
   expect(fetchMock).toHaveBeenCalledTimes(4);
   expect(generateText).not.toHaveBeenCalled();
   expect(await summaryOf(t, id)).toBeNull();
+  // Judges see "No summary", not "being written" for ever.
+  expect(await statusOf(t, id)).toBe("none");
+  expect(await t.run(async (ctx) => (await ctx.db.get(id))!.aiSummaryGaveUp?.reason)).toBe("readme_rate_limited");
 });
 
 test("a private repository's README is never read, even when the token could read it", async () => {
@@ -575,4 +588,59 @@ test("a field name the model repeats before a line is dropped, on save and for s
   });
   const admin = await t.query(api.events.getAdmin, { slug: "hack" });
   expect(admin.pool[0].aiSummary).toMatchObject({ whatItDoes: "Old line.", sections: [{ text: "Old line." }] });
+});
+
+test("a summary the language check rejects is retried once with a stricter instruction, then judges see No summary", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  generateText.mockImplementation(async () => ({
+    output: { whatItDoes: "The best policy checker for agents.", howItWorks: "A TypeScript proxy.", demoFocus: "A blocked call." },
+  }));
+  const { t, add } = await setup();
+  const id = await add(0);
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  expect(await statusOf(t, id)).toBe("writing");
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(2);
+  expect(generateText.mock.calls[0][0].system).not.toContain(STRICTER_SUMMARY_INSTRUCTION);
+  expect(generateText.mock.calls[1][0].system).toContain(STRICTER_SUMMARY_INSTRUCTION);
+  expect(await summaryOf(t, id)).toBeNull();
+  expect(await statusOf(t, id)).toBe("none");
+  const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary"));
+  expect(lines).toEqual([
+    JSON.stringify({ event: "ai-summary", status: "retrying", reason: "evaluative_language:superlative" }),
+    JSON.stringify({ event: "ai-summary", status: "rejected", reason: "evaluative_language:superlative" }),
+  ]);
+  // A changed description is worth another run, so it is "being written" again.
+  await t.run((ctx) => ctx.db.patch(id, { description: "Policy checks for agent tool calls." }));
+  expect(await statusOf(t, id)).toBe("writing");
+  log.mockRestore();
+});
+
+test("the stricter retry saves a clean summary and clears an earlier give-up", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  generateText
+    .mockImplementationOnce(async () => ({ output: { whatItDoes: "An impressive policy checker.", howItWorks: "A proxy.", demoFocus: "A blocked call." } }))
+    .mockImplementationOnce(async () => ({ output: { whatItDoes: "Checks agent tool calls against a policy.", howItWorks: "A proxy.", demoFocus: "A blocked call." } }));
+  const { t, add } = await setup();
+  const id = await add(0);
+  await t.run((ctx) => ctx.db.patch(id, { aiSummaryGaveUp: { sourceKey: "v1:old", reason: "model_failed", at: 1 } }));
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(2);
+  expect(await summaryOf(t, id)).toMatchObject({ whatItDoes: "Checks agent tool calls against a policy." });
+  expect(await statusOf(t, id)).toBe("ready");
+  expect(await t.run(async (ctx) => (await ctx.db.get(id))!.aiSummaryGaveUp ?? "cleared")).toBe("cleared");
+});
+
+test("a model error ends the run with No summary for judges", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  generateText.mockRejectedValue(new Error("boom"));
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const { t, add } = await setup();
+  const id = await add(0);
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  expect(await statusOf(t, id)).toBe("none");
+  log.mockRestore();
 });

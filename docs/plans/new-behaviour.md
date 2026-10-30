@@ -254,3 +254,7 @@ The judge page functions (`judging.getJudgeWorkspace`,
   check here. Undo newer changes first."
 - A timer change can be undone only in the phase it was made in.
 - "What the numbers mean" on the judge page is collapsed by default.
+- When the language check rejects an AI summary, the run tries once more with a
+  stricter instruction. If that is rejected too, or a run fails or runs out of
+  README retries, judges see "No summary" until the description or repository
+  changes.

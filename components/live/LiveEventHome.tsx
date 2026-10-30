@@ -15,6 +15,7 @@ import { stagePath } from "@/lib/routes";
 import { formatClock, parseClock, timeAgo, useRemaining, useTick, type ServerTimer } from "./clock";
 import { errorText, RecentChanges } from "./changes";
 import { PracticeTools } from "./PracticeTools";
+import { JudgingNow } from "@/components/judging/JudgingNow";
 import { Toggle } from "./Toggle";
 import styles from "./live.module.css";
 
@@ -27,19 +28,23 @@ const PRESETS = [5, 10, 15, 30];
  * The live event home: where the event is, the clock that matters now, what
  * the room sees, and what changed. Every control here goes through the same
  * mutations as the rest of the admin page, so every change lands in Recent
- * changes with Undo.
+ * changes with Undo. During judging, the main block is the judging
+ * dashboard; everything else stays one tab away.
  */
 export function LiveEventHome({ slug, admin, onSetUpJudging }: { slug: string; admin: AdminData; onSetUpJudging: () => void }) {
   const { event } = admin;
   const hackathon = event.eventType === "hackathon";
   const overview = useQuery(api.judging.getJudgesOverview, hackathon ? { slug } : "skip");
+  const judging = hackathon && event.phase === "judging";
   return <div className={styles.home}>
     <div className={styles.main}>
       <PhaseSwitch slug={slug} phase={event.phase} phases={event.phases} />
-      <PhaseClock slug={slug} admin={admin} onSetUpJudging={onSetUpJudging} />
-      {hackathon && event.phase !== "submissions" && <JudgingProgress overview={overview} />}
-      {event.phase === "submissions" && <LatestSubmissions admin={admin} />}
-      {hackathon && <ProjectsByTrack admin={admin} />}
+      {judging ? <JudgingNow slug={slug} admin={admin} overview={overview} onManageJudges={onSetUpJudging} /> : <>
+        <PhaseClock slug={slug} admin={admin} />
+        {hackathon && event.phase !== "submissions" && <JudgingProgress overview={overview} />}
+        {event.phase === "submissions" && <LatestSubmissions admin={admin} />}
+        {hackathon && <ProjectsByTrack admin={admin} />}
+      </>}
       {event.practice && <PracticeTools slug={slug} admin={admin} />}
     </div>
     <aside className={styles.side} aria-label="Event details">
@@ -140,17 +145,12 @@ type ClockControls = {
   extra?: ReactNode;
 };
 
-/** The current phase's clock: judging time, the submissions clock, or the presenter's demo time. */
-function PhaseClock({ slug, admin, onSetUpJudging }: { slug: string; admin: AdminData; onSetUpJudging: () => void }) {
+/** The current phase's clock outside judging: the submissions clock or the presenter's demo time. */
+function PhaseClock({ slug, admin }: { slug: string; admin: AdminData }) {
   const { event } = admin;
   const setStageTimerRemaining = useMutation(api.events.setStageTimerRemaining);
   const startStageTimer = useMutation(api.events.startStageTimer);
   const pauseStageTimer = useMutation(api.events.pauseStageTimer);
-  const setJudgingTimeLeft = useMutation(api.judging.setJudgingTimeLeft);
-  const pauseJudgingTimer = useMutation(api.judging.pauseJudgingTimer);
-  const resumeJudgingTimer = useMutation(api.judging.resumeJudgingTimer);
-  const startJudging = useMutation(api.judging.startJudging);
-  const setPhase = useMutation(api.phases.setPhase);
   const adjustDemoTimer = useMutation(api.events.adjustDemoTimer);
   const startDemoTimer = useMutation(api.events.startDemoTimer);
   const pauseDemoTimer = useMutation(api.events.pauseDemoTimer);
@@ -158,24 +158,6 @@ function PhaseClock({ slug, admin, onSetUpJudging }: { slug: string; admin: Admi
   const presenter = event.queuePublished ? admin.lineup[0] ?? null : null;
 
   if (event.phase === "finished") return <section className={styles.section}><p className={styles.progressText}>This event is finished. Move it back to Stage or Judging from the phase switch if you need to.</p></section>;
-
-  if (event.phase === "judging" && event.judgingTimer) {
-    if (event.judgingStatus !== "open") {
-      return <section className={styles.section} aria-label="Judging">
-        <span className={styles.timerLabel}>Judging hasn&apos;t started</span>
-        <p className={styles.progressText}>{event.judgingStatus === "ready" ? "Every project has two judges. Start judging to open the judge links and run the clock." : "Give every project two judges first, on the Judging page."}</p>
-        <div className={styles.timerActions} style={{ marginLeft: 0 }}>
-          {event.judgingStatus === "ready"
-            ? <Button onClick={() => void run(() => startJudging({ slug }), "Could not start judging.")}>Start judging</Button>
-            : <Button onClick={onSetUpJudging}>Set up judging</Button>}
-        </div>
-      </section>;
-    }
-    return <ExactTimer label="Judging closes in" timer={event.judgingTimer} help="Click the time to type an exact value. Judges see the same clock."
-      onSet={(remainingMs) => setJudgingTimeLeft({ slug, remainingMs })}
-      onPause={() => pauseJudgingTimer({ slug })} onResume={() => resumeJudgingTimer({ slug })}
-      extra={<Button onClick={() => void run(() => setPhase({ slug, phase: "stage" }), "Could not close judging.")}>Close judging</Button>} />;
-  }
 
   if (event.phase === "stage") {
     return <ExactTimer label={presenter ? `${presenter.demoTitle || presenter.teamName || presenter.name}: demo time left` : "Demo time"}

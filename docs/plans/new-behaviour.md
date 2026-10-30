@@ -3,7 +3,7 @@ title: New behaviour (PR 3) backend
 status: IMPLEMENTING
 tier: Tier 3
 created: 2026-10-29
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 # New behaviour (PR 3) backend
@@ -31,6 +31,8 @@ Branch `codex/dq-new-behaviour`, from `290283b` (the tip of
 | Editing after submit | "no, at least not for now" |
 | Practice lists | "they should be separate. Normal events shouldn't appear in practice events list and vice verca" |
 | Onboarding | "No need for linear style onboarding like an org create since we wouldn't org creation for now. Everyone is invite only. Let's leave what we have" |
+| Judging header letters (30 October 2026) | "Do we need to say that those are judges? It should be obvoius, no? We can also make that on hover it would do something that would make it obvoious what i e d mean?" |
+| B6 boards (30 October 2026) | "okay, looks nice, go ahead" |
 | Practice AI summaries (30 October 2026) | "I think during the practice event creation you should be able to select whether the ai generation will go through "real" path or not, by default not, since it can be quite expensive" |
 
 ## Work
@@ -198,6 +200,64 @@ assistant's in Recent changes.
 The judge page functions (`judging.getJudgeWorkspace`,
 `judging.confirmJudge`) are judge capability calls and get no tool, like
 `judging.saveReview`. The UI step adds them to the coverage exclusions.
+
+## B6: event tabs and one Judging page (30 October 2026)
+
+Built from the B6 boards (Overview, Judging, Ranking, Finalists).
+
+- Event tabs under the page header: Overview, Presentations, Judging,
+  Submissions, Settings, with counts (presenters, scores in of scores
+  needed, submissions). The sidebar shows each event as one item with its
+  phase. G then O, Q, J, U or T opens a tab; G then D opens Judging.
+  `?view=judges` links redirect to Judging.
+- Overview follows the phase. During judging its main block is the judging
+  clock (+5 min, Pause, Close judging, click to type a time), the three
+  review counts, each opening Judging filtered to those projects, and the
+  judges, least scored first. Other phases are unchanged.
+- Judging has three views, kept in the address (`judging=`, `project=`,
+  `track=`, `group=`, `judge=`, `sort=`, `tracks=0`, `q=`, `raw=1`):
+  - Progress: projects grouped by reviews still needed.
+  - Ranking: per-judge chips (initials and I E D scores, a dashed chip for
+    a missing review), a header with only the I E D letters, tooltips on
+    letters and chips, the "Even out strict and generous judges" toggle and
+    a detail panel with each judge's scores.
+  - Finalists: tick finalists from all projects, submit them, then drag
+    (or Alt and an arrow key) to order them; the top three are the winners.
+    Submit winners uses the versioned `submitPlacements`.
+- Everything the Judges page and the old judging panel did stays: judging
+  sheet, judge links (open, copy, Replace link, Move scores, Turn off with
+  a replacement per project), track filter, evened-out scores, hide from
+  results and edit submission.
+- Clock fix: every clock (Overview, Judging, judge page, stage) reads the
+  time left through `lib/timer-clock.ts`. The cause was a cached
+  `serverNow` read as if it were the time the client received it.
+- React error 310 fix: the getting started guide reads its status through
+  `useQueries`, so a failed query is a value, not a throw during render.
+
+### B6 Proposed
+
+- While judges score, the stage shows the judging clock ("Judging closes
+  in") instead of the submissions clock.
+- Tab counts come from the event details query, which now returns
+  `lineupCount` and `scores`; a helper's extra review never counts past a
+  project's two.
+- Search and Display (sort, show tracks) are on every Judging view.
+- Before judging closes, evening out is a view preference (`raw=1` turns
+  it off). After, it is the saved per-judge decision.
+- Clicking a row opens the detail panel in Progress and Ranking.
+- Turn off asks for a replacement judge per project in the same dialog.
+- J and K move between judges in the judges card; M opens Manage.
+- Each judge on Overview has a menu: copy link, open in Judging.
+- A judge who saved a score reads "opened" even when the open was not
+  recorded.
+- Finalists shows "Finalists open once judging is closed" before then.
+- Edit submission opens Submissions with `edit=` set.
+- Overview during judging leaves out the projects by track list; it is one
+  tab away in Judging.
+- MCP: finalist and winner picking stays in the admin page for now
+  (exclusions in `scripts/mcp-admin-coverage.mjs`). `list_judge_links`
+  and `get_judging_timer` stay for assistants although the page now reads
+  wider queries (`TOOL_ONLY`).
 
 ## Progress
 

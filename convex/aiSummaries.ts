@@ -5,6 +5,7 @@ import { env, internalMutation, internalQuery, type MutationCtx } from "./_gener
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import {
   DEFAULT_SUMMARY_SECTIONS,
+  buildSampleSummary,
   cleanSummaryLine,
   findEvaluativeLanguage,
   normalizeSummarySections,
@@ -13,6 +14,7 @@ import {
   stripSectionPrefix,
   summaryOutputSchemaFor,
   summarySourceKey,
+  type PracticeAiSummaries,
   type SummarySection,
 } from "../lib/ai-summary";
 
@@ -33,6 +35,14 @@ export function summarySections(event: Pick<Doc<"events">, "aiSummarySections">)
   }
 }
 
+/**
+ * How this event writes summaries. A practice event uses sample summaries
+ * unless its organiser chose the real model; a real event always uses it.
+ */
+export function summaryMode(event: Pick<Doc<"events">, "practice" | "practiceAiSummaries">): PracticeAiSummaries {
+  return event.practice === true ? event.practiceAiSummaries ?? "sample" : "model";
+}
+
 function inJudging(event: Doc<"events">, submission: Doc<"submissions">) {
   return event.eventType === "hackathon" && (submission.status === "candidate" || submission.status === "queued");
 }
@@ -45,9 +55,35 @@ function inJudging(event: Doc<"events">, submission: Doc<"submissions">) {
  */
 function needsSummary(event: Doc<"events">, submission: Doc<"submissions">, refreshReadme = false) {
   if (!inJudging(event, submission)) return false;
-  if (submission.aiSummary?.sourceKey !== summarySourceKey(submission)) return true;
+  const summary = submission.aiSummary;
+  if (!summary || summary.sourceKey !== summarySourceKey(submission)) return true;
+  // A practice event that switched between sample and model summaries replaces the other kind.
+  const sample = summaryMode(event) === "sample";
+  if ((summary.sample === true) !== sample) return true;
+  if (sample) return false;
   // An explicit refresh also rewrites a summary from an older prompt.
-  return refreshReadme && (Boolean(submission.githubUrl) || submission.aiSummary?.promptVersion !== SUMMARY_PROMPT_VERSION);
+  return refreshReadme && (Boolean(submission.githubUrl) || summary.promptVersion !== SUMMARY_PROMPT_VERSION);
+}
+
+/** Writes a practice sample summary at once: no OpenAI or GitHub call, no budget. */
+async function writeSampleSummary(ctx: MutationCtx, event: Doc<"events">, submission: Doc<"submissions">) {
+  const sections = buildSampleSummary(submission, summarySections(event));
+  const text = (key: string) => sections.find((section) => section.key === key)?.text;
+  await ctx.db.patch(submission._id, {
+    aiSummary: {
+      ...(text("whatItDoes") !== undefined ? { whatItDoes: text("whatItDoes") } : {}),
+      ...(text("howItWorks") !== undefined ? { howItWorks: text("howItWorks") } : {}),
+      ...(text("demoFocus") !== undefined ? { demoFocus: text("demoFocus") } : {}),
+      sections,
+      sourceKey: summarySourceKey(submission),
+      model: "sample",
+      usedReadme: false,
+      promptVersion: SUMMARY_PROMPT_VERSION,
+      sample: true,
+      generatedAt: Date.now(),
+    },
+    aiSummaryGaveUp: undefined,
+  });
 }
 
 /** Proposed: at most one summary run per submission in this window; later changes wait for it. */
@@ -96,7 +132,13 @@ export async function queueAiSummaryIfStale(
   delayMs = 0,
   options: { refreshReadme?: boolean; source?: SummaryQueueSource; submissionCount?: number } = {},
 ) {
-  if (!aiSummariesConfigured() || !needsSummary(event, submission, options.refreshReadme)) return false;
+  if (!needsSummary(event, submission, options.refreshReadme)) return false;
+  // A practice event on sample summaries never calls the model.
+  if (summaryMode(event) === "sample") {
+    await writeSampleSummary(ctx, event, submission);
+    return true;
+  }
+  if (!aiSummariesConfigured()) return false;
   const source = options.source ?? "organiser";
   if (source === "participant" && event.submissionsClosedAt !== undefined) return false;
   const now = Date.now();
@@ -122,20 +164,24 @@ export async function queueAiSummaryIfStale(
  * submissions close; with refreshReadme it also rechecks each repository's
  * README and rewrites the summary when the README changed.
  */
+export async function queueSummariesForEvent(ctx: MutationCtx, event: Doc<"events">, refreshReadme?: boolean) {
+  const submissions = await ctx.db
+    .query("submissions")
+    .withIndex("by_event", (q) => q.eq("eventId", event._id))
+    .take(1000);
+  let queued = 0;
+  for (const submission of submissions) {
+    if (await queueAiSummaryIfStale(ctx, event, submission, queued * SUMMARY_STAGGER_MS, { refreshReadme, source: "close", submissionCount: submissions.length })) queued += 1;
+  }
+  return { queued };
+}
+
 export const queueEventSummaries = internalMutation({
   args: { eventId: v.id("events"), refreshReadme: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
     if (!event) return { queued: 0 };
-    const submissions = await ctx.db
-      .query("submissions")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .take(1000);
-    let queued = 0;
-    for (const submission of submissions) {
-      if (await queueAiSummaryIfStale(ctx, event, submission, queued * SUMMARY_STAGGER_MS, { refreshReadme: args.refreshReadme, source: "close", submissionCount: submissions.length })) queued += 1;
-    }
-    return { queued };
+    return queueSummariesForEvent(ctx, event, args.refreshReadme);
   },
 });
 
@@ -146,7 +192,8 @@ export const summaryInput = internalQuery({
     const submission = await ctx.db.get(args.submissionId);
     if (!submission) return null;
     const event = await ctx.db.get(submission.eventId);
-    if (!event || !needsSummary(event, submission, args.refreshReadme)) return null;
+    // Sample summaries are written without the model, so a run queued before a switch does nothing.
+    if (!event || summaryMode(event) === "sample" || !needsSummary(event, submission, args.refreshReadme)) return null;
     const byId = tracksById(await listEventTracks(ctx, event._id));
     const sourceKey = summarySourceKey(submission);
     return {
@@ -157,7 +204,7 @@ export const summaryInput = internalQuery({
       sourceKey,
       sections: summarySections(event),
       // Only the README can have changed: skip the model when its hash is the same.
-      readmeCheckOnly: submission.aiSummary?.sourceKey === sourceKey && submission.aiSummary?.promptVersion === SUMMARY_PROMPT_VERSION,
+      readmeCheckOnly: submission.aiSummary?.sourceKey === sourceKey && submission.aiSummary?.promptVersion === SUMMARY_PROMPT_VERSION && submission.aiSummary?.sample !== true,
       readmeHash: submission.aiSummary?.readmeHash ?? null,
     };
   },
@@ -188,6 +235,7 @@ export const saveSummary = internalMutation({
     if (!submission || summarySourceKey(submission) !== args.sourceKey) return { saved: false, reason: "source_changed" };
     const event = await ctx.db.get(submission.eventId);
     if (!event) return { saved: false, reason: "source_changed" };
+    if (summaryMode(event) === "sample") return { saved: false, reason: "sample_mode" };
     const sections = summarySections(event);
     const given: Record<string, string> = {};
     for (const line of args.lines ?? []) given[line.key] = line.text;
@@ -234,6 +282,8 @@ export function aiSummaryStatus(event: Doc<"events">, submission: Doc<"submissio
   if (submission.aiSummary) return "ready";
   // The last run for these fields gave up: nothing more is coming until they change.
   if (submission.aiSummaryGaveUp?.sourceKey === summarySourceKey(submission)) return "none";
+  // Sample summaries are written at once; there is never one on its way.
+  if (summaryMode(event) === "sample") return "none";
   return aiSummariesConfigured() && needsSummary(event, submission) ? "writing" : "none";
 }
 
@@ -275,6 +325,8 @@ export function publicAiSummary(submission: Doc<"submissions">) {
     // Every section in order, with its label: what the judge page shows.
     sections,
     usedReadme: summary.usedReadme,
+    // A practice sample summary: judges see "Sample summary (practice)" instead of "Written by AI".
+    sample: summary.sample === true,
     generatedAt: summary.generatedAt,
     // True when the description or repository changed and a new summary is on its way.
     stale: summary.sourceKey !== summarySourceKey(submission),

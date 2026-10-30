@@ -6,6 +6,7 @@ import { requireOrganization, requireOwnedEvent, type OrganizationPrincipal } fr
 import { CHANGE_RETENTION_MS, VERSIONED_TABLES, docVersion, insertChange, storedValueMatches, type ChangeDoc, type ChangeTable } from "./changeLog";
 import { movePhase } from "./phases";
 import { queueJudgingSheetSync } from "./judgingSheetSync";
+import { queueSummariesForEvent, summaryMode } from "./aiSummaries";
 import { eventPhase, PHASE_LABELS } from "../lib/event-phase";
 
 const DEFAULT_LIMIT = 20;
@@ -217,6 +218,8 @@ export async function undoChangeForOrganization(ctx: MutationCtx, args: Infer<ty
   }
   const latest = await ctx.db.get(event._id);
   if (latest && latest.eventType === "hackathon") await queueJudgingSheetSync(ctx, latest);
+  // Undoing a practice event's summary switch replaces the summaries again.
+  if (latest && summaryMode(latest) !== summaryMode(event)) await queueSummariesForEvent(ctx, latest);
   return { undoneChangeId: change._id, undoChangeId: undoId };
 }
 

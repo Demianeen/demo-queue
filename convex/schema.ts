@@ -6,6 +6,8 @@ import { changeDocValidator, undoKindValidator, undoLabelValidator } from "./cha
 
 const phaseValidator = v.union(v.literal("submissions"), v.literal("judging"), v.literal("stage"), v.literal("finished"));
 const summarySectionValidator = v.object({ key: v.string(), label: v.string(), instruction: v.string() });
+// How a practice event writes AI summaries: "sample" (no model call, the default) or "model".
+export const practiceAiSummariesValidator = v.union(v.literal("sample"), v.literal("model"));
 
 /** Where each social came from: typed by the team, or imported from Luma. */
 const socialSource = v.union(v.literal("typed"), v.literal("luma"));
@@ -117,6 +119,9 @@ export default defineSchema({
     practiceCopiedFromName: v.optional(v.string()),
     // How many test people have been made, so each gets its own plus-address.
     practiceTestPeopleCount: v.optional(v.number()),
+    // Practice events only: "sample" (the default when unset) writes sample summaries
+    // with no OpenAI or GitHub call; "model" uses the real path. Real events ignore it.
+    practiceAiSummaries: v.optional(practiceAiSummariesValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"])
@@ -168,6 +173,8 @@ export default defineSchema({
         readmeHash: v.optional(v.string()),
         // SUMMARY_PROMPT_VERSION it was written with; missing on the first version.
         promptVersion: v.optional(v.number()),
+        // A practice sample summary, written without the model.
+        sample: v.optional(v.boolean()),
         generatedAt: v.number(),
       }),
     ),

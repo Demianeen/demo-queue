@@ -164,6 +164,7 @@ export function practiceView(event: Doc<"events">) {
     ownerUserId: event.practiceOwnerActor ? /\|(user_[A-Za-z0-9]+)$/.exec(event.practiceOwnerActor)?.[1] ?? null : null,
     copiedFromName: event.practiceCopiedFromName ?? null,
     tidiesAwayAt: event.updatedAt + PRACTICE_TIDY_AFTER_MS,
+    aiSummaries: event.practiceAiSummaries ?? "sample",
   };
 }
 

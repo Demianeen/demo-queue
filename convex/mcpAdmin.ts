@@ -533,6 +533,12 @@ export const skipPracticeTimer = internalMutation({
   handler: (ctx, { principal, input }) => practice.skipTimerToLastSecondsForOrganization(ctx, input, principal),
 });
 
+export const setPracticeAiSummariesInput = practice.setPracticeAiSummariesArgs;
+export const setPracticeAiSummaries = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: setPracticeAiSummariesInput },
+  handler: (ctx, { principal, input }) => practice.setPracticeAiSummariesForOrganization(ctx, input, principal),
+});
+
 export const resetPracticeEventInput = practice.resetPracticeEventArgs.extend({
   confirmation: v.object({ action: v.literal("reset_practice_event"), slug: v.string() }),
 });

@@ -75,7 +75,7 @@
 .toggles { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--dq-fg); }
 .toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.toggleTrack { width: 26px; height: 15px; border-radius: 8px; background: var(--dq-input); display: flex; padding: 2px; box-sizing: border-box; transition: background 120ms ease; }
+.toggleTrack { flex-shrink: 0; width: 26px; height: 15px; border-radius: 8px; background: var(--dq-input); display: flex; padding: 2px; box-sizing: border-box; transition: background 120ms ease; }
 .toggleTrack::after { content: ""; width: 11px; height: 11px; border-radius: 50%; background: var(--dq-card); transition: transform 120ms ease; }
 .toggle input:checked + .toggleTrack { background: var(--dq-accent); }
 .toggle input:checked + .toggleTrack::after { transform: translateX(11px); }

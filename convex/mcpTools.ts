@@ -417,7 +417,7 @@ export const ADMIN_TOOLS: RegisteredAdminTool[] = [
   }),
   defineAdminTool({
     name: "create_practice_event", browser: "practice.createPracticeEvent", input: operations.createPracticeEventInput, effect: "action",
-    description: "Make a practice event: a copy of a real event (start kind copy with its slug) or a blank hackathon or demo night, with 0 to 50 test submissions and 0 or 2 to 10 test judges. Test people get plus-addresses of your email, so their emails reach you. Never touches the real event.",
+    description: "Make a practice event: a copy of a real event (start kind copy with its slug) or a blank hackathon or demo night, with 0 to 50 test submissions and 0 or 2 to 10 test judges. Test people get plus-addresses of your email, so their emails reach you. practiceAiSummaries is \"sample\" (the default: sample summaries, no model cost) or \"model\" (the real AI model, which costs money per project). Never touches the real event.",
     invoke: (ctx, principal, input) => ctx.runAction(internal.practice.createPracticeEventMcp, { principal, input: { ...input, expectedOrganizationId: principal.organizationId } }),
   }),
   defineAdminTool({
@@ -439,6 +439,11 @@ export const ADMIN_TOOLS: RegisteredAdminTool[] = [
     name: "skip_practice_timer", browser: "practice.skipTimerToLastSeconds", input: operations.skipPracticeTimerInput, effect: "write",
     description: "Jump a running timer (judging, stage or demo; the running one when left out) to its last seconds, 10 by default. Practice events only.",
     invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.skipPracticeTimer, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "set_practice_ai_summaries", browser: "practice.setPracticeAiSummaries", input: operations.setPracticeAiSummariesInput, effect: "write",
+    description: "Switch a practice event's AI summaries: mode \"sample\" writes sample summaries with no model call, \"model\" uses the real AI model (costs money per project). Replaces the other kind of summary straight away. Undoable. Practice events only.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.setPracticeAiSummaries, { principal, input }),
   }),
   defineAdminTool({
     name: "reset_practice_event", browser: "practice.resetPracticeEvent", input: operations.resetPracticeEventInput, effect: "destructive",

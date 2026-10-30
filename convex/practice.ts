@@ -4,6 +4,8 @@ import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { organizationPrincipalValidator, requireOrganization, requireOwnedEvent, type OrganizationPrincipal } from "./organizationAuth";
 import { actorUserId, insertChange, recordChange } from "./changeLog";
+import { queueSummariesForEvent } from "./aiSummaries";
+import { practiceAiSummariesValidator } from "./schema";
 import {
   PRACTICE_TIDY_AFTER_MS,
   blankEventState,
@@ -49,6 +51,8 @@ export const createPracticeEventArgs = v.object({
   name: v.optional(v.string()),
   testSubmissions: v.number(),
   testJudges: v.number(),
+  // "sample" (the default) writes sample summaries with no model call; "model" uses the real one.
+  practiceAiSummaries: v.optional(practiceAiSummariesValidator),
 });
 
 /** A plus-address of the owner's email: ana@example.com becomes ana+dq-practice-7@example.com. */
@@ -224,6 +228,7 @@ export const createPracticeEventForOwner = internalMutation({
       practiceCopiedFromEventId: source?._id,
       practiceCopiedFromName: source?.name,
       practiceTestPeopleCount: 0,
+      practiceAiSummaries: input.practiceAiSummaries ?? "sample",
       phase: "submissions",
       ...(source
         ? {
@@ -417,6 +422,33 @@ export async function skipTimerToLastSecondsForOrganization(ctx: MutationCtx, ar
 export const skipTimerToLastSeconds = mutation({
   args: skipTimerToLastSecondsArgs,
   handler: async (ctx, args) => skipTimerToLastSecondsForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const setPracticeAiSummariesArgs = v.object({ slug: v.string(), mode: practiceAiSummariesValidator });
+
+/**
+ * Switches a practice event between sample summaries and the real model.
+ * Undoable from Recent changes. Summaries of the other kind are replaced
+ * straight away: samples at once, model runs through the normal limits.
+ */
+export async function setPracticeAiSummariesForOrganization(ctx: MutationCtx, args: Infer<typeof setPracticeAiSummariesArgs>, principal: OrganizationPrincipal) {
+  const { event } = await requireOwnedEvent(ctx, args.slug, principal);
+  requirePractice(event);
+  if ((event.practiceAiSummaries ?? "sample") === args.mode) return { mode: args.mode, queued: 0 };
+  await recordChange(ctx, {
+    event, principal, kind: "practice_ai_summaries",
+    summary: args.mode === "model" ? "turned on AI summaries with the real model" : "switched to sample AI summaries",
+  }, async () => {
+    await ctx.db.patch(event._id, { practiceAiSummaries: args.mode, updatedAt: Date.now() });
+  });
+  // Outside the change, so the summary budget it uses is not part of the undo.
+  const { queued } = await queueSummariesForEvent(ctx, (await ctx.db.get(event._id))!);
+  return { mode: args.mode, queued };
+}
+
+export const setPracticeAiSummaries = mutation({
+  args: setPracticeAiSummariesArgs,
+  handler: async (ctx, args) => setPracticeAiSummariesForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 export const resetPracticeEventArgs = v.object({ slug: v.string(), keepSubmissions: v.optional(v.boolean()) });

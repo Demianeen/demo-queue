@@ -11,6 +11,7 @@ import { useCommands, type Command, ShortcutTooltip } from "@/components/shell/c
 import { absoluteUrl, submissionPath } from "@/lib/routes";
 import { errorText } from "./changes";
 import type { AdminData } from "./LiveEventHome";
+import { Toggle } from "./Toggle";
 import styles from "./live.module.css";
 
 async function attempt<T>(action: () => Promise<T>, failure: string) {
@@ -25,12 +26,14 @@ export function PracticeTools({ slug, admin }: { slug: string; admin: AdminData 
   const addPracticeSubmissions = useMutation(api.practice.addPracticeSubmissions);
   const scoreAsTestJudges = useMutation(api.practice.scoreAsTestJudges);
   const skipTimerToLastSeconds = useMutation(api.practice.skipTimerToLastSeconds);
+  const setPracticeAiSummaries = useMutation(api.practice.setPracticeAiSummaries);
   const hackathon = admin.event.eventType === "hackathon";
   const overview = useQuery(api.judging.getJudgesOverview, hackathon ? { slug } : "skip");
   const [busy, setBusy] = useState(false);
   const judge = overview?.judges.find((row) => row.active && row.path);
   const submitUrl = absoluteUrl(submissionPath(slug));
   const judging = admin.event.judgingStatus === "open";
+  const realModel = admin.event.practice?.aiSummaries === "model";
 
   async function add(count: number) {
     setBusy(true);
@@ -43,6 +46,12 @@ export function PracticeTools({ slug, admin }: { slug: string; admin: AdminData 
     const result = await attempt(() => scoreAsTestJudges({ slug, limit }), "Could not score as test judges.");
     setBusy(false);
     if (result) toast(`Scored ${result.scored} review${result.scored === 1 ? "" : "s"} as test judges`);
+  }
+  async function setRealModel(on: boolean) {
+    setBusy(true);
+    const result = await attempt(() => setPracticeAiSummaries({ slug, mode: on ? "model" : "sample" }), "Could not change the AI summaries.");
+    setBusy(false);
+    if (result) toast(on ? "AI summaries now use the real model" : "AI summaries are samples again");
   }
   async function skip() {
     const result = await attempt(() => skipTimerToLastSeconds({ slug }), "No timer is running to skip.");
@@ -71,6 +80,13 @@ export function PracticeTools({ slug, admin }: { slug: string; admin: AdminData 
         <div className={styles.toolActions}>
           <Button variant="outline" size="sm" disabled={busy || !judging} onClick={() => void score(5)}>Score 5</Button>
           <Button variant="outline" size="sm" disabled={busy || !judging} onClick={() => void score()}>Score the rest</Button>
+        </div>
+      </div>}
+      {hackathon && <div className={styles.tool}>
+        <h3>AI summaries</h3>
+        <p id="practice-ai-detail">{realModel ? "Written by the real model, with the normal limits. Costs money per project." : "Sample summaries from each description. No model call, no cost."}</p>
+        <div className={styles.toolActions}>
+          <Toggle label="Write AI summaries with the real model" checked={realModel} disabled={busy} describedBy="practice-ai-detail" onChange={(on) => setRealModel(on)} />
         </div>
       </div>}
       <div className={styles.tool}>

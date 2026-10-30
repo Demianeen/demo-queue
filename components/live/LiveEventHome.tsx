@@ -15,6 +15,7 @@ import { stagePath } from "@/lib/routes";
 import { formatClock, parseClock, timeAgo, useRemaining, useTick, type ServerTimer } from "./clock";
 import { errorText, RecentChanges } from "./changes";
 import { PracticeTools } from "./PracticeTools";
+import { Toggle } from "./Toggle";
 import styles from "./live.module.css";
 
 export type AdminData = FunctionReturnType<typeof api.events.getAdmin>;
@@ -332,13 +333,6 @@ function OnStageCard({ slug, admin }: { slug: string; admin: AdminData }) {
     </div>
     <p className={styles.note}>A live mirror of the stage, exactly what the room sees.</p>
   </section>;
-}
-
-function Toggle({ label, checked, disabled, title, onChange }: { label: string; checked: boolean; disabled?: boolean; title?: string; onChange: (checked: boolean) => Promise<unknown> }) {
-  return <label className={styles.toggle} title={title}>
-    <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(changeEvent) => void onChange(changeEvent.currentTarget.checked)} />
-    <span className={styles.toggleTrack} aria-hidden />{label}
-  </label>;
 }
 
 function PropertiesCard({ admin, overview }: { admin: AdminData; overview: Overview }) {

@@ -27,6 +27,7 @@ export type SubmissionPreview = {
     howItWorks: string;
     demoFocus: string;
     usedReadme: boolean;
+    sample?: boolean;
     stale: boolean;
   } | null;
 };
@@ -126,7 +127,7 @@ export function SubmissionPreviewTrigger({ preview, className }: { preview: Subm
                   <li><b>What to look for in the demo:</b> {preview.aiSummary.demoFocus || "Not described"}</li>
                 </ul>
                 <small>
-                  {`Written by AI from the team's description${preview.aiSummary.usedReadme ? " and README" : ""}. Check it against the demo.`}
+                  {preview.aiSummary.sample ? "Sample summary (practice). The real model is off for this practice event." : `Written by AI from the team's description${preview.aiSummary.usedReadme ? " and README" : ""}. Check it against the demo.`}
                   {preview.aiSummary.stale ? " The project changed since; a new summary is on its way." : null}
                 </small>
               </div>

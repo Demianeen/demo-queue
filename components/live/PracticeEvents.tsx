@@ -17,6 +17,7 @@ import { WorkspaceOrganizationContext } from "@/components/WorkspaceOrganization
 import { PHASE_LABELS } from "@/lib/event-phase";
 import { adminPath } from "@/lib/routes";
 import { errorText, useMemberNames } from "./changes";
+import { Toggle } from "./Toggle";
 import styles from "./practice.module.css";
 
 type Start = "copy" | "hackathon" | "demo";
@@ -75,6 +76,8 @@ function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boole
   const [name, setName] = useState("");
   const [submissions, setSubmissions] = useState(20);
   const [judges, setJudges] = useState(3);
+  // Off by default: the real model costs money per project.
+  const [realModel, setRealModel] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const startFrom: Start = start === "copy" && live === null ? "hackathon" : start;
@@ -91,6 +94,7 @@ function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boole
         name: name.trim() || undefined,
         testSubmissions: submissions,
         testJudges: judged ? judges : 0,
+        practiceAiSummaries: judged && realModel ? "model" : "sample",
       });
       toast(`Made ${result.submissionCount} test submission${result.submissionCount === 1 ? "" : "s"}${result.judges.length ? ` and ${result.judges.length} test judges` : ""}`);
       router.push(adminPath(result.slug));
@@ -121,6 +125,10 @@ function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boole
           <Stepper label="Test submissions" value={submissions} min={0} max={50} step={5} onChange={setSubmissions} />
           {judged && <Stepper label="Test judges" value={judges} min={0} max={10} skip={1} onChange={setJudges} />}
         </fieldset>
+        {judged && <div className={styles.field}>
+          <Toggle label="Write AI summaries with the real model" checked={realModel} describedBy="practice-ai-hint" onChange={setRealModel} />
+          <span id="practice-ai-hint" className={styles.note}>Costs money per project. Off uses sample summaries.</span>
+        </div>}
         <p className={styles.note}>Test people get the event&apos;s tracks at random, a third of them none. Their confirmation emails arrive in your inbox.</p>
         {error && <p role="alert" className={styles.error}>{error}</p>}
         <Button type="submit" className="w-full" disabled={busy || (startFrom === "copy" && !live)}>{busy ? "Making it…" : "Create and open"}</Button>

@@ -121,6 +121,23 @@ export function cleanSummaryLine(value: string) {
   return line.length > SUMMARY_LINE_LIMIT ? `${line.slice(0, SUMMARY_LINE_LIMIT - 1).trimEnd()}…` : line;
 }
 
+export type PracticeAiSummaries = "sample" | "model";
+
+/**
+ * A practice event's sample summary: the description's sentences in order,
+ * one per section, with no model call. A section with no sentence left gets
+ * a sample line naming the project, so every section shows something.
+ */
+export function buildSampleSummary(input: { demoTitle: string; description: string }, sections: SummarySection[] = DEFAULT_SUMMARY_SECTIONS) {
+  const sentences = cleanSummaryLine(input.description).split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).filter(Boolean);
+  const title = cleanSummaryLine(input.demoTitle) || "this project";
+  return sections.map((section, index) => ({
+    key: section.key,
+    label: section.label,
+    text: cleanSummaryLine(sentences[index] ?? `Sample text for ${title}, in place of the real model.`),
+  }));
+}
+
 type BlockName = "TITLE" | "TRACKS" | "DESCRIPTION" | "README";
 
 /** Keeps participant text from closing or opening a data block of its own. */

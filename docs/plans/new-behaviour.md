@@ -20,7 +20,7 @@ Branch `codex/dq-new-behaviour`, from `290283b` (the tip of
 `feat/getting-started`, equal to `codex/dq-features`). The PR is stacked on
 `codex/dq-redesign`.
 
-## Decisions (29 October 2026, Demian's exact words)
+## Decisions (Demian's exact words, 29 October 2026 unless dated)
 
 | Decision | Words |
 | --- | --- |
@@ -31,6 +31,7 @@ Branch `codex/dq-new-behaviour`, from `290283b` (the tip of
 | Editing after submit | "no, at least not for now" |
 | Practice lists | "they should be separate. Normal events shouldn't appear in practice events list and vice verca" |
 | Onboarding | "No need for linear style onboarding like an org create since we wouldn't org creation for now. Everyone is invite only. Let's leave what we have" |
+| Practice AI summaries (30 October 2026) | "I think during the practice event creation you should be able to select whether the ai generation will go through "real" path or not, by default not, since it can be quite expensive" |
 
 ## Work
 
@@ -138,6 +139,17 @@ Nothing new in Convex.
 - `practice.addPracticeSubmissions` (+5, +20, +50),
   `practice.skipTimerToLastSeconds`, `practice.resetPracticeEvent`.
 - A daily cron tidies away practice events 14 days after their last change.
+- `events.practiceAiSummaries`: `"sample"` (the default) or `"model"`, set
+  by `createPracticeEvent` ("Write AI summaries with the real model", off by
+  default). With `"sample"`, every submission in the practice event (test
+  submissions, +N, phone submissions) gets a sample summary from its name
+  and description at once, in the stored sections format, with no OpenAI or
+  GitHub call. Judges see "Sample summary (practice)" instead of "Written by
+  AI". With `"model"`, summaries take the real path with the normal limits.
+  Real events ignore the field.
+- `practice.setPracticeAiSummaries` switches it later (the AI summaries
+  practice tool). It is in Recent changes with Undo, and replaces the other
+  kind of summary straight away, as does undoing it.
 
 ### 10. Tracks
 
@@ -156,7 +168,8 @@ Every new organiser action has a tool with the same checks:
 `get_judges_overview` (a sensitive read), `replace_judge_link` (makes its own
 token), `move_judge_scores`, `set_judge_link_active`, `get_live_event`,
 `create_practice_event`, `list_practice_events`, `add_practice_submissions`,
-`score_as_test_judges`, `skip_practice_timer` and `reset_practice_event`
+`score_as_test_judges`, `skip_practice_timer`, `set_practice_ai_summaries`
+and `reset_practice_event`
 (needs a matching confirmation). Changes an assistant makes show as an
 assistant's in Recent changes.
 
@@ -213,8 +226,6 @@ The judge page functions (`judging.getJudgeWorkspace`,
 - Practice events need 0 test judges, or 2 to 10 (each project needs two).
 - Test people's phone numbers come from the reserved drama range
   (+44 20 7946 0xxx), so they never reach a real phone.
-- Test hackathon submissions queue an AI summary like real ones, so a
-  practice run calls the model for each.
 - The MCP coverage check lets these tools land before their admin UI
   (`UI_PENDING`); each entry goes stale once the UI calls the function.
 - The Undo toast reads the newest change marked as yours from

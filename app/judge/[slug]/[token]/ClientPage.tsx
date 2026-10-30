@@ -160,7 +160,7 @@ function AiSummaryPanel({ summary }: { summary: AiSummary }) {
       <h2 className={styles.aiSummaryHeading} id="ai-summary-heading"><SparklesIcon aria-hidden="true" /> AI summary</h2>
       <dl className={styles.aiSummaryRows}>{rows.map(([label, text]) => <div key={label}><dt>{label}</dt>{text ? <dd>{text}</dd> : <dd className={styles.aiSummaryMissing}>Not described</dd>}</div>)}</dl>
       <p className={styles.aiSummaryNote}>
-        {`Written by AI from the team's description${summary.usedReadme ? " and README" : ""}. Check it against the demo.`}
+        {summary.sample ? "Sample summary (practice). The real model is off for this practice event." : `Written by AI from the team's description${summary.usedReadme ? " and README" : ""}. Check it against the demo.`}
         {summary.stale ? " The project changed since; a new summary is on its way." : null}
       </p>
     </section>

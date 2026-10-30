@@ -178,6 +178,7 @@ test("judges see the summary, labelled fields only", async () => {
       { key: "demoFocus", label: "Look for in the demo", text: "Watch a blocked call and the reason it gives." },
     ],
     usedReadme: true,
+    sample: false,
     generatedAt: expect.any(Number),
     stale: false,
   });
@@ -202,6 +203,7 @@ test("organisers see the summary on the admin board; other organisations cannot 
       { key: "demoFocus", label: "Look for in the demo", text: "Watch a blocked call and the reason it gives." },
     ],
     usedReadme: true,
+    sample: false,
     generatedAt: expect.any(Number),
     stale: false,
   });

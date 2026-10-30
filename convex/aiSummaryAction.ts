@@ -152,7 +152,7 @@ export const generateSubmissionSummary = internalAction({
       }
       log("rejected", result.reason);
       // A newer run covers changed fields; anything else is final for these fields.
-      if (result.reason !== "source_changed") await giveUp(result.reason);
+      if (result.reason !== "source_changed" && result.reason !== "sample_mode") await giveUp(result.reason);
       return { saved: false };
     }
     return { saved: false };

@@ -168,6 +168,23 @@ test("saving a roster deactivates omitted links and reactivates re-added links",
   expect(reactivatedAccess?.deactivatedAt).toBeUndefined();
 });
 
+test("the stage carries the judging clock only while judges score", async () => {
+  const { t, eventId } = await createHackathon(["Alex", "Sam"]);
+  for (const index of [1, 2]) await addSubmission(t, eventId, index);
+  expect(await t.query(api.events.getStage, { slug: "hack" })).toMatchObject({ phase: "submissions", judgingTimer: null });
+
+  await prepareAssignments(t);
+  await t.mutation(api.judging.setJudgingTimer, { slug: "hack", durationMs: 30 * 60 * 1000 });
+  await t.mutation(api.judging.startJudging, { slug: "hack" });
+  const stage = await t.query(api.events.getStage, { slug: "hack" });
+  expect(stage.phase).toBe("judging");
+  expect(stage.judgingTimer).toMatchObject({ status: "running", durationMs: 30 * 60 * 1000 });
+  expect(stage.judgingTimer?.endsAt).toBe((await t.run((ctx) => ctx.db.get(eventId)))?.judgingTimerEndsAt);
+
+  await t.mutation(api.judging.closeJudging, { slug: "hack" });
+  expect((await t.query(api.events.getStage, { slug: "hack" })).judgingTimer).toBeNull();
+});
+
 test("visual style is available to stage and private participant pages", async () => {
   const root = convexTest(schema, modules);
   root.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);

@@ -41,6 +41,7 @@ import { SubmissionRowActions } from "@/components/SubmissionRowActions";
 import { Skeleton } from "@/app/Skeleton";
 import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError, socialLinksError } from "@/lib/validation";
 import { parseRoundOneJudges } from "@/lib/judging-assignment";
+import { timeLeftMs } from "@/lib/timer-clock";
 import {
   DndContext,
   DragOverlay,
@@ -255,14 +256,9 @@ function adminStageModeState({
 
 function useTimerView(timer: StageTimer | undefined) {
   const [clientNow, setClientNow] = useState(() => Date.now());
-  const [receivedAt, setReceivedAt] = useState(() => Date.now());
 
   useEffect(() => {
-    setReceivedAt(Date.now());
     setClientNow(Date.now());
-  }, [timer?.serverNow, timer?.endsAt, timer?.remainingMs, timer?.status]);
-
-  useEffect(() => {
     if (!timer || timer.status !== "running") return;
 
     const interval = window.setInterval(() => {
@@ -281,11 +277,8 @@ function useTimerView(timer: StageTimer | undefined) {
     };
   }
 
-  const estimatedServerNow = timer.serverNow + (clientNow - receivedAt);
-  const remainingMs =
-    timer.status === "running" && timer.endsAt !== undefined
-      ? timer.endsAt - estimatedServerNow
-      : timer.remainingMs;
+  // The same reading as every other clock: see lib/timer-clock.ts.
+  const remainingMs = timeLeftMs({ ...timer, running: timer.status === "running" }, clientNow);
   const label =
     timer.status === "running"
       ? remainingMs < 0

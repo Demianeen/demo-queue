@@ -852,8 +852,10 @@ export const getStage = query({
     const current = stageLineup[0] ?? null;
     const upNext = stageLineup[1] ?? null;
     const showMeetLinkOnStage = event.showMeetLinkOnStage ?? false;
+    const { phase } = phaseFields(event);
 
     return {
+      phase,
       event: {
         name: event.name,
         slug: event.slug,
@@ -873,6 +875,8 @@ export const getStage = query({
       },
       stageTimer: publicStageTimer(event, now),
       demoTimer: publicDemoTimer(event, now),
+      // While judges score, the stage's clock is the judging clock, the same one judges see.
+      judgingTimer: phase === "judging" ? judgingTimerView(event, now) : null,
       current: current ? stageFields(current) : null,
       upNext: upNext ? stageFields(upNext) : null,
       lineup: stageLineup.map(stageFields),

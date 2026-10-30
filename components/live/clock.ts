@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { timeLeftMs } from "@/lib/timer-clock";
 
 /** A timer as the server sends it: time left now, and when it ends if it runs. */
 export type ServerTimer = {
@@ -38,20 +39,18 @@ export function useTick(active: boolean) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(id);
   }, [active]);
   return now;
 }
 
-/** Time left on a server timer, counting down locally while it runs. */
+/** Time left on a server timer, counting down locally while it runs. See `lib/timer-clock.ts`. */
 export function useRemaining(timer: ServerTimer | null | undefined) {
-  const running = timer?.status === "running" && typeof timer.endsAt === "number";
+  const running = timer?.status === "running";
   const now = useTick(running);
-  const [offset] = useState(() => (timer ? Date.now() - timer.serverNow : 0));
-  if (!timer) return 0;
-  if (!running) return timer.remainingMs;
-  return (timer.endsAt as number) - (now - offset);
+  return timeLeftMs(timer && { ...timer, running }, now);
 }
 
 /** "just now", "4 min ago", "2 h ago", or a date. */

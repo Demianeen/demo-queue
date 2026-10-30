@@ -27,6 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ShortcutTooltip } from "@/components/shell/commands";
 import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
+import { timeLeftMs, type TimerReading } from "@/lib/timer-clock";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { videoEmbedUrl, youtubeEmbedUrl } from "@/lib/video-embed";
 import styles from "./judge.module.css";
@@ -84,17 +85,16 @@ function formatTimer(ms: number) {
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${ss}` : `${minutes}:${ss}`;
 }
 
-function useJudgingClock(timer: { remainingMs: number; serverNow: number; running: boolean } | undefined) {
+/** The judging clock, read the same way as on the organiser's pages: see lib/timer-clock.ts. */
+function useJudgingClock(timer: TimerReading | undefined) {
   const [now, setNow] = useState(() => Date.now());
-  const [offset, setOffset] = useState(0);
-  useEffect(() => { if (timer) setOffset(Date.now() - timer.serverNow); }, [timer?.serverNow]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
+    setNow(Date.now());
     if (!timer?.running) return;
     const id = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(id);
   }, [timer?.running, timer?.serverNow, timer?.remainingMs]);
-  if (!timer) return 0;
-  return timer.running ? timer.remainingMs - (now - offset - timer.serverNow) : timer.remainingMs;
+  return timeLeftMs(timer, now);
 }
 
 function Readme({ repositoryUrl }: { repositoryUrl: string | null }) {

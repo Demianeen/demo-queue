@@ -123,3 +123,74 @@ export function recentUsageMonths(now: number, count = 12): UsageMonth[] {
     return { year: Math.floor(offset / 12), month: (offset % 12) + 1 };
   });
 }
+
+/** Dollars for totals: two decimals, and "<$0.01" for a cost too small to show. */
+export function formatUsd(usd: number, precise = false) {
+  const places = precise ? 3 : 2;
+  const smallest = 10 ** -places;
+  if (usd > 0 && usd < smallest) return `<$${smallest.toFixed(places)}`;
+  return `$${usd.toFixed(places)}`;
+}
+
+/** 435k, 6.1k, 1.2M. */
+export function formatTokensShort(tokens: number) {
+  if (tokens < 1_000) return String(tokens);
+  if (tokens < 10_000) return `${(tokens / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  if (tokens < 1_000_000) return `${Math.round(tokens / 1_000)}k`;
+  return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+}
+
+export const formatCount = (value: number) => value.toLocaleString("en-GB");
+
+/** "30 Oct, 10:42", in UTC like the rest of the page. */
+export function formatUsageTime(at: number) {
+  return new Date(at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" });
+}
+
+export type UsageTone = "success" | "warning" | "destructive" | "muted";
+
+export function usageResultLabel(feature: AiUsageFeature, result: AiUsageResult): { label: string; tone: UsageTone } {
+  switch (result) {
+    case "saved": return { label: feature === "shuffle" ? "Used" : "Saved", tone: "success" };
+    case "retried": return { label: "Failed checks, retried", tone: "warning" };
+    case "rejected": return { label: "Failed checks, gave up", tone: "destructive" };
+    case "discarded": return { label: "Project changed, not used", tone: "muted" };
+    case "failed": return { label: "Unusable reply", tone: "destructive" };
+    case "error": return { label: "Error", tone: "destructive" };
+  }
+}
+
+export type UsageCsvRow = {
+  createdAt: number;
+  eventName: string;
+  project: string | null;
+  feature: AiUsageFeature;
+  model: string;
+  serviceTier: string | null;
+  inputTokens: number | null;
+  cachedInputTokens: number | null;
+  outputTokens: number | null;
+  reasoningTokens: number | null;
+  result: AiUsageResult;
+  cost: { kind: "priced"; usd: number } | { kind: "no_usage" } | { kind: "unknown"; reason: string };
+};
+
+const csvCell = (value: string | number | null) => {
+  const text = value === null ? "" : String(value);
+  // Defuse spreadsheet formulas, then quote anything with a separator.
+  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+};
+
+/** One line per call. Cost is an estimate in USD; blank with a note when it has no price. */
+export function usageCsv(rows: UsageCsvRow[]) {
+  const header = ["time_utc", "event", "project", "feature", "model", "service_tier", "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_tokens", "estimated_cost_usd", "cost_note", "result"];
+  const lines = rows.map((row) => [
+    new Date(row.createdAt).toISOString(), row.eventName, row.project, row.feature, row.model, row.serviceTier,
+    row.inputTokens, row.cachedInputTokens, row.outputTokens, row.reasoningTokens,
+    row.cost.kind === "priced" ? row.cost.usd.toFixed(6) : null,
+    row.cost.kind === "priced" ? null : row.cost.kind === "no_usage" ? "no usage reported" : "price unknown",
+    row.result,
+  ].map(csvCell).join(","));
+  return [header.join(","), ...lines].join("\r\n") + "\r\n";
+}

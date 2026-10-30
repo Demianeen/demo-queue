@@ -21,15 +21,17 @@ import { adminViewPath, adminViewsFor, parseAdminView } from "@/lib/admin-views"
 import { EventHeaderActions } from "@/components/live/EventHeaderActions";
 import { PracticeBar } from "@/components/live/PracticeTools";
 import { EventTabs } from "@/components/live/EventTabs";
+import { AiUsageHeaderActions } from "@/components/usage/AiUsage";
 import { selectOrganization } from "./actions";
 
 type Organization = { id: string; name: string };
-type View = "events" | "create" | "styles" | "members" | "details" | "admin" | "connections" | "guide" | "practice";
+type View = "events" | "create" | "styles" | "members" | "details" | "admin" | "connections" | "guide" | "practice" | "usage";
 type EventsList = ReturnType<typeof useOrganizationEventList>;
 
 function viewFor(pathname: string): View {
   if (pathname === "/styles") return "styles";
   if (pathname === "/members") return "members";
+  if (pathname === "/ai-usage") return "usage";
   if (pathname === "/events/new") return "create";
   if (pathname === "/events/connections") return "connections";
   if (pathname === "/events/practice") return "practice";
@@ -39,7 +41,7 @@ function viewFor(pathname: string): View {
   return "events";
 }
 
-const VIEW_TITLES: Record<View, string> = { practice: "Practice", events: "Events", create: "New event", styles: "Styles", members: "Members", details: "Event", admin: "Event", connections: "Connections", guide: "Getting started" };
+const VIEW_TITLES: Record<View, string> = { practice: "Practice", events: "Events", create: "New event", styles: "Styles", members: "Members", details: "Event", admin: "Event", connections: "Connections", guide: "Getting started", usage: "AI usage" };
 
 /** The org's events, newest first. The first page comes from the server render. */
 function useOrganizationEventList(initialData: WorkspaceData | null) {
@@ -62,7 +64,7 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
   const view = viewFor(pathname);
   const eventView = view === "details" || view === "admin";
   // These views render their server page instead of the events list.
-  const pageView = eventView || view === "members" || view === "connections" || view === "practice";
+  const pageView = eventView || view === "members" || view === "connections" || view === "practice" || view === "usage";
   // Connections belong to the person, not an organization, so they open without one.
   const personalView = view === "connections";
   const setView = (next: View) => router.push(next === "styles" ? "/styles" : next === "create" ? "/events/new" : "/events");
@@ -108,7 +110,8 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
     {(switching || !active || (!isLoading && !isAuthenticated)) && <title>{`${VIEW_TITLES[view]} | Demo Queue`}</title>}
     {openEvent?.practice && eventSlug && <div className="px-4 pt-3"><PracticeBar slug={eventSlug} /></div>}
     <PageHeader crumbs={crumbs} actions={view === "events" && active && events.results.length > 0 ? <ShortcutTooltip label="New event" keys={["C"]}><Button size="sm" render={<Link href="/events/new" />} nativeButton={false}><Plus aria-hidden />New event</Button></ShortcutTooltip>
-      : view === "admin" && openEvent && eventSlug ? <EventHeaderActions slug={eventSlug} eventName={openEvent.name} /> : undefined} />
+      : view === "admin" && openEvent && eventSlug ? <EventHeaderActions slug={eventSlug} eventName={openEvent.name} />
+      : view === "usage" && active && initialData ? <AiUsageHeaderActions /> : undefined} />
     {withTabs(<div className={view === "admin" ? "dq-page-wide" : "dq-page"}>
       {signInFailed && <Alert variant="destructive" className="mb-4"><AlertDescription>Sign-in could not be completed. Your previous session is still active. <a href="/events/sign-in">Try signing in again</a>.</AlertDescription></Alert>}
       {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error} <a href="/events">Reload memberships</a></AlertDescription></Alert>}
@@ -143,7 +146,7 @@ function OrganizationEvents({ organization, view, setView, initialData, events, 
     {view === "guide" && guide}
     {view === "events" && <div className="mb-6">{guide}</div>}
     <div hidden={view !== "styles"}><OrganizationStyles organizationId={organization.id} organizationName={organization.name} styles={styleData.styles} /></div>
-    <div hidden={view === "styles" || view === "members" || view === "details" || view === "admin" || view === "connections" || view === "guide" || view === "practice" || (view !== "create" && results.length > 0)}><EventCreationForm organizationId={organization.id} organizationName={organization.name} firstEvent={!results.length} styles={styleData.styles} onManageStyles={() => setView("styles")} onCancel={results.length ? () => setView("events") : undefined} /></div>
+    <div hidden={view === "styles" || view === "members" || view === "details" || view === "admin" || view === "connections" || view === "guide" || view === "practice" || view === "usage" || (view !== "create" && results.length > 0)}><EventCreationForm organizationId={organization.id} organizationName={organization.name} firstEvent={!results.length} styles={styleData.styles} onManageStyles={() => setView("styles")} onCancel={results.length ? () => setView("events") : undefined} /></div>
     {view === "events" && results.length > 0 && <section>
       <div className="workspace-list-heading"><div className="workspace-heading"><h1>Events</h1><p>Your events in {organization.name}, newest first.</p></div></div>
       <ul className="workspace-event-list dq-card" aria-label="Events">{results.map((event, index) => <li key={event.id}><Link className="workspace-event-row dq-row" data-selected={index === selected ? "" : undefined} onMouseEnter={() => setSelected(index)} href={eventDetailsPath(event.slug)}><span className="workspace-event-icon" aria-hidden>{event.eventType === "hackathon" ? <Code2 /> : <Presentation />}</span><span className="workspace-event-summary"><span className="workspace-event-name">{event.name}</span>{index === 0 && <span className="workspace-event-current"><span className="dq-dot" data-tone="accent" aria-hidden />Current event</span>}</span><span className="workspace-event-kind">{event.eventType === "hackathon" ? "Hackathon" : "Demo"}</span><span className="workspace-event-date">Created {eventCreatedDate(event.createdAt)}</span><ChevronRight className="workspace-event-chevron" aria-hidden /></Link></li>)}</ul>

@@ -1,0 +1,77 @@
+/* AI usage page (board "B5 · AI usage"). Colours come from the organiser tokens. */
+
+.root { min-width: 0; }
+.heading { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; max-width: 720px; }
+.heading p { color: var(--dq-fg-2); }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+.card { background: var(--dq-card); border: 1px solid var(--dq-line); border-radius: 10px; min-width: 0; overflow: hidden; }
+.cardPad { padding: 14px 16px; }
+.cardHead { display: flex; align-items: center; gap: 12px; padding: 12px 14px; flex-wrap: wrap; }
+.cardHead h2, .chartHead h2, .costCard h2 { font-size: 13px; line-height: 18px; font-weight: 600; }
+.cardHint { margin-left: auto; font-size: 12px; color: var(--dq-fg-3); }
+
+/* KPI tiles */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi { background: var(--dq-card); border: 1px solid var(--dq-line); border-radius: 10px; padding: 14px; min-width: 0; }
+.kpiLabel { font-size: 12px; color: var(--dq-fg-2); }
+.kpiValue { font-size: 24px; line-height: 32px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kpiNote { font-size: 12px; line-height: 16px; color: var(--dq-fg-3); margin-top: 12px; }
+
+/* Spend by day: one stacked bar per UTC day */
+.chartCard { padding: 14px 16px; }
+.chartHead { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; flex-wrap: wrap; row-gap: 6px; }
+.legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dq-fg-2); }
+.legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.peak { font-family: var(--dq-font-mono); font-size: 11px; color: var(--dq-fg-3); }
+.bars { display: flex; gap: 3px; align-items: flex-end; }
+.bar { flex: 1 1 0; min-width: 0; height: 140px; display: flex; flex-direction: column; justify-content: flex-end; }
+.bar[data-future] { opacity: 0.35; }
+.bar > div:first-child { border-radius: 2px 2px 0 0; }
+.root [data-series="summary"] { background: var(--dq-accent); }
+.root [data-series="shuffle"] { background: var(--dq-accent-muted); }
+.bar [data-series="none"] { height: 2px; background: var(--dq-line); border-radius: 0; }
+.tick { height: 16px; margin-top: 4px; text-align: center; font-family: var(--dq-font-mono); font-size: 10px; line-height: 16px; color: var(--dq-fg-3); white-space: nowrap; overflow: visible; }
+.tick[data-hidden] { visibility: hidden; }
+@media (max-width: 600px) { .bars { gap: 2px; } }
+
+/* Tables */
+.scroll { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+.callsTable { min-width: 760px; }
+.table th { text-align: left; font-size: 12px; font-weight: 500; color: var(--dq-fg-3); padding: 6px 12px; white-space: nowrap; }
+.table td { padding: 9px 12px; border-top: 1px solid var(--dq-divider-soft); vertical-align: top; }
+.table tbody tr:hover td { background: var(--dq-row-hover); }
+.table th.num, .table td.num { text-align: right; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--dq-font-mono); font-size: 12px; }
+.name { font-weight: 500; color: var(--dq-fg); text-decoration: none; }
+a.name:hover { text-decoration: underline; }
+.sub { font-size: 12px; color: var(--dq-fg-3); font-weight: 400; font-family: var(--dq-font-sans); }
+.muted { color: var(--dq-fg-2); }
+.faint { color: var(--dq-fg-3); }
+.nowrap { white-space: nowrap; }
+.empty { color: var(--dq-fg-2); padding: 20px 14px !important; }
+.table tbody tr:has(.empty):hover td { background: transparent; }
+
+.root [data-tone="success"] { color: var(--dq-success-fg); }
+.root [data-tone="warning"] { color: var(--dq-warning-fg); }
+.root [data-tone="destructive"] { color: var(--dq-destructive); }
+.root [data-tone="muted"] { color: var(--dq-fg-2); }
+
+/* How the cost is worked out */
+.costCard { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.props { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; align-items: baseline; margin: 0; }
+.props dt { color: var(--dq-fg-2); }
+.props dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.divided { border-top: 1px solid var(--dq-divider-soft); padding-top: 10px; }
+.note { font-size: 12px; line-height: 16px; color: var(--dq-fg-3); }
+
+/* Model calls, full width under the rest */
+.calls { margin-top: 16px; }
+.callsFoot { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--dq-divider-soft); font-size: 12px; color: var(--dq-fg-3); min-height: 40px; }
+.callsFoot > span:first-child { flex: 1; }

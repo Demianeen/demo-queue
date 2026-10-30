@@ -36,6 +36,8 @@
   /* Accent and states */
   --dq-accent: #5b5bd6;
   --dq-accent-soft: #f3f3fc;
+  /* A second chart series next to the accent */
+  --dq-accent-muted: #a9a9ef;
   --dq-focus: rgb(91 91 214 / 0.15);
   --dq-success: #16a34a;
   --dq-success-fg: #15803d;

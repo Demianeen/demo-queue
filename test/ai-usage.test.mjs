@@ -3,7 +3,11 @@ import test from "node:test";
 
 import { AI_PRICES, callCost, priceFor, priceModelKey } from "../lib/ai-prices.ts";
 import {
+  formatTokensShort,
+  formatUsd,
   parseUsageMonth,
+  usageCsv,
+  usageResultLabel,
   recentUsageMonths,
   usageFromError,
   usageFromResult,
@@ -93,4 +97,26 @@ test("a usage month is a UTC calendar month", () => {
   assert.deepEqual(usageMonthRange({ year: 2026, month: 12 }), { start: Date.UTC(2026, 11, 1), end: Date.UTC(2027, 0, 1) });
   assert.equal(usageMonthDays({ year: 2026, month: 2 }), 28);
   assert.deepEqual(recentUsageMonths(Date.UTC(2026, 1, 3), 3).map(usageMonthKey), ["2026-02", "2026-01", "2025-12"]);
+});
+
+test("amounts, tokens and results read the way the page shows them", () => {
+  assert.equal(formatUsd(0), "$0.00");
+  assert.equal(formatUsd(0.004), "<$0.01");
+  assert.equal(formatUsd(0.92), "$0.92");
+  assert.equal(formatUsd(0.0052, true), "$0.005");
+  assert.equal(formatTokensShort(435_120), "435k");
+  assert.equal(formatTokensShort(6_104), "6.1k");
+  assert.equal(formatTokensShort(318), "318");
+  assert.deepEqual(usageResultLabel("shuffle", "saved"), { label: "Used", tone: "success" });
+  assert.deepEqual(usageResultLabel("summary", "retried"), { label: "Failed checks, retried", tone: "warning" });
+});
+
+test("the CSV has one line per call, quotes separators and never starts a cell with a formula", () => {
+  const lines = usageCsv([
+    { createdAt: Date.UTC(2026, 9, 30, 10, 42), eventName: "Hack, London", project: "=SUM(A1)", feature: "summary", model: "gpt-5.4", serviceTier: "default", inputTokens: 10, cachedInputTokens: 0, outputTokens: 2, reasoningTokens: null, result: "saved", cost: { kind: "priced", usd: 0.000055 } },
+    { createdAt: Date.UTC(2026, 9, 30, 11), eventName: "Hack", project: null, feature: "shuffle", model: "gpt-x", serviceTier: null, inputTokens: null, cachedInputTokens: null, outputTokens: null, reasoningTokens: null, result: "error", cost: { kind: "no_usage" } },
+  ]).split("\r\n");
+  assert.equal(lines[0].split(",").length, 13);
+  assert.equal(lines[1], "2026-10-30T10:42:00.000Z,\"Hack, London\",'=SUM(A1),summary,gpt-5.4,default,10,0,2,,0.000055,,saved");
+  assert.equal(lines[2], "2026-10-30T11:00:00.000Z,Hack,,shuffle,gpt-x,,,,,,,no usage reported,error");
 });

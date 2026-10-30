@@ -168,7 +168,8 @@ function SpendByDay({ summary, month }: { summary: Summary; month: UsageMonth | 
   const peakIndex = max > 0 ? totals.indexOf(max) : -1;
   const now = new Date();
   const thisMonth = month && month.year === now.getUTCFullYear() && month.month === now.getUTCMonth() + 1;
-  const short = month ? usageMonthLabel(month).slice(0, 3) : "";
+  // The same short month as the call times ("30 Oct", "24 Sept").
+  const short = month ? new Date(Date.UTC(month.year, month.month - 1, 1)).toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" }) : "";
   const labelled = new Set([1, 5, 10, 15, 20, 25, 30]);
   return <section className={`${styles.card} ${styles.chartCard}`} aria-labelledby="usage-by-day">
     <div className={styles.chartHead}>
@@ -176,7 +177,7 @@ function SpendByDay({ summary, month }: { summary: Summary; month: UsageMonth | 
       <span className={styles.legend}><i data-series="summary" aria-hidden />Summaries</span>
       <span className={styles.legend}><i data-series="shuffle" aria-hidden />Shuffle</span>
       <span className="flex-1" />
-      <span className={styles.peak}>{peakIndex >= 0 ? `peak ${formatUsd(max)} on ${peakIndex + 1} ${short}` : "no spend yet"}</span>
+      <span className={styles.peak}>{peakIndex >= 0 ? `peak ${formatUsd(max)} on ${peakIndex + 1} ${short}` : "no spend this month"}</span>
     </div>
     <div className={styles.bars} role="list" aria-label="Estimated spend per day, UTC">
       {summary.days.map((day, index) => {
@@ -198,6 +199,12 @@ function SpendByDay({ summary, month }: { summary: Summary; month: UsageMonth | 
 
 const KIND_LABELS = { real: "Real", practice_model: "Practice · real model", practice_sample: "Practice · sample summaries" } as const;
 
+function eventKindLabel(event: Summary["events"][number]) {
+  const samples = `${event.samples} sample summar${event.samples === 1 ? "y" : "ies"}`;
+  if (event.kind === "practice_sample") return event.samples > 0 ? `Practice · ${samples}` : KIND_LABELS.practice_sample;
+  return event.samples > 0 ? `${KIND_LABELS[event.kind]} · ${samples}` : KIND_LABELS[event.kind];
+}
+
 function ByEvent({ summary, monthName }: { summary: Summary; monthName: string }) {
   return <section className={styles.card} aria-labelledby="usage-by-event">
     <div className={styles.cardHead}><h2 id="usage-by-event">By event</h2><span className={styles.cardHint}>Real and practice events, newest activity first</span></div>
@@ -209,12 +216,12 @@ function ByEvent({ summary, monthName }: { summary: Summary; monthName: string }
             : summary.events.map((event) => <tr key={event.id}>
               <td>
                 {event.slug ? <Link href={adminPath(event.slug)} className={styles.name}>{event.name}</Link> : <span className={styles.name}>{event.name}</span>}
-                <div className={styles.sub}>{KIND_LABELS[event.kind]}{event.samples > 0 ? ` · ${event.samples} sample${event.samples === 1 ? "" : "s"}` : ""}</div>
+                <div className={styles.sub}>{eventKindLabel(event)}</div>
               </td>
               <td className={styles.num}>{formatCount(event.summaries)}</td>
               <td className={styles.num}>{formatCount(event.shuffles)}</td>
               <td className={`${styles.num} ${styles.mono}`}>{formatTokensShort(event.tokens)}</td>
-              <td className={`${styles.num} ${styles.mono}`}>{formatUsd(event.usd)}{event.unpricedCalls > 0 && <div className={styles.sub} data-tone="warning">+{event.unpricedCalls} unpriced</div>}</td>
+              <td className={`${styles.num} ${styles.mono}`}>{formatUsd(event.usd)}{event.unpricedCalls > 0 && <div className={`${styles.sub} ${styles.nowrap}`} data-tone="warning">+{event.unpricedCalls} unpriced</div>}</td>
               <td className={`${styles.num} ${styles.mono} ${styles.muted}`}>{event.perProjectUsd === null ? "none" : formatUsd(event.perProjectUsd, true)}</td>
               <td className={`${styles.num} ${event.summaryRuns.kind === "used" ? "" : styles.faint}`}>{event.summaryRuns.kind === "used" ? `${event.summaryRuns.used} of ${event.summaryRuns.cap}` : event.summaryRuns.kind === "samples_only" ? "samples only" : "none"}</td>
             </tr>)}

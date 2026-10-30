@@ -22,6 +22,7 @@ export const UI_EXCLUSIONS = [
   { file: "app/s/[slug]/[token]/ClientPage.tsx", browser: "events.editTeamMemberSocials", reason: "Participant capability page. Organization tools must not impersonate participants." },
   { file: "app/(workspace)/members/actions.ts", browser: "members.reserveInvitations", reason: "Counts Members page invitations against the organization limit. The send_invitations tool uses the same limit internally." },
   ...["status", "teamStatus", "setHidden", "markDryRun"].map((name) => ({ file: "components/GettingStarted.tsx", browser: `gettingStarted.${name}`, reason: "The signed-in person's own onboarding checklist, not event administration." })),
+  ...["monthSummary", "monthCalls"].map((name) => ({ file: "components/usage/AiUsage.tsx", browser: `aiUsage.${name}`, reason: "Proposed: AI usage and estimated spend stay on the organiser page for now; a read-only MCP tool can follow." })),
   { file: "components/McpConnectionClient.tsx", browser: "gettingStarted.mcpAddress", reason: "Shows the MCP address to a person setting up an assistant; an assistant already knows it." },
   ...finalistFunctions.map((name) => ({ file: "components/judging/FinalistsView.tsx", browser: `judging.${name}`, reason: "Proposed: finalist and winner picking stays in the admin page for now; MCP tools can follow." })),
   { file: "components/live/StageTab.tsx", browser: "judging.submitFinalists", reason: "Proposed: lining up the submitted finalists follows the Finalists view's submit; MCP tools can follow." },

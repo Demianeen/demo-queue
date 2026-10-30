@@ -47,6 +47,10 @@
 .table td { padding: 9px 12px; border-top: 1px solid var(--dq-divider-soft); vertical-align: top; }
 .table tbody tr:hover td { background: var(--dq-row-hover); }
 .table th.num, .table td.num { text-align: right; }
+/* The event or project column keeps room for its name when the table scrolls on a phone. */
+.table td:first-child { min-width: 180px; }
+.callsTable td:first-child { min-width: 0; }
+.callsTable td:nth-child(2) { min-width: 180px; }
 .num { font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--dq-font-mono); font-size: 12px; }
 .name { font-weight: 500; color: var(--dq-fg); text-decoration: none; }
@@ -68,6 +72,7 @@ a.name:hover { text-decoration: underline; }
 .props { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; align-items: baseline; margin: 0; }
 .props dt { color: var(--dq-fg-2); }
 .props dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.props + .props { border-top: 1px solid var(--dq-divider-soft); padding-top: 10px; }
 .divided { border-top: 1px solid var(--dq-divider-soft); padding-top: 10px; }
 .note { font-size: 12px; line-height: 16px; color: var(--dq-fg-3); }
 

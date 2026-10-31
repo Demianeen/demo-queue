@@ -262,3 +262,16 @@ test("test people send no email, so practice never spends the sending allowance"
   await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "demo" }, testSubmissions: 3, testJudges: 0 });
   expect(await emails()).toBe(0);
 });
+
+test("a practice event made without a name gets the one the form showed, numbered past names already taken", async () => {
+  const { t } = setupTest();
+  const blank = { expectedOrganizationId: ORG, start: { kind: "blank" as const, eventType: "hackathon" as const }, testSubmissions: 0, testJudges: 0 };
+  // A second apart: the slug's random part is seeded from the clock, which this file holds still.
+  const first = await t.action(api.practice.createPracticeEvent, blank);
+  vi.setSystemTime(Date.now() + 1000);
+  const second = await t.action(api.practice.createPracticeEvent, blank);
+  vi.setSystemTime(Date.now() + 1000);
+  const typed = await t.action(api.practice.createPracticeEvent, { ...blank, name: "Practice hackathon" });
+  const names = await t.run(async (ctx) => Promise.all([first, second, typed].map(async (made) => (await ctx.db.get(made.eventId))!.name)));
+  expect(names).toEqual(["Practice hackathon", "Practice hackathon 2", "Practice hackathon"]);
+});

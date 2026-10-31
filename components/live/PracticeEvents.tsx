@@ -19,6 +19,7 @@ import { adminPath } from "@/lib/routes";
 import { errorText, useMemberNames } from "./changes";
 import { Toggle } from "./Toggle";
 import styles from "./practice.module.css";
+import { practiceEventName } from "@/lib/practice-name";
 
 type Start = "copy" | "hackathon" | "demo";
 
@@ -60,7 +61,7 @@ export function PracticeEvents() {
       </table>
     </div>
     <p className={styles.note}>Everyone in your organization can open these, but they only show here. Nothing in a practice event reaches real participants: every test person uses a plus-address of the owner&apos;s own email.</p>
-    {organizationId && <NewPracticeDialog open={creating} onOpenChange={setCreating} organizationId={organizationId} />}
+    {organizationId && <NewPracticeDialog open={creating} onOpenChange={setCreating} organizationId={organizationId} takenNames={rows?.map((row) => row.name) ?? []} />}
   </>;
 }
 
@@ -69,12 +70,13 @@ function daysLeft(at: number) {
   return days === 0 ? "Today" : days === 1 ? "In 1 day" : `In ${days} days`;
 }
 
-function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boolean; onOpenChange: (open: boolean) => void; organizationId: string }) {
+function NewPracticeDialog({ open, onOpenChange, organizationId, takenNames }: { open: boolean; onOpenChange: (open: boolean) => void; organizationId: string; takenNames: string[] }) {
   const live = useQuery(api.events.getLiveEvent, open ? {} : "skip");
   const createPracticeEvent = useAction(api.practice.createPracticeEvent);
   const router = useRouter();
   const [start, setStart] = useState<Start>("copy");
-  const [name, setName] = useState("");
+  // null until the organiser types: the field then shows the name the event really gets.
+  const [name, setName] = useState<string | null>(null);
   const [submissions, setSubmissions] = useState(20);
   const [judges, setJudges] = useState(3);
   // Off by default: the real model costs money per project.
@@ -83,7 +85,8 @@ function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boole
   const [error, setError] = useState("");
   const startFrom: Start = start === "copy" && live === null ? "hackathon" : start;
   const judged = startFrom === "hackathon" || (startFrom === "copy" && live?.eventType === "hackathon");
-  useEffect(() => { if (open) setError(""); }, [open]);
+  const suggestedName = practiceEventName(startFrom === "copy" && live ? { sourceName: live.name, eventType: live.eventType ?? "demo" } : { eventType: startFrom === "copy" ? "hackathon" : startFrom }, takenNames);
+  useEffect(() => { if (open) { setError(""); setName(null); } }, [open]);
 
   async function create() {
     if (startFrom === "copy" && !live) return;
@@ -92,7 +95,7 @@ function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boole
       const result = await createPracticeEvent({
         expectedOrganizationId: organizationId,
         start: startFrom === "copy" ? { kind: "copy", slug: live!.slug } : { kind: "blank", eventType: startFrom },
-        name: name.trim() || undefined,
+        name: name?.trim() || undefined,
         testSubmissions: submissions,
         testJudges: judged ? judges : 0,
         practiceAiSummaries: judged && realModel ? "model" : "sample",
@@ -120,7 +123,7 @@ function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boole
             <label className={styles.option}><RadioGroupItem value="demo" /><span><span className={styles.optionTitle}>Blank demo night</span><span className={styles.optionDetail}>A queue of demos, no judging.</span></span></label>
           </RadioGroup>
         </fieldset>
-        <label className={styles.field}><span className={styles.legend}>Name</span><Input value={name} maxLength={80} placeholder={live && startFrom === "copy" ? `Dry run for ${live.name}` : "Dry run"} onChange={(changeEvent) => setName(changeEvent.currentTarget.value)} /></label>
+        <label className={styles.field}><span className={styles.legend}>Name</span><Input value={name ?? suggestedName} maxLength={80} placeholder={suggestedName} onChange={(changeEvent) => setName(changeEvent.currentTarget.value)} /></label>
         <fieldset>
           <legend className={styles.legend}>Fill it with</legend>
           <Stepper label="Test submissions" value={submissions} min={0} max={50} step={5} onChange={setSubmissions} />

@@ -20,6 +20,7 @@ import { judgingRemaining } from "./phases";
 import { listEventTracks } from "./tracks";
 import { listEventSponsors } from "./sponsors";
 import { workosUserEmail } from "./members";
+import { practiceEventName } from "../lib/practice-name";
 import { eventPhase } from "../lib/event-phase";
 import { isJudgedStatus } from "../lib/judged-status";
 import { emailKey, isValidEmail } from "../lib/validation";
@@ -223,7 +224,11 @@ export const createPracticeEventForOwner = internalMutation({
     const eventType = source ? source.eventType ?? "demo" : input.start.kind === "blank" ? input.start.eventType : "demo";
     if (testJudges > 0 && eventType !== "hackathon") throw new ConvexError("A demo night has no judges.");
     if (testJudges === 1) throw new ConvexError("Add at least 2 test judges, or none.");
-    const name = (input.name?.trim() || (source ? `Dry run for ${source.name}` : eventType === "hackathon" ? "Practice hackathon" : "Practice demo night")).slice(0, 160);
+    const typed = input.name?.trim();
+    const taken = typed ? [] : (await ctx.db.query("events")
+      .withIndex("by_workosOrganizationId_and_practice", (q) => q.eq("workosOrganizationId", principal.organizationId).eq("practice", true))
+      .take(PRACTICE_LIST_LIMIT)).map((event) => event.name);
+    const name = (typed || practiceEventName({ sourceName: source?.name, eventType }, taken)).slice(0, 160);
     const slug = practiceSlug(name, random);
     const hackathon = eventType === "hackathon";
     const tracks = source

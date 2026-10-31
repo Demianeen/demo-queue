@@ -222,7 +222,7 @@ function JudgingPageInner({ slug, admin, previews, onHide, onManageJudges, sheet
       {selected ? <DetailPanel slug={slug} row={selected} closed={closed} evenOut={evenOut} decisions={decisions}
           onClose={() => setParams({ project: null })} onHide={onHide} saveNormalization={saveNormalization} />
         : <>
-          <ClockCard slug={slug} admin={admin} totals={totals} onManageJudges={onManageJudges} />
+          <ClockCard slug={slug} admin={admin} totals={totals} judges={overview?.judges} onManageJudges={onManageJudges} />
           <JudgesCard slug={slug} eventName={admin.event.name} overview={overview} openKey={judgeKey} onOpen={(key) => setParams({ judge: key })} onManage={onManageJudges} titleById={titleById} />
         </>}
     </aside>}

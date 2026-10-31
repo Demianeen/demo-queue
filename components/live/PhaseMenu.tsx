@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useConvex, useMutation } from "convex/react";
+import { useConvex, useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
@@ -11,7 +11,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCommands, type Command } from "@/components/shell/commands";
 import { phasesFor, type EventPhase } from "@/lib/event-phase";
-import { phaseTabLabel } from "@/lib/admin-views";
+import { adminViewPath, phaseTabLabel } from "@/lib/admin-views";
+import { useInPageNavigate } from "@/components/InPageLink";
+import { useStartJudging } from "@/components/judging/useStartJudging";
 import { formatClock } from "./clock";
 import { errorText } from "./changes";
 import styles from "./live.module.css";
@@ -33,12 +35,20 @@ function effectText(preview: PhasePreview) {
 /**
  * The phase control in the event's header: "● Judging ▾". Each other phase
  * says what moving there does. Forward moves happen at once (and can be
- * undone from Recent changes); a move back first asks, inline.
+ * undone from Recent changes); a move back first asks, inline. Moving a
+ * hackathon to Judging starts judging too, once it has two judges.
  */
 export function PhaseMenu({ slug, eventType, phase }: { slug: string; eventType: EventType; phase: EventPhase }) {
   const convex = useConvex();
   const setPhase = useMutation(api.phases.setPhase);
   const reopenSubmissions = useMutation(api.phases.reopenSubmissions);
+  const startJudging = useStartJudging(slug);
+  const navigate = useInPageNavigate();
+  const { isAuthenticated } = useConvexAuth();
+  // The admin page asks for the same query, so this shares its subscription.
+  const admin = useQuery(api.events.getAdmin, isAuthenticated && eventType === "hackathon" ? { slug } : "skip");
+  const judgingNotStarted = admin?.event.judgingStatus === "setup" || admin?.event.judgingStatus === "preparing_assignments" || admin?.event.judgingStatus === "ready";
+  const judgeCount = admin?.event.roundOneJudges.length ?? 0;
   const phases = useMemo(() => phasesFor(eventType), [eventType]);
   const [open, setOpen] = useState(false);
   const [previews, setPreviews] = useState<Partial<Record<EventPhase, PhasePreview | "failed">>>({});
@@ -70,6 +80,7 @@ export function PhaseMenu({ slug, eventType, phase }: { slug: string; eventType:
       // A hackathon's submit link reopens through its own mutation: judging pauses and every score stays.
       if (to === "submissions" && phases.includes("judging")) await reopenSubmissions({ slug });
       else await setPhase({ slug, phase: to });
+      if (to === "judging" && eventType === "hackathon") await startJudgingAfterMove();
       // The Undo toast comes from Recent changes, as for every other change.
       setPending(null);
       setOpen(false);
@@ -77,6 +88,24 @@ export function PhaseMenu({ slug, eventType, phase }: { slug: string; eventType:
       toast.error(errorText(error, `Could not move to ${phaseTabLabel(eventType, to)}.`));
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Moving to Judging is starting it: projects get their judges and the clock runs; then the judges need their links.
+  async function startJudgingAfterMove() {
+    const openJudging = () => navigate(adminViewPath(slug, "judging"));
+    const now = await convex.query(api.events.getAdmin, { slug });
+    const status = now.event.judgingStatus;
+    if (status !== "setup" && status !== "preparing_assignments" && status !== "ready") return;
+    if (now.event.roundOneJudges.length < 2) {
+      toast("Judging starts once it has two judges. Add them on Judging.", { action: { label: "Open Judging", onClick: openJudging } });
+      return;
+    }
+    try {
+      await startJudging(status);
+      toast("Judging started. Send every judge their link.", { action: { label: "Open Judging", onClick: openJudging } });
+    } catch (error) {
+      toast.error(errorText(error, "Submissions closed, but judging did not start. Start it on Judging."));
     }
   }
 
@@ -132,6 +161,9 @@ export function PhaseMenu({ slug, eventType, phase }: { slug: string; eventType:
             </span>
             <span className={styles.phaseItemText}>
               {current ? "Live now." : preview === undefined ? <Skeleton className="h-3 w-48" /> : preview === "failed" ? "Could not check what this does. It still asks before going back." : effectText(preview)}
+              {!current && item === "judging" && phase === "submissions" && judgingNotStarted && (judgeCount >= 2
+                ? " Judging starts: every project gets two judges and the clock runs."
+                : " Judging starts once you add two judges.")}
             </span>
           </button>;
         })}

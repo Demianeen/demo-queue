@@ -13,7 +13,7 @@ import { ShortcutTooltip, useCommands, type Command } from "@/components/shell/c
 import { SubmissionPreviewBody } from "@/components/SubmissionPreviewCard";
 import type { AdminData } from "@/components/live/PhaseTabs";
 import { TrackChips } from "@/components/live/PhaseTabs";
-import type { JudgesOverview } from "@/components/live/JudgeTools";
+import { CopyAllLinks, useMakeLinks, type JudgeRow, type JudgesOverview } from "@/components/live/JudgeTools";
 import { errorText } from "@/components/live/changes";
 import { formatClock, parseClock, useRemaining } from "@/components/live/clock";
 import { adminViewPath } from "@/lib/admin-views";
@@ -22,6 +22,7 @@ import { chipDescription, formatScore } from "./ProjectRows";
 import type { BoardRow } from "./JudgingPage";
 import styles from "./judging.module.css";
 import { InPageLink } from "@/components/InPageLink";
+import { useStartJudging } from "./useStartJudging";
 
 type NormalizationJudge = FunctionReturnType<typeof api.judging.getNormalizationOverview>["judges"][number];
 
@@ -30,21 +31,20 @@ async function run(action: () => Promise<unknown>, failure: string, done?: strin
 }
 
 /**
- * The judging clock and what to do next: close submissions, assign, start,
+ * The judging clock and what to do next: close submissions (which starts
+ * judging), add judges if there are fewer than two, send judges their links,
  * then pause, add time or close. Judges see the same clock, read through
  * lib/timer-clock.ts like every other clock.
  */
-export function ClockCard({ slug, admin, totals, onManageJudges, wide = false }: { slug: string; admin: AdminData; totals: JudgesOverview["totals"] | undefined; onManageJudges: () => void; wide?: boolean }) {
+export function ClockCard({ slug, admin, totals, judges, onManageJudges, wide = false }: { slug: string; admin: AdminData; totals: JudgesOverview["totals"] | undefined; judges?: JudgeRow[]; onManageJudges: () => void; wide?: boolean }) {
   const { event } = admin;
   const status = event.judgingStatus ?? "setup";
   const timer = event.judgingTimer;
   const remaining = useRemaining(timer);
   const closeSubmissions = useMutation(api.judging.closeSubmissions);
-  const startPreparation = useMutation(api.judging.startAssignmentPreparation);
-  const prepareBatch = useMutation(api.judging.prepareAssignmentBatch);
+  const startJudgingNow = useStartJudging(slug);
   const setJudgingTimer = useMutation(api.judging.setJudgingTimer);
   const setJudgingTimeLeft = useMutation(api.judging.setJudgingTimeLeft);
-  const startJudging = useMutation(api.judging.startJudging);
   const addJudgingTime = useMutation(api.judging.addJudgingTime);
   const pauseJudgingTimer = useMutation(api.judging.pauseJudgingTimer);
   const resumeJudgingTimer = useMutation(api.judging.resumeJudgingTimer);
@@ -65,10 +65,7 @@ export function ClockCard({ slug, admin, totals, onManageJudges, wide = false }:
     setBusy(null);
     return ok;
   }
-  const assign = () => act("assign", async () => {
-    if (status === "setup") await startPreparation({ slug });
-    for (;;) { const result = await prepareBatch({ slug }); if (result.done) break; }
-  }, "Could not assign submissions.", "Every project has two judges.");
+  const start = () => act("start", () => startJudgingNow(status), "Could not start judging.", "Judging started. Send every judge their link.");
   const setTime = (ms: number) => act("time", () => (open ? setJudgingTimeLeft({ slug, remainingMs: ms }) : setJudgingTimer({ slug, durationMs: ms })), "Could not set the time.").then((ok) => { if (ok) setDraft(null); });
   const toggle = () => act("toggle", () => (running ? pauseJudgingTimer({ slug }) : resumeJudgingTimer({ slug })), "Could not change the clock.");
   const addFive = () => act("add", () => addJudgingTime({ slug, deltaMs: 5 * 60_000 }), "Could not add time.");
@@ -103,19 +100,23 @@ export function ClockCard({ slug, admin, totals, onManageJudges, wide = false }:
     note = "set it before you start";
     if (event.submissionsOpen) {
       help = "Judging starts once submissions close. Closing them keeps every entry.";
-      actions = <Button size="sm" disabled={busy !== null} onClick={() => void act("close-submissions", () => closeSubmissions({ slug }), "Could not close submissions.", "Submissions closed.")}>Close submissions</Button>;
+      actions = <Button size="sm" disabled={busy !== null} onClick={() => void act("close-submissions", async () => {
+        const { judgingStatus } = await closeSubmissions({ slug });
+        if (event.roundOneJudges.length >= 2) await startJudgingNow(judgingStatus as Parameters<typeof startJudgingNow>[0]);
+      }, "Could not close submissions.", event.roundOneJudges.length >= 2 ? "Judging started. Send every judge their link." : "Submissions closed.")}>{event.roundOneJudges.length >= 2 ? "Close submissions and start" : "Close submissions"}</Button>;
     } else if (event.roundOneJudges.length < 2) {
-      help = "Add at least two judges, then give every project two of them.";
+      help = "Add at least two judges, then start: every project gets two of them.";
       actions = <Button size="sm" onClick={onManageJudges}>Add judges</Button>;
     } else {
-      help = "Every project gets two judges, spread evenly. Nothing is visible to judges until you start.";
-      actions = <Button size="sm" disabled={busy !== null} onClick={() => void assign()}>{busy === "assign" || status === "preparing_assignments" ? "Assigning…" : "Assign submissions"}</Button>;
+      help = "Every project gets two judges, spread evenly, and the clock starts. Then send judges their links.";
+      actions = <Button size="sm" disabled={busy !== null} onClick={() => void start()}>{busy === "start" ? "Starting…" : "Start judging"}</Button>;
     }
   } else if (status === "ready") {
+    // Projects were assigned before starting became one step.
     head = "Judging time";
-    note = "starts when you open judging";
+    note = "set it before you start";
     help = "Every project has two judges. Starting opens the judge links and runs the clock.";
-    actions = <Button size="sm" disabled={busy !== null} onClick={() => void act("start", () => startJudging({ slug }), "Could not start judging.", "Judging started.")}>Start judging</Button>;
+    actions = <Button size="sm" disabled={busy !== null} onClick={() => void start()}>{busy === "start" ? "Starting…" : "Start judging"}</Button>;
   } else if (status === "open") {
     actions = <>
       <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void addFive()}>+5 min</Button>
@@ -142,7 +143,28 @@ export function ClockCard({ slug, admin, totals, onManageJudges, wide = false }:
     <div className={styles.bar} role="progressbar" aria-label="Scores in" aria-valuemin={0} aria-valuemax={totals?.targetReviews ?? 0} aria-valuenow={totals?.completeReviews ?? 0}><span style={{ width: `${Math.round(scoresShare * 100)}%` }} /></div>
     {totals ? <p className={styles.muted}>{totals.completeReviews} of {totals.targetReviews} scores in · {totals.fullyReviewedProjects} of {totals.projects} projects fully reviewed</p> : <Skeleton className="h-3 w-56" />}
     {help && <p className={styles.help}>{help}</p>}
+    {open && !wide && judges && <SendLinks slug={slug} eventName={event.name} judges={judges} />}
   </section>;
+}
+
+/**
+ * Judging's next step once it runs: every judge needs their link. Shown
+ * until each one has opened it; making links comes first when some have none.
+ */
+function SendLinks({ slug, eventName, judges }: { slug: string; eventName: string; judges: JudgeRow[] }) {
+  const roster = judges.filter((judge) => judge.onRoster && (judge.active || !judge.hasLink));
+  const { linkless, making, makeAllLinks } = useMakeLinks(slug, judges);
+  const unopened = roster.filter((judge) => judge.hasLink && !judge.openedAt && judge.assignedScoredCount + judge.helpedCount === 0);
+  if (linkless.length === 0 && unopened.length === 0) return null;
+  return <div className={styles.nextStep}>
+    <strong>Send every judge their link</strong>
+    <span>{linkless.length > 0
+      ? `${linkless.length} judge${linkless.length === 1 ? " has" : "s have"} no link yet. Make them, then copy them all into WhatsApp or Slack.`
+      : `${unopened.length} of ${roster.length} judge${roster.length === 1 ? " hasn't" : "s haven't"} opened theirs yet. Copy them all into WhatsApp or Slack.`}</span>
+    {linkless.length > 0
+      ? <Button size="sm" disabled={making} onClick={() => void makeAllLinks()}>{making ? "Making links…" : `Make ${linkless.length} link${linkless.length === 1 ? "" : "s"}`}</Button>
+      : <CopyAllLinks eventName={eventName} judges={judges} disabled={false} primary commands={false} />}
+  </div>;
 }
 
 /**

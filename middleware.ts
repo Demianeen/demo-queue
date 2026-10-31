@@ -14,4 +14,4 @@ export default function middleware(request: NextRequest, event: NextFetchEvent) 
   return handleAuth(request, event);
 }
 
-export const config = { matcher: ["/events/:path*", "/styles/:path*", "/members/:path*", "/callback"] };
+export const config = { matcher: ["/events/:path*", "/styles/:path*", "/members/:path*", "/ai-usage/:path*", "/callback"] };

@@ -30,6 +30,7 @@ const modules = {
   "./tracks.ts": () => import("./tracks"),
   "./aiSummaries.ts": () => import("./aiSummaries"),
   "./aiSummaryAction.ts": () => import("./aiSummaryAction"),
+  "./aiUsage.ts": () => import("./aiUsage"),
   "./phases.ts": () => import("./phases"),
   "./changeLog.ts": () => import("./changeLog"),
   "./judgingSheetSync.ts": () => import("./judgingSheetSync"),

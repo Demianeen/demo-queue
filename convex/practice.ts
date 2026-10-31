@@ -548,6 +548,7 @@ export const tidyPracticeEvents = internalMutation({
       if (changes.length === TIDY_CHANGE_ROWS) budget = 0;
     }
     if (budget > 0) await remove(ids(await ctx.db.query("auditLog").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
+    if (budget > 0) await remove(ids(await ctx.db.query("aiSampleSummaries").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("teamMembers").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("eventTracks").withIndex("by_event_and_order", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("lumaGuestLookups").withIndex("by_event_and_email", (q) => q.eq("eventId", eventId)).take(budget)));

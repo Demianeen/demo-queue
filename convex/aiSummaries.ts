@@ -69,6 +69,8 @@ function needsSummary(event: Doc<"events">, submission: Doc<"submissions">, refr
 async function writeSampleSummary(ctx: MutationCtx, event: Doc<"events">, submission: Doc<"submissions">) {
   const sections = buildSampleSummary(submission, summarySections(event));
   const text = (key: string) => sections.find((section) => section.key === key)?.text;
+  const now = Date.now();
+  if (event.workosOrganizationId) await ctx.db.insert("aiSampleSummaries", { organizationId: event.workosOrganizationId, eventId: event._id, submissionId: submission._id, createdAt: now });
   await ctx.db.patch(submission._id, {
     aiSummary: {
       ...(text("whatItDoes") !== undefined ? { whatItDoes: text("whatItDoes") } : {}),
@@ -80,7 +82,7 @@ async function writeSampleSummary(ctx: MutationCtx, event: Doc<"events">, submis
       usedReadme: false,
       promptVersion: SUMMARY_PROMPT_VERSION,
       sample: true,
-      generatedAt: Date.now(),
+      generatedAt: now,
     },
     aiSummaryGaveUp: undefined,
   });
@@ -92,6 +94,9 @@ export const SUMMARY_DEBOUNCE_MS = 10 * 60_000;
 export const SUMMARY_DAILY_RUNS_PER_SUBMISSION = 3;
 export const SUMMARY_DAILY_FLOOR = 20;
 const DAY_MS = 24 * 60 * 60_000;
+
+/** How many summary runs an event with this many submissions may queue per UTC day. */
+export const summaryDailyCap = (submissionCount: number) => Math.max(SUMMARY_DAILY_FLOOR, SUMMARY_DAILY_RUNS_PER_SUBMISSION * submissionCount);
 
 export type SummaryQueueSource = "participant" | "organiser" | "close";
 
@@ -105,7 +110,7 @@ async function takeSummaryBudget(ctx: MutationCtx, eventId: Id<"events">, now: n
   if (!event) return false;
   const day = Math.floor(now / DAY_MS);
   const used = event.aiSummaryBudget?.day === day ? event.aiSummaryBudget.used : 0;
-  const cap = Math.max(SUMMARY_DAILY_FLOOR, SUMMARY_DAILY_RUNS_PER_SUBMISSION * submissionCount);
+  const cap = summaryDailyCap(submissionCount);
   if (used >= cap) {
     console.log(JSON.stringify({ event: "ai-summary", status: "skipped", reason: "daily_budget", eventId }));
     return false;
@@ -197,6 +202,8 @@ export const summaryInput = internalQuery({
     const byId = tracksById(await listEventTracks(ctx, event._id));
     const sourceKey = summarySourceKey(submission);
     return {
+      // For the usage log only; the prompt takes the project fields below.
+      eventId: event._id,
       demoTitle: submission.demoTitle,
       description: submission.description,
       githubUrl: submission.githubUrl ?? null,

@@ -12,6 +12,7 @@ import type * as adminActionArgs from "../adminActionArgs.js";
 import type * as ai from "../ai.js";
 import type * as aiSummaries from "../aiSummaries.js";
 import type * as aiSummaryAction from "../aiSummaryAction.js";
+import type * as aiUsage from "../aiUsage.js";
 import type * as changeLog from "../changeLog.js";
 import type * as changeWrap from "../changeWrap.js";
 import type * as changes from "../changes.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   ai: typeof ai;
   aiSummaries: typeof aiSummaries;
   aiSummaryAction: typeof aiSummaryAction;
+  aiUsage: typeof aiUsage;
   changeLog: typeof changeLog;
   changeWrap: typeof changeWrap;
   changes: typeof changes;

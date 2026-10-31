@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { ACTOR_SUBJECT, ORG, addProject, createEvent, setupTest, type TestClient } from "./behaviour.testing";
-import { aiSummaryStatus, publicAiSummary } from "./aiSummaries";
+import { aiSummaryStatus, publicAiRead, publicAiSummary } from "./aiSummaries";
 import { buildSampleSummary } from "../lib/ai-summary";
 
 // The model is never called for real: generateText is replaced, the rest of the SDK stays.
@@ -157,3 +157,24 @@ test("closing a sample practice event fills any missing sample summary, with no 
 });
 
 const row = (t: TestClient, id: Id<"submissions">) => t.run((ctx) => ctx.db.get(id));
+
+test("sample summaries come with a sample read of the team's tracks and the event's sponsors", async () => {
+  const { t } = setupTest();
+  const created = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "hackathon" }, testSubmissions: 12, testJudges: 0 });
+  const reads = await t.run(async (ctx) => {
+    const event = (await ctx.db.get(created.eventId))!;
+    const tracks = await ctx.db.query("eventTracks").withIndex("by_event_and_order", (q) => q.eq("eventId", event._id)).collect();
+    const sponsors = await ctx.db.query("eventSponsors").withIndex("by_event_and_order", (q) => q.eq("eventId", event._id)).collect();
+    const rows = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect();
+    return rows.map((row) => ({ picked: row.trackIds?.length ?? 0, read: publicAiRead(event, row, new Map(tracks.map((track) => [track._id, track])), sponsors) }));
+  });
+  expect(reads).toHaveLength(12);
+  for (const { picked, read } of reads) {
+    expect(read).toMatchObject({ status: "ready", overall: expect.stringContaining("Sample read") });
+    expect(read!.tracks).toHaveLength(picked);
+    expect(read!.tracks.every((track) => track.level !== null && track.reason?.startsWith("Sample reason"))).toBe(true);
+    expect(read!.sponsors.map((sponsor) => sponsor.name)).toEqual(["OpenAI", "Vercel"]);
+    expect(read!.sponsors.every((sponsor) => sponsor.level !== null)).toBe(true);
+  }
+  expect(generateText).not.toHaveBeenCalled();
+});

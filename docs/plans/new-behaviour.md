@@ -129,13 +129,19 @@ Nothing new in Convex.
 - `events.getLiveEvent`: the organization's newest real event that is not
   finished. Never a practice event.
 - `practice.createPracticeEvent` (an action, to read the creator's email
-  from WorkOS): copy the live event (type, tracks, style, judging timer,
-  stage and demo timers, meet link) or start a blank hackathon or demo
+  from WorkOS): copy the live event (type, tracks, sponsors, style, judging
+  timer, stage and demo timers, meet link) or start a blank hackathon or demo
   night; then add N test judges and N test submissions.
+- Proposed: a blank practice hackathon starts with 3 sample tracks, each
+  with a description (AI agents, Developer tools, Open), and 2 sample
+  sponsors (OpenAI, Vercel), so track picks, the AI read and judging by
+  track can be tried. They can be edited after.
 - Test submissions go through the real submit path (`submitDemo` and
   `submitHackathon` share their code with it), with random tracks (a third
   with none) and team members. Test people use plus-addresses of the
-  creator's email, so the confirmation emails reach them.
+  creator's email. They send no confirmation email: every email spends the
+  daily sending allowance real participants need. Real people who submit to
+  a practice event still get theirs.
 - Test judges are real judge links. `practice.scoreAsTestJudges` scores
   through the real review path.
 - `practice.addPracticeSubmissions` (+5, +20, +50),
@@ -147,7 +153,10 @@ Nothing new in Convex.
   submissions, +N, phone submissions) gets a sample summary from its name
   and description at once, in the stored sections format, with no OpenAI or
   GitHub call. Judges see "Sample summary (practice)" instead of "Written by
-  AI". With `"model"`, summaries take the real path with the normal limits.
+  AI". Proposed: a sample summary also shows a sample AI read, a level and a
+  sample reason for each picked track and each sponsor, worked out on each
+  load and never stored. With `"model"`, summaries take the real path with
+  the normal limits.
   Real events ignore the field.
 - `practice.setPracticeAiSummaries` switches it later (the AI summaries
   practice tool). It is in Recent changes with Undo, and replaces the other

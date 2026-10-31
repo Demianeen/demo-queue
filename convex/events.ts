@@ -1337,7 +1337,8 @@ export async function submitDemoForEvent(ctx: MutationCtx, event: Doc<"events">,
     await ctx.db.patch(event._id, { updatedAt: now });
     await logAction(ctx, event._id, "submission_created", "participant", submissionId);
     if (options.practiceTest) await logAction(ctx, event._id, TEST_PEOPLE_ACTION, "practice", submissionId);
-    await queueSubmittedEmail(ctx, submissionId, now);
+    // Test people send no email: it would only spend the daily allowance real participants need.
+    if (!options.practiceTest) await queueSubmittedEmail(ctx, submissionId, now);
     if (!options.practiceTest) await queueLumaImport(ctx, event, submissionId);
     return { submissionId };
 }
@@ -1473,7 +1474,8 @@ export async function submitHackathonForEvent(ctx: MutationCtx, event: Doc<"even
     await logAction(ctx, event._id, "hackathon_submission_created", "participant", submissionId);
     if (options.practiceTest) await logAction(ctx, event._id, TEST_PEOPLE_ACTION, "practice", submissionId);
     await queueJudgingSheetSync(ctx, event);
-    await queueSubmittedEmail(ctx, submissionId, now);
+    // Test people send no email: it would only spend the daily allowance real participants need.
+    if (!options.practiceTest) await queueSubmittedEmail(ctx, submissionId, now);
     if (!options.practiceTest) await queueLumaImport(ctx, event, submissionId);
     // Participants cannot edit after submitting, so the summary can be written now.
     const submitted = await ctx.db.get(submissionId);

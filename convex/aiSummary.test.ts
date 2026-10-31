@@ -305,7 +305,7 @@ test("a model failure is logged and leaves the submission alone", async () => {
   await runAll(t);
   expect(await summaryOf(t, id)).toBeNull();
   const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary"));
-  expect(lines).toEqual([JSON.stringify({ event: "ai-summary", status: "failed", reason: "Error" })]);
+  expect(lines).toEqual([JSON.stringify({ event: "ai-summary", status: "failed", reason: "model_failed", error: "Error" })]);
   log.mockRestore();
 });
 
@@ -455,6 +455,142 @@ test("closing submissions rewrites a summary only when the README changed", asyn
   expect(summary.readmeHash).not.toBe(firstHash);
   expect(summary.whatItDoes).toMatch(/^Updated: /);
   log.mockRestore();
+});
+
+const VIDEO = "https://youtu.be/abcDEF12_-3?si=share";
+
+/**
+ * GitHub with a default branch, a tree and two source files, and YouTube with
+ * English captions. Each part can be swapped for one test.
+ */
+function inputsFetch(overrides: { player?: () => Response; captions?: () => Response; tree?: () => Response; policy?: string } = {}) {
+  return async (url: string) => {
+    const address = String(url);
+    if (address.endsWith("/repos/example/guardrail")) return new Response(JSON.stringify({ private: false, visibility: "public", default_branch: "main" }), { status: 200 });
+    if (address.endsWith("/repos/example/guardrail/readme")) return new Response("# Guardrail\nPolicy checks for agent tool calls.", { status: 200 });
+    if (address.includes("/git/trees/main?recursive=1")) {
+      return overrides.tree?.() ?? new Response(JSON.stringify({ tree: [
+        { path: "src/index.ts", type: "blob", size: 400 },
+        { path: "src/policy.ts", type: "blob", size: 900 },
+        { path: "node_modules/x/index.js", type: "blob", size: 9 },
+      ] }), { status: 200 });
+    }
+    if (address === "https://raw.githubusercontent.com/example/guardrail/main/src/index.ts") return new Response("export const proxy = startProxy();", { status: 200 });
+    if (address === "https://raw.githubusercontent.com/example/guardrail/main/src/policy.ts") return new Response(overrides.policy ?? "export function allow(call) { return call.tool !== 'rm'; }", { status: 200 });
+    if (address.startsWith("https://www.youtube.com/youtubei/v1/player")) {
+      return overrides.player?.() ?? new Response(JSON.stringify({
+        playabilityStatus: { status: "OK" },
+        captions: { playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: "https://www.youtube.com/api/timedtext?v=abcDEF12_-3&lang=en&kind=asr", languageCode: "en", kind: "asr" }] } },
+      }), { status: 200 });
+    }
+    if (address.startsWith("https://www.youtube.com/api/timedtext")) {
+      return overrides.captions?.() ?? new Response(JSON.stringify({ events: [{ segs: [{ utf8: "Here the agent tries" }, { utf8: " to delete a file." }] }] }), { status: 200 });
+    }
+    return new Response("Not found", { status: 404 });
+  };
+}
+
+test("the demo video's captions and a short code read go into the prompt, and the summary keeps their hashes", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  fetchMock.mockImplementation(inputsFetch());
+  const { t, add } = await setup();
+  const id = await add(0, { videoUrl: VIDEO });
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+
+  expect(generateText).toHaveBeenCalledTimes(1);
+  const { system, prompt } = generateText.mock.calls[0][0];
+  expect(prompt).toContain("<<<BEGIN VIDEO TRANSCRIPT>>>\nHere the agent tries to delete a file.\n<<<END VIDEO TRANSCRIPT>>>");
+  expect(prompt).toContain("<<<BEGIN CODE FILES>>>\nsrc/index.ts\nsrc/policy.ts\n<<<END CODE FILES>>>");
+  expect(prompt).toMatch(/<<<BEGIN CODE EXCERPTS>>>\n--- src\/index\.ts ---\nexport const proxy = startProxy\(\);\n\n--- src\/policy\.ts ---\n/);
+  expect(system).toMatch(/automatic captions/);
+  const urls = fetchMock.mock.calls.map(([url]) => String(url));
+  // One extra GitHub API call for the tree; the files come from raw.githubusercontent.com.
+  expect(urls.filter((url) => url.startsWith("https://api.github.com/"))).toEqual([
+    "https://api.github.com/repos/example/guardrail",
+    "https://api.github.com/repos/example/guardrail/readme",
+    "https://api.github.com/repos/example/guardrail/contents/package.json",
+    "https://api.github.com/repos/example/guardrail/contents/requirements.txt",
+    "https://api.github.com/repos/example/guardrail/contents/pyproject.toml",
+    "https://api.github.com/repos/example/guardrail/git/trees/main?recursive=1",
+  ]);
+  expect(await summaryOf(t, id)).toMatchObject({
+    transcriptHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    codeHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+  });
+});
+
+test("blocked captions and a rate-limited code read still write the summary at once, and are logged by reason only", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  fetchMock.mockImplementation(inputsFetch({
+    player: () => new Response(JSON.stringify({ playabilityStatus: { status: "LOGIN_REQUIRED", reason: "Sign in to confirm you're not a bot" } }), { status: 200 }),
+    tree: () => new Response("rate limited", { status: 403 }),
+  }));
+  const { t, add } = await setup();
+  const id = await add(0, { videoUrl: VIDEO });
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+
+  expect(generateText).toHaveBeenCalledTimes(1);
+  expect(generateText.mock.calls[0][0].prompt).toContain("<<<BEGIN README>>>");
+  expect(generateText.mock.calls[0][0].prompt).not.toMatch(/TRANSCRIPT|CODE/);
+  expect(await summaryOf(t, id)).toMatchObject({ usedReadme: true, transcriptHash: "none", codeHash: "none" });
+  const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary"));
+  expect(lines).toEqual(expect.arrayContaining([
+    JSON.stringify({ event: "ai-summary", status: "without_transcript", reason: "transcript_blocked" }),
+    JSON.stringify({ event: "ai-summary", status: "without_code", reason: "code_rate_limited" }),
+  ]));
+  expect(lines.join("\n")).not.toMatch(/youtu|github\.com|Bearer/);
+  log.mockRestore();
+});
+
+test("a summary from before captions and code is not rewritten for them; a later real change rewrites it", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  fetchMock.mockImplementation(inputsFetch());
+  const { t, add } = await setup();
+  const id = await add(0, { videoUrl: VIDEO });
+  const reclose = async () => {
+    await t.mutation(api.phases.setPhase, { slug: "hack", phase: "submissions" });
+    await t.mutation(api.phases.setPhase, { slug: "hack", phase: "judging" });
+    await runAll(t);
+  };
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(1);
+
+  // As written before this change: no transcript or code hash.
+  await t.run(async (ctx) => {
+    const summary = (await ctx.db.get(id))!.aiSummary!;
+    await ctx.db.patch(id, { aiSummary: { ...summary, transcriptHash: undefined, codeHash: undefined } });
+  });
+  await reclose();
+  expect(generateText).toHaveBeenCalledTimes(1);
+  expect((await summaryOf(t, id))!.codeHash).toBeUndefined();
+
+  // Written with both inputs now (a new description), then nothing changes: no rewrite.
+  await t.run((ctx) => ctx.db.patch(id, { description: "Policy checks, now with a dashboard." }));
+  await reclose();
+  expect(generateText).toHaveBeenCalledTimes(2);
+  const written = (await summaryOf(t, id))!;
+  expect(written.codeHash).toMatch(/^[0-9a-f]{64}$/);
+  await reclose();
+  expect(generateText).toHaveBeenCalledTimes(2);
+
+  // A failed code read or blocked captions are not a change.
+  fetchMock.mockImplementation(inputsFetch({ tree: () => new Response("limited", { status: 429 }), player: () => new Response("busy", { status: 429 }) }));
+  await reclose();
+  expect(generateText).toHaveBeenCalledTimes(2);
+
+  // The team changed a file that was read: a new summary.
+  fetchMock.mockImplementation(inputsFetch({ policy: "export function allow(call) { return policy.check(call); }" }));
+  await reclose();
+  expect(generateText).toHaveBeenCalledTimes(3);
+  expect((await summaryOf(t, id))!.codeHash).not.toBe(written.codeHash);
+  expect((await summaryOf(t, id))!.transcriptHash).toBe(written.transcriptHash);
 });
 
 test("an event's own summary sections shape the prompt and the saved summary", async () => {

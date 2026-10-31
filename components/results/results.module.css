@@ -170,14 +170,8 @@
 
 /* Each style's display type, as on its own stage. */
 :global(.stage-outpost) .winners :is(.winnersTitle, .podiumTitle, .finalistsTitle, .finalistTitle) { font-weight: 400; letter-spacing: 0.01em; text-transform: uppercase; }
-:global(.stage-astra) .winners :is(.winnersTitle, .podiumTitle, .finalistsTitle, .finalistTitle) { font-weight: 500; letter-spacing: -0.05em; }
 :global(.stage-devday) .winners :is(.winnersTitle, .podiumTitle, .finalistsTitle, .finalistTitle) { letter-spacing: -0.055em; }
 
-/* Astra's galaxy sits behind the podium: names get a dark halo and the steps are glass, as its lineup panels are. */
-:global(.stage-astra):has(.winners) :global(.astra-backdrop) { opacity: 0.45; }
-:global(.stage-astra) .winners { text-shadow: 0 2px 24px #030405, 0 0 8px #030405; }
-:global(.stage-astra) .podiumPlace[data-place] .podiumStep { background: rgb(3 4 5 / 0.55); border: 1px solid rgb(245 245 243 / 0.14); border-bottom: 0; backdrop-filter: blur(14px); }
-:global(.stage-astra) .finalistCard { background: rgb(3 4 5 / 0.55); backdrop-filter: blur(14px); }
 
 /* A short rise as the screen arrives; none for people who ask for less motion. */
 @media (prefers-reduced-motion: no-preference) {

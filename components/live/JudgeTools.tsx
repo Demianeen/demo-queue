@@ -57,7 +57,7 @@ async function copyText(text: string, html?: string) {
   await navigator.clipboard.writeText(text);
 }
 
-async function copyJudgeLink(judge: JudgeRow) {
+export async function copyJudgeLink(judge: JudgeRow) {
   if (!judge.path) return;
   try { await navigator.clipboard.writeText(absoluteUrl(judge.path)); toast(`Copied ${judge.judgeName}'s link`); } catch { toast.error("Could not copy the link."); }
 }
@@ -304,7 +304,7 @@ function JudgeFixes({ slug, judge, judges, judgingStatus, titleById, moving, set
   </div>;
 }
 
-function MoveScoresDialog({ slug, from, judges, open, onOpenChange }: { slug: string; from: JudgeRow; judges: JudgeRow[]; open: boolean; onOpenChange: (open: boolean) => void }) {
+export function MoveScoresDialog({ slug, from, judges, open, onOpenChange }: { slug: string; from: JudgeRow; judges: JudgeRow[]; open: boolean; onOpenChange: (open: boolean) => void }) {
   const moveJudgeScores = useMutation(api.judging.moveJudgeScores);
   const targets = judges.filter((row) => row.judgeKey !== from.judgeKey);
   const [to, setTo] = useState<string>("");

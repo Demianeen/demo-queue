@@ -36,7 +36,7 @@ export const UI_EXCLUSIONS = [
  * caller; an entry that already has a caller is reported as stale.
  */
 export const UI_PENDING = [
-  "judging.addJudges", "judging.removeJudge", "judging.renameJudge",
+  // Empty: the new-behaviour UI landed with every caller.
 ].map((browser) => ({ browser, reason: "Proposed: the new-behaviour backend lands before its admin UI." }));
 
 /**
@@ -47,6 +47,7 @@ export const UI_PENDING = [
 export const TOOL_ONLY = [
   { browser: "judging.listJudgeAccess", reason: "Proposed: the Judging page shows links through getJudgesOverview; list_judge_links stays for assistants." },
   { browser: "judging.getJudgingTimer", reason: "Proposed: every clock in the app reads the event's judging timer; get_judging_timer stays for assistants." },
+  { browser: "events.saveRoundOneJudges", reason: "Proposed: the Judges dialog adds, renames and removes one judge at a time; save_judges stays for assistants that send the whole list." },
 ];
 
 function sourceFile(file, text) {

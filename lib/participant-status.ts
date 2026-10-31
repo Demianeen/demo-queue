@@ -25,9 +25,14 @@ const hackathonLabels: Record<string, string> = {
 /**
  * The status page's heading. A hackathon finalist still waiting to be
  * scheduled reads "Selected as a finalist" (Proposed) once judging is over.
+ * Once a hackathon is finished every team reads "The results are in", since
+ * the lineup status can be stale (the last team may still be on stage).
  */
 export function participantHeading(input: { eventType: "demo" | "hackathon"; status: string; finalist: boolean; phase: EventPhase }) {
-  if (input.eventType === "hackathon" && input.finalist && input.status === "candidate" && (input.phase === "stage" || input.phase === "finished")) {
+  if (input.eventType === "hackathon" && input.phase === "finished" && input.status !== "withdrawn" && input.status !== "hidden") {
+    return "The results are in";
+  }
+  if (input.eventType === "hackathon" && input.finalist && input.status === "candidate" && input.phase === "stage") {
     return "Selected as a finalist";
   }
   return (input.eventType === "hackathon" ? hackathonLabels : demoLabels)[input.status] ?? input.status;

@@ -30,6 +30,15 @@ test("a finalist waiting to be scheduled reads Selected as a finalist once judgi
   assert.equal(participantHeading({ eventType: "demo", status: "candidate", phase: "submissions", finalist: false }), "Submitted, waiting to be added as a demoer");
 });
 
+test("once a hackathon is finished every team reads The results are in, whatever its lineup status", () => {
+  assert.equal(participantHeading(hack("current", "finished", true)), "The results are in", "the last team can still be on stage");
+  assert.equal(participantHeading(hack("queued", "finished", true)), "The results are in");
+  assert.equal(participantHeading(hack("candidate", "finished", true)), "The results are in");
+  assert.equal(participantHeading(hack("candidate", "finished", false)), "The results are in");
+  assert.equal(participantHeading(hack("withdrawn", "finished")), "Withdrawn");
+  assert.equal(participantHeading({ eventType: "demo", status: "current", phase: "finished", finalist: false }), "You are presenting now", "demo nights keep the lineup status");
+});
+
 test("links shown as text drop the scheme", () => {
   assert.equal(displayUrl("https://github.com/tomo/guardrail/"), "github.com/tomo/guardrail");
   assert.equal(displayUrl("https://www.youtube.com/watch?v=1"), "youtube.com/watch?v=1");

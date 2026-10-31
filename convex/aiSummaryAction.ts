@@ -20,10 +20,19 @@ import {
   type SummaryManifest,
 } from "../lib/ai-summary";
 import { hasTokens, usageFromError, usageFromResult, type AiUsageResult, type LoggedUsage } from "../lib/ai-usage";
+import { fetchCode, fetchTranscript, inputChanged, type CodeResult, type TranscriptResult } from "../lib/ai-summary-inputs";
 
 const README_TIMEOUT_MS = 8_000;
-/** Proposed: a rate-limited README read is retried this many times, then the run gives up without saving. */
-type ReadmeResult = { kind: "ok"; text: string | null; manifests: SummaryManifest[] } | { kind: "limited" };
+/** A public repository's coordinates, for the code read. */
+type PublicRepository = { owner: string; name: string; defaultBranch: string };
+/**
+ * repository is set only for a public repository with a default branch.
+ * githubLimited says a later GitHub call (a dependency file) was rate limited,
+ * or GitHub said no calls are left: the code read is then skipped.
+ */
+type ReadmeResult =
+  | { kind: "ok"; text: string | null; manifests: SummaryManifest[]; repository: PublicRepository | null; githubLimited: boolean }
+  | { kind: "limited" };
 
 function githubHeaders(accept: string): Record<string, string> {
   const token = env.GITHUB_TOKEN?.trim();
@@ -40,7 +49,7 @@ const isRateLimited = (response: Response) => response.status === 403 || respons
  */
 async function fetchReadme(githubUrl: string | null): Promise<ReadmeResult> {
   const url = githubReadmeApiUrl(githubUrl);
-  const none: ReadmeResult = { kind: "ok", text: null, manifests: [] };
+  const none: ReadmeResult = { kind: "ok", text: null, manifests: [], repository: null, githubLimited: false };
   if (!url) return none;
   try {
     const repository = await fetch(url.replace(/\/readme$/, ""), {
@@ -49,8 +58,10 @@ async function fetchReadme(githubUrl: string | null): Promise<ReadmeResult> {
     });
     if (isRateLimited(repository)) return { kind: "limited" };
     if (!repository.ok) return none;
-    const details = (await repository.json()) as { private?: unknown; visibility?: unknown };
+    const details = (await repository.json()) as { private?: unknown; visibility?: unknown; default_branch?: unknown };
     if (details.private !== false || details.visibility !== "public") return none;
+    const [owner, name] = new URL(url).pathname.split("/").slice(2, 4).map(decodeURIComponent);
+    const publicRepository = typeof details.default_branch === "string" && details.default_branch ? { owner, name, defaultBranch: details.default_branch } : null;
     const response = await fetch(url, {
       headers: githubHeaders("application/vnd.github.raw+json"),
       signal: AbortSignal.timeout(README_TIMEOUT_MS),
@@ -58,27 +69,76 @@ async function fetchReadme(githubUrl: string | null): Promise<ReadmeResult> {
     if (isRateLimited(response)) return { kind: "limited" };
     const text = response.ok ? await response.text() : "";
     const manifests: SummaryManifest[] = [];
+    let githubLimited = response.headers.get("x-ratelimit-remaining") === "0";
     // Dependency files only add to a README; without one, save the requests.
     for (const file of text.trim() ? SUMMARY_MANIFEST_FILES : []) {
       const manifest = await fetch(url.replace(/\/readme$/, `/contents/${file}`), {
         headers: githubHeaders("application/vnd.github.raw+json"),
         signal: AbortSignal.timeout(README_TIMEOUT_MS),
       });
-      if (isRateLimited(manifest)) break;
+      if (isRateLimited(manifest)) {
+        githubLimited = true;
+        break;
+      }
+      githubLimited = manifest.headers.get("x-ratelimit-remaining") === "0";
       // A missing file is a 404: the project simply has none.
       const content = manifest.ok ? await manifest.text() : "";
       if (content.trim()) manifests.push({ file, text: content.slice(0, SUMMARY_MANIFEST_LIMIT) });
     }
-    return { kind: "ok", text: text.trim() ? text.slice(0, SUMMARY_README_LIMIT) : null, manifests };
+    return { kind: "ok", text: text.trim() ? text.slice(0, SUMMARY_README_LIMIT) : null, manifests, repository: publicRepository, githubLimited };
   } catch {
     return none;
   }
 }
 
-/** The read as saveSummary takes it, or nothing when the model was not asked for one. */
-function log(status: string, reason: string) {
-  // Never the project text, the README or the key.
-  console.log(JSON.stringify({ event: "ai-summary", status, reason }));
+// TODO(posthog): send these ai-summary events to PostHog too, with the same fields.
+function log(status: string, reason: string, extra: { error?: string } = {}) {
+  // Never the project text, the README, a URL or the key.
+  console.log(JSON.stringify({ event: "ai-summary", status, reason, ...extra }));
+}
+
+// TODO(posthog): send these input failures to PostHog too; they are ai-summary events.
+function logInputFailure(status: string, reason: string | null) {
+  // A reason code only: never the video link, a repository path, file text or a token.
+  if (reason) log(status, reason);
+}
+
+const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/**
+ * The captions for the prompt, and the hash the summary keeps: of the text,
+ * "none" when the video has none, or null when they could not be read now,
+ * so a failed read never counts as a change.
+ */
+function transcriptInput(result: TranscriptResult) {
+  if (result.kind === "ok") return { transcript: result.text, hash: sha256(result.text) };
+  logInputFailure("without_transcript", result.reason);
+  return { transcript: null, hash: result.kind === "none" ? "none" : null };
+}
+
+/** The code read for the prompt, and its hash, as for the captions. null when it was not tried. */
+function codeInput(result: CodeResult | null) {
+  if (result === null) return { code: null, hash: null };
+  if (result.kind === "none") return { code: null, hash: "none" };
+  if (result.kind === "failed") {
+    logInputFailure("without_code", result.reason);
+    return { code: null, hash: null };
+  }
+  if (result.fileFailures > 0) logInputFailure("partial_code", "code_file_failed");
+  const code = { files: result.files, total: result.total, excerpts: result.excerpts };
+  return { code, hash: sha256(JSON.stringify(code)) };
+}
+
+/**
+ * The code read, only after a README read that was not rate limited, so the
+ * shared GitHub limit goes to READMEs first. null when it was not tried.
+ */
+async function readCode(fetched: ReadmeResult): Promise<CodeResult | null> {
+  if (fetched.kind !== "ok") return null;
+  if (!fetched.repository) return { kind: "none" };
+  if (fetched.githubLimited) return { kind: "failed", reason: "code_rate_limited" };
+  const token = env.GITHUB_TOKEN?.trim();
+  return fetchCode(fetched.repository, { headers: { "User-Agent": "demo-queue-ai-summary", ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
 }
 
 const summaryRunArgs = {
@@ -121,7 +181,11 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
     log("skipped", "not_configured");
     return { saved: false };
   }
-  const fetched = await fetchReadme(input.githubUrl);
+  // The captions are read alongside GitHub, the code after the README. None of these throw.
+  const [{ fetched, codeRead }, transcriptRead] = await Promise.all([
+    fetchReadme(input.githubUrl).then(async (fetched) => ({ fetched, codeRead: await readCode(fetched) })),
+    fetchTranscript(input.videoUrl),
+  ]);
   // GitHub rate limited the README read. A summary that only waited on a README
   // check stays as it is; a new one is written now without the README, so judges
   // are not left waiting. The next close reads the README again.
@@ -133,9 +197,15 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
   const readme = fetched.kind === "ok" ? fetched.text : null;
   const manifests = fetched.kind === "ok" ? fetched.manifests : [];
   const read = summaryReadInput(input.tracks, input.sponsors);
-  const readmeHash = readme === null ? undefined : createHash("sha256").update(readme).digest("hex");
-  // The description and repository are unchanged: write again only when the README changed.
-  if (input.readmeCheckOnly && (readmeHash ?? null) === input.readmeHash) {
+  const readmeHash = readme === null ? undefined : sha256(readme);
+  const { transcript, hash: transcriptHash } = transcriptInput(transcriptRead);
+  const { code, hash: codeHash } = codeInput(codeRead);
+  // The description and repository are unchanged: write again only when the README, captions or
+  // code changed. A summary from before the captions and code existed is not rewritten for them.
+  const changed = (readmeHash ?? null) !== input.readmeHash
+    || inputChanged(input.transcriptHash, transcriptHash)
+    || inputChanged(input.codeHash, codeHash);
+  if (input.readmeCheckOnly && !changed) {
     log("skipped", "readme_unchanged");
     return { saved: false };
   }
@@ -147,7 +217,7 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
   const logCall = (usage: LoggedUsage, result: AiUsageResult) =>
     logAiUsage(ctx, { ...usage, eventId: input.eventId, submissionId: args.submissionId, feature: "summary", result });
   for (const stricter of [false, true]) {
-    const { system, prompt } = buildSummaryPrompt({ ...input, readme, manifests }, input.sections, { stricter });
+    const { system, prompt } = buildSummaryPrompt({ ...input, readme, manifests, transcript, code }, input.sections, { stricter });
     let usage: LoggedUsage | null = null;
     let stage: "call" | "output" | "save" = "call";
     let result: { saved: boolean; reason: string };
@@ -172,9 +242,12 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
         model,
         usedReadme: readme !== null,
         readmeHash,
+        // What the model saw: a hash, or "none" when it had nothing for that input.
+        transcriptHash: transcriptHash ?? "none",
+        codeHash: codeHash ?? "none",
       });
     } catch (error) {
-      log("failed", error instanceof Error ? error.name : "unknown");
+      log("failed", "model_failed", { error: error instanceof Error ? error.name : "unknown" });
       // A reply that did not match the schema still reports its usage; a failed request does not.
       const known = usage ?? usageFromError(error, model);
       const unusable = stage === "output" || (stage === "call" && hasTokens(known));

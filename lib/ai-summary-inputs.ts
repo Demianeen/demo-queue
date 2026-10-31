@@ -1,0 +1,321 @@
+/**
+ * The two optional inputs of a summary next to the README: the demo video's
+ * captions and a short read of the repository's code. Both are best effort.
+ * Any failure means the summary is written without that input, never later.
+ */
+
+/** How much transcript text is sent to the model. */
+export const SUMMARY_TRANSCRIPT_LIMIT = 8_000;
+/** How many source files are excerpted, how much of each, and how much in all. */
+export const SUMMARY_CODE_FILE_COUNT = 5;
+export const SUMMARY_CODE_ENTRY_COUNT = 3;
+export const SUMMARY_CODE_FILE_LIMIT = 4_000;
+export const SUMMARY_CODE_TOTAL_LIMIT = 15_000;
+/** How many repository paths the model sees. */
+export const SUMMARY_CODE_LIST_LIMIT = 100;
+/** One budget for each input: the transcript, and the tree plus its files. */
+export const SUMMARY_INPUT_TIMEOUT_MS = 8_000;
+/** Bigger files are likely bundled or generated, so they are listed but never excerpted. */
+const CODE_FILE_MAX_BYTES = 200_000;
+
+type Fetch = typeof fetch;
+export type InputOptions = { fetch?: Fetch; timeoutMs?: number };
+
+const isTimeout = (error: unknown) => error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+
+// Transcript
+
+export type TranscriptReason = "transcript_none" | "transcript_blocked" | "transcript_timeout" | "transcript_failed";
+export type TranscriptResult =
+  | { kind: "ok"; text: string; captionKind: "manual" | "asr" }
+  // reason is null when there is nothing to look for (no YouTube link): no fetch, nothing to log.
+  | { kind: "none"; reason: "transcript_none" | null }
+  | { kind: "failed"; reason: Exclude<TranscriptReason, "transcript_none"> };
+
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/** The video id of a YouTube watch, share, Shorts, live or embed link, or null for anything else. */
+export function youtubeVideoId(value: string | null | undefined) {
+  if (!value) return null;
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase().replace(/^(www|m|music)\./, "");
+  const parts = url.pathname.split("/").filter(Boolean);
+  let id = "";
+  if (host === "youtu.be") id = parts[0] ?? "";
+  else if (host === "youtube.com" || host === "youtube-nocookie.com") {
+    if (parts[0] === "watch") id = url.searchParams.get("v") ?? "";
+    else if (["shorts", "live", "embed", "v"].includes(parts[0] ?? "")) id = parts[1] ?? "";
+  }
+  return YOUTUBE_ID.test(id) ? id : null;
+}
+
+export type CaptionTrack = { baseUrl?: unknown; languageCode?: unknown; kind?: unknown };
+
+/** The English track to read: one the uploader added first, then YouTube's automatic one. */
+export function chooseCaptionTrack(tracks: CaptionTrack[]) {
+  const english = tracks.filter((track) => typeof track.baseUrl === "string" && typeof track.languageCode === "string" && /^en(-|$)/i.test(track.languageCode));
+  const rank = (track: CaptionTrack) => (track.kind === "asr" ? 2 : 0) + (String(track.languageCode).toLowerCase() === "en" ? 0 : 1);
+  const track = [...english].sort((a, b) => rank(a) - rank(b))[0];
+  return track ? { baseUrl: track.baseUrl as string, captionKind: track.kind === "asr" ? "asr" as const : "manual" as const } : null;
+}
+
+/** The caption text of a json3 timed-text response, as one capped line. */
+export function captionText(json: unknown, limit = SUMMARY_TRANSCRIPT_LIMIT) {
+  const events = (json as { events?: unknown })?.events;
+  if (!Array.isArray(events)) return "";
+  const text = events
+    .map((event) => {
+      const segs = (event as { segs?: unknown })?.segs;
+      return Array.isArray(segs) ? segs.map((seg) => (typeof seg?.utf8 === "string" ? seg.utf8 : "")).join("") : "";
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.slice(0, limit).trim();
+}
+
+/** The caption file address, only on YouTube, asking for json3. Anything else is refused. */
+function captionUrl(baseUrl: string) {
+  try {
+    const url = new URL(baseUrl);
+    if (url.protocol !== "https:" || !/^(www\.)?youtube\.com$/i.test(url.hostname)) return null;
+    url.searchParams.set("fmt", "json3");
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+// The Android app's client returns caption tracks without signing in; the web client does not.
+const INNERTUBE_CLIENT = { clientName: "ANDROID", clientVersion: "20.10.38", androidSdkVersion: 30, hl: "en", gl: "US" };
+const INNERTUBE_USER_AGENT = "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip";
+
+const looksBlocked = (text: string) => /not a bot|sign in to confirm|unusual traffic|captcha/i.test(text);
+
+/**
+ * The English captions of a YouTube demo video, through YouTube's unofficial
+ * player endpoint. No captions, or a private or removed video, is "none". A
+ * sign-in or bot check, a timeout or any other error is "failed": the
+ * summary is written without a transcript either way.
+ */
+export async function fetchTranscript(videoUrl: string | null | undefined, options: InputOptions = {}): Promise<TranscriptResult> {
+  const videoId = youtubeVideoId(videoUrl);
+  if (!videoId) return { kind: "none", reason: null };
+  const request = options.fetch ?? fetch;
+  const signal = AbortSignal.timeout(options.timeoutMs ?? SUMMARY_INPUT_TIMEOUT_MS);
+  try {
+    const player = await request("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": INNERTUBE_USER_AGENT },
+      body: JSON.stringify({ context: { client: INNERTUBE_CLIENT }, videoId }),
+      signal,
+    });
+    if (player.status === 429) return { kind: "failed", reason: "transcript_blocked" };
+    const body = await player.text();
+    if (!player.ok) return { kind: "failed", reason: looksBlocked(body) ? "transcript_blocked" : "transcript_failed" };
+    let details: { playabilityStatus?: { status?: unknown; reason?: unknown }; captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: unknown } } };
+    try {
+      details = JSON.parse(body);
+    } catch {
+      return { kind: "failed", reason: looksBlocked(body) ? "transcript_blocked" : "transcript_failed" };
+    }
+    const status = String(details.playabilityStatus?.status ?? "");
+    const reason = String(details.playabilityStatus?.reason ?? "");
+    if (looksBlocked(reason)) return { kind: "failed", reason: "transcript_blocked" };
+    if (status === "LOGIN_REQUIRED") return /private/i.test(reason) ? { kind: "none", reason: "transcript_none" } : { kind: "failed", reason: "transcript_blocked" };
+    if (status !== "OK") return { kind: "none", reason: "transcript_none" };
+    const tracks = details.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    const track = chooseCaptionTrack(Array.isArray(tracks) ? tracks : []);
+    if (!track) return { kind: "none", reason: "transcript_none" };
+    const url = captionUrl(track.baseUrl);
+    if (!url) return { kind: "failed", reason: "transcript_failed" };
+    const captions = await request(url, { headers: { "User-Agent": INNERTUBE_USER_AGENT }, signal });
+    if (captions.status === 429) return { kind: "failed", reason: "transcript_blocked" };
+    if (!captions.ok) return { kind: "failed", reason: "transcript_failed" };
+    const raw = await captions.text();
+    // An empty answer is what YouTube sends when it wants proof of a real player.
+    if (!raw.trim()) return { kind: "failed", reason: "transcript_blocked" };
+    const text = captionText(JSON.parse(raw));
+    return text ? { kind: "ok", text, captionKind: track.captionKind } : { kind: "none", reason: "transcript_none" };
+  } catch (error) {
+    return { kind: "failed", reason: isTimeout(error) ? "transcript_timeout" : "transcript_failed" };
+  }
+}
+
+// Code read
+
+export type TreeEntry = { path: string; type: string; size?: number };
+export type CodeExcerpt = { path: string; text: string };
+export type CodeReason = "code_tree_failed" | "code_rate_limited" | "code_timeout";
+export type CodeResult =
+  | { kind: "ok"; files: string[]; total: number; excerpts: CodeExcerpt[]; fileFailures: number }
+  | { kind: "none" }
+  | { kind: "failed"; reason: CodeReason };
+
+const SKIPPED_DIRS = new Set([
+  "node_modules", "bower_components", "jspm_packages", "dist", "build", "out", ".next", ".nuxt", ".output", ".svelte-kit",
+  ".turbo", ".vercel", ".expo", ".cache", ".parcel-cache", "coverage", ".nyc_output", "vendor", "vendors", "third_party",
+  "third-party", "target", "pods", "deriveddata", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache",
+  ".git", ".idea", ".vscode", "generated", "__generated__", "_generated",
+  "test", "tests", "__tests__", "spec", "specs", "e2e", "fixtures", "__fixtures__", "__mocks__", "testdata", "cypress",
+]);
+const LOCKFILES = new Set([
+  "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock", "deno.lock",
+  "cargo.lock", "gemfile.lock", "poetry.lock", "pipfile.lock", "uv.lock", "composer.lock", "go.sum", "mix.lock",
+  "pubspec.lock", "podfile.lock", "flake.lock", "packages.lock.json",
+]);
+const BINARY = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "icns", "tif", "tiff", "psd", "svg", "heic",
+  "mp4", "mov", "avi", "webm", "mkv", "mp3", "wav", "ogg", "flac", "m4a", "aac",
+  "pdf", "zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "jar", "war", "class", "exe", "dll", "so", "dylib", "a", "o",
+  "bin", "wasm", "pyc", "pyo", "whl", "woff", "woff2", "ttf", "otf", "eot", "db", "sqlite", "sqlite3", "parquet",
+  "npy", "npz", "pkl", "pickle", "pt", "pth", "onnx", "h5", "ckpt", "safetensors", "tflite", "glb", "gltf", "fbx", "stl",
+  "blend", "apk", "ipa", "dmg", "iso", "keystore", "jks", "p12", "pem", "key", "snap", "map", "lockb",
+]);
+const SOURCE = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "java", "kt", "kts", "swift", "rb", "php", "cs", "cpp", "cc",
+  "cxx", "c", "h", "hpp", "m", "mm", "vue", "svelte", "astro", "dart", "scala", "ex", "exs", "erl", "clj", "hs", "lua",
+  "sol", "r", "jl", "zig", "ml", "fs", "gd",
+]);
+const ENTRY_NAMES = ["main", "app", "server", "index", "__main__", "cli"];
+// A main or index two folders down counts only under one of these, so artifacts/code/server.ts does not.
+const SOURCE_ROOTS = new Set(["src", "app", "apps", "packages", "backend", "frontend", "server", "web", "client", "api", "cmd"]);
+
+const extension = (path: string) => /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? "";
+const depth = (path: string) => path.split("/").length - 1;
+const byDepth = (a: string, b: string) => depth(a) - depth(b) || (a < b ? -1 : a > b ? 1 : 0);
+
+/** True for a file worth listing: not vendored, generated, a lockfile, minified, binary, or a test or fixture. */
+export function keepTreePath(path: string) {
+  const parts = path.split("/");
+  const name = parts.at(-1)!.toLowerCase();
+  if (parts.slice(0, -1).some((dir) => SKIPPED_DIRS.has(dir.toLowerCase()))) return false;
+  if (LOCKFILES.has(name) || BINARY.has(extension(name))) return false;
+  if (/\.min\./.test(name) || /\.(test|spec|stories)\.[^.]+$/.test(name) || /_test\.(go|py)$/.test(name) || /^test_.*\.py$/.test(name)) return false;
+  return true;
+}
+
+/** A file a reader would open first: an app's main, server or index near the root, a root page, an API route. Lower ranks first. */
+export function entryRank(path: string) {
+  const parts = path.toLowerCase().split("/");
+  const stem = parts.at(-1)!.replace(/\.[^.]+$/, "");
+  // Next.js route groups such as app/(chat)/page.tsx do not change the route.
+  const dirs = parts.slice(0, -1).filter((dir) => !/^\(.*\)$/.test(dir));
+  if (stem === "page" && dirs.at(-1) === "app") return 0;
+  const named = ENTRY_NAMES.indexOf(stem);
+  if (named !== -1 && (dirs.length <= 1 || (dirs.length === 2 && SOURCE_ROOTS.has(dirs[0])))) return 1 + dirs.length;
+  // Under a Next.js app folder only route files are endpoints; elsewhere any file in api or routes.
+  if ((dirs.includes("api") || dirs.includes("routes")) && (stem === "route" || !dirs.includes("app"))) return 4;
+  return null;
+}
+
+/** A source file that may be excerpted: code, not a config file, and not so big it is likely generated. */
+const excerptable = (entry: TreeEntry) =>
+  SOURCE.has(extension(entry.path)) && !/\.d\.ts$|\.config\.[cm]?[jt]s$/i.test(entry.path) && (entry.size ?? 0) <= CODE_FILE_MAX_BYTES;
+
+/**
+ * What the model sees of a repository tree: the kept paths, shallow first,
+ * and the source files to excerpt, entry points first, then the largest.
+ */
+export function planCodeRead(tree: TreeEntry[]) {
+  const kept = tree.filter((entry) => entry.type === "blob" && typeof entry.path === "string" && keepTreePath(entry.path));
+  const files = kept.map((entry) => entry.path).sort(byDepth);
+  const sources = kept.filter(excerptable);
+  const entries = sources
+    .flatMap((entry) => {
+      const rank = entryRank(entry.path);
+      return rank === null ? [] : [{ entry, rank }];
+    })
+    .sort((a, b) => a.rank - b.rank || byDepth(a.entry.path, b.entry.path))
+    .map(({ entry }) => entry.path);
+  // At most three entry points, so the largest files (often the core logic) still get a place.
+  const chosen = entries.slice(0, SUMMARY_CODE_ENTRY_COUNT);
+  const largest = sources
+    .filter((entry) => !chosen.includes(entry.path))
+    .sort((a, b) => (b.size ?? 0) - (a.size ?? 0) || byDepth(a.path, b.path))
+    .map((entry) => entry.path);
+  return { files: files.slice(0, SUMMARY_CODE_LIST_LIMIT), total: files.length, chosen: [...chosen, ...largest].slice(0, SUMMARY_CODE_FILE_COUNT) };
+}
+
+/** Each excerpt capped, and all of them together, in the order chosen. */
+export function capExcerpts(excerpts: CodeExcerpt[]) {
+  const capped: CodeExcerpt[] = [];
+  let left = SUMMARY_CODE_TOTAL_LIMIT;
+  for (const excerpt of excerpts) {
+    const text = excerpt.text.slice(0, Math.min(SUMMARY_CODE_FILE_LIMIT, left)).trimEnd();
+    if (!text) continue;
+    capped.push({ path: excerpt.path, text });
+    left -= text.length;
+    if (left <= 0) break;
+  }
+  return capped;
+}
+
+const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/");
+const isRateLimited = (response: Response) => response.status === 403 || response.status === 429;
+
+/**
+ * A short read of a public repository's code: one GitHub API call for the
+ * tree of the default branch, then up to five files from
+ * raw.githubusercontent.com in parallel, all within one timeout. Only call it
+ * for a repository already checked to be public.
+ */
+export async function fetchCode(
+  repository: { owner: string; name: string; defaultBranch: string },
+  options: InputOptions & { headers?: Record<string, string> } = {},
+): Promise<CodeResult> {
+  const request = options.fetch ?? fetch;
+  const signal = AbortSignal.timeout(options.timeoutMs ?? SUMMARY_INPUT_TIMEOUT_MS);
+  const headers = options.headers ?? {};
+  const base = `${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}`;
+  let tree: TreeEntry[];
+  try {
+    const response = await request(`https://api.github.com/repos/${base}/git/trees/${encodeURIComponent(repository.defaultBranch)}?recursive=1`, {
+      headers: { Accept: "application/vnd.github+json", ...headers },
+      signal,
+    });
+    if (isRateLimited(response)) return { kind: "failed", reason: "code_rate_limited" };
+    // An empty repository has no tree: a 404 or 409.
+    if (response.status === 404 || response.status === 409) return { kind: "none" };
+    if (!response.ok) return { kind: "failed", reason: "code_tree_failed" };
+    const body = (await response.json()) as { tree?: unknown };
+    if (!Array.isArray(body.tree)) return { kind: "failed", reason: "code_tree_failed" };
+    tree = body.tree as TreeEntry[];
+  } catch (error) {
+    return { kind: "failed", reason: isTimeout(error) ? "code_timeout" : "code_tree_failed" };
+  }
+  const plan = planCodeRead(tree);
+  if (plan.files.length === 0) return { kind: "none" };
+  const fetched = await Promise.all(plan.chosen.map(async (path): Promise<CodeExcerpt | null> => {
+    try {
+      const response = await request(`https://raw.githubusercontent.com/${base}/${encodePath(repository.defaultBranch)}/${encodePath(path)}`, { headers, signal });
+      if (!response.ok) return null;
+      const text = await response.text();
+      // A binary file with a source name.
+      return text.includes("\u0000") ? null : { path, text };
+    } catch {
+      return null;
+    }
+  }));
+  const excerpts = capExcerpts(fetched.filter((excerpt): excerpt is CodeExcerpt => excerpt !== null));
+  return { kind: "ok", files: plan.files, total: plan.total, excerpts, fileFailures: fetched.filter((excerpt) => excerpt === null).length };
+}
+
+// Change detection
+
+/**
+ * Whether an input changed since a summary was written. stored is what the
+ * summary was written from: a hash, "none" when the model saw nothing for it,
+ * or undefined for a summary written before this input existed, which is
+ * never rewritten for it. current is null when it could not be read now, so
+ * a failed read never counts as a change.
+ */
+export function inputChanged(stored: string | undefined | null, current: string | null) {
+  return stored !== undefined && stored !== null && current !== null && stored !== current;
+}

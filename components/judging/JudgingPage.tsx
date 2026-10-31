@@ -1,9 +1,9 @@
 "use client";
 
-import { Component, useCallback, useContext, useMemo, type ReactNode } from "react";
+import { Component, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { Check, ChevronDown, FileSpreadsheet, RotateCcw, Search } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -72,7 +72,6 @@ export function JudgingPage(props: JudgingPageProps) {
 }
 
 function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onRemoveFromLineup, onHide, onManageJudges, sheet }: JudgingPageProps) {
-  const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
   const view = parseJudgingView(search.get("judging"));
@@ -89,15 +88,33 @@ function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onR
   const normalization = useQuery(api.judging.getNormalizationOverview, { slug });
   const closed = admin.event.judgingStatus === "closed";
 
-  /** Changes only the given params; the rest of the address stays. */
+  /**
+   * Changes only the given params; the rest of the address stays. This is
+   * view state, so it goes through history.replaceState, which Next keeps in
+   * step with useSearchParams. router.replace would fetch the page from the
+   * server on every call, and the search box calls this as you type.
+   */
   const setParams = useCallback((patch: Record<string, string | null>) => {
     const params = new URLSearchParams(search.toString());
     for (const [key, value] of Object.entries(patch)) {
       if (value === null || value === "") params.delete(key);
       else params.set(key, value);
     }
-    router.replace(`${pathname}?${params}`, { scroll: false });
-  }, [pathname, router, search]);
+    const next = params.toString();
+    window.history.replaceState(null, "", next ? `${pathname}?${next}` : pathname);
+  }, [pathname, search]);
+
+  // The box shows each letter at once; the list filters at low priority, and the
+  // address catches up once typing pauses.
+  const [draft, setDraft] = useState(query);
+  const typed = useDeferredValue(draft);
+  const writeQuery = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onType = (value: string) => {
+    setDraft(value);
+    if (writeQuery.current) clearTimeout(writeQuery.current);
+    writeQuery.current = setTimeout(() => setParams({ q: value }), 300);
+  };
+  useEffect(() => () => { if (writeQuery.current) clearTimeout(writeQuery.current); }, []);
 
   // Before judging closes, evening out is a view preference (`raw=1` turns it off).
   // After, it is the saved per-judge decision.
@@ -139,23 +156,27 @@ function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onR
 
   const ranked = useMemo(() => rankRows(rows, evenOut, sort), [rows, evenOut, sort]);
   const visible = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase("en");
+    const needle = typed.trim().toLocaleLowerCase("en");
     return ranked.filter((row) => {
       if (track === MAIN_EVENT ? row.tracks.length > 0 : track && !row.tracks.includes(track)) return false;
       return !needle || [row.title, row.people].some((value) => value.toLocaleLowerCase("en").includes(needle));
     });
-  }, [ranked, query, track]);
+  }, [ranked, typed, track]);
   const selected = projectId ? ranked.find((row) => row.id === projectId) ?? null : null;
   const titleById = useMemo(() => new Map(rows.map((row) => [row.id, row.title])), [rows]);
   const loading = progress === undefined;
   const totals = overview?.totals;
 
   const filters = <>
-    <label className={styles.search}><Search aria-hidden /><span className="sr-only">Find a project</span><input type="search" placeholder="Find a project" value={query} onChange={(event) => setParams({ q: event.currentTarget.value })} /></label>
+    <label className={styles.search}><Search aria-hidden /><span className="sr-only">Find a project</span><input type="search" placeholder="Find a project" value={draft} onChange={(event) => onType(event.currentTarget.value)} /></label>
     <TrackMenu tracks={admin.tracks.map((item) => item.name)} value={track} onChange={(value) => setParams({ track: value })} />
   </>;
-  const filtered = Boolean(query || track);
-  const clearFilters = () => setParams({ q: null, track: null });
+  const filtered = Boolean(typed || track);
+  const clearFilters = () => {
+    if (writeQuery.current) clearTimeout(writeQuery.current);
+    setDraft("");
+    setParams({ q: null, track: null });
+  };
 
   const toolbar = <div className={styles.toolbar}>
     <div role="tablist" aria-label="Judging views" className="dq-segmented">

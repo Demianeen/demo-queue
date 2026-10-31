@@ -327,7 +327,7 @@ export function StagePresentation({
       ) : (
         <span className="codex-mark stage-mark" aria-hidden />
       )}
-      {results ? <StageWinners eventName={stage.event.name} results={results} /> : <section className="stage-grid">
+      {results ? <StageWinners eventName={stage.event.name} results={results} layout={isAstra ? "lineup" : "podium"} /> : <section className="stage-grid">
         {showQrStage ? (
           <div className="stage-main stage-qr-main">
             {showQueueTimer ? (

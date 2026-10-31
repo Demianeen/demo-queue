@@ -40,10 +40,12 @@ test("every page belongs to exactly one tab, and each state names its tab", () =
   assert.deepEqual([...pages].sort(), [...PREVIEW_PAGES].sort());
   for (const page of PREVIEW_PAGES) assert.equal(parsePreviewPage(page), page);
   assert.equal(previewTab("status-2nd").label, "Status page");
-  assert.equal(previewTab("winners-only").label, "Winners");
-  assert.equal(previewPageLabel("stage"), "Stage");
+  assert.equal(previewTab("winners-only").label, "Stage", "the winners are a moment of the stage");
+  assert.equal(previewTab("welcome").label, "Stage");
+  assert.equal(previewPageLabel("stage"), "Stage, Pitching");
   assert.equal(previewPageLabel("status-1st"), "Status page, 1st");
-  assert.equal(previewPageLabel("winners-only"), "Winners, Winners only");
+  assert.equal(previewPageLabel("winners-only"), "Stage, Winners only");
+  assert.equal(previewPageLabel("submit"), "Submit form");
   assert.equal(stylePreviewPath({ visualStyle: "codex" }, "status-finalist"), "/preview/codex/status-finalist");
   assert.equal(parsePreviewPage("status"), null);
   assert.equal(parsePreviewPage("status-4th"), null);

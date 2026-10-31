@@ -5,57 +5,82 @@ import { useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EventWelcome } from "./EventWelcome";
 import { StagePresentationPreview } from "./StagePresentationPreview";
 import { buildStagePreviewFixture } from "@/lib/stage-preview-fixture";
-import { VISUAL_STYLES, VISUAL_STYLE_LABELS } from "@/lib/visual-style";
+import { VISUAL_STYLES, VISUAL_STYLE_LABELS, type VisualStyle } from "@/lib/visual-style";
 import { submissionPath } from "@/lib/routes";
 import { useSiteOrigin } from "@/lib/use-site-origin";
+
+/** The colours each preset's card shows, taken from its stage. */
+const PRESET_SWATCHES: Record<VisualStyle, { background: string; foreground: string }> = {
+  neutral: { background: "#ffffff", foreground: "#1f1f23" },
+  codex: { background: "#0d0d0d", foreground: "#ffffff" },
+  outpost: { background: "#111113", foreground: "#ffffff" },
+  astra: { background: "#0b1026", foreground: "#e7e9ff" },
+  devday: { background: "#f7f2e8", foreground: "#1f1f23" },
+};
+
+type Card = { id: string; name: string; background: string; foreground: string; isDefault: boolean; preset?: VisualStyle; saved?: Doc<"organizationStyles"> };
 
 export function OrganizationStyles({ organizationId, organizationName, styles }: {
   organizationId: string; organizationName: string; styles: Doc<"organizationStyles">[];
 }) {
   const origin = useSiteOrigin();
   const defaultStyle = styles.find((style) => style.isDefault);
-  const [selected, setSelected] = useState<string>(() => defaultStyle ? defaultStyle.preset ? `preset:${defaultStyle.preset}` : defaultStyle._id : "preset:neutral");
+  const defaultId = defaultStyle ? defaultStyle.preset ? `preset:${defaultStyle.preset}` : defaultStyle._id : "preset:neutral";
+  const [selected, setSelected] = useState<string>(defaultId);
   const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState("");
   const setPresetDefault = useMutation(api.organizationStyles.setPresetDefault);
   const setSavedDefault = useMutation(api.organizationStyles.setSavedDefault);
-  const preset = VISUAL_STYLES.find((style) => selected === `preset:${style}`);
-  const savedStyle = styles.find((style) => !style.preset && style._id === selected);
-  const isDefault = preset ? defaultStyle ? defaultStyle.preset === preset : preset === "neutral" : defaultStyle?._id === selected;
+  const cards: Card[] = [
+    ...VISUAL_STYLES.map((preset) => ({ id: `preset:${preset}`, name: VISUAL_STYLE_LABELS[preset], ...PRESET_SWATCHES[preset], isDefault: `preset:${preset}` === defaultId, preset })),
+    ...styles.filter((style) => !style.preset).map((style) => ({ id: style._id, name: style.name, background: style.theme.background, foreground: style.theme.foreground, isDefault: style._id === defaultId, saved: style })),
+  ];
+  const current = cards.find((card) => card.id === selected);
+
   function select(id: string) { setSelected(id); setSaved(false); setError(""); }
-  async function saveDefault() {
-    if (!preset && !savedStyle) return;
-    setSaving(true); setError(""); setSaved(false);
+  async function makeDefault(card: Card) {
+    select(card.id);
+    setSaving(card.id);
     try {
-      if (preset) await setPresetDefault({ expectedOrganizationId: organizationId, preset });
-      else if (savedStyle) await setSavedDefault({ expectedOrganizationId: organizationId, id: savedStyle._id });
+      if (card.preset) await setPresetDefault({ expectedOrganizationId: organizationId, preset: card.preset });
+      else if (card.saved) await setSavedDefault({ expectedOrganizationId: organizationId, id: card.saved._id });
       setSaved(true);
     } catch (error) { setError(error instanceof ConvexError && typeof error.data === "string" ? error.data : "Could not update the default style. Please try again."); }
-    finally { setSaving(false); }
+    finally { setSaving(null); }
   }
-  return <section>
-    <div className="workspace-heading"><h1>Styles</h1><p>Choose a style for {organizationName}’s events.</p></div>
-    <div className="style-library" aria-label="Available styles">
-      {VISUAL_STYLES.map((style) => <Button key={style} disabled={saving} aria-pressed={selected === `preset:${style}`} variant={selected === `preset:${style}` ? "default" : "outline"} onClick={() => select(`preset:${style}`)}>{VISUAL_STYLE_LABELS[style]}{(defaultStyle?.preset === style || (!defaultStyle && style === "neutral")) ? " · Default" : ""}</Button>)}
-      {styles.filter((style) => !style.preset).map((style) => <Button disabled={saving} key={style._id} aria-pressed={selected === style._id} variant={selected === style._id ? "default" : "outline"} onClick={() => select(style._id)}>{style.name}{style.isDefault ? " · Default" : ""}</Button>)}
+
+  return <section className="ws-page">
+    <h1 className="sr-only">Styles</h1>
+    <div className="ws-main">
+      <div className="flex items-center gap-2"><h2 className="ws-card-title">Available styles</h2><span className="ws-count">{cards.length}</span></div>
+      {saved && <p role="status" className="ws-success">Organization default updated. Existing events keep their current appearance.</p>}
+      {error && <p role="alert" className="ws-error">{error}</p>}
+      <ul className="style-cards" aria-label="Available styles">
+        {cards.map((card) => <li key={card.id} className="style-card" data-selected={card.id === selected ? "" : undefined}>
+          <button type="button" className="style-card-pick" aria-pressed={card.id === selected} aria-label={`Preview ${card.name}`} disabled={saving !== null} onClick={() => select(card.id)}>
+            <span className="style-card-swatch" style={{ background: card.background, color: card.foreground }} aria-hidden>Demo Night</span>
+          </button>
+          <div className="style-card-meta">
+            <span className="style-card-name">{card.name}</span>
+            {card.isDefault ? <span className="style-card-default">Organization default</span>
+              : <button type="button" className="style-card-use" disabled={saving !== null} onClick={() => void makeDefault(card)}>{saving === card.id ? "Saving…" : "Use as default"}</button>}
+          </div>
+        </li>)}
+      </ul>
     </div>
-    {saved && <p role="status" className="workspace-style-saved">Organization default updated. Existing events keep their current appearance.</p>}
-    {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-    {preset || savedStyle ? <div className="workspace-create-grid">
-      <div className="workspace-fields">
-        <h2>{preset ? VISUAL_STYLE_LABELS[preset] : savedStyle?.name}</h2>
-        <p className="workspace-help">{isDefault ? `This is the default for new events in ${organizationName}.` : `Use this style for new events in ${organizationName}. You can choose a different style for each event.`}</p>
-        <Button disabled={saving || isDefault} onClick={() => void saveDefault()}>{saving ? "Saving…" : isDefault ? "Organization default" : "Use as organization default"}</Button>
+    <aside className="ws-side">
+      <div className="ws-card ws-card-body">
+        <div className="flex items-center gap-2"><h2 className="ws-card-title">Event presentation preview</h2><span className="flex-1" /><span className="ws-sub">{current?.name}</span></div>
+        {current ? <div className="workspace-preview-frame !mt-0" inert>{!current.preset || current.preset === "neutral"
+          ? <EventWelcome name="Demo Night" eventType="demo" submissionUrl={`${origin}${submissionPath("preview")}`} theme={current.saved?.theme} />
+          : <StagePresentationPreview stage={buildStagePreviewFixture({ eventName: "Demo Night", eventType: "demo", visualStyle: current.preset, meetUrl: "" })} submissionUrl={`${origin}${submissionPath("preview")}`} />}</div>
+          : <p className="ws-sub">This style is no longer available. Choose another style above.</p>}
+        <p className="ws-help">New events in {organizationName} start in the organization default. Each event can pick its own style in New event; existing events keep their current appearance.</p>
       </div>
-      <aside className="workspace-preview"><p className="workspace-label">Event presentation preview</p>
-        <div className="workspace-preview-frame" inert>{!preset || preset === "neutral" ? <EventWelcome name="Demo Night" eventType="demo" submissionUrl={`${origin}${submissionPath("preview")}`} theme={savedStyle?.theme} /> : <StagePresentationPreview stage={buildStagePreviewFixture({ eventName: "Demo Night", eventType: "demo", visualStyle: preset, meetUrl: "" })} submissionUrl={`${origin}${submissionPath("preview")}`} />}</div>
-      </aside>
-    </div> : <p className="workspace-help">This style is no longer available. Choose another style above.</p>}
+    </aside>
   </section>;
 }

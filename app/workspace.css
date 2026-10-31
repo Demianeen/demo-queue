@@ -50,7 +50,6 @@ body:has([data-event-style="neutral"]) > .page-bg, body:has(.neutral-stage) > .p
 .dq-app .workspace-help { font-size: 12px; line-height: 16px; color: var(--dq-fg-2); margin: 0; }
 .workspace-text-link { border: 0; background: none; color: var(--dq-accent); padding: 0; margin-left: 4px; font-size: inherit; cursor: pointer; }
 .workspace-text-link:hover { text-decoration: underline; text-underline-offset: 3px; }
-.workspace-style-saved { margin-bottom: 16px; color: var(--dq-success-fg); }
 
 /* Workspace pages (Members, Styles, Connections, Getting started): cards of rows, a side column on wide screens */
 .ws-page { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 20px; min-width: 0; }
@@ -79,6 +78,18 @@ body:has([data-event-style="neutral"]) > .page-bg, body:has(.neutral-stage) > .p
 .ws-row .ws-error { flex-basis: 100%; }
 .ws-kbd { margin-left: 6px; padding: 0 4px; border-radius: 4px; border: 1px solid rgb(255 255 255 / 0.25); font-family: var(--dq-font-mono); font-size: 10px; line-height: 14px; opacity: 0.8; }
 @media (max-width: 600px) { .ws-row { padding: 8px 12px; } .ws-card-body { padding: 12px; } }
+.style-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.style-card { border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.style-card[data-selected] { border-color: var(--dq-accent); box-shadow: 0 0 0 3px var(--dq-focus); }
+.style-card-pick { border: 0; padding: 0; background: none; cursor: pointer; border-radius: 6px; text-align: left; }
+.style-card-pick:focus-visible { outline: 2px solid var(--dq-accent); outline-offset: 2px; }
+.style-card-swatch { aspect-ratio: 16 / 9; border-radius: 6px; border: 1px solid var(--dq-line); padding: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-end; font-size: 12px; font-weight: 600; }
+.style-card-meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.style-card-name { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.style-card-default { font-size: 11px; font-weight: 500; color: var(--dq-success-fg); white-space: nowrap; }
+.style-card-use { border: 0; background: none; padding: 0; font-size: 12px; color: var(--dq-fg-2); cursor: pointer; white-space: nowrap; }
+.style-card-use:hover:not(:disabled) { color: var(--dq-fg); text-decoration: underline; text-underline-offset: 3px; }
+.style-card-use:disabled { cursor: default; opacity: 0.6; }
 
 /* The new event form: one card, controls sized to what they hold, the preview beside it */
 .new-event-grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 20px; border: 0; margin: 0; padding: 0; min-width: 0; }

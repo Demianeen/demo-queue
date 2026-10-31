@@ -20,6 +20,7 @@ export const modules = {
   "./emails.ts": () => import("./emails"),
   "./judging.ts": () => import("./judging"),
   "./tracks.ts": () => import("./tracks"),
+  "./sponsors.ts": () => import("./sponsors"),
   "./aiSummaries.ts": () => import("./aiSummaries"),
   "./aiSummaryAction.ts": () => import("./aiSummaryAction"),
   "./aiUsage.ts": () => import("./aiUsage"),

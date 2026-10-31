@@ -2,13 +2,34 @@
 
 import { memo, useEffect, useMemo, useState } from "react";
 import { BookOpenIcon } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
 import { Skeleton } from "@/app/Skeleton";
 import styles from "./judge.module.css";
 
-const PLUGINS = [rehypeRaw, rehypeSanitize];
+const REMARK = [remarkGfm];
+const REHYPE = [rehypeRaw, rehypeSanitize];
+
+/**
+ * Relative paths in a README point into the repository, as on GitHub:
+ * images to the raw file, links to the file's page. Absolute URLs and
+ * anchors stay as they are.
+ */
+function repositoryUrlTransform(repositoryUrl: string) {
+  let owner: string | undefined, repository: string | undefined;
+  try { [owner, repository] = new URL(repositoryUrl).pathname.split("/").filter(Boolean); } catch { /* not a URL: paths stay as written */ }
+  repository = repository?.replace(/\.git$/, "");
+  return (url: string, key: string) => {
+    const safe = defaultUrlTransform(url);
+    if (!safe || !owner || !repository || /^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(safe)) return safe;
+    const path = safe.replace(/^\.?\//, "");
+    return key === "src"
+      ? `https://raw.githubusercontent.com/${owner}/${repository}/HEAD/${path}`
+      : `https://github.com/${owner}/${repository}/blob/HEAD/${path}`;
+  };
+}
 
 /** The project's README from GitHub, sanitised. Loaded on demand by the judge page. */
 export const Readme = memo(function Readme({ repositoryUrl }: { repositoryUrl: string | null }) {
@@ -30,7 +51,9 @@ export const Readme = memo(function Readme({ repositoryUrl }: { repositoryUrl: s
     return () => controller.abort();
   }, [repositoryUrl]);
   // Parse the markdown once per README, not on every render
-  const rendered = useMemo(() => state.status === "ready" ? <ReactMarkdown rehypePlugins={PLUGINS}>{state.markdown}</ReactMarkdown> : null, [state]);
+  const rendered = useMemo(() => state.status === "ready" && repositoryUrl
+    ? <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} urlTransform={repositoryUrlTransform(repositoryUrl)}>{state.markdown}</ReactMarkdown>
+    : null, [state, repositoryUrl]);
   return (
     <section className={styles.readmeSection} id="project-readme">
       <div className={styles.sectionLabel}><BookOpenIcon /> README</div>

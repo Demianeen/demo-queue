@@ -23,7 +23,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ShortcutTooltip } from "@/components/shell/commands";
-import { AiReadBlock } from "@/components/AiRead";
+import { AiPanel, aiSummaryCaveat } from "@/components/AiRead";
 import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
 import { timeLeftMs, type TimerReading } from "@/lib/timer-clock";
 import { Id } from "../../../../convex/_generated/dataModel";
@@ -118,40 +118,15 @@ function JudgingClock({ timer, closed, judgingPaused }: { timer: TimerReading & 
 
 type AiSummary = NonNullable<Project["aiSummary"]>;
 
-/** The summary comes first, with the AI read under it. While it is being written, or when none is coming, the judge is told so. */
+/** One AI card: the read, then the summary. While it is being written, or when none is coming, the judge is told so. */
 function AiSummarySlot({ summary, status, read }: { summary: AiSummary | null; status: Project["aiSummaryStatus"]; read: Project["aiRead"] }) {
-  if (summary) return <AiSummaryPanel summary={summary} read={read} />;
-  if (status === "writing") {
-    return (
-      <section aria-labelledby="ai-summary-heading" aria-busy="true" className={styles.aiSummary}>
-        <h2 className={styles.aiSummaryHeading} id="ai-summary-heading"><SparklesIcon aria-hidden="true" /> AI summary</h2>
-        <div className={styles.aiSummaryPending}><Skeleton h={12} /><Skeleton w="86%" h={12} /><Skeleton w="72%" h={12} /></div>
-        <p className={styles.aiSummaryNote}>Summary is being written. It appears here on its own.</p>
-        {read ? <AiReadBlock read={read} /> : null}
-      </section>
-    );
-  }
+  // The event's own sections, in order; the stored list already covers older three-line summaries.
+  if (summary) return <AiPanel headingId="ai-summary-heading" caveat={aiSummaryCaveat(summary)} read={read} rows={summary.sections.map((section) => ({ label: section.label, text: section.text }))} />;
+  if (status === "writing") return <AiPanel headingId="ai-summary-heading" caveat="Being written. It appears here on its own." read={read} rows="pending" />;
   return (
     <section aria-labelledby="ai-summary-heading" className={styles.aiSummaryNone}>
       <h2 className={styles.aiSummaryHeading} id="ai-summary-heading"><SparklesIcon aria-hidden="true" /> No summary</h2>
       <p className={styles.aiSummaryNote}>There is no AI summary for this project. Use the description, the demo and the README.</p>
-    </section>
-  );
-}
-
-function AiSummaryPanel({ summary, read }: { summary: AiSummary; read: Project["aiRead"] }) {
-  // The event's own sections, in order; the stored list already covers older three-line summaries.
-  // An empty section means the team's text says nothing about it.
-  const rows = summary.sections.map((section) => [section.label, section.text] as const);
-  return (
-    <section aria-labelledby="ai-summary-heading" className={styles.aiSummary}>
-      <h2 className={styles.aiSummaryHeading} id="ai-summary-heading"><SparklesIcon aria-hidden="true" /> AI summary</h2>
-      <dl className={styles.aiSummaryRows}>{rows.map(([label, text]) => <div key={label}><dt>{label}</dt>{text ? <dd>{text}</dd> : <dd className={styles.aiSummaryMissing}>Not described</dd>}</div>)}</dl>
-      <p className={styles.aiSummaryNote}>
-        {summary.sample ? "Sample summary (practice). The real model is off for this practice event." : `Written by AI from the team's description${summary.usedReadme ? " and README" : ""}. Check it against the demo.`}
-        {summary.stale ? " The project changed since; a new summary is on its way." : null}
-      </p>
-      {read ? <AiReadBlock read={read} /> : null}
     </section>
   );
 }

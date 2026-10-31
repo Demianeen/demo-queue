@@ -681,13 +681,14 @@ test("an explicit refresh rewrites a summary written with an older prompt, even 
   expect(generateText).toHaveBeenCalledTimes(1);
 });
 
-test("the model reads the picked tracks' descriptions, and a summary is rewritten only when one of them changes", async () => {
+test("a summary says what relates to each track, and is rewritten only when a picked track's description changes", async () => {
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
   generateText.mockImplementation(async () => ({
     output: {
       whatItDoes: "Books meetings from a chat thread.",
       howItWorks: "An agent with calendar tool calls.",
       demoFocus: "A meeting booked from one message.",
+      trackFit: "Uses tool calls to book meetings on its own (AI agents).",
     },
   }));
   const { t, eventId, add } = await setup();
@@ -699,7 +700,7 @@ test("the model reads the picked tracks' descriptions, and a summary is rewritte
   await runAll(t);
   const call = generateText.mock.calls.find(([options]) => String(options.prompt).includes("Demo 1"))![0];
   expect(call.prompt).toContain("<<<BEGIN TRACKS>>>\n- AI agents: Agents that do real work end to end\n<<<END TRACKS>>>");
-  expect((await summaryOf(t, picked))!.tracksKey).toMatch(/^t1:/);
+  expect((await summaryOf(t, picked))!.sections).toContainEqual({ key: "trackFit", label: "Tracks", text: "Uses tool calls to book meetings on its own (AI agents)." });
   expect(generateText).toHaveBeenCalledTimes(2);
 
   // A rename, or a description on a track nobody here picked, rewrites nothing.

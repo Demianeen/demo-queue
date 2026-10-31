@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useCommands, type Command, ShortcutTooltip } from "@/components/shell/commands";
 import { absoluteUrl, submissionPath } from "@/lib/routes";
 import { errorText } from "./changes";
-import type { AdminData } from "./LiveEventHome";
+import type { AdminData } from "./PhaseTabs";
 import { Toggle } from "./Toggle";
 import styles from "./live.module.css";
 

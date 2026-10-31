@@ -151,14 +151,14 @@ export function StagePresentation({
   const liveLineupIsComplete = isLive && !stage.current && stage.remainingCount === 0;
   const currentStageLabel = stage.current
     ? isHackathon
-      ? "Now presenting"
+      ? "Now pitching"
       : "Now demoing"
     : liveLineupIsComplete
-      ? `All ${isHackathon ? "presentations" : "demos"} complete`
+      ? `All ${isHackathon ? "pitches" : "demos"} complete`
       : isLive
-        ? "Waiting for presenter"
+        ? isHackathon ? "Waiting for the first pitch" : "Waiting for presenter"
         : isHackathon
-          ? "Now presenting"
+          ? "Now pitching"
           : "Now demoing";
   const currentStageTitle =
     (isOutpost ? stage.current?.demoTitle : stage.current?.teamName ?? stage.current?.name) ??

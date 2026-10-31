@@ -4,18 +4,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation } from "convex/react";
 import { QRCodeSVG } from "qrcode.react";
-import { Copy, Expand, Presentation, QrCode, X } from "lucide-react";
+import { Copy, Expand, PanelRight, Presentation, QrCode, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ShortcutTooltip, useCommands, type Command } from "@/components/shell/commands";
 import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
+import type { EventPhase } from "@/lib/event-phase";
+import { PhaseMenu } from "./PhaseMenu";
 import { errorText } from "./changes";
 import styles from "./live.module.css";
 
-/** Share and Open stage, in the header of every page of an event. */
-export function EventHeaderActions({ slug, eventName }: { slug: string; eventName: string }) {
+/**
+ * The phase control, Share and Room, in the header of every tab of an event.
+ * The presentation view opens from the Room panel, or with S.
+ */
+export function EventHeaderActions({ slug, eventName, eventType, phase, roomOpen, onToggleRoom }: {
+  slug: string; eventName: string; eventType: "demo" | "hackathon"; phase: EventPhase; roomOpen: boolean; onToggleRoom: () => void;
+}) {
   const [shareOpen, setShareOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const setStageScreenMode = useMutation(api.events.setStageScreenMode);
@@ -34,11 +41,13 @@ export function EventHeaderActions({ slug, eventName }: { slug: string; eventNam
     { id: "share-copy", group: "This page", label: "Copy the submit link", run: () => void copy() },
     { id: "share-fullscreen", group: "This page", label: "Show the submit QR full screen", keys: ["F"], run: () => setFullscreen(true) },
     { id: "share-stage", group: "This page", label: "Put the submit QR on stage", run: () => void putOnStage() },
-    { id: "open-stage", group: "This page", label: "Open stage", keys: ["S"], run: openStage },
-  ], [slug]); // eslint-disable-line react-hooks/exhaustive-deps
+    { id: "open-stage", group: "This page", label: "Open presentation view", keys: ["S"], run: openStage },
+    { id: "room", group: "This page", label: roomOpen ? "Close the Room panel" : "Open the Room panel", keys: ["R"], run: onToggleRoom },
+  ], [slug, roomOpen, onToggleRoom]); // eslint-disable-line react-hooks/exhaustive-deps
   useCommands("event-header", commands);
 
   return <>
+    <PhaseMenu slug={slug} eventType={eventType} phase={phase} />
     <Popover open={shareOpen} onOpenChange={setShareOpen}>
       <PopoverTrigger render={<Button variant="outline" size="sm" />}><QrCode aria-hidden />Share</PopoverTrigger>
       <PopoverContent align="end" sideOffset={6} className={styles.share}>
@@ -52,8 +61,8 @@ export function EventHeaderActions({ slug, eventName }: { slug: string; eventNam
         <p className={styles.note}>Full screen fills this laptop with the QR so you can hold it up to someone. Esc closes it.</p>
       </PopoverContent>
     </Popover>
-    <ShortcutTooltip label="Open stage" keys={["S"]}>
-      <Button variant="outline" size="sm" onClick={openStage}>Open stage</Button>
+    <ShortcutTooltip label="What the room sees" keys={["R"]}>
+      <Button variant="outline" size="sm" aria-pressed={roomOpen} aria-controls={roomOpen ? "room-panel" : undefined} data-pressed={roomOpen ? "" : undefined} onClick={onToggleRoom}><PanelRight aria-hidden />Room</Button>
     </ShortcutTooltip>
     {fullscreen && <FullScreenQr url={submitUrl} eventName={eventName} onClose={() => setFullscreen(false)} />}
   </>;

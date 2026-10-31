@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { teamShortLabel, type SubmissionPreview } from "@/components/SubmissionPreviewCard";
-import type { AdminData } from "@/components/live/LiveEventHome";
+import type { AdminData } from "@/components/live/PhaseTabs";
 import { JudgesCard } from "@/components/live/JudgeTools";
 import { Toggle } from "@/components/live/Toggle";
 import { EventTabActionsContext } from "@/components/live/EventTabs";
@@ -49,9 +49,6 @@ export type JudgingPageProps = {
   slug: string;
   admin: AdminData;
   previews: ReadonlyMap<string, Preview>;
-  lineupIds: Id<"submissions">[];
-  onAddToLineup: (id: Id<"submissions">) => Promise<void>;
-  onRemoveFromLineup: (id: Id<"submissions">) => Promise<void>;
   onHide: (id: Id<"submissions">) => Promise<void>;
   onManageJudges: () => void;
   sheetUrl?: string;
@@ -77,7 +74,7 @@ export const JudgingPage = memo(function JudgingPage(props: JudgingPageProps) {
   return <JudgingBoundary><JudgingPageInner {...props} /></JudgingBoundary>;
 });
 
-function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onRemoveFromLineup, onHide, onManageJudges, sheetUrl, sheetBusy, sheetSyncPending, sheetStatus, sheetMessage, onCreateSheet, onSyncSheet }: JudgingPageProps) {
+function JudgingPageInner({ slug, admin, previews, onHide, onManageJudges, sheetUrl, sheetBusy, sheetSyncPending, sheetStatus, sheetMessage, onCreateSheet, onSyncSheet }: JudgingPageProps) {
   const sheet = { url: sheetUrl, busy: sheetBusy, syncPending: sheetSyncPending, status: sheetStatus, message: sheetMessage, onCreate: onCreateSheet, onSync: onSyncSheet };
   const pathname = usePathname();
   const search = useSearchParams();
@@ -222,8 +219,8 @@ function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onR
         selectedId={projectId} onSelect={selectProject} filtered={filtered} onClearFilters={clearFilters} />}
     </div>
     {<aside className={styles.side} aria-label={selected ? `${selected.title} details` : "Clock and judges"}>
-      {selected ? <DetailPanel slug={slug} row={selected} closed={closed} evenOut={evenOut} decisions={decisions} inLineup={lineupIds.some((id) => String(id) === selected.id)}
-          onClose={() => setParams({ project: null })} onAddToLineup={onAddToLineup} onRemoveFromLineup={onRemoveFromLineup} onHide={onHide} saveNormalization={saveNormalization} />
+      {selected ? <DetailPanel slug={slug} row={selected} closed={closed} evenOut={evenOut} decisions={decisions}
+          onClose={() => setParams({ project: null })} onHide={onHide} saveNormalization={saveNormalization} />
         : <>
           <ClockCard slug={slug} admin={admin} totals={totals} onManageJudges={onManageJudges} />
           <JudgesCard slug={slug} eventName={admin.event.name} overview={overview} openKey={judgeKey} onOpen={(key) => setParams({ judge: key })} onManage={onManageJudges} titleById={titleById} />

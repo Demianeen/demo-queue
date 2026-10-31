@@ -17,7 +17,10 @@ import { ShortcutTooltip, useCommands, type Command } from "@/components/shell/c
 import { WorkspaceOrganizationContext } from "@/components/WorkspaceOrganizationContext";
 import { eventCreatedDate } from "@/lib/event-date";
 import { eventDetailsPath, isEventDetailsPath, isEventAdminPath } from "@/lib/workspace-routes";
-import { adminViewPath, adminViewsFor, parseAdminView } from "@/lib/admin-views";
+import { adminViewsFor, parseAdminView } from "@/lib/admin-views";
+import { adminPath } from "@/lib/routes";
+import { RoomPanel } from "@/components/live/RoomPanel";
+import liveStyles from "@/components/live/live.module.css";
 import { EventHeaderActions } from "@/components/live/EventHeaderActions";
 import { PracticeBar } from "@/components/live/PracticeTools";
 import { EventTabs } from "@/components/live/EventTabs";
@@ -90,25 +93,32 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
     } catch { setError("Could not switch organizations. Please try again."); setSwitching(false); }
   }, [activeOrganizationId, switching, eventView, pathname]);
 
-  const adminView = parseAdminView(searchParams.get("view"), openEvent?.eventType);
-  const adminLabel = adminViewsFor(openEvent?.eventType ?? "hackathon").find((item) => item.view === adminView)?.label ?? "Overview";
+  const adminView = openEvent ? parseAdminView(searchParams.get("view"), openEvent.eventType, openEvent.phase) : null;
+  const adminLabel = openEvent && adminViewsFor(openEvent.eventType).find((item) => item.view === adminView)?.label;
+  // The Room panel stays open as you move between an event's tabs, and closes when you leave the event.
+  const [roomFor, setRoomFor] = useState<string | null>(null);
+  const roomOpen = view === "admin" && !!eventSlug && roomFor === eventSlug;
+  const toggleRoom = useCallback(() => setRoomFor((current) => current === eventSlug ? null : eventSlug ?? null), [eventSlug]);
+  const closeRoom = useCallback(() => setRoomFor(null), []);
   const crumbs = view === "admin" && eventSlug
-    ? [...(openEvent?.practice ? [{ label: "Practice", href: "/events/practice" }] : []), { label: eventName ?? "Event", href: adminViewPath(eventSlug, "home") }, ...(adminView === "home" ? [] : [{ label: adminLabel }])]
+    ? [...(openEvent?.practice ? [{ label: "Practice", href: "/events/practice" }] : []), { label: eventName ?? "Event", href: adminPath(eventSlug) }, ...(adminLabel ? [{ label: adminLabel }] : [])]
     : view === "details" && eventSlug
     ? [{ label: "Events", href: "/events" }, { label: eventName ?? "Event", href: eventDetailsPath(eventSlug) }, { label: "Summary" }]
     : view === "create" ? [{ label: "Events", href: "/events" }, { label: "New event" }]
     : [{ label: VIEW_TITLES[view] }];
 
   // An event's admin page gets its tabs under the header, with their counts.
-  const withTabs = (body: ReactNode) => view === "admin" && openDetails && eventSlug
-    ? <EventTabs slug={eventSlug} eventType={openDetails.eventType} active={adminView} counts={{ lineup: openDetails.lineupCount, submissions: openDetails.submissionCount, scores: openDetails.scores }}>{body}</EventTabs>
+  const withTabs = (body: ReactNode) => view === "admin" && openDetails && eventSlug && adminView
+    ? <EventTabs slug={eventSlug} eventType={openDetails.eventType} phase={openDetails.phase} active={adminView} counts={{ lineup: openDetails.lineupCount, submissions: openDetails.submissionCount, scores: openDetails.scores }}>
+      <div className={liveStyles.roomLayout}>{body}{roomOpen && <RoomPanel slug={eventSlug} onClose={closeRoom} />}</div>
+    </EventTabs>
     : body;
 
   return <OrganiserShell organizations={organizations} activeOrganizationId={activeOrganizationId} email={email} displayName={displayName} switching={switching} onSelectOrganization={switchOrganization} liveEvent={liveEvent} openEvent={openEvent}>
     {(switching || !active || (!isLoading && !isAuthenticated)) && <title>{`${VIEW_TITLES[view]} | Demo Queue`}</title>}
     {openEvent?.practice && eventSlug && <div className="px-4 pt-3"><PracticeBar slug={eventSlug} /></div>}
     <PageHeader crumbs={crumbs} actions={view === "events" && active && events.results.length > 0 ? <ShortcutTooltip label="New event" keys={["C"]}><Button size="sm" render={<Link href="/events/new" />} nativeButton={false}><Plus aria-hidden />New event</Button></ShortcutTooltip>
-      : view === "admin" && openEvent && eventSlug ? <EventHeaderActions slug={eventSlug} eventName={openEvent.name} /> : undefined} />
+      : view === "admin" && openEvent && eventSlug ? <EventHeaderActions slug={eventSlug} eventName={openEvent.name} eventType={openEvent.eventType} phase={openEvent.phase} roomOpen={roomOpen} onToggleRoom={toggleRoom} /> : undefined} />
     {withTabs(<div className={view === "admin" ? "dq-page-wide" : "dq-page"}>
       {signInFailed && <Alert variant="destructive" className="mb-4"><AlertDescription>Sign-in could not be completed. Your previous session is still active. <a href="/events/sign-in">Try signing in again</a>.</AlertDescription></Alert>}
       {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error} <a href="/events">Reload memberships</a></AlertDescription></Alert>}

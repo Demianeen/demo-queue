@@ -2,8 +2,10 @@
 
 import React, { FormEvent, createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
+import { toast } from "sonner";
+import { errorText } from "@/components/live/changes";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
@@ -25,11 +27,13 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { parseAdminView, adminViewPath, judgingPath, type AdminView } from "@/lib/admin-views";
+import { canonicalViewParam, liveView, parseAdminView, adminViewPath, type AdminView } from "@/lib/admin-views";
 import { useInPageNavigate } from "@/components/InPageLink";
-import { LiveEventHome } from "@/components/live/LiveEventHome";
+import { ResultsTab, SubmissionsClock } from "@/components/live/PhaseTabs";
+import { StageTab } from "@/components/live/StageTab";
+import { PracticeTools } from "@/components/live/PracticeTools";
 import { UndoToaster } from "@/components/live/changes";
-import { useCommands, type Command } from "@/components/shell/commands";
+import { useCommandRegistry, useCommands, type Command } from "@/components/shell/commands";
 import { makeSampleHackathonTeam, makeSamplePerson, pickSampleTracks } from "@/lib/sampleData";
 import { TrackPicker, TrackPills, type TrackOption } from "@/components/TrackPicker";
 import { TracksAdminPanel } from "@/components/TracksAdminPanel";
@@ -148,7 +152,6 @@ type SubmissionFields = {
 const EventTracksContext = createContext<TrackOption[]>([]);
 
 type ColumnId = "lineup" | "pool";
-type AdminTab = "all" | "lineup";
 type RosterStatus = "lineup" | "pool" | "hidden" | "inactive";
 type StatusTone = "green" | "blue" | "yellow";
 
@@ -304,8 +307,8 @@ function useOvertime(timer: StageTimer | undefined) {
 
 export default function AdminPage() {
   const params = useParams<{ slug: string }>();
-  const router = useRouter();
   const navigate = useInPageNavigate();
+  const { commands: registeredCommands } = useCommandRegistry();
   const { isAuthenticated } = useConvexAuth();
   const admin = useQuery(api.events.getAdmin, isAuthenticated ? { slug: params.slug } : "skip");
 
@@ -317,6 +320,7 @@ export default function AdminPage() {
   const markNoShow = useMutation(api.events.markNoShow);
   const clearQueue = useMutation(api.events.clearQueue);
   const changeEventType = useMutation(api.events.changeEventType);
+  const updateEvent = useMutation(api.events.updateEvent);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const adminAddTestSubmissions = useMutation(api.events.adminAddTestSubmissions);
   const updateSubmission = useMutation(api.events.updateSubmission);
@@ -392,19 +396,27 @@ export default function AdminPage() {
   const [testPeopleMessage, setTestPeopleMessage] = useState("");
   const [sheetBusy, setSheetBusy] = useState(false);
   const [sheetMessage, setSheetMessage] = useState("");
+  const [meetDraft, setMeetDraft] = useState<string | null>(null);
   const [judgesOpen, setJudgesOpen] = useState(false);
   const [judgesText, setJudgesText] = useState("");
   const [judgesBusy, setJudgesBusy] = useState(false);
   const [judgesMessage, setJudgesMessage] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const searchParams = useSearchParams();
-  const view = parseAdminView(searchParams.get("view"), admin?.event.eventType);
-  const [activeTab, setActiveTab] = useState<AdminTab>(view === "queue" ? "lineup" : "all");
-  useEffect(() => { setActiveTab(view === "queue" ? "lineup" : "all"); }, [view]);
   const rawView = searchParams.get("view");
+  const eventType = admin?.event.eventType;
+  // Until the event loads, a tab named in the address shows its skeleton; without one, the live tab does.
+  const view = eventType ? parseAdminView(rawView, eventType, admin.event.phase) : null;
+  // Links from before the phase tabs (Overview, Presentations, Judges) say what they open now.
   useEffect(() => {
-    if (rawView === "judges") window.history.replaceState(null, "", judgingPath(params.slug));
-  }, [rawView, router, params.slug]);
+    if (!eventType || !rawView) return;
+    const canonical = canonicalViewParam(rawView, eventType);
+    if (canonical === rawView) return;
+    const next = new URLSearchParams(window.location.search);
+    if (canonical) next.set("view", canonical); else next.delete("view");
+    const query = next.toString();
+    window.history.replaceState(null, "", query ? `${window.location.pathname}?${query}` : window.location.pathname);
+  }, [rawView, eventType]);
   const editParam = view === "submissions" ? searchParams.get("edit") : null;
   useEffect(() => {
     if (editParam) setEditingId(editParam as Id<"submissions">);
@@ -558,23 +570,19 @@ export default function AdminPage() {
   // Judging gets handlers that keep their identity, so the admin page's own
   // re-renders (other tabs' state, timers) skip the memoized Judging page.
   const judgingHandlers = useRef<{
-    addToLineup: (id: Id<"submissions">) => Promise<void>;
-    removeFromLineup: (id: Id<"submissions">) => Promise<void>;
     hide: (id: Id<"submissions">) => Promise<void>;
     manageJudges: () => void;
     createSheet: () => void;
     syncSheet: () => void;
   } | null>(null);
   const judgingActions = useMemo(() => ({
-    onAddToLineup: (id: Id<"submissions">) => judgingHandlers.current!.addToLineup(id),
-    onRemoveFromLineup: (id: Id<"submissions">) => judgingHandlers.current!.removeFromLineup(id),
     onHide: (id: Id<"submissions">) => judgingHandlers.current!.hide(id),
     onManageJudges: () => judgingHandlers.current!.manageJudges(),
     onCreateSheet: () => judgingHandlers.current!.createSheet(),
     onSyncSheet: () => judgingHandlers.current!.syncSheet(),
   }), []);
 
-  if (!admin) {
+  if (!admin || !view) {
     return (
       <section className="page admin-page">
         <div className="shell admin-shell">
@@ -738,6 +746,18 @@ export default function AdminPage() {
     await markNoShow({
       slug: params.slug,
       });
+  }
+
+  async function saveMeetLink() {
+    if (!admin || meetDraft === null) return;
+    if (meetDraft.trim() === admin.event.meetUrl) { setMeetDraft(null); return; }
+    try {
+      await updateEvent({ slug: params.slug, name: admin.event.name, meetUrl: meetDraft });
+      setMeetDraft(null);
+      toast.success(meetDraft.trim() ? "Meet link saved." : "Meet link removed.");
+    } catch (error) {
+      toast.error(errorText(error, "Could not save the meet link."));
+    }
   }
 
   async function toggleStageMeetLink(visible: boolean) {
@@ -1041,12 +1061,25 @@ export default function AdminPage() {
         `Change this event to ${nextType === "hackathon" ? "Hackathon" : "Demo queue"}? This permanently deletes ${submissionCount} submission${submissionCount === 1 ? "" : "s"}, team members, and uploaded files. Any exported Google Sheet remains in Drive but is disconnected from this event.`,
       );
     if (!confirmed) return;
+    // A demo night needs a meet link: demoers join the call from it.
+    let meetUrl: string | undefined;
+    if (nextType === "demo" && !admin.event.meetUrl.trim()) {
+      const typed = window.prompt("A demo night needs a Google Meet link: demoers join the call from it.", "https://meet.google.com/");
+      if (typed === null) return;
+      meetUrl = typed;
+    }
 
-    await changeEventType({
-      slug: params.slug,
-      eventType: nextType,
-      confirmReset: submissionCount > 0,
-    });
+    try {
+      await changeEventType({
+        slug: params.slug,
+        eventType: nextType,
+        confirmReset: submissionCount > 0,
+        meetUrl,
+      });
+    } catch (error) {
+      toast.error(errorText(error, "Could not change the event type."));
+      return;
+    }
     setEditingId(null);
     setIsAdding(false);
     setSheetMessage("");
@@ -1086,7 +1119,7 @@ export default function AdminPage() {
   }
 
   judgingHandlers.current = {
-    addToLineup, removeFromLineup, hide,
+    hide,
     manageJudges: () => openRoundOneJudges(),
     createSheet: () => void createJudgingSheetFile(),
     syncSheet: () => void syncJudgingSheetNow(),
@@ -1213,6 +1246,9 @@ export default function AdminPage() {
     ? `Everyone who submitted. Add them to the ${lineupName}, edit, or hide them.`
     : "Event type, meet link, Luma and tracks.";
   const goTo = (next: AdminView) => navigate(adminViewPath(params.slug, next));
+  const isLiveTab = view === liveView(admin.event.eventType, admin.event.phase);
+  // Share lives in the header; its command opens it from the Submissions clock too.
+  const openShare = () => registeredCommands.find((command) => command.id === "share")?.run();
   const adminCommands: Command[] = [
     queueIsLive && currentLineupItem
       ? { id: "admin-advance", group: "This page", label: livePrimaryLabel, keys: ["A"], run: () => void livePrimaryAction() }
@@ -1355,7 +1391,9 @@ export default function AdminPage() {
 
 
         {view === "submissions" || view === "settings" ? <header className="admin-view-heading"><h1>{viewTitle}</h1><p>{viewDescription}</p></header> : null}
-        {view === "home" ? <LiveEventHome slug={params.slug} admin={admin} onSetUpJudging={() => goTo("judging")} /> : null}
+        {view === "submissions" && admin.event.phase === "submissions" ? <SubmissionsClock slug={params.slug} admin={admin} onShare={openShare} /> : null}
+        {view === "stage" && isHackathonEvent ? <StageTab slug={params.slug} admin={admin} /> : null}
+        {view === "results" ? <ResultsTab slug={params.slug} admin={admin} /> : null}
         {view === "queue" ? <section className="admin-control-grid">
           <section className="panel panel-pad admin-control-panel">
             <header className="admin-page-header">
@@ -1669,21 +1707,33 @@ export default function AdminPage() {
 
             <div className="field">
               <div className="field-heading">
-                <label htmlFor="meetUrl">Meet link</label>
+                <label htmlFor="meetUrl">{admin.event.eventType === "hackathon" ? "Meet link (optional)" : "Meet link"}</label>
                 <label className="stage-meet-toggle">
                   <input
                     type="checkbox"
                     checked={admin.event.showMeetLinkOnStage ?? false}
-                    disabled={!queueIsLive}
+                    disabled={!queueIsLive || !admin.event.meetUrl}
                     onChange={(event) => toggleStageMeetLink(event.currentTarget.checked)}
                   />
                   <span>Show in presentation view</span>
                 </label>
               </div>
-              <input id="meetUrl" readOnly value={admin.event.meetUrl} />
+              <input
+                id="meetUrl"
+                type="url"
+                placeholder="https://meet.google.com/..."
+                value={meetDraft ?? admin.event.meetUrl}
+                onChange={(event) => setMeetDraft(event.currentTarget.value)}
+                onBlur={() => void saveMeetLink()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") { event.preventDefault(); void saveMeetLink(); }
+                  if (event.key === "Escape") { event.stopPropagation(); setMeetDraft(null); }
+                }}
+              />
               <span className="muted" style={{ fontSize: 12 }}>
-                Published {admin.event.eventType === "hackathon" ? "presenters" : "demoers"} see it on their status pages. It stays hidden in the
-                presentation view unless you enable it after publishing.
+                {admin.event.eventType === "hackathon"
+                  ? "Finalists see it on their status pages. Show it in the presentation view during Stage if they pitch remotely."
+                  : "Published demoers see it on their status pages. It stays hidden in the presentation view unless you enable it after publishing."}
               </span>
             </div>
             <LumaEventSetting available={admin.event.luma.available} lumaEvent={admin.event.luma.event} slug={params.slug} />
@@ -1703,9 +1753,6 @@ export default function AdminPage() {
             slug={params.slug}
             admin={admin}
             previews={submissionPreviews}
-            lineupIds={board.lineup}
-            onAddToLineup={judgingActions.onAddToLineup}
-            onRemoveFromLineup={judgingActions.onRemoveFromLineup}
             onHide={judgingActions.onHide}
             onManageJudges={judgingActions.onManageJudges}
             sheetUrl={admin.event.judgingSheetUrl}
@@ -1726,39 +1773,10 @@ export default function AdminPage() {
           onDragEnd={onDragEnd}
         >
           <section className="panel admin-workspace">
-            <div className="admin-tabs" role="tablist" aria-label="Admin views">
-              <button
-                aria-controls="admin-panel-all"
-                aria-selected={activeTab === "all"}
-                className={activeTab === "all" ? "admin-tab is-active" : "admin-tab"}
-                id="admin-tab-all"
-                onClick={() => setActiveTab("all")}
-                role="tab"
-                type="button"
-              >
-                <span>{allSubmissionsLabel}</span>
-                <span className="admin-tab-count">{allPeopleRows.length}</span>
-              </button>
-              <button
-                aria-controls="admin-panel-lineup"
-                aria-selected={activeTab === "lineup"}
-                className={activeTab === "lineup" ? "admin-tab is-active" : "admin-tab"}
-                id="admin-tab-lineup"
-                onClick={() => setActiveTab("lineup")}
-                role="tab"
-                type="button"
-              >
-                <span>{admin.event.eventType === "hackathon" ? "Presentation lineup" : "Demoers"}</span>
-                <span className="admin-tab-count">{lineupCount}</span>
-              </button>
-            </div>
-
-            {activeTab === "all" ? (
+            {view === "submissions" ? (
               <div
-                aria-labelledby="admin-tab-all"
                 className="admin-table-wrap"
                 id="admin-panel-all"
-                role="tabpanel"
               >
                 <table className="admin-table">
                   <thead>
@@ -1798,7 +1816,7 @@ export default function AdminPage() {
                 </table>
               </div>
             ) : (
-              <div aria-labelledby="admin-tab-lineup" id="admin-panel-lineup" role="tabpanel">
+              <div id="admin-panel-lineup">
                 <div className="lineup-toolbar">
                   <div>
                     <h2 style={{ margin: 0 }}>
@@ -1911,6 +1929,7 @@ export default function AdminPage() {
           </DragOverlay>
         </DndContext> : null}
 
+        {admin.event.practice && isLiveTab ? <div className="admin-practice-tools"><PracticeTools slug={params.slug} admin={admin} /></div> : null}
       </div>
     </section>
     </EventTracksContext.Provider>

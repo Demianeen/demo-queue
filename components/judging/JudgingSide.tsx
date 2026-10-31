@@ -11,8 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ShortcutTooltip, useCommands, type Command } from "@/components/shell/commands";
 import { SubmissionPreviewBody } from "@/components/SubmissionPreviewCard";
-import type { AdminData } from "@/components/live/LiveEventHome";
-import { TrackChips } from "@/components/live/LiveEventHome";
+import type { AdminData } from "@/components/live/PhaseTabs";
+import { TrackChips } from "@/components/live/PhaseTabs";
 import type { JudgesOverview } from "@/components/live/JudgeTools";
 import { errorText } from "@/components/live/changes";
 import { formatClock, parseClock, useRemaining } from "@/components/live/clock";
@@ -150,16 +150,13 @@ export function ClockCard({ slug, admin, totals, onManageJudges, wide = false }:
  * links, AI summary and team, each judge's scores, and the actions that were
  * on the old judging table.
  */
-export function DetailPanel({ slug, row, closed, evenOut, decisions, inLineup, onClose, onAddToLineup, onRemoveFromLineup, onHide, saveNormalization }: {
+export function DetailPanel({ slug, row, closed, evenOut, decisions, onClose, onHide, saveNormalization }: {
   slug: string;
   row: RankedRow<BoardRow>;
   closed: boolean;
   evenOut: boolean;
   decisions: ReadonlyMap<string, NormalizationJudge>;
-  inLineup: boolean;
   onClose: () => void;
-  onAddToLineup: (id: Id<"submissions">) => Promise<void>;
-  onRemoveFromLineup: (id: Id<"submissions">) => Promise<void>;
   onHide: (id: Id<"submissions">) => Promise<void>;
   saveNormalization: (judgeKeys: string[], decision: "apply" | "raw") => Promise<void>;
 }) {
@@ -200,9 +197,6 @@ export function DetailPanel({ slug, row, closed, evenOut, decisions, inLineup, o
       })}
     </div>
     <div className={styles.detailActions}>
-      {inLineup
-        ? <Button variant="outline" size="sm" disabled={busy} onClick={() => void act(() => onRemoveFromLineup(row.submissionId), "Could not remove it from presenters.", `${row.title} removed from presenters.`)}>Remove from presenters</Button>
-        : <Button variant="outline" size="sm" disabled={busy} onClick={() => void act(() => onAddToLineup(row.submissionId), "Could not add it to presenters.", `${row.title} added to presenters.`)}>Add to presenters</Button>}
       <Button variant="outline" size="sm" disabled={busy} onClick={() => void act(async () => { await onHide(row.submissionId); onClose(); }, "Could not hide it.", `${row.title} hidden from results. Undo from Recent changes.`)}>Hide from results</Button>
       <Button variant="outline" size="sm" render={<InPageLink href={`${adminViewPath(slug, "submissions")}&edit=${row.id}`} />} nativeButton={false}>Edit submission</Button>
     </div>

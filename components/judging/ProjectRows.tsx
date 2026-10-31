@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SubmissionPreviewTrigger } from "@/components/SubmissionPreviewCard";
-import { TrackChips } from "@/components/live/LiveEventHome";
+import { TrackChips } from "@/components/live/PhaseTabs";
 import { JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
 import { CRITERIA, REVIEW_GROUPS, REVIEW_TARGET, reviewGroup, scoreAverage, type JudgeChip, type RankedRow, type RankSort, type ReviewGroup } from "@/lib/judging-board";
 import type { BoardRow } from "./JudgingPage";

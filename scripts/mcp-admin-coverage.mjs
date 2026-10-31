@@ -23,6 +23,8 @@ export const UI_EXCLUSIONS = [
   ...["status", "teamStatus", "setHidden", "markDryRun"].map((name) => ({ file: "components/GettingStarted.tsx", browser: `gettingStarted.${name}`, reason: "The signed-in person's own onboarding checklist, not event administration." })),
   { file: "components/McpConnectionClient.tsx", browser: "gettingStarted.mcpAddress", reason: "Shows the MCP address to a person setting up an assistant; an assistant already knows it." },
   ...finalistFunctions.map((name) => ({ file: "components/judging/FinalistsView.tsx", browser: `judging.${name}`, reason: "Proposed: finalist and winner picking stays in the admin page for now; MCP tools can follow." })),
+  { file: "components/live/PhaseTabs.tsx", browser: "judging.getFinalistDecision", reason: "Proposed: the Stage and Results tabs read the finalists and winners as the Finalists view does; MCP tools can follow." },
+  { file: "app/(workspace)/events/[slug]/admin/ClientPage.tsx", browser: "events.updateEvent", reason: "Proposed: editing the meet link stays in the admin page for now; an MCP tool can follow." },
 ];
 
 /**

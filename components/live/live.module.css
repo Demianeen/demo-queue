@@ -1,22 +1,12 @@
-/* The live event home, Share, Judges and Practice. Colours come from the organiser tokens in app/organiser.css. */
+/* The phase tabs, the Room panel, Share, Judges and Practice. Colours come from the organiser tokens in app/organiser.css. */
 
-.home { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
-.main { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 28px; padding: 8px 8px 0; }
-.side { flex: 0 1 340px; width: 340px; max-width: 100%; display: flex; flex-direction: column; gap: 10px; }
-@media (max-width: 1023px) { .side { width: 100%; flex-basis: 100%; } }
 
 .section { display: flex; flex-direction: column; gap: 10px; }
 .sectionHead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .sectionHead h2 { font-size: 13px; font-weight: 500; }
 .hint { font-size: 12px; color: var(--dq-fg-3); }
 
-/* Phase switch */
-.phaseRow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: relative; }
-.phases { align-self: flex-start; }
-.phases > button { flex: none; padding: 0 14px; }
-.phases > button[aria-checked="true"] { background: var(--dq-card); color: var(--dq-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.08); }
-.phases > button:hover:not([aria-checked="true"]) { background: var(--dq-hover); color: var(--dq-fg); }
-.phases > button:disabled { cursor: progress; }
+/* The phase control's confirm */
 .confirm { width: 360px; max-width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; background: var(--dq-card); border: 1px solid var(--dq-line); box-shadow: 0 10px 30px rgb(0 0 0 / 0.08); display: flex; flex-direction: column; gap: 6px; }
 .confirm h3 { font-size: 13px; font-weight: 600; }
 .confirm p { font-size: 13px; line-height: 18px; color: var(--dq-fg-2); }
@@ -50,15 +40,6 @@
 .swatch { width: 8px; height: 8px; border-radius: 2px; background: var(--dq-accent); flex: none; }
 .swatch[data-muted] { background: var(--dq-input); }
 
-/* Latest submissions */
-.latest { border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); }
-.latestRow { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 12px; border-top: 1px solid var(--dq-divider-soft); font-size: 13px; }
-.latestRow:first-child { border-top: 0; }
-.latestTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.latestTeam { color: var(--dq-fg-2); }
-.latestWhen { color: var(--dq-fg-3); font-size: 12px; flex: none; }
-.bigStat { display: flex; align-items: baseline; gap: 8px; }
-.bigStat strong { font-size: 32px; line-height: 40px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* Side cards */
 .sideCard { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
@@ -123,3 +104,60 @@
 .toolActions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: auto; }
 .toolQr { display: flex; gap: 10px; align-items: center; }
 .toolQr svg { flex: none; }
+
+/* Phase tabs */
+.phasePage { max-width: 880px; margin: 0 auto; padding: 8px 4px 0; display: flex; flex-direction: column; gap: 24px; }
+.phaseTop { display: flex; flex-direction: column; gap: 10px; padding: 4px 4px 20px; margin-bottom: 20px; border-bottom: 1px solid var(--dq-divider); }
+.phaseTop .sectionHead h2, .phasePage > .sectionHead h2 { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
+.sectionHead .linkButton:last-child { margin-left: auto; }
+.list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); }
+.listRow { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 6px 14px; border-top: 1px solid var(--dq-divider-soft); font-size: 13px; }
+.listRow:first-child { border-top: 0; }
+.place { width: 30px; flex: none; font-weight: 600; font-variant-numeric: tabular-nums; }
+.listTitle { font-weight: 500; flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listTeam { flex: 1 1 auto; min-width: 0; color: var(--dq-fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listScore { flex: none; font-size: 12px; font-weight: 600; }
+.listCard { border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); }
+.listCard .list { border: 0; border-top: 1px solid var(--dq-divider-soft); border-radius: 0; background: transparent; }
+.listCardHead { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; flex-wrap: wrap; }
+.listCardHead h2 { font-size: 13px; font-weight: 600; }
+.listCardHead .linkButton { margin-left: auto; }
+.listFoot { padding: 10px 14px; border-top: 1px solid var(--dq-divider-soft); font-size: 12px; color: var(--dq-fg-2); }
+.emptyCard { border: 1px dashed var(--dq-line); border-radius: 10px; background: var(--dq-card); padding: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--dq-fg-2); }
+.emptyCard strong { font-size: 13px; font-weight: 500; color: var(--dq-fg); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.stat { border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--dq-fg-2); }
+.stat strong { font-size: 22px; line-height: 28px; font-weight: 600; color: var(--dq-fg); font-variant-numeric: tabular-nums; }
+.footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--dq-fg-3); border-top: 1px solid var(--dq-divider-soft); padding-top: 12px; }
+@media (max-width: 640px) { .listTeam { display: none; } .listTitle { max-width: none; flex: 1 1 auto; } }
+
+/* Room panel: what the room sees, beside any tab */
+.roomLayout { display: flex; align-items: flex-start; min-height: 100%; }
+.roomLayout > :first-child { flex: 1 1 auto; min-width: 0; }
+.room { flex: none; width: 340px; max-width: 100%; box-sizing: border-box; align-self: stretch; border-left: 1px solid var(--dq-divider); padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--dq-card); }
+.roomInner { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.roomHead { display: flex; align-items: center; gap: 8px; }
+.roomHead h2 { font-size: 13px; font-weight: 600; }
+.roomHead > :last-child { margin-left: auto; }
+.roomLinks { display: flex; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 1023px) { .roomLayout { flex-direction: column; } .room { width: 100%; border-left: 0; border-top: 1px solid var(--dq-divider); } }
+
+/* Phase control */
+.phaseMenu { width: 340px; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.phaseItem { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; text-align: left; font-size: 13px; color: var(--dq-fg); cursor: pointer; }
+.phaseItem:hover:not(:disabled), .phaseItem:focus-visible { background: var(--dq-hover); outline: none; }
+.phaseItem:disabled { cursor: progress; }
+.phaseItem[aria-current="true"] { cursor: default; background: var(--dq-segment); }
+.phaseItemTop { display: flex; align-items: center; gap: 6px; font-weight: 500; width: 100%; }
+.phaseItemTop small { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--dq-fg-3); }
+.phaseItemText { font-size: 12px; line-height: 16px; color: var(--dq-fg-2); }
+.phaseMenu .confirm { width: auto; box-shadow: none; }
+.phaseMenuHead { padding: 6px 10px 4px; font-size: 12px; color: var(--dq-fg-3); }
+.listRow[data-current] { background: var(--dq-segment); }
+.listRow[data-current] .place { color: var(--dq-success); }
+.listRow[data-dragging] { position: relative; z-index: 1; background: var(--dq-card); box-shadow: 0 6px 20px rgb(0 0 0 / 0.1); }
+.grip { flex: none; width: 18px; height: 24px; margin-left: -6px; border: 0; background: transparent; color: var(--dq-fg-3); cursor: grab; display: inline-flex; align-items: center; justify-content: center; touch-action: none; }
+.grip svg { width: 14px; height: 14px; }
+.grip:focus-visible { outline: 2px solid var(--dq-focus); border-radius: 4px; }
+.pitched { margin-top: 8px; }
+.pitched summary { cursor: pointer; font-size: 12px; color: var(--dq-fg-2); padding: 4px 0 8px; }

@@ -19,8 +19,9 @@ import { WorkspaceAccountMenu } from "@/components/WorkspaceAccountMenu";
 import { CommandProvider, ShortcutTooltip, useCommandRegistry, useCommands, type Command } from "./commands";
 import { CommandMenu } from "./CommandMenu";
 import { ShortcutSheet } from "./ShortcutSheet";
-import { ADMIN_VIEW_KEYS, adminViewPath, adminViewsFor, judgingPath, JUDGES_KEY } from "@/lib/admin-views";
-import { PHASE_LABELS, type EventPhase } from "@/lib/event-phase";
+import { ADMIN_VIEW_KEYS, adminViewPath, adminViewsFor, judgingPath, JUDGES_KEY, LIVE_KEY, phaseTabLabel } from "@/lib/admin-views";
+import { adminPath } from "@/lib/routes";
+import type { EventPhase } from "@/lib/event-phase";
 import { InPageLink, useInPageNavigate } from "@/components/InPageLink";
 
 type Organization = { id: string; name: string };
@@ -132,9 +133,9 @@ function ShellSidebar({ organizations, activeOrganizationId, email, displayName,
 /** An event in the sidebar: one item with its phase. Its sections are the tabs on its page. */
 function EventNav({ event, active }: { event: ShellEvent; active: boolean }) {
   return <SidebarMenuItem>
-    <SidebarMenuButton render={<InPageLink href={adminViewPath(event.slug, "home")} />} isActive={active}>
+    <SidebarMenuButton render={<InPageLink href={adminPath(event.slug)} />} isActive={active}>
       {event.practice ? <FlaskConical aria-hidden /> : event.eventType === "hackathon" ? <Code2 aria-hidden /> : <Presentation aria-hidden />}<span className="truncate">{event.name}</span>
-      {event.phase && <span className="dq-nav-phase" data-phase={event.phase}>{PHASE_LABELS[event.phase]}</span>}
+      {event.phase && <span className="dq-nav-phase" data-phase={event.phase}>{phaseTabLabel(event.eventType, event.phase)}</span>}
     </SidebarMenuButton>
   </SidebarMenuItem>;
 }
@@ -165,6 +166,7 @@ function GlobalCommands({ liveEvent, organizations, activeOrganizationId, switch
       { id: "shortcuts", group: "Help", label: "Keyboard shortcuts", keys: ["?"], run: () => setSheetOpen(true) },
     ];
     if (liveEvent) {
+      list.push({ id: "go-live", group: "Live now", label: `${liveEvent.name}: the live phase`, keys: ["G", LIVE_KEY], run: () => navigate(adminPath(liveEvent.slug)) });
       for (const item of adminViewsFor(liveEvent.eventType)) {
         list.push({ id: `go-${item.view}`, group: "Live now", label: `${liveEvent.name}: ${item.label.toLowerCase()}`, keys: ["G", ADMIN_VIEW_KEYS[item.view]], run: () => navigate(adminViewPath(liveEvent.slug, item.view)) });
       }

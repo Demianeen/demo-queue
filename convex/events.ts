@@ -3204,6 +3204,7 @@ export const setLineupTarget = mutation({
 
 export const markNoShowArgs = v.object({
   slug: v.string(),
+  expectedCurrentId: v.optional(v.string()),
   });
 
 async function markNoShowOperation(
@@ -3222,7 +3223,7 @@ async function markNoShowOperation(
       .collect();
 
     const current = lineupSorted(submissions)[0];
-    if (!current) {
+    if (!current || (args.expectedCurrentId !== undefined && String(current._id) !== args.expectedCurrentId)) {
       return;
     }
 

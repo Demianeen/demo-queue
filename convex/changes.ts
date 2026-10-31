@@ -55,8 +55,8 @@ async function titleOf(ctx: Pick<QueryCtx, "db">, id: Id<"submissions">) {
 
 /**
  * Writes that the change does not cover but that undoing it would break:
- * scores or team members added to a submission it inserted, and a review
- * that moving scores back would duplicate.
+ * scores or team members added to a submission it inserted, scores given by
+ * judges it assigned, and a review that moving scores back would duplicate.
  */
 async function dependentBlocker(ctx: Pick<QueryCtx, "db">, change: Doc<"eventChanges">) {
   const inChange = new Set(change.docs.map((doc) => `${doc.table}:${doc.id}`));
@@ -69,6 +69,14 @@ async function dependentBlocker(ctx: Pick<QueryCtx, "db">, change: Doc<"eventCha
       const members = await ctx.db.query("teamMembers").withIndex("by_submission", (q) => q.eq("submissionId", id)).take(50);
       if (members.some((member) => !inChange.has(`teamMembers:${member._id}`))) {
         return `${await titleOf(ctx, id)} has new team members since, so adding it can't be undone.`;
+      }
+    }
+    if (doc.op === "patch" && doc.table === "submissions" && doc.fields.some((field) => field.name === "roundOneAssignedJudges")) {
+      const id = ctx.db.normalizeId("submissions", doc.id);
+      if (!id) continue;
+      const reviews = await ctx.db.query("reviews").withIndex("by_submission", (q) => q.eq("submissionId", id)).take(50);
+      if (reviews.some((review) => review.updatedAt > change._creationTime)) {
+        return `${await titleOf(ctx, id)} was scored since by its new judges, so its judges can't be swapped back.`;
       }
     }
     if (doc.op === "patch" && doc.table === "reviews") {

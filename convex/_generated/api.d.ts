@@ -25,6 +25,7 @@ import type * as events from "../events.js";
 import type * as gettingStarted from "../gettingStarted.js";
 import type * as googleSheets from "../googleSheets.js";
 import type * as http from "../http.js";
+import type * as judgeDirectory from "../judgeDirectory.js";
 import type * as judging from "../judging.js";
 import type * as judgingSheetSync from "../judgingSheetSync.js";
 import type * as luma from "../luma.js";
@@ -73,6 +74,7 @@ declare const fullApi: ApiFromModules<{
   gettingStarted: typeof gettingStarted;
   googleSheets: typeof googleSheets;
   http: typeof http;
+  judgeDirectory: typeof judgeDirectory;
   judging: typeof judging;
   judgingSheetSync: typeof judgingSheetSync;
   luma: typeof luma;

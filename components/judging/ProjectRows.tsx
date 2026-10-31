@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SubmissionPreviewTrigger } from "@/components/SubmissionPreviewCard";
+import { RowAiChips } from "@/components/AiRead";
 import { TrackChips } from "@/components/live/PhaseTabs";
 import { JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
 import { CRITERIA, REVIEW_GROUPS, REVIEW_TARGET, reviewGroup, scoreAverage, type JudgeChip, type RankedRow, type RankSort, type ReviewGroup } from "@/lib/judging-board";
@@ -96,7 +97,7 @@ function rowClick(id: string, onSelect: (id: string) => void) {
 const ProgressRow = memo(function ProgressRow({ row, selected, showTracks, onSelect }: { row: RankedRow<BoardRow>; selected: boolean; showTracks: boolean; onSelect: (id: string) => void }) {
   return <div className={styles.row} data-selected={selected ? "" : undefined} onClick={rowClick(row.id, onSelect)}>
     <button type="button" data-select="" className={styles.selectButton} aria-label={`Open ${row.title}`} aria-pressed={selected}><StatusIcon completeReviews={row.completeReviews} /></button>
-    <span className={styles.title}>{row.preview ? <SubmissionPreviewTrigger preview={row.preview} className={styles.titleTrigger} /> : row.title}<span className={styles.team}>{row.team}</span></span>
+    <span className={styles.title}>{row.preview ? <SubmissionPreviewTrigger preview={row.preview} className={styles.titleTrigger} /> : row.title}<span className={styles.titleRest}><span className={styles.team}>{row.team}</span><RowAiChips read={row.preview?.aiRead} /></span></span>
     {showTracks && row.tracks.length > 0 && <span className={styles.tracks}><TrackChips tracks={row.tracks} /></span>}
     <span className={styles.chips}>{slots(row, REVIEW_TARGET).map((chip, index) => <AverageChip key={chip?.judgeKey ?? `empty-${index}`} chip={chip} />)}</span>
     <span className={`dq-mono ${styles.final}`}>{formatScore(row.final)}</span>
@@ -106,7 +107,7 @@ const ProgressRow = memo(function ProgressRow({ row, selected, showTracks, onSel
 const RankRow = memo(function RankRow({ row, selected, showTracks, slotCount, evenOut, onSelect }: { row: RankedRow<BoardRow>; selected: boolean; showTracks: boolean; slotCount: number; evenOut: boolean; onSelect: (id: string) => void }) {
   return <div role="row" className={styles.row} data-selected={selected ? "" : undefined} onClick={rowClick(row.id, onSelect)}>
     <span role="cell" className={styles.rank}><button type="button" data-select="" className={styles.selectButton} aria-label={`Open ${row.title}, ranked ${row.rank}`} aria-pressed={selected}>{row.rank}</button></span>
-    <span role="cell" className={styles.title}>{row.preview ? <SubmissionPreviewTrigger preview={row.preview} className={styles.titleTrigger} /> : row.title}<span className={styles.team}>{row.team}</span></span>
+    <span role="cell" className={styles.title}>{row.preview ? <SubmissionPreviewTrigger preview={row.preview} className={styles.titleTrigger} /> : row.title}<span className={styles.titleRest}><span className={styles.team}>{row.team}</span><RowAiChips read={row.preview?.aiRead} /></span></span>
     {showTracks && <span role="cell" className={styles.tracks}>{row.tracks.length > 0 && <TrackChips tracks={row.tracks} />}</span>}
     <span role="cell" className={styles.chips}>{slots(row, slotCount).map((chip, index) => <CriteriaChip key={chip?.judgeKey ?? `empty-${index}`} chip={chip} />)}</span>
     <span role="cell" className={`dq-mono ${styles.final}`} title={evenOut && row.final !== null && row.rawFinal !== null && Math.abs(row.final - row.rawFinal) >= 0.005 ? `Raw ${row.rawFinal.toFixed(2)}` : undefined}>{formatScore(row.final)}</span>

@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EventWelcome } from "./EventWelcome";
 import { EventTracksFields, type DraftTrack } from "./EventTracksFields";
+import { EventSponsorsFields, type DraftSponsor } from "./EventSponsorsFields";
 
 /**
  * The new event form: one card, each control sized to what it holds, and the
@@ -37,6 +38,7 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
   const [styleChoice, setStyleChoice] = useState("default");
   const [meetUrl, setMeetUrl] = useState("");
   const [tracks, setTracks] = useState<DraftTrack[]>([]);
+  const [sponsors, setSponsors] = useState<DraftSponsor[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
   const selectedStyle = styleChoice === "default" ? styles.find((style) => style.isDefault) : styles.find((style) => style._id === styleChoice);
@@ -53,11 +55,14 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
     if (isCreating) return;
     setIsCreating(true); setError("");
     try {
-      // Tracks are a hackathon's; a demo night is created without them.
+      // Tracks and sponsors are a hackathon's; a demo night is created without them.
       const trackInputs = hackathon ? tracks
         .filter((track) => track.name.trim())
         .map((track) => ({ name: track.name, description: track.description.trim() || undefined })) : [];
-      await createEvent({ name, slug, eventType, visualStyle, styleId: selectedStyle?._id, meetUrl: meetUrl.trim() || undefined, expectedOrganizationId: organizationId, tracks: trackInputs });
+      const sponsorInputs = hackathon ? sponsors
+        .filter((sponsor) => sponsor.name.trim())
+        .map((sponsor) => ({ name: sponsor.name, usage: sponsor.usage.trim() || undefined })) : [];
+      await createEvent({ name, slug, eventType, visualStyle, styleId: selectedStyle?._id, meetUrl: meetUrl.trim() || undefined, expectedOrganizationId: organizationId, tracks: trackInputs, sponsors: sponsorInputs });
       window.location.assign(adminPath(slug));
     } catch (error) {
       setError(error instanceof ConvexError && typeof error.data === "string" ? error.data : "Could not create the event. Please try again.");
@@ -88,6 +93,7 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
           </div>
 
           {hackathon ? <EventTracksFields tracks={tracks} onChange={setTracks} /> : null}
+          {hackathon ? <EventSponsorsFields sponsors={sponsors} onChange={setSponsors} /> : null}
 
           <div className="new-event-field">
             <label htmlFor="event-style">Style</label>

@@ -58,6 +58,8 @@ export const getEventAdmin = internalQuery({
       event: admin.event,
       // Track ids here are what add_submission and update_submission take.
       tracks: admin.tracks, noTrackCount: admin.noTrackCount, legacyCategoryCount: admin.legacyCategoryCount,
+      // A hackathon's sponsors, with what counts as using each: the AI read checks projects for them.
+      sponsors: admin.sponsors,
       lineup: admin.lineup.map(submissionDto), pool: admin.pool.map(submissionDto),
       hidden: admin.hidden.map(submissionDto), completed: admin.completed.map(submissionDto),
       noShows: admin.noShows.map(submissionDto), withdrawn: admin.withdrawn.map(submissionDto),

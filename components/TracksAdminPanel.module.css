@@ -21,6 +21,8 @@
 .confirm > span { flex: 1 1 260px; }
 /* The add row lines up with the inputs above it, past the drag handle. */
 .addRow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px 10px 34px; }
+/* Rows without a drag handle (sponsors) start at the edge. */
+.row[data-flush], .addRow[data-flush] { padding-left: 16px; }
 .error { margin: 0; padding: 0 2px; font-size: 12px; color: var(--dq-destructive); font-weight: 500; }
 @media (max-width: 720px) {
   .row { flex-wrap: wrap; }
@@ -29,4 +31,6 @@
   .row .descriptionInput { margin-left: 24px; }
   .count { flex: 1 1 auto; text-align: left; margin-left: 24px; }
   .addRow { padding-left: 12px; }
+  .row[data-flush] .nameInput { flex: 1 1 calc(100% - 40px); }
+  .row[data-flush] .descriptionInput { margin-left: 0; order: 3; }
 }

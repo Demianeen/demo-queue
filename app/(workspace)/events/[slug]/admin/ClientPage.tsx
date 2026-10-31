@@ -39,6 +39,7 @@ import { useCommandRegistry, useCommands, type Command } from "@/components/shel
 import { makeSampleHackathonTeam, makeSamplePerson, pickSampleTracks } from "@/lib/sampleData";
 import { TrackPicker, TrackPills, type TrackOption } from "@/components/TrackPicker";
 import { TracksAdminPanel } from "@/components/TracksAdminPanel";
+import { SponsorsAdminPanel } from "@/components/SponsorsAdminPanel";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { LumaEventSetting } from "@/components/LumaEventSetting";
 import { JudgingPage } from "@/components/judging/JudgingPage";
@@ -1756,6 +1757,7 @@ export default function AdminPage() {
             noTrackCount={admin.noTrackCount}
             legacyCategoryCount={admin.legacyCategoryCount}
           />
+          {isHackathonEvent ? <SponsorsAdminPanel slug={params.slug} sponsors={admin.sponsors} /> : null}
         </> : null}
 
         {view === "judging" && isHackathonEvent ? (

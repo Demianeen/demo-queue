@@ -224,6 +224,15 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_event_and_order", ["eventId", "order"]),
+  // A hackathon's sponsors: the AI read checks each project for what counts as using one.
+  eventSponsors: defineTable({
+    eventId: v.id("events"),
+    name: v.string(),
+    usage: v.optional(v.string()),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_event_and_order", ["eventId", "order"]),
 
   teamMembers: defineTable({
     eventId: v.id("events"),

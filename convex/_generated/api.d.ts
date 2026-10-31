@@ -44,6 +44,7 @@ import type * as organizationStyles from "../organizationStyles.js";
 import type * as phases from "../phases.js";
 import type * as practice from "../practice.js";
 import type * as scoreBasis from "../scoreBasis.js";
+import type * as sponsors from "../sponsors.js";
 import type * as tracks from "../tracks.js";
 import type * as visualStyle from "../visualStyle.js";
 
@@ -90,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   phases: typeof phases;
   practice: typeof practice;
   scoreBasis: typeof scoreBasis;
+  sponsors: typeof sponsors;
   tracks: typeof tracks;
   visualStyle: typeof visualStyle;
 }>;

@@ -65,6 +65,7 @@ import {
   trackNamesFor,
   tracksById,
 } from "./tracks";
+import { insertEventSponsors, listEventSponsors, publicSponsor, sponsorInputValidator } from "./sponsors";
 import { emailConfig } from "./emails";
 import { publicAiSummary, queueAiSummaryIfStale } from "./aiSummaries";
 import { lumaOrganizationAllowed, queueLumaImport, participantSocialEditPatch, participantSocials, socialEditPatch, typedSocialSources } from "./luma";
@@ -606,13 +607,13 @@ export const createEventArgs = {
 type CreateEventInput = ObjectType<typeof createEventArgs>;
 
 export const createEvent = mutation({
-  args: { ...createEventArgs, tracks: v.optional(v.array(trackInputValidator)) },
-  handler: async (ctx, { tracks, ...args }) => {
+  args: { ...createEventArgs, tracks: v.optional(v.array(trackInputValidator)), sponsors: v.optional(v.array(sponsorInputValidator)) },
+  handler: async (ctx, { tracks, sponsors, ...args }) => {
     const { organizationId, actor } = await requireOrganization(ctx);
     if (args.expectedOrganizationId !== organizationId) {
       throw new ConvexError("Your organization changed. Reload events before creating an event.");
     }
-    return createOrganizationEvent(ctx, args, { organizationId, actor }, tracks);
+    return createOrganizationEvent(ctx, args, { organizationId, actor }, tracks, sponsors);
   },
 });
 
@@ -621,6 +622,7 @@ export async function createOrganizationEvent(
   args: CreateEventInput,
   { organizationId, actor }: { organizationId: string; actor: string },
   tracks: Infer<typeof trackInputValidator>[] = [],
+  sponsors: Infer<typeof sponsorInputValidator>[] = [],
 ) {
     const name = args.name.trim();
     if (!name || name.length > 160) throw new ConvexError("Enter an event name of 1–160 characters.");
@@ -665,6 +667,9 @@ export async function createOrganizationEvent(
     });
 
     await insertEventTracks(ctx, eventId, tracks);
+    // Sponsors are a hackathon's; the AI read checks each project for them.
+    if (args.eventType === "hackathon") await insertEventSponsors(ctx, eventId, sponsors);
+    else if (sponsors.some((sponsor) => sponsor.name.trim())) throw new ConvexError("Sponsors are for hackathons.");
     await logAction(ctx, eventId, "event_created", actor);
     return { eventId };
 }
@@ -928,6 +933,7 @@ export async function getAdminForOrganization(
       membersBySubmission.set(member.submissionId, members);
     }
     const tracks = await listEventTracks(ctx, event._id);
+    const sponsors = await listEventSponsors(ctx, event._id);
     const byId = tracksById(tracks);
     const trackCounts = new Map<Id<"eventTracks">, number>();
     let noTrackCount = 0;
@@ -991,6 +997,7 @@ export async function getAdminForOrganization(
         },
       },
       tracks: tracks.map((track) => ({ ...publicTrack(track), submissionCount: trackCounts.get(track._id) ?? 0 })),
+      sponsors: sponsors.map(publicSponsor),
       noTrackCount,
       legacyCategoryCount: submissions.filter((submission) => submission.trackIds === undefined && submission.category).length,
       lineup: lineupSorted(submissions).map(mapAdminSubmission),

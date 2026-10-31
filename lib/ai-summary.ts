@@ -116,6 +116,32 @@ export type ReadOutput = {
   sponsorUse?: { sponsor: string; level: SponsorUseLevel; reason: string }[];
 };
 
+/** The read part of the model's output, as the save step takes it, or undefined when there is none. */
+export function readFromOutput(output: ReadOutput) {
+  if (output.overall === undefined) return undefined;
+  return { overall: output.overall, tracks: output.trackFit ?? [], sponsors: output.sponsorUse ?? [] };
+}
+
+/**
+ * A practice sample of what the model returns, in the same format: the
+ * description's sentences for the sections, and a made-up read with a level
+ * for each track and sponsor (the same on every run for one seed). It is
+ * saved by the same code as the model's output, so a sample shows everything
+ * a real summary does. test/ai-summary.test.mjs checks it against the
+ * model's output schema, so a field added there fails until it is filled here.
+ */
+export function sampleSummaryOutput(input: { demoTitle: string; description: string }, sections: SummarySection[], read: SummaryReadInput, seed: string): Record<string, unknown> & ReadOutput {
+  const lines = Object.fromEntries(buildSampleSummary(input, sections).map((section) => [section.key, section.text]));
+  if (read.tracks.length === 0 && read.sponsors.length === 0) return lines;
+  const pick = <T,>(levels: readonly T[], name: string) => levels[[...`${seed}${name}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % levels.length];
+  return {
+    ...lines,
+    overall: "Sample read (practice), in place of the real model.",
+    ...(read.tracks.length > 0 ? { trackFit: read.tracks.map((track) => ({ track: track.name, level: pick(TRACK_FIT_LEVELS, track.name), reason: `Sample reason for ${track.name}.` })) } : {}),
+    ...(read.sponsors.length > 0 ? { sponsorUse: read.sponsors.map((sponsor) => ({ sponsor: sponsor.name, level: pick(SPONSOR_USE_LEVELS, sponsor.name), reason: `Sample reason for ${sponsor.name}.` })) } : {}),
+  };
+}
+
 /** FNV-1a, which is enough to notice a change; it is not a security boundary. */
 function changeKey(prefix: string, text: string) {
   let hash = 0x811c9dc5;

@@ -153,10 +153,14 @@ Nothing new in Convex.
   submissions, +N, phone submissions) gets a sample summary from its name
   and description at once, in the stored sections format, with no OpenAI or
   GitHub call. Judges see "Sample summary (practice)" instead of "Written by
-  AI". Proposed: a sample summary also shows a sample AI read, a level and a
-  sample reason for each picked track and each sponsor, worked out on each
-  load and never stored. With `"model"`, summaries take the real path with
-  the normal limits.
+  AI". Proposed: a sample takes the real path except for the model call. A
+  sample of the model's output (the description's sentences, and a sample
+  AI read with a level and reason for each described track and each
+  sponsor) is saved by the same code as the model's output, and track or
+  sponsor edits rewrite it the same way. So practice shows every new part
+  of a summary without anyone copying it over: a test fails when the
+  model's output schema gains a field the sample does not fill. With
+  `"model"`, summaries take the real path with the normal limits.
   Real events ignore the field.
 - `practice.setPracticeAiSummaries` switches it later (the AI summaries
   practice tool). It is in Recent changes with Undo, and replaces the other

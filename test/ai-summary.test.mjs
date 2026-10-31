@@ -12,6 +12,7 @@ import {
   SUMMARY_MANIFEST_LIMIT,
   SUMMARY_README_LIMIT,
   stripSectionPrefix,
+  sampleSummaryOutput,
   summaryOutputSchemaFor,
   summaryReadInput,
   summarySourceKey,
@@ -210,4 +211,25 @@ test("adding sponsors changes the read key; without them it is the key summaries
   assert.notEqual(summaryTracksKey(tracks, daytona), summaryTracksKey(tracks, [{ ...daytona[0], usage: "Uses the SDK" }]));
   assert.notEqual(summaryTracksKey(tracks, daytona), summaryTracksKey(tracks, [{ ...daytona[0], name: "Daytona Cloud" }]));
   assert.equal(summaryTracksKey(tracks, daytona), summaryTracksKey(tracks, [{ ...daytona[0], usage: " Runs code in sandboxes " }]));
+});
+
+test("a practice sample fills every field of the model's output schema", () => {
+  const sections = [
+    { key: "pitch", label: "Pitch", instruction: "One line." },
+    { key: "stack", label: "Stack", instruction: "What it is built with." },
+  ];
+  const reads = [
+    { tracks: [], sponsors: [] },
+    { tracks: [{ name: "AI agents", description: "Agents." }], sponsors: [] },
+    { tracks: [], sponsors: [{ name: "OpenAI", usage: "Calls the API." }] },
+    { tracks: [{ name: "AI agents", description: "Agents." }, { name: "Open", description: "Anything." }], sponsors: [{ name: "OpenAI" }, { name: "Vercel", usage: "Deployed there." }] },
+  ];
+  for (const read of reads) {
+    const schema = summaryOutputSchemaFor(sections, read);
+    const sample = sampleSummaryOutput({ demoTitle: "Guardrail", description: "Policy checks. For agents." }, sections, read, "seed-1");
+    assert.deepEqual(Object.keys(sample).sort(), Object.keys(schema.shape).sort());
+    assert.deepEqual(schema.parse(sample), sample);
+    assert.equal(sample.trackFit?.length ?? 0, read.tracks.length);
+    assert.equal(sample.sponsorUse?.length ?? 0, read.sponsors.length);
+  }
 });

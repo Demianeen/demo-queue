@@ -12,6 +12,7 @@ import {
   SUMMARY_MANIFEST_FILES,
   SUMMARY_MANIFEST_LIMIT,
   SUMMARY_README_LIMIT,
+  readFromOutput,
   summaryOutputSchemaFor,
   summaryReadInput,
   type ReadOutput,
@@ -73,11 +74,6 @@ async function fetchReadme(githubUrl: string | null): Promise<ReadmeResult> {
 }
 
 /** The read as saveSummary takes it, or nothing when the model was not asked for one. */
-function readFrom(output: ReadOutput) {
-  if (output.overall === undefined) return undefined;
-  return { overall: output.overall, tracks: output.trackFit ?? [], sponsors: output.sponsorUse ?? [] };
-}
-
 function log(status: string, reason: string) {
   // Never the project text, the README or the key.
   console.log(JSON.stringify({ event: "ai-summary", status, reason }));
@@ -161,7 +157,7 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
         sourceKey: input.sourceKey,
         lines: input.sections.map((section) => ({ key: section.key, text: String((output as Record<string, unknown>)[section.key] ?? "") })),
         tracksKey: input.tracksKey,
-        read: readFrom(output as ReadOutput),
+        read: readFromOutput(output as ReadOutput),
         model,
         usedReadme: readme !== null,
         readmeHash,

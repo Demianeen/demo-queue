@@ -176,3 +176,17 @@ test("sample summaries come with a sample read of the team's tracks and the even
   }
   expect(generateText).not.toHaveBeenCalled();
 });
+
+test("a sponsor added to a practice event shows in every sample read at once, like on a real event", async () => {
+  const { t } = setupTest();
+  const created = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "hackathon" }, testSubmissions: 4, testJudges: 0 });
+  await t.mutation(api.sponsors.addSponsor, { slug: created.slug, name: "Stripe", usage: "Takes payments with Stripe." });
+  const rows = await submissionsOf(t, created.eventId);
+  expect(rows).toHaveLength(4);
+  for (const row of rows) {
+    expect(row.aiSummary).toMatchObject({ sample: true, model: "sample" });
+    expect(row.aiSummary!.read!.sponsors).toHaveLength(3);
+    expect(row.aiSummary!.read!.overall).toContain("Sample read");
+  }
+  expect(generateText).not.toHaveBeenCalled();
+});

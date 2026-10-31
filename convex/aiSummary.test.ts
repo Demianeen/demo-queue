@@ -309,6 +309,32 @@ test("a model failure is logged and leaves the submission alone", async () => {
   log.mockRestore();
 });
 
+test("a refused model call logs its HTTP status and the API's error type and code, never its message", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  const { APICallError, RetryError } = await import("ai");
+  const body = { error: { message: "Invalid schema for response_format 'summary': Policy checks for agent tool calls", type: "invalid_request_error", param: "text.format.schema", code: "invalid_json_schema" } };
+  const refused = new APICallError({
+    message: body.error.message, url: "https://api.openai.com/v1/responses", requestBodyValues: { input: "Policy checks" },
+    statusCode: 400, responseBody: JSON.stringify(body), data: body, isRetryable: false,
+  });
+  generateText.mockRejectedValueOnce(refused);
+  // After retries the SDK throws a RetryError around the last call's error.
+  generateText.mockRejectedValueOnce(new RetryError({ message: "Failed after 3 attempts", reason: "maxRetriesExceeded", errors: [refused] }));
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const { t, add } = await setup();
+  await add(0);
+  await add(1);
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary"));
+  expect(lines.sort()).toEqual([
+    JSON.stringify({ event: "ai-summary", status: "failed", reason: "model_failed", error: "AI_APICallError", statusCode: 400, errorType: "invalid_request_error", errorCode: "invalid_json_schema" }),
+    JSON.stringify({ event: "ai-summary", status: "failed", reason: "model_failed", error: "AI_RetryError", statusCode: 400, errorType: "invalid_request_error", errorCode: "invalid_json_schema" }),
+  ]);
+  expect(lines.join("")).not.toContain("Policy checks");
+  log.mockRestore();
+});
+
 test("a README that tries to steer the summary cannot get praise saved", async () => {
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
   const injection = [

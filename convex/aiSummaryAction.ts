@@ -92,9 +92,35 @@ async function fetchReadme(githubUrl: string | null): Promise<ReadmeResult> {
 }
 
 // TODO(posthog): send these ai-summary events to PostHog too, with the same fields.
-function log(status: string, reason: string, extra: { error?: string } = {}) {
+function log(status: string, reason: string, extra: { error?: string; statusCode?: number; errorType?: string; errorCode?: string } = {}) {
   // Never the project text, the README, a URL or the key.
   console.log(JSON.stringify({ event: "ai-summary", status, reason, ...extra }));
+}
+
+/** A short code from the API, like "invalid_request_error": anything longer or freer could be text. */
+const apiCode = (value: unknown) => (typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value : undefined);
+
+/**
+ * What a failed model call says about why: the error's name, the HTTP status
+ * and the API's error type and code when it gave them. Never the message or
+ * the response body, which can quote the prompt. After retries, the AI SDK
+ * wraps the last call's error, so that one is read.
+ */
+function modelErrorFields(error: unknown) {
+  if (!(error instanceof Error)) return { error: "unknown" };
+  const last = (error as { lastError?: unknown }).lastError;
+  const call = (last instanceof Error ? last : error) as { statusCode?: unknown; data?: unknown; responseBody?: unknown };
+  let body = call.data;
+  if (body === undefined && typeof call.responseBody === "string") {
+    try { body = JSON.parse(call.responseBody); } catch { body = undefined; }
+  }
+  const detail = (body && typeof body === "object" && "error" in body ? (body as { error?: unknown }).error : undefined) as { type?: unknown; code?: unknown } | undefined;
+  return {
+    error: error.name,
+    ...(typeof call.statusCode === "number" ? { statusCode: call.statusCode } : {}),
+    ...(apiCode(detail?.type) ? { errorType: apiCode(detail?.type) } : {}),
+    ...(apiCode(detail?.code) ? { errorCode: apiCode(detail?.code) } : {}),
+  };
 }
 
 // TODO(posthog): send these input failures to PostHog too; they are ai-summary events.
@@ -247,7 +273,7 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
         codeHash: codeHash ?? "none",
       });
     } catch (error) {
-      log("failed", "model_failed", { error: error instanceof Error ? error.name : "unknown" });
+      log("failed", "model_failed", modelErrorFields(error));
       // A reply that did not match the schema still reports its usage; a failed request does not.
       const known = usage ?? usageFromError(error, model);
       const unusable = stage === "output" || (stage === "call" && hasTokens(known));

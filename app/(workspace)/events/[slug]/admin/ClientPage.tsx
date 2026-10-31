@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 import { canonicalViewParam, liveView, parseAdminView, adminViewPath, type AdminView } from "@/lib/admin-views";
 import { useInPageNavigate } from "@/components/InPageLink";
 import { ResultsTab, SubmissionsClock } from "@/components/live/PhaseTabs";
+import { HackathonSubmissions } from "@/components/live/HackathonSubmissions";
 import { StageTab } from "@/components/live/StageTab";
 import { AddToDemoers } from "@/components/live/AddToDemoers";
 import { PracticeTools } from "@/components/live/PracticeTools";
@@ -1774,7 +1775,28 @@ export default function AdminPage() {
           />
         ) : null}
 
-        {view === "queue" || view === "submissions" ? <DndContext
+        {view === "submissions" && isHackathonEvent ? <HackathonSubmissions
+          items={allPeopleRows.map((item) => ({ ...item, hidden: item.rosterStatus === "hidden" }))}
+          tracks={admin.tracks.map((track) => ({ id: track.id, name: track.name }))}
+          slug={params.slug}
+          admin={admin}
+          previewFor={(id) => { const item = allPeopleRows.find((row) => row.id === id); return item ? previewFor(item) : null; }}
+          contactFor={(id) => { const item = allPeopleRows.find((row) => row.id === id); return item ? <Contact item={item} /> : null; }}
+          editFormFor={(id) => {
+            const item = allPeopleRows.find((row) => row.id === id);
+            return item ? <SubmissionForm initial={item} submitLabel="Save changes" onSave={(values) => saveEdit(item.id, values)} onCancel={() => setEditingId(null)} /> : null;
+          }}
+          editingId={editingId}
+          surge={<SubmissionSurgeNotice at={admin.event.submissionSurgeAt} />}
+          onEdit={(id) => setEditingId(id)}
+          onHide={hide}
+          onRestore={restore}
+          onAddTest={() => { setTestPeopleMessage(""); setTestPeopleOpen(true); }}
+          onClearAll={() => void clearAll()}
+          onShare={openShare}
+        /> : null}
+
+        {view === "queue" || (view === "submissions" && !isHackathonEvent) ? <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={onDragStart}

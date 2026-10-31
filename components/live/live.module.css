@@ -153,6 +153,39 @@
 .phaseItemText { font-size: 12px; line-height: 16px; color: var(--dq-fg-2); }
 .phaseMenu .confirm { width: auto; box-shadow: none; }
 .phaseMenuHead { padding: 6px 10px 4px; font-size: 12px; color: var(--dq-fg-3); }
+.subsLayout { display: flex; align-items: flex-start; gap: 0; min-width: 0; }
+.subsMain { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.subsLayout[data-open] .subsMain { padding-right: 12px; }
+.subsBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.subsSearch { flex: 1 1 260px; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--dq-line); border-radius: 7px; background: var(--dq-card); color: var(--dq-fg-3); }
+.subsSearch svg { width: 14px; height: 14px; flex: none; }
+.subsSearch input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--dq-fg); font-size: 13px; outline: none; }
+.subsSearch:focus-within { outline: 2px solid var(--dq-accent); outline-offset: -1px; }
+.subsFilter { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 4px 0 10px; border: 1px solid var(--dq-line); border-radius: 7px; background: var(--dq-card); font-size: 12px; color: var(--dq-fg-3); }
+.subsFilter select { border: 0; background: transparent; color: var(--dq-fg); font-size: 12px; max-width: 160px; }
+.subsTable { display: flex; flex-direction: column; border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); overflow: hidden; }
+.subsHead, .subsRow { display: grid; grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr) 32px; align-items: center; gap: 12px; padding: 8px 12px; }
+.subsHead { font-size: 11px; color: var(--dq-fg-3); border-bottom: 1px solid var(--dq-divider); }
+.subsGroup { padding: 10px 12px 4px; font-size: 12px; font-weight: 500; color: var(--dq-fg); border-top: 1px solid var(--dq-divider); }
+.subsHead + .subsGroup { border-top: 0; }
+.subsRow { font-size: 13px; color: var(--dq-fg-2); border-top: 1px solid var(--dq-divider); }
+.subsRow:hover { background: var(--dq-hover); }
+.subsRow[data-focus] { box-shadow: inset 2px 0 0 var(--dq-accent); }
+.subsRow[data-open] { background: var(--dq-segment); }
+.subsProject { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.subsProject button { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 0; border: 0; background: none; color: var(--dq-fg); font: inherit; text-align: left; cursor: pointer; }
+.subsProject button strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subsProject > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subsCell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subsCell a { color: inherit; }
+.kbd { margin-left: 4px; font-size: 11px; color: var(--dq-fg-3); }
+@media (max-width: 860px) {
+  .subsHead { display: none; }
+  .subsRow { grid-template-columns: minmax(0, 1fr) 32px; }
+  .subsRow > :nth-child(2), .subsRow > :nth-child(3), .subsRow > :nth-child(4) { display: none; }
+  .subsLayout { flex-direction: column; }
+  .subsLayout[data-open] .subsMain { padding-right: 0; }
+}
 .pickerSearch { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--dq-line); border-radius: 7px; background: var(--dq-card); color: var(--dq-fg); font-size: 13px; }
 .pickerSearch:focus-visible { outline: 2px solid var(--dq-accent); outline-offset: -1px; }
 .pickerList { list-style: none; margin: 4px 0 0; padding: 0; max-height: 280px; overflow-y: auto; }

@@ -47,6 +47,7 @@ import {
   sameJudge,
 } from "../lib/judging-assignment";
 import { participantLineupStatus } from "../lib/event-state";
+import { eventPhase } from "../lib/event-phase";
 import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
 import { MAX_ORGANIZATION_STYLES, normalizeVisualStyle } from "../lib/visual-style";
 import {
@@ -1076,6 +1077,8 @@ export const getParticipant = query({
         visualStyle: normalizeVisualStyle(event.visualStyle),
         theme: event.theme,
         submissionsClosed: event.submissionsClosedAt !== undefined,
+        // Where the event is, for the team's steps (Submitted, Judging, Finalists, Results).
+        phase: eventPhase({ ...event, eventType: eventType(event) }),
         lumaLinked: Boolean(event.lumaEventId) && lumaOrganizationAllowed(event.workosOrganizationId),
       },
       submission: {

@@ -23,6 +23,7 @@ export function buildDevDayParticipantFixture(eventType: "demo" | "hackathon"): 
       visualStyle: "devday",
       theme: stage.event.theme,
       submissionsClosed: false,
+      phase: "submissions" as const,
       lumaLinked: false,
     },
     submission: {

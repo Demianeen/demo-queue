@@ -151,6 +151,11 @@ export const ADMIN_TOOLS: RegisteredAdminTool[] = [
     invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.setStageTimerVisible, { principal, input }),
   }),
   defineAdminTool({
+    name: "set_stage_results_show_finalists", browser: "events.setStageResultsShowFinalists", input: operations.setStageResultsShowFinalistsInput, effect: "write",
+    description: "Choose what the stage shows once the event finishes: the winners and the other finalists (true) or the winners only (false).",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.setStageResultsShowFinalists, { principal, input }),
+  }),
+  defineAdminTool({
     name: "set_stage_timer_duration", browser: "events.setStageTimerDuration", input: operations.setStageTimerDurationInput, effect: "write",
     description: "Set the stage timer duration in milliseconds.",
     invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.setStageTimerDuration, { principal, input }),

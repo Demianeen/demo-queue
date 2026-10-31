@@ -54,7 +54,7 @@ test("the judge page groups projects into Yours, Help out, Scored and All, with 
   for (const judge of fullJudges) await score(t, tokens[judge === keys.sam ? "sam" : "taylor"], full, 6);
 
   const page = await t.query(api.judging.getJudgeWorkspace, { slug: "hack", capabilityToken: tokens.alex });
-  expect(page.counts).toEqual({ yours: alexOwn.length - 1, helpOut: others.length - 1, scored: 1, all: 6 });
+  expect(page.counts).toEqual({ yours: alexOwn.length - 1, covered: 0, helpOut: others.length - 1, scored: 1, all: 6 });
   expect(page).toMatchObject({ yoursTotal: alexOwn.length, yoursScored: 1, canScore: true, judgingPaused: false, reviewTarget: 2, mainEventCount: 2 });
   expect(page.tracks).toEqual([
     { id: expect.any(String), name: "Developer tools", description: null, count: 4 },
@@ -76,6 +76,75 @@ test("the judge page groups projects into Yours, Help out, Scored and All, with 
   for (const row of progress.scoring) expect(row.tracks).toHaveLength((page.projects.find((project) => project.id === row.submissionId)!.trackIds).length);
   const overview = await t.query(api.judging.getJudgesOverview, { slug: "hack" });
   expect(overview.judges.find((row) => row.judgeKey === keys.alex)).toMatchObject({ assignedCount: alexOwn.length, assignedScoredCount: 1, helpedCount: 1 });
+});
+
+type Judge = "alex" | "sam" | "taylor";
+
+test("a project two others reviewed is covered: it leaves Yours and its judge's count until they start it", async () => {
+  const { t, tokens, keys, assigned } = await judgedEvent();
+  const samOwn = await assigned("Sam");
+  const project = samOwn[0];
+  const otherKey = (await t.run((ctx) => ctx.db.get(project)))!.roundOneAssignedJudges!.find((judge) => judge !== keys.sam)!;
+  const other: Judge = otherKey === keys.alex ? "alex" : "taylor";
+  const helper: Judge = other === "alex" ? "taylor" : "alex";
+  await score(t, tokens[other], project, 6);
+  await score(t, tokens[helper], project, 8);
+
+  const page = await t.query(api.judging.getJudgeWorkspace, { slug: "hack", capabilityToken: tokens.sam });
+  expect(page.projects.find((row) => row.id === project)).toMatchObject({ group: "covered", assignedToMe: true, coveredBy: [helper === "alex" ? "Alex" : "Taylor"], completeReviewCount: 2 });
+  expect(page).toMatchObject({ yoursTotal: samOwn.length - 1, counts: { yours: samOwn.length - 1, covered: 1 } });
+  expect(page.judges.find((judge) => judge.judgeKey === keys.sam)).toMatchObject({ judgeName: "Sam", left: samOwn.length - 1 });
+  const overview = await t.query(api.judging.getJudgesOverview, { slug: "hack" });
+  expect(overview.judges.find((row) => row.judgeKey === keys.sam)).toMatchObject({ assignedCount: samOwn.length, leftCount: samOwn.length - 1 });
+
+  // Once Sam starts it, it is his again.
+  await t.mutation(api.judging.saveReview, { slug: "hack", capabilityToken: tokens.sam, submissionId: project, innovation: 5 });
+  const after = await t.query(api.judging.getJudgeWorkspace, { slug: "hack", capabilityToken: tokens.sam });
+  expect(after.projects.find((row) => row.id === project)).toMatchObject({ group: "yours", coveredBy: [] });
+  expect(after).toMatchObject({ yoursTotal: samOwn.length, counts: { covered: 0 } });
+});
+
+test("Help out says whose project each one helps, and lists other judges' unfinished reviews with when they saved", async () => {
+  const { t, tokens, keys, assigned, projects } = await judgedEvent();
+  const alexOwn = await assigned("Alex");
+  const others = projects.filter((id) => !alexOwn.includes(id));
+  // Sam finishes one of the Sam and Taylor projects, so it waits on Taylor.
+  await score(t, tokens.sam, others[0], 7);
+  vi.advanceTimersByTime(60_000);
+  // Taylor starts the other one.
+  await t.mutation(api.judging.saveReview, { slug: "hack", capabilityToken: tokens.taylor, submissionId: others[1], execution: 4 });
+
+  const page = await t.query(api.judging.getJudgeWorkspace, { slug: "hack", capabilityToken: tokens.alex });
+  expect(page.projects.find((row) => row.id === others[0])).toMatchObject({ group: "helpOut", helpFor: keys.taylor, scorers: [] });
+  expect(page.projects.find((row) => row.id === others[1])).toMatchObject({
+    group: "helpOut",
+    scorers: [{ judgeKey: keys.taylor, judgeName: "Taylor", updatedAt: Date.now(), assigned: true }],
+  });
+  // Alex's own projects never say whom they help.
+  for (const id of alexOwn) expect(page.projects.find((row) => row.id === id)!.helpFor).toBeNull();
+  const left = Object.fromEntries(page.judges.map((judge) => [judge.judgeKey, judge.left]));
+  expect(left).toEqual({ [keys.alex]: alexOwn.length, [keys.sam]: (await assigned("Sam")).length - 1, [keys.taylor]: (await assigned("Taylor")).length });
+  // Taylor has more left than Sam now, so a project neither finished goes to Taylor.
+  expect(page.projects.find((row) => row.id === others[1])!.helpFor).toBe(keys.taylor);
+});
+
+test("the judges table shows what each judge has left and who is behind", async () => {
+  const { t, tokens, keys, assigned } = await judgedEvent();
+  const alexOwn = await assigned("Alex");
+  const taylorOwn = await assigned("Taylor");
+  const samOwn = await assigned("Sam");
+  for (const id of alexOwn) await score(t, tokens.alex, id, 7);
+  for (const id of taylorOwn) await score(t, tokens.taylor, id, 6);
+  const row = async (key: string) => (await t.query(api.judging.getJudgesOverview, { slug: "hack" })).judges.find((judge) => judge.judgeKey === key)!;
+  // Sam's projects each have one review from the other judge, so none is covered.
+  expect(await row(keys.sam)).toMatchObject({ leftCount: samOwn.length, behind: samOwn.length >= 4 });
+  expect(await row(keys.alex)).toMatchObject({ leftCount: 0, behind: false, helpedCount: 0 });
+
+  // Alex helps on a Sam and Taylor project: it has two reviews, so it is covered for Sam.
+  const shared = samOwn.find((id) => taylorOwn.includes(id))!;
+  await score(t, tokens.alex, shared, 8);
+  expect(await row(keys.alex)).toMatchObject({ leftCount: 0, helpedCount: 1 });
+  expect(await row(keys.sam)).toMatchObject({ leftCount: samOwn.length - 1, behind: samOwn.length - 1 >= 4 });
 });
 
 test("the judges table lists every judge's link, counts and totals", async () => {

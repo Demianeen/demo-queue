@@ -722,6 +722,41 @@ export const getLiveEvent = query({
   handler: async (ctx, args) => getLiveEventForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
+type SubmittedResults = {
+  winners: { place: 1 | 2 | 3; submissionId: Id<"submissions">; demoTitle: string; teamName: string }[];
+  finalists: { submissionId: Id<"submissions">; demoTitle: string; teamName: string }[];
+};
+
+/**
+ * A hackathon's winners and its other finalists, once judging is closed and
+ * both are submitted. "needs_review" when the submitted winners no longer
+ * hold (a project removed or no longer a finalist); null before they are
+ * submitted. The finalists left over keep their pitch order.
+ */
+async function submittedResults(ctx: QueryCtx, event: Doc<"events">, decision: Doc<"judgingDecisions"> | null): Promise<SubmittedResults | "needs_review" | null> {
+  if (eventType(event) !== "hackathon" || event.judgingStatus !== "closed") return null;
+  if (decision?.finalistStatus !== "submitted" || decision.placementStatus !== "submitted") return null;
+  const placed = await Promise.all(decision.placementIds.map((id) => ctx.db.get(id)));
+  const valid = placed.length > 0 && placed.length <= 3 && new Set(decision.placementIds).size === placed.length
+    && placed.every((submission) => submission && submission.eventId === event._id && decision.finalistIds.includes(submission._id));
+  if (!valid) return "needs_review";
+  const placedIds = new Set(decision.placementIds.map(String));
+  const others = await Promise.all(decision.finalistIds.filter((id) => !placedIds.has(String(id))).map((id) => ctx.db.get(id)));
+  const named = (submission: Doc<"submissions">) => ({ submissionId: submission._id, demoTitle: submission.demoTitle, teamName: submission.teamName || submission.name });
+  return {
+    winners: placed.map((submission, index) => ({ place: (index + 1) as 1 | 2 | 3, ...named(submission!) })),
+    finalists: others.filter((submission): submission is Doc<"submissions"> => submission !== null && submission.eventId === event._id).map(named),
+  };
+}
+
+/** The results the stage and status pages show: only once the event is finished, never before. */
+async function finishedResults(ctx: QueryCtx, event: Doc<"events">) {
+  if (phaseFields(event).phase !== "finished") return null;
+  const decision = await ctx.db.query("judgingDecisions").withIndex("by_event", (q) => q.eq("eventId", event._id)).unique();
+  const results = await submittedResults(ctx, event, decision);
+  return results === "needs_review" ? null : results;
+}
+
 export const getOrganizationEventDetailsArgs = v.object({ slug: v.string() });
 
 export async function getOrganizationEventDetailsForOrganization(
@@ -752,12 +787,11 @@ export async function getOrganizationEventDetailsForOrganization(
       : null;
     let resultsStatus: "not_applicable" | "pending" | "needs_review" | "confirmed" = isHackathon ? (decision?.placementStatus === "needs_review" || decision?.finalistStatus === "needs_review") ? "needs_review" : "pending" : "not_applicable";
     let winners: { place: number; demoTitle: string; teamName: string }[] = [];
-    if (isHackathon && event.judgingStatus === "closed" && decision?.finalistStatus === "submitted" && decision.placementStatus === "submitted") {
-      const placed = await Promise.all(decision.placementIds.map((id) => ctx.db.get(id)));
-      if (placed.length > 0 && placed.length <= 3 && new Set(decision.placementIds).size === placed.length && placed.every((submission) => submission && submission.eventId === event._id && decision.finalistIds.includes(submission._id))) {
-        winners = placed.map((submission, index) => ({ place: index + 1, demoTitle: submission!.demoTitle, teamName: submission!.teamName || submission!.name }));
-        resultsStatus = "confirmed";
-      } else resultsStatus = "needs_review";
+    const results = await submittedResults(ctx, event, decision);
+    if (results === "needs_review") resultsStatus = "needs_review";
+    else if (results) {
+      winners = results.winners.map(({ place, demoTitle, teamName }) => ({ place, demoTitle, teamName }));
+      resultsStatus = "confirmed";
     }
     return {
       organizationId, name: event.name, slug: event.slug, eventType: eventType(event),
@@ -873,6 +907,7 @@ export const getStage = query({
     const upNext = stageLineup[1] ?? null;
     const showMeetLinkOnStage = event.showMeetLinkOnStage ?? false;
     const { phase } = phaseFields(event);
+    const results = await finishedResults(ctx, event);
 
     return {
       phase,
@@ -903,6 +938,12 @@ export const getStage = query({
       remainingCount: lineup.length,
       waitingCount: activeSubmissionCount,
       meetUrl: event.queuePublished && showMeetLinkOnStage && event.meetUrl ? event.meetUrl : null,
+      // The winners screen: only once the event is finished and the winners are submitted.
+      results: results ? {
+        winners: results.winners.map(({ place, demoTitle, teamName }) => ({ place, demoTitle, teamName })),
+        finalists: results.finalists.map(({ demoTitle, teamName }) => ({ demoTitle, teamName })),
+        showFinalists: event.stageResultsShowFinalists ?? true,
+      } : null,
     };
   },
 });
@@ -983,6 +1024,7 @@ export async function getAdminForOrganization(
         showMeetLinkOnStage: event.showMeetLinkOnStage ?? false,
         showStageTimerOnStage: event.showStageTimerOnStage ?? false,
         showDemoTimerOnStage: event.showDemoTimerOnStage ?? false,
+        stageResultsShowFinalists: event.stageResultsShowFinalists ?? true,
         lineupTarget: event.lineupTarget,
         stageTimer: publicStageTimer(event),
         demoTimer: publicDemoTimer(event),
@@ -1071,6 +1113,8 @@ export const getParticipant = query({
       .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
       .collect();
     const byId = tracksById(await listEventTracks(ctx, event._id));
+    const results = await finishedResults(ctx, event);
+    const placement = results?.winners.find((winner) => winner.submissionId === submission._id)?.place ?? null;
 
     return {
       event: {
@@ -1094,6 +1138,8 @@ export const getParticipant = query({
         githubUrl: submission.githubUrl,
         rulesAcceptedAt: submission.rulesAcceptedAt,
         finalist: submission.finalist ?? false,
+        // 1st, 2nd or 3rd, only once the event is finished; never before.
+        placement,
         teamMembers: teamMembers.map((member) => member.name),
         // Each member's typed socials, so the team can fill in or correct them. No emails or phones.
         teamMemberSocials: teamMembers.map((member) => ({
@@ -2501,6 +2547,36 @@ export const setStageTimerVisible = mutation({
     setStageTimerVisibleForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
+export const setStageResultsShowFinalistsArgs = v.object({
+  slug: v.string(),
+  showFinalists: v.boolean(),
+});
+
+async function setStageResultsShowFinalistsOperation(
+  ctx: MutationCtx,
+  args: Infer<typeof setStageResultsShowFinalistsArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
+
+    await ctx.db.patch(event._id, {
+      stageResultsShowFinalists: args.showFinalists,
+      updatedAt: Date.now(),
+    });
+    await logAction(
+      ctx,
+      event._id,
+      args.showFinalists ? "stage_results_finalists_shown" : "stage_results_winners_only",
+      actor,
+    );
+}
+
+export const setStageResultsShowFinalists = mutation({
+  args: setStageResultsShowFinalistsArgs,
+  handler: async (ctx, args) =>
+    setStageResultsShowFinalistsForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
 export const setStageTimerDurationArgs = v.object({
   slug: v.string(),
   durationMs: v.number(),
@@ -3517,6 +3593,11 @@ export const setStageMeetLinkVisibleForOrganization = withChange<Infer<typeof se
 export const setStageTimerVisibleForOrganization = withChange<Infer<typeof setStageTimerVisibleArgs>, Awaited<ReturnType<typeof setStageTimerVisibleOperation>>>(
   (_ctx, args) => ({ kind: "stage_timer_visible", summary: `${args.visible ? "showed" : "hid"} the timer on stage` }),
   setStageTimerVisibleOperation,
+);
+
+export const setStageResultsShowFinalistsForOrganization = withChange<Infer<typeof setStageResultsShowFinalistsArgs>, Awaited<ReturnType<typeof setStageResultsShowFinalistsOperation>>>(
+  (_ctx, args) => ({ kind: "stage_results_finalists", summary: args.showFinalists ? "set the stage to show the winners and finalists at the end" : "set the stage to show only the winners at the end" }),
+  setStageResultsShowFinalistsOperation,
 );
 
 export const setStageTimerDurationForOrganization = withChange<Infer<typeof setStageTimerDurationArgs>, Awaited<ReturnType<typeof setStageTimerDurationOperation>>>(

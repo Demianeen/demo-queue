@@ -16,15 +16,18 @@ import {
   SearchIcon,
   SparklesIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
 import { Skeleton } from "@/app/Skeleton";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Toaster } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ShortcutTooltip } from "@/components/shell/commands";
 import { AiPanel, aiSummaryCaveat } from "@/components/AiRead";
 import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
+import { helpOutSections, joinNames, scoringNow, startedAgo, yoursSections, type Scorer } from "@/lib/judging-help";
 import { timeLeftMs, type TimerReading } from "@/lib/timer-clock";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { videoEmbedUrl, youtubeEmbedUrl } from "@/lib/video-embed";
@@ -63,15 +66,26 @@ export function scoreBand(value: number) {
 // Scored projects stay where they are, ticked, so the list never moves under the judge. Counts are what is left.
 const SHOW_OPTIONS: { value: Show; label: string; hint: string; key: string }[] = [
   { value: "yours", label: "Yours", hint: "Assigned to you. Scored ones stay, ticked", key: "1" },
-  { value: "helpOut", label: "Help out", hint: "Other judges' projects still waiting for a second review", key: "2" },
+  { value: "helpOut", label: "Help out", hint: "Other judges' projects still waiting for a second review, the judge with the most left first", key: "2" },
   { value: "all", label: "All", hint: "Every project in the event", key: "3" },
 ];
 
-const GROUP_HEADINGS: Record<Show, string> = {
-  yours: "Yours",
-  helpOut: "Help out · waiting for a second review",
-  all: "Every project",
-};
+/** A run of rows under one heading in the list. `tone` colours the heading. */
+type Section = { key: string; title: string; note: string; tone?: "behind" | "quiet"; projects: Project[] };
+
+/**
+ * The browser's clock for "scoring it now" and "N min ago", ticking every 30
+ * seconds. The query sends when each review was saved and stays cached, so
+ * the page, not the server, decides when 10 minutes have passed.
+ */
+function useNow(intervalMs = 30_000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
 
 const MAIN_EVENT = "main";
 
@@ -144,6 +158,20 @@ function teamLine(project: Project) {
 function reviewNote(project: Project, target: number) {
   if (!project.needsReview) return null;
   return project.completeReviewCount === 0 ? "No reviews yet" : project.completeReviewCount === target - 1 ? "Needs a second review" : `${project.completeReviewCount} of ${target} reviews`;
+}
+
+/**
+ * The line above an opened project when someone else is involved: who covered
+ * it, who is scoring it now, or, on Help out, whose project it helps and
+ * how many they have left.
+ */
+function projectHelpNote(project: Project, taken: Scorer | null, judges: Workspace["judges"], now: number): { title: string; text: string; tone: "warning" | "done" } | null {
+  if (project.group === "covered") return { title: "", text: `Covered by ${joinNames(project.coveredBy)} · ${project.completeReviewCount} reviews done. It no longer counts as yours; you can still score it.`, tone: "done" };
+  if (taken && project.assignedToMe) return { title: "", text: `${taken.judgeName} is scoring this now. If they finish, it moves to Covered.`, tone: "warning" };
+  if (taken) return { title: "", text: `${taken.judgeName} started scoring this ${startedAgo(taken.updatedAt, now)}. Pick another with J so you don't both score it.`, tone: "warning" };
+  const judge = !project.assignedToMe && project.helpFor ? judges.find((other) => other.judgeKey === project.helpFor) : undefined;
+  if (!judge || (project.group !== "helpOut" && project.group !== "scored")) return null;
+  return { title: `Helping ${judge.judgeName}.`, text: `${judge.judgeName} has ${judge.left} left. Your score counts as one of this project's two reviews.`, tone: "warning" };
 }
 
 function isTyping(target: EventTarget | null) {
@@ -241,19 +269,58 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   const searchKey = search.trim().toLocaleLowerCase("en");
   const trackMatch = useCallback((project: Project) => tracks.length === 0 || tracks.some((track) => (track === MAIN_EVENT ? project.trackIds.length === 0 : project.trackIds.map(String).includes(track))), [tracks]);
   const filtered = useMemo(() => data.projects.filter((project) => trackMatch(project) && matchesSearch(project, searchKey)), [data.projects, trackMatch, searchKey]);
+  const now = useNow();
+  const isScored = useCallback((project: Project) => { const own = scores[String(project.id)]; return own ? scoreIsComplete(own) : project.review?.completed === true; }, [scores]);
+  // Another judge scoring it right now (see lib/judging-help); never one you already scored.
+  const takenBy = useCallback((project: Project): Scorer | null => (isScored(project) ? null : scoringNow(project.scorers, project.assignedToMe, now)), [isScored, now]);
+  // J and the first pick pass over these: others covered it, or someone is on it now.
+  const skippable = useCallback((project: Project) => project.group === "covered" || takenBy(project) !== null, [takenBy]);
   // Rows never change group when scored: yours are the ones assigned to you, help out the others you can still help with or helped with.
-  const visible = useMemo(() => (show === "all"
-    ? [...filtered].sort((a, b) => Number(b.assignedToMe) - Number(a.assignedToMe))
-    : filtered.filter((project) => show === "yours" ? project.assignedToMe : !project.assignedToMe && (project.group === "helpOut" || project.group === "scored"))), [filtered, show]);
+  const sections = useMemo<Section[]>(() => {
+    if (show === "all") return [{ key: "all", title: "Every project", note: String(filtered.length), projects: [...filtered].sort((a, b) => Number(b.assignedToMe) - Number(a.assignedToMe)) }];
+    if (show === "yours") {
+      const { mine, beingScored, covered } = yoursSections(filtered.filter((project) => project.assignedToMe), (project) => project.group === "covered", (project) => takenBy(project) !== null);
+      const counted = [...mine, ...beingScored];
+      return [
+        { key: "yours", title: "Yours", note: `${counted.filter((project) => !isScored(project)).length} left of ${counted.length}`, projects: mine },
+        { key: "scoring", title: "Being scored by others", note: "", tone: "quiet" as const, projects: beingScored },
+        { key: "covered", title: "Covered by others", note: "not counted", tone: "quiet" as const, projects: covered },
+      ].filter((section) => section.key === "yours" || section.projects.length > 0);
+    }
+    const { groups, beingScored } = helpOutSections(
+      filtered.filter((project) => !project.assignedToMe && (project.group === "helpOut" || project.group === "scored")),
+      data.judges,
+      (project) => takenBy(project) !== null,
+    );
+    const judgeSections: Section[] = groups.map((group) => ({
+      key: group.judge?.judgeKey ?? "unassigned",
+      title: group.judge ? `${group.judge.judgeName}'s` : "Not assigned to anyone",
+      note: group.judge ? `${group.judge.left} left` : "",
+      tone: group.judge?.behind ? "behind" : undefined,
+      projects: group.projects,
+    }));
+    return beingScored.length ? [...judgeSections, { key: "scoring", title: "Being scored right now", note: "", tone: "quiet", projects: beingScored }] : judgeSections;
+  }, [filtered, show, takenBy, isScored, data.judges]);
+  const visible = useMemo(() => sections.flatMap((section) => section.projects), [sections]);
   const hiddenInAll = filtered.length - visible.length;
 
   useEffect(() => {
     setSelectedId((current) => {
       if (current && data.projects.some((project) => String(project.id) === current)) return current;
-      const first = visible.find((project) => !project.review?.completed) ?? visible[0] ?? data.projects[0];
+      const first = visible.find((project) => !project.review?.completed && !skippable(project)) ?? visible[0] ?? data.projects[0];
       return first ? String(first.id) : null;
     });
-  }, [data.projects, visible]);
+  }, [data.projects, visible, skippable]);
+
+  // When others cover one of yours while the page is open, say so once.
+  const coveredSeen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const covered = data.projects.filter((project) => project.group === "covered");
+    const before = coveredSeen.current;
+    coveredSeen.current = new Set(covered.map((project) => String(project.id)));
+    if (!before) return;
+    for (const project of covered) if (!before.has(String(project.id))) toast(`${joinNames(project.coveredBy)} covered ${project.demoTitle}`);
+  }, [data.projects]);
 
   useEffect(() => { if (selectedId) document.getElementById(`judge-row-${selectedId}`)?.scrollIntoView({ block: "nearest" }); }, [selectedId]);
 
@@ -261,7 +328,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   const selectedIndex = visible.findIndex((project) => String(project.id) === selectedId);
   const currentScores = selected ? scores[String(selected.id)] ?? {} : {};
   const canScore = Boolean(data.canScore && selected);
-  const yoursScored = data.projects.filter((project) => project.assignedToMe && (scores[String(project.id)] ? scoreIsComplete(scores[String(project.id)]) : project.review?.completed)).length;
+  const yoursScored = data.projects.filter((project) => project.assignedToMe && project.group !== "covered" && (scores[String(project.id)] ? scoreIsComplete(scores[String(project.id)]) : project.review?.completed)).length;
 
   // The first unscored criterion is where number keys go.
   useEffect(() => { setActiveCriterion(JUDGING_CRITERIA.find((criterion) => currentScores[criterion] === undefined) ?? "innovation"); }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -271,11 +338,11 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
     if (next) setSelectedId(String(next.id));
   }
 
-  const isScored = (project: Project) => { const own = scores[String(project.id)]; return own ? scoreIsComplete(own) : project.review?.completed === true; };
-  const visibleLeft = visible.filter((project) => !isScored(project)).length;
-  // Next project: the next one not scored yet, after this one, then from the top; the next row when every one is scored.
-  const nextTarget = visible.slice(selectedIndex + 1).find((project) => !isScored(project))
-    ?? visible.slice(0, Math.max(selectedIndex, 0)).find((project) => !isScored(project))
+  const toScore = (project: Project) => !isScored(project) && !skippable(project);
+  const visibleLeft = visible.filter(toScore).length;
+  // Next project: the next one not scored yet (and not covered or being scored by someone else), after this one, then from the top; the next row when every one is scored.
+  const nextTarget = visible.slice(selectedIndex + 1).find(toScore)
+    ?? visible.slice(0, Math.max(selectedIndex, 0)).find(toScore)
     ?? visible[selectedIndex + 1];
   function goNext() {
     if (nextTarget) setSelectedId(String(nextTarget.id));
@@ -336,6 +403,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   const showOption = SHOW_OPTIONS.find((option) => option.value === show)!;
   const trackLabel = tracks.length === 0 ? "All" : tracks.length === 1 ? (tracks[0] === MAIN_EVENT ? "Main event only" : data.tracks.find((track) => String(track.id) === tracks[0])?.name ?? "1 track") : `${tracks.length} selected`;
   const note = selected ? reviewNote(selected, data.reviewTarget) : null;
+  const helpNote = selected ? projectHelpNote(selected, takenBy(selected), data.judges, now) : null;
 
   return (
     <TooltipProvider delay={1000}>
@@ -349,7 +417,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
           <JudgingClock timer={data.timer} closed={isClosed} judgingPaused={data.judgingPaused} />
         </div>
         <div className={styles.topActions}>
-          <span className={styles.progress}>Yours: {yoursScored} of {data.yoursTotal} scored</span>
+          <span className={styles.progress}>Yours: {yoursScored} of {data.yoursTotal} scored{data.counts.covered > 0 && ` · ${data.counts.covered} covered`}</span>
           <span className={styles.scoringAs}>Scoring as <strong>{data.judgeName}</strong><button type="button" onClick={onNotYou}>Not you?</button></span>
         </div>
       </header>
@@ -395,9 +463,19 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
             </div>
           </div>
           <nav className={styles.assignmentList} aria-label="Projects">
-            <h2 className={styles.mineHeading}><span>{GROUP_HEADINGS[show]}</span><span>{show === "all" ? visible.length : `${visibleLeft} left of ${visible.length}`}</span></h2>
-            {show === "yours" && visible.length > 0 && visibleLeft === 0 && !search && tracks.length === 0 && <p className={styles.railEmpty}>All yours are scored. Help out with projects still waiting for a second review.</p>}
-            {visible.map((project) => <ProjectRow key={String(project.id)} project={project} active={String(project.id) === selectedId} scores={scores[String(project.id)]} reviewTarget={data.reviewTarget} onSelect={setSelectedId} />)}
+            {sections.map((section) => <div key={section.key} role="group" aria-label={section.title}>
+              <h2 className={styles.mineHeading} data-tone={section.tone}><span>{section.title}</span><span>{section.note}</span></h2>
+              {section.key === "yours" && visible.length > 0 && visibleLeft === 0 && !sections.some((other) => other.key === "scoring") && !search && tracks.length === 0 && <p className={styles.railEmpty}>All yours are scored. Help out with projects still waiting for a second review.</p>}
+              {section.projects.map((project) => {
+                const taken = takenBy(project);
+                const covered = project.group === "covered";
+                const detail = covered ? `Covered by ${joinNames(project.coveredBy)} · ${project.completeReviewCount} reviews done`
+                  : taken ? (project.assignedToMe ? `${taken.judgeName} is scoring it now` : `${taken.judgeName} started it ${startedAgo(taken.updatedAt, now)}`)
+                  : null;
+                return <ProjectRow key={String(project.id)} project={project} active={String(project.id) === selectedId} scores={scores[String(project.id)]} reviewTarget={data.reviewTarget} onSelect={setSelectedId}
+                  detail={detail} detailTone={covered ? "done" : taken ? "warning" : undefined} dim={covered || taken !== null} />;
+              })}
+            </div>)}
             {visible.length === 0 && <p className={styles.railEmpty}>{search || tracks.length ? "Nothing here matches. Clear the search or the track filter." : show === "yours" ? "No projects are assigned to you. Help out with projects still waiting for a second review." : show === "helpOut" ? "Nothing needs help right now. Every other project has its reviews." : "No projects are in judging yet."}</p>}
             {show !== "all" && hiddenInAll > 0 && <button type="button" className={styles.moreLink} onClick={() => setShow("all")}>Show {hiddenInAll} more in All</button>}
           </nav>
@@ -406,6 +484,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
         <article className={styles.projectPane}>
           {selected ? (
             <>
+              {helpNote && <p className={styles.helpNote} data-tone={helpNote.tone} role="status">{helpNote.title && <strong>{helpNote.title} </strong>}{helpNote.text}</p>}
               <div className={styles.projectIntro}>
                 <div className={styles.projectTitle}>
                   <h1>{selected.demoTitle}</h1>
@@ -480,19 +559,24 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
           </div>
         </aside>
       </div>
+      <Toaster position="bottom-right" />
     </main>
     </TooltipProvider>
   );
 }
 
-const ProjectRow = memo(function ProjectRow({ project, active, scores, reviewTarget, onSelect }: { project: Project; active: boolean; scores: ScoreState | undefined; reviewTarget: number; onSelect: (id: string) => void }) {
+/** `detail` replaces the team line: who covered it, or who is scoring it now. `dim` greys a row that is not this judge's to score. */
+const ProjectRow = memo(function ProjectRow({ project, active, scores, reviewTarget, onSelect, detail, detailTone, dim }: {
+  project: Project; active: boolean; scores: ScoreState | undefined; reviewTarget: number; onSelect: (id: string) => void;
+  detail: string | null; detailTone: "done" | "warning" | undefined; dim: boolean;
+}) {
   const id = String(project.id);
   const complete = scores ? scoreIsComplete(scores) : Boolean(project.review?.completed);
   const note = project.group === "helpOut" ? `${project.completeReviewCount} of ${reviewTarget}` : null;
   return (
-    <button aria-current={active ? "true" : undefined} className={active ? styles.assignmentActive : styles.assignmentButton} id={`judge-row-${id}`} onClick={() => onSelect(id)} type="button">
+    <button aria-current={active ? "true" : undefined} className={active ? styles.assignmentActive : styles.assignmentButton} data-dim={dim ? "" : undefined} id={`judge-row-${id}`} onClick={() => onSelect(id)} type="button">
       {complete ? <CheckCircle2Icon aria-label="Scored" className={styles.completeIcon} /> : <CircleIcon aria-label="Not scored" className={styles.incompleteIcon} />}
-      <span className={styles.assignmentText}><strong>{project.demoTitle}</strong><small>{project.teamName ?? project.name} · {project.tracks.join(", ") || "Main event"}</small></span>
+      <span className={styles.assignmentText}><strong>{project.demoTitle}</strong>{detail ? <small data-tone={detailTone}>{detail}</small> : <small>{project.teamName ?? project.name} · {project.tracks.join(", ") || "Main event"}</small>}</span>
       {note ? <span className={styles.rowNote}>{note}</span> : <span />}
     </button>
   );

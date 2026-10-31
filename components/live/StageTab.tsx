@@ -16,6 +16,7 @@ import { timeLeftMs } from "@/lib/timer-clock";
 import { InPageLink } from "@/components/InPageLink";
 import { errorText } from "./changes";
 import { ExactTimer, ListSkeleton, TrackChips, teamLine, useFinalists, type AdminData } from "./PhaseTabs";
+import { StageResultsSetting } from "./StageResultsSetting";
 import styles from "./live.module.css";
 
 // Extra time for the pitch on now; Next starts the following pitch at the usual length again.
@@ -123,6 +124,7 @@ export function StageTab({ slug, admin }: { slug: string; admin: AdminData }) {
         </li>)}</ol>
       </details>}
     </section>
+    <StageResultsSetting slug={slug} admin={admin} finalists={finalists} />
     <p className={styles.footer}>
       <span>{event.judgingStatus === "closed" ? "Judging closed" : "Judging still open"}</span>
       {event.judgingSheetUrl && <a className={styles.linkButton} href={event.judgingSheetUrl} target="_blank" rel="noreferrer">Open judging sheet ↗</a>}

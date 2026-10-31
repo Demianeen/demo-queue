@@ -27,7 +27,8 @@ import { OutpostHero } from "@/components/OutpostHero";
 import { cn } from "@/lib/utils";
 import { browserClientId } from "@/lib/client-id";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
-import { displayUrl, participantHeading, participantSteps, type StatusStep } from "@/lib/participant-status";
+import { displayUrl, participantCelebration, participantHeading, participantSteps, type StatusStep } from "@/lib/participant-status";
+import { Celebration } from "@/components/results/Celebration";
 
 /** Where the team is, as numbered steps; done steps get a check. */
 function StatusSteps({ steps }: { steps: StatusStep[] }) {
@@ -350,6 +351,7 @@ export function ParticipantPage({
 
   const hackathon = participant.event.eventType === "hackathon";
   const statusInput = { eventType: participant.event.eventType, status: participant.submission.status, finalist: participant.submission.finalist, phase: participant.event.phase };
+  const celebration = participantCelebration({ ...statusInput, placement: participant.submission.placement, demoTitle: participant.submission.demoTitle });
   const withdrawProps = { slug, token, participant, withdraw, resubmit, confirming: confirmingWithdraw, setConfirming: setConfirmingWithdraw };
   const contactLine = [participant.submission.email, participant.submission.phone].filter(Boolean).join(" · ");
 
@@ -387,6 +389,8 @@ export function ParticipantPage({
         ) : null}
         <h1>{participantHeading(statusInput)}</h1>
 
+        {celebration ? <Celebration celebration={celebration} /> : null}
+
         <StatusSteps steps={participantSteps(statusInput)} />
 
         <div className="status-strip">
@@ -402,10 +406,6 @@ export function ParticipantPage({
         <p className="lead">{participant.submission.description}</p>
 
         <WithdrawPanel {...withdrawProps} place="top" />
-
-        {participant.submission.finalist && participant.submission.status !== "withdrawn" ? (
-          <div className="copy-line">Your team was selected as a finalist.</div>
-        ) : null}
 
         <dl className="status-details">
           {hackathon ? (

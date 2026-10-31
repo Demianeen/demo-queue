@@ -1,0 +1,195 @@
+/*
+ * The end of the night: the status page's finalist or winner block and the
+ * stage's winners screen. Both read the event tokens (--event-*) and the
+ * stage's own colours, so every built-in style and every custom Base style
+ * gets them. Only the medal colours are shared.
+ */
+.celebration, .winners {
+  --medal-gold: #d8b24a;
+  --medal-silver: #c3c7cc;
+  --medal-bronze: #c58a5a;
+}
+
+.medal {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--medal-gold);
+  box-shadow: inset 0 0 0 4px rgb(0 0 0 / 0.16);
+  color: #101113;
+  font-family: var(--event-font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+/* Outpost's display face draws 1 like an I, so its medals use the body face. */
+:global(:is([data-visual-style="outpost"], .stage-outpost)) .medal { font-family: var(--event-font-body); font-weight: 700; }
+.medal[data-place="2"] { background: var(--medal-silver); }
+/* Astra and DevDay set their own face on the page root, which the font tokens do not name yet: inherit it. */
+:global(:is([data-visual-style="astra"], [data-visual-style="devday"])) :is(.celebration, .celebration .celebrationHeadline, .medal, .winners .winnersTitle, .winners .podiumTitle, .winners .finalistsTitle, .winners .finalistTitle) { font-family: inherit; }
+.medal[data-place="3"] { background: var(--medal-bronze); }
+
+/* Status page: a filled block in the event's accent and display font. */
+.celebration {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  /* Clip, not hidden: the rings overflow, and a hidden box could be scrolled sideways by find in page. */
+  overflow: clip;
+  margin: 0 0 18px;
+  padding: 22px;
+  border-radius: var(--event-radius);
+  background: var(--event-accent);
+  color: var(--event-accent-fg);
+  font-family: var(--event-font-body);
+}
+/* Outpost and Astra have a black accent: their light surface colour reads warmer than white on it. */
+:global([data-visual-style="outpost"]) .celebration,
+:global([data-visual-style="astra"]) .celebration { color: var(--event-surface); }
+:global([data-visual-style="devday"]) .celebration { border: 1px solid var(--event-fg); color: #000; }
+
+.rings { position: absolute; right: -90px; top: -100px; width: 260px; height: 260px; opacity: 0.18; pointer-events: none; }
+.star { position: relative; flex: none; width: 64px; height: 64px; }
+.celebration .celebrationMedal { position: relative; width: 64px; height: 64px; font-size: 30px; }
+.celebrationCopy { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.celebrationKicker { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.75; }
+.celebration .celebrationHeadline {
+  margin: 0;
+  color: inherit;
+  font-family: var(--event-font-display);
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+:global([data-visual-style="outpost"]) .celebration .celebrationHeadline { font-size: 44px; font-weight: 400; letter-spacing: 0.01em; text-transform: uppercase; }
+:global([data-visual-style="astra"]) .celebration .celebrationHeadline { font-size: 36px; font-weight: 500; letter-spacing: -0.05em; }
+:global([data-visual-style="devday"]) .celebration .celebrationHeadline { font-size: 36px; letter-spacing: -0.06em; }
+/* Outpost's display face draws 1 like an I: the place digit is set in its body face, as its stage clock is. */
+:global([data-visual-style="outpost"]) .celebration .headlineDigit { font-family: var(--event-font-body); font-weight: 700; letter-spacing: -0.02em; }
+.celebration .celebrationSentence { margin: 0; color: inherit; font-size: 14px; line-height: 20px; opacity: 0.88; }
+
+@media (max-width: 520px) {
+  .celebration { align-items: flex-start; gap: 14px; padding: 18px; }
+  .star, .celebration .celebrationMedal { width: 48px; height: 48px; font-size: 22px; }
+  .celebration .celebrationHeadline { font-size: 28px; }
+  :global([data-visual-style="outpost"]) .celebration .celebrationHeadline { font-size: 34px; }
+}
+
+/* Stage: the podium, 2nd, 1st and 3rd from the left, then the other finalists. */
+.winners {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--stage-vh) * 4);
+  min-height: calc(var(--stage-vh) * 100 - 56px);
+  padding-top: 64px;
+  color: inherit;
+}
+:global(.stage-neutral) .winners { padding-top: 0; }
+/* Clear the Outpost wordmark in the top corner. */
+:global(.stage-outpost) .winners { padding-top: 96px; }
+:global(.stage-devday) .winners { min-height: calc(var(--stage-vh) * 100 - 90px); padding: 40px; }
+
+.winnersHead { display: flex; flex-direction: column; gap: 8px; }
+.winnersEvent {
+  margin: 0;
+  color: color-mix(in srgb, currentColor 68%, transparent);
+  font-size: clamp(14px, calc(var(--stage-vw) * 1.2), 22px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.winners .winnersTitle, .winners .podiumTitle, .winners .finalistsTitle, .winners .finalistTitle {
+  margin: 0;
+  color: inherit;
+  font-family: var(--event-font-display);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+.winners .winnersTitle { font-size: clamp(48px, calc(var(--stage-vw) * 6.4), 104px); line-height: 0.95; }
+
+.podium {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: end;
+  gap: calc(var(--stage-vw) * 1.6);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.podium[data-count="2"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); width: min(100%, calc(var(--stage-vw) * 66)); margin: 0 auto; }
+.podium[data-count="1"] { grid-template-columns: minmax(0, 1fr); width: min(100%, calc(var(--stage-vw) * 40)); margin: 0 auto; }
+.podiumPlace { display: flex; flex-direction: column; align-items: center; gap: calc(var(--stage-vh) * 1.6); min-width: 0; text-align: center; }
+.podiumPlace[data-place="1"] { order: 2; }
+.podiumPlace[data-place="2"] { order: 1; }
+.podiumPlace[data-place="3"] { order: 3; }
+.podium[data-count="1"] .podiumPlace[data-place="1"] { order: 0; }
+
+.winners .podiumMedal { width: calc(var(--stage-vh) * 8.8); height: calc(var(--stage-vh) * 8.8); font-size: calc(var(--stage-vh) * 4.4); }
+.winners .podiumPlace[data-place="1"] .podiumMedal { width: calc(var(--stage-vh) * 11.2); height: calc(var(--stage-vh) * 11.2); font-size: calc(var(--stage-vh) * 5.8); }
+.winners .podiumTitle { font-size: clamp(28px, calc(var(--stage-vw) * 2.8), 48px); line-height: 1.05; }
+.winners .podiumPlace[data-place="1"] .podiumTitle { font-size: clamp(36px, calc(var(--stage-vw) * 3.9), 64px); }
+.podiumTeam { color: color-mix(in srgb, currentColor 68%, transparent); font-size: clamp(16px, calc(var(--stage-vw) * 1.25), 22px); overflow-wrap: anywhere; }
+.podiumStep {
+  width: 100%;
+  height: calc(var(--stage-vh) * 15);
+  border-radius: var(--event-radius) var(--event-radius) 0 0;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.podiumPlace[data-place="1"] .podiumStep { height: calc(var(--stage-vh) * 22); background: color-mix(in srgb, currentColor 22%, transparent); }
+.podiumPlace[data-place="3"] .podiumStep { height: calc(var(--stage-vh) * 10); background: color-mix(in srgb, currentColor 9%, transparent); }
+.winners[data-with-finalists] .podiumStep { height: calc(var(--stage-vh) * 10); }
+.winners[data-with-finalists] .podiumPlace[data-place="1"] .podiumStep { height: calc(var(--stage-vh) * 15); }
+.winners[data-with-finalists] .podiumPlace[data-place="3"] .podiumStep { height: calc(var(--stage-vh) * 6.4); }
+
+/* The other finalists: as proud as the podium names, not a footnote. */
+.finalists { display: flex; flex-direction: column; gap: calc(var(--stage-vh) * 1.4); padding-top: calc(var(--stage-vh) * 2.2); border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent); }
+.winners .finalistsTitle { font-size: clamp(24px, calc(var(--stage-vw) * 2.2), 36px); line-height: 1; }
+.finalistCards { display: flex; flex-wrap: wrap; gap: calc(var(--stage-vw) * 1.2); margin: 0; padding: 0; list-style: none; }
+.finalistCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: calc(var(--stage-vh) * 1.4) calc(var(--stage-vw) * 1.4);
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: var(--event-radius);
+}
+.winners .finalistTitle { font-size: clamp(22px, calc(var(--stage-vw) * 2.1), 34px); line-height: 1.05; }
+.finalistTeam { color: color-mix(in srgb, currentColor 68%, transparent); font-size: clamp(14px, calc(var(--stage-vw) * 1.1), 18px); overflow-wrap: anywhere; }
+
+/* Each style's display type, as on its own stage. */
+:global(.stage-outpost) .winners :is(.winnersTitle, .podiumTitle, .finalistsTitle, .finalistTitle) { font-weight: 400; letter-spacing: 0.01em; text-transform: uppercase; }
+:global(.stage-astra) .winners :is(.winnersTitle, .podiumTitle, .finalistsTitle, .finalistTitle) { font-weight: 500; letter-spacing: -0.05em; }
+:global(.stage-devday) .winners :is(.winnersTitle, .podiumTitle, .finalistsTitle, .finalistTitle) { letter-spacing: -0.055em; }
+
+/* Astra's galaxy sits behind the podium: names get a dark halo and the steps are glass, as its lineup panels are. */
+:global(.stage-astra):has(.winners) :global(.astra-backdrop) { opacity: 0.45; }
+:global(.stage-astra) .winners { text-shadow: 0 2px 24px #030405, 0 0 8px #030405; }
+:global(.stage-astra) .podiumPlace[data-place] .podiumStep { background: rgb(3 4 5 / 0.55); border: 1px solid rgb(245 245 243 / 0.14); border-bottom: 0; backdrop-filter: blur(14px); }
+:global(.stage-astra) .finalistCard { background: rgb(3 4 5 / 0.55); backdrop-filter: blur(14px); }
+
+/* A short rise as the screen arrives; none for people who ask for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .podiumPlace, .finalists { animation: results-rise 600ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .podiumPlace[data-place="1"] { animation-delay: 120ms; }
+  .podiumPlace[data-place="3"] { animation-delay: 60ms; }
+  .finalists { animation-delay: 240ms; }
+}
+@keyframes results-rise { from { opacity: 0; transform: translateY(12px); } }
+
+@media (max-width: 720px) {
+  .podium, .podium[data-count="2"] { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .podiumPlace[data-place] { order: 0; }
+  .podiumStep { display: none; }
+}

@@ -65,6 +65,34 @@ export function participantSteps(input: { eventType: "demo" | "hackathon"; statu
   }
 }
 
+export type Placement = 1 | 2 | 3;
+export type Celebration = { place: Placement | null; kicker: string; headline: string; sentence: string };
+
+const PLACE_WORDS: Record<Placement, string> = { 1: "first", 2: "second", 3: "third" };
+const PLACE_LABELS: Record<Placement, string> = { 1: "1st place", 2: "2nd place", 3: "3rd place" };
+
+/**
+ * The status page's celebration for a hackathon finalist or winner. A place
+ * comes only once the event is finished; a finalist who was not placed keeps
+ * the finalist block, in the past tense. Nothing for a withdrawn team.
+ */
+export function participantCelebration(input: { eventType: "demo" | "hackathon"; status: string; finalist: boolean; placement: Placement | null; phase: EventPhase; demoTitle: string }): Celebration | null {
+  if (input.eventType !== "hackathon" || input.status === "withdrawn") return null;
+  const project = input.demoTitle.trim() || "Your project";
+  if (input.placement && input.phase === "finished") {
+    return { place: input.placement, kicker: "Winners", headline: PLACE_LABELS[input.placement], sentence: `${project} came ${PLACE_WORDS[input.placement]}. Congratulations to the whole team.` };
+  }
+  if (!input.finalist) return null;
+  return {
+    place: null,
+    kicker: "Finalist",
+    headline: "You're a finalist",
+    sentence: input.phase !== "finished"
+      ? `${project} made the final. Your team pitches on stage, and the winners are picked after the last pitch.`
+      : input.status === "no_show" ? `${project} made the final.` : `${project} made the final and pitched on stage.`,
+  };
+}
+
 /** "github.com/tomo/guardrail" for a link shown as text. */
 export function displayUrl(value: string) {
   return value.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "");

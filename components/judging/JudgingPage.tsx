@@ -60,10 +60,6 @@ export type JudgingPageProps = {
   onSyncSheet: () => void;
 };
 
-function judgeKeyOf(name: string) {
-  return name.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
-}
-
 /**
  * Judging: Progress (who still needs scores), Ranking (the live order, with
  * evening out) and Finalists (the decision), with the clock and the judges
@@ -138,8 +134,9 @@ function JudgingPageInner({ slug, admin, previews, onHide, onManageJudges, sheet
     return progress.scoring.map((row) => {
       const id = String(row.submissionId);
       const preview = previews.get(id);
-      const chips = row.assignedJudges.map((judgeName): JudgeChip => {
-        const key = judgeKeyOf(judgeName);
+      // Keys and names line up: a judge is their key, the name is only shown.
+      const chips = row.assignedJudgeKeys.map((key, index): JudgeChip => {
+        const judgeName = row.assignedJudges[index] ?? key;
         const review = reviews.get(`${id}:${key}`);
         const judge = decisions.get(key);
         const normalized = judge?.reviews.find((item) => String(item.submissionId) === id);

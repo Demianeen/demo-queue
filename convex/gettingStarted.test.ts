@@ -39,6 +39,16 @@ test("the dry run can be marked done by hand and undone", async () => {
   expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ dryRunMarked: false });
 });
 
+test("the team step can be skipped and unskipped", async () => {
+  const t = setup();
+  const alice = t.withIdentity(person("user_alice", "org_one"));
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ teamSkipped: false });
+  await alice.mutation(api.gettingStarted.skipTeam, { skipped: true });
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ teamSkipped: true, dryRunMarked: false, hidden: false });
+  await alice.mutation(api.gettingStarted.skipTeam, { skipped: false });
+  expect(await alice.query(api.gettingStarted.status, {})).toMatchObject({ teamSkipped: false });
+});
+
 test("the guide needs a signed-in organization", async () => {
   const t = setup();
   await expect(t.query(api.gettingStarted.status, {})).rejects.toThrow("Sign in to manage events.");

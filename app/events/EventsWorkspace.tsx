@@ -152,11 +152,11 @@ function OrganizationEvents({ organization, view, setView, initialData, events, 
   ], [view, results, selected, router]);
   useCommands("events-list", listCommands, view === "events" ? "Events" : undefined);
   if (styleData.organizationId !== organization.id || results.some((event) => event.organizationId !== organization.id)) return <Alert variant="destructive"><AlertDescription>Your organization session changed. <a href="/events">Reload events</a>.</AlertDescription></Alert>;
-  const guide = <GettingStarted organizationName={organization.name} events={results.map((event) => ({ name: event.name, slug: event.slug }))} styleCount={styleData.styles.length} onCreateEvent={() => setView("create")} onOpenStyles={() => setView("styles")} />;
+  const guideProps = { organizationName: organization.name, events: results.map((event) => ({ name: event.name, slug: event.slug })), styleCount: styleData.styles.length, onCreateEvent: () => setView("create"), onOpenStyles: () => setView("styles") };
   return <>
     {title}
-    {view === "guide" && <div className="ws-column"><h1 className="sr-only">Getting started</h1>{guide}</div>}
-    {view === "events" && <div className="mb-6">{guide}</div>}
+    {view === "guide" && <div className="ws-column"><h1 className="sr-only">Getting started</h1><GettingStarted {...guideProps} alwaysOpen /></div>}
+    {view === "events" && <div className="mb-6"><GettingStarted {...guideProps} /></div>}
     <div hidden={view !== "styles"}><OrganizationStyles organizationId={organization.id} organizationName={organization.name} styles={styleData.styles} /></div>
     <div hidden={view === "styles" || view === "members" || view === "details" || view === "admin" || view === "connections" || view === "guide" || view === "practice" || view === "usage" || (view !== "create" && results.length > 0)}><EventCreationForm organizationId={organization.id} organizationName={organization.name} firstEvent={!results.length} styles={styleData.styles} onManageStyles={() => setView("styles")} onCancel={results.length ? () => setView("events") : undefined} /></div>
     {view === "events" && results.length > 0 && <section>

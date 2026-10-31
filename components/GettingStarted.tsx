@@ -34,7 +34,8 @@ export function GettingStartedSkeleton() {
   </section>;
 }
 
-type GuideProps = { organizationName: string; events: EventSummary[]; styleCount: number; onCreateEvent: () => void; onOpenStyles: () => void };
+/** `alwaysOpen` is the Getting started page itself: it shows the guide even when it is hidden from Events. */
+type GuideProps = { organizationName: string; events: EventSummary[]; styleCount: number; onCreateEvent: () => void; onOpenStyles: () => void; alwaysOpen?: boolean };
 
 function GuideUnavailable({ onRetry }: { onRetry: () => void }) {
   return <Alert variant="destructive" className="flex flex-wrap items-center gap-3">
@@ -64,7 +65,7 @@ export function GettingStarted(props: GuideProps) {
 
 type GuideStatus = FunctionReturnType<typeof api.gettingStarted.status>;
 
-function Guide({ organizationName, events, styleCount, onCreateEvent, onOpenStyles, onRetry }: GuideProps & { onRetry: () => void }) {
+function Guide({ organizationName, events, styleCount, onCreateEvent, onOpenStyles, alwaysOpen = false, onRetry }: GuideProps & { onRetry: () => void }) {
   const { isAuthenticated } = useConvexAuth();
   // A failed query comes back as an Error instead of being thrown during render. A query error thrown
   // from a hook leaves React with a half-rendered Guide, and the next navigation away from /events
@@ -86,14 +87,18 @@ function Guide({ organizationName, events, styleCount, onCreateEvent, onOpenStyl
     const current = store.getQuery(api.gettingStarted.status, {});
     if (current) store.setQuery(api.gettingStarted.status, {}, { ...current, dryRunMarked: done });
   });
+  const skipTeam = useMutation(api.gettingStarted.skipTeam).withOptimisticUpdate((store, { skipped }) => {
+    const current = store.getQuery(api.gettingStarted.status, {});
+    if (current) store.setQuery(api.gettingStarted.status, {}, { ...current, teamSkipped: skipped });
+  });
   const loadTeam = useAction(api.gettingStarted.teamStatus);
   const [team, setTeam] = useState<Team>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState("");
-  const [pending, setPending] = useState<"hide" | "show" | "dry-run" | null>(null);
+  const [pending, setPending] = useState<"hide" | "show" | "dry-run" | "team" | null>(null);
 
   const loaded = status !== undefined;
-  const hidden = status?.hidden ?? false;
+  const hidden = (status?.hidden ?? false) && !alwaysOpen;
   useEffect(() => {
     if (!isAuthenticated || !loaded || hidden) return;
     let current = true;
@@ -105,20 +110,21 @@ function Guide({ organizationName, events, styleCount, onCreateEvent, onOpenStyl
   if (failed) return <GuideUnavailable onRetry={onRetry} />;
   if (status === undefined) return <GettingStartedSkeleton />;
 
-  async function change(kind: "hide" | "show" | "dry-run", run: () => Promise<unknown>) {
+  async function change(kind: "hide" | "show" | "dry-run" | "team", run: () => Promise<unknown>) {
     setPending(kind); setError("");
     try { await run(); }
-    catch { setError(kind === "dry-run" ? "Could not save that step. Try again." : "Could not save your guide setting. Try again."); }
+    catch { setError(kind === "dry-run" || kind === "team" ? "Could not save that step. Try again." : "Could not save your guide setting. Try again."); }
     finally { setPending(null); }
   }
 
-  if (status.hidden) return <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+  if (hidden) return <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
     <Button variant="ghost" size="sm" disabled={pending !== null} onClick={() => void change("show", () => setHidden({ hidden: false }))}>{pending === "show" ? "Showing…" : "Show getting started guide"}</Button>
     {error && <span role="alert" className="text-destructive">{error}</span>}
   </div>;
 
   const firstEvent = events.at(-1);
-  const teamDone = team.kind === "ready" && (team.counts.invited > 0 || team.counts.members > 1);
+  const invitedDone = team.kind === "ready" && (team.counts.invited > 0 || team.counts.members > 1);
+  const teamDone = invitedDone || status.teamSkipped;
   const dryRunDone = status.testPeopleAdded || status.dryRunMarked;
   const steps = [events.length > 0, teamDone, status.connected, styleCount > 0, dryRunDone];
   const progress = guideProgress(steps);
@@ -137,16 +143,26 @@ function Guide({ organizationName, events, styleCount, onCreateEvent, onOpenStyl
           <div className="h-full rounded-full bg-[var(--dq-accent)] transition-[width]" style={{ width: `${progress.percent}%` }} />
         </div>
         <span className="flex-1" />
-        <Button variant="ghost" size="sm" className="font-normal text-muted-foreground" disabled={pending !== null} onClick={() => void change("hide", () => setHidden({ hidden: true }))}>{pending === "hide" ? "Hiding…" : "Hide guide"}</Button>
+        {alwaysOpen && status.hidden
+          ? <Button variant="ghost" size="sm" className="font-normal text-muted-foreground" disabled={pending !== null} onClick={() => void change("show", () => setHidden({ hidden: false }))}>{pending === "show" ? "Showing…" : "Show on Events"}</Button>
+          : <Button variant="ghost" size="sm" className="font-normal text-muted-foreground" disabled={pending !== null} onClick={() => void change("hide", () => setHidden({ hidden: true }))}>{pending === "hide" ? "Hiding…" : alwaysOpen ? "Hide on Events" : "Hide guide"}</Button>}
       </div>
       {error && <div className="px-4 pb-2.5"><p role="alert" className="ws-error">{error}</p></div>}
       <ol className="ws-list">
         <StepRow title="Create your first event" done={steps[0]} detail={firstEvent ? firstEvent.name : "Name it, pick demo night or hackathon, and share the submit link."}
           action={!steps[0] && <Button size="sm" variant={variant(0)} onClick={onCreateEvent}>Create event</Button>} />
-        <StepRow title="Invite your team" done={teamDone} detail={team.kind === "loading" ? <Skeleton className="h-3 w-52" /> : team.kind === "error"
-          ? <span role="alert" className="text-destructive">Could not check your invitations.</span>
-          : teamDone ? teamSummary(team.counts) : "Everyone you invite can run every event with you."}
-          action={team.kind === "error" ? <Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>Retry</Button> : team.kind === "ready" && !teamDone && linkButton(1, "/members", "Invite people")} />
+        <StepRow title="Invite your team" done={teamDone} detail={invitedDone && team.kind === "ready" ? teamSummary(team.counts)
+          : status.teamSkipped ? "Skipped. Invite people any time from Members."
+          : team.kind === "loading" ? <Skeleton className="h-3 w-52" />
+          : team.kind === "error" ? <span role="alert" className="text-destructive">Could not check your invitations.</span>
+          : "Optional. Everyone you invite can run every event with you."}
+          action={invitedDone ? null
+            : status.teamSkipped ? <Button variant="ghost" size="sm" disabled={pending !== null} onClick={() => void change("team", () => skipTeam({ skipped: false }))}>Undo</Button>
+            : team.kind === "error" ? <Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>Retry</Button>
+            : team.kind === "ready" && <>
+              <Button variant="ghost" size="sm" disabled={pending !== null} onClick={() => void change("team", () => skipTeam({ skipped: true }))}>{pending === "team" ? "Saving…" : "Skip"}</Button>
+              {linkButton(1, "/members", "Invite people")}
+            </>} />
         <StepRow title="Connect your AI assistant" done={status.connected}
           detail={status.connected ? "Connected. Ask it to create an event, add judges or check judging progress." : "Ask it to create an event, add judges or check judging progress."}
           action={!status.connected && linkButton(2, "/events/connections", "Full setup and connections")} />

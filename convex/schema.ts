@@ -308,6 +308,8 @@ export default defineSchema({
     organizationId: v.string(),
     hidden: v.boolean(),
     dryRunMarkedAt: v.optional(v.number()),
+    // Not everyone has a team to invite, so the step can be skipped.
+    teamSkippedAt: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_owner_and_organization", ["ownerAccountKey", "organizationId"]),
 

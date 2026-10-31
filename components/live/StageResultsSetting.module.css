@@ -1,0 +1,16 @@
+/* The Stage tab's results setting: what the stage shows once the event finishes. */
+.card { border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); padding: 14px; display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
+.title { font-size: 13px; font-weight: 600; }
+.text { font-size: 12px; line-height: 17px; color: var(--dq-fg-2); }
+.fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.legend { font-size: 12px; color: var(--dq-fg-2); margin-bottom: 6px; }
+.options { gap: 6px; }
+.option { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--dq-line); border-radius: 8px; cursor: pointer; }
+.option:hover { background: var(--dq-row-hover); }
+.option:has([data-checked]) { border-color: var(--dq-fg); }
+.option > span { display: flex; flex-direction: column; gap: 2px; }
+.optionTitle { font-size: 13px; font-weight: 500; color: var(--dq-fg); }
+.optionDetail { font-size: 12px; color: var(--dq-fg-3); }
+.confirm { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; background: var(--dq-row-hover); font-size: 12px; line-height: 17px; color: var(--dq-fg-2); }
+.confirm[data-tone="pending"] { background: transparent; border: 1px dashed var(--dq-line); }
+.confirmIcon { width: 14px; height: 14px; flex: none; margin-top: 1px; color: var(--dq-fg); }

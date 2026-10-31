@@ -35,6 +35,7 @@ export function StageTab({ slug, admin }: { slug: string; admin: AdminData }) {
   const finalists = useFinalists(slug, admin);
   const reorderLineup = useMutation(api.events.reorderLineup);
   const pickNext = useMutation(api.events.pickNext);
+  const markNoShow = useMutation(api.events.markNoShow);
   const restorePreviousPresenter = useMutation(api.events.restorePreviousPresenter);
   const startDemoTimer = useMutation(api.events.startDemoTimer);
   const pauseDemoTimer = useMutation(api.events.pauseDemoTimer);
@@ -68,8 +69,9 @@ export function StageTab({ slug, admin }: { slug: string; admin: AdminData }) {
     void act(() => reorderLineup({ slug, orderedIds: next }), "Could not change the pitch order.");
   }
 
-  const next = () => act(() => pickNext({ slug }), "Could not move to the next pitch.");
+  const next = () => act(() => pickNext({ slug, expectedCurrentId: current?.id }), "Could not move to the next pitch.");
   const previous = () => act(() => restorePreviousPresenter({ slug }), "Could not go back to the previous pitch.");
+  const noShow = () => act(() => markNoShow({ slug, expectedCurrentId: current?.id }), "Could not mark the no-show.");
   const commands = useMemo<Command[]>(() => live ? [
     { id: "stage-next", group: "This page", label: "Next pitch", keys: ["N"], disabled: !current, run: () => void next() },
     { id: "stage-previous", group: "This page", label: "Previous pitch", disabled: !event.canRestorePrevious, run: () => void previous() },
@@ -85,6 +87,7 @@ export function StageTab({ slug, admin }: { slug: string; admin: AdminData }) {
       onPause={() => pauseDemoTimer({ slug })} onResume={() => startDemoTimer({ slug })} resumeLabel="Start"
       extra={live ? <>
         <Button variant="outline" disabled={!event.canRestorePrevious} onClick={() => void previous()}><SkipBack aria-hidden />Previous</Button>
+        <Button variant="outline" disabled={!current} onClick={() => void noShow()}>No-show</Button>
         <ShortcutTooltip label="Next pitch" keys={["N"]}><Button disabled={!current} onClick={() => void next()}>Next<SkipForward aria-hidden /></Button></ShortcutTooltip>
       </> : undefined} />
     <section className={styles.section} aria-labelledby="stage-finalists">

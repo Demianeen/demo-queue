@@ -40,7 +40,7 @@ export function SubmissionsClock({ slug, admin, onShare }: { slug: string; admin
       <h2><span className="dq-dot" data-tone={admin.event.submissionsOpen ? "success" : undefined} aria-hidden />{admin.event.submissionsOpen ? "Submissions open" : "Submissions closed"}</h2>
       <button type="button" className={styles.linkButton} onClick={onShare}>Share the submit link →</button>
     </div>
-    <ExactTimer label="Submissions close in" labelFor={(remainingMs) => submissionsClockLabel(remainingMs, "Submissions close in")} countsBelowZero timer={admin.event.stageTimer}
+    <ExactTimer label="Submissions close in" labelFor={(remainingMs) => submissionsClockLabel(remainingMs, "Submissions close in")} countsBelowZero editKey={admin.event.eventType !== "hackathon"} timer={admin.event.stageTimer}
       help={admin.event.eventType === "hackathon"
         ? "The stage shows this clock. At 0:00 the submit link stays open until you move to Judging from the phase control."
         : "The stage shows this clock. At 0:00 the submit link stays open until you move to Queue from the phase control."}
@@ -153,10 +153,12 @@ type ClockControls = {
   onResume: () => Promise<unknown>;
   resumeLabel?: string;
   extra?: ReactNode;
+  /** E types an exact time. Off where the page's list already uses E. */
+  editKey?: boolean;
 };
 
 /** A big clock you click to type an exact time, with presets and pause. */
-export function ExactTimer({ label, labelFor, countsBelowZero = false, timer, help, onSet, onPause, onResume, resumeLabel = "Resume", extra }: ClockControls) {
+export function ExactTimer({ label, labelFor, countsBelowZero = false, timer, help, onSet, onPause, onResume, resumeLabel = "Resume", extra, editKey = true }: ClockControls) {
   const remaining = useRemaining(timer);
   const shownLabel = labelFor?.(remaining) ?? label;
   const reading = countsBelowZero ? formatSignedClock(remaining) : formatClock(remaining);
@@ -183,9 +185,9 @@ export function ExactTimer({ label, labelFor, countsBelowZero = false, timer, he
   useEffect(() => { latest.current = { set, toggle, remaining }; });
   const commands = useMemo<Command[]>(() => [
     { id: "timer-toggle", group: "This page", label: running ? "Pause timer" : `${resumeLabel} timer`, keys: ["P"], run: () => void latest.current.toggle() },
-    { id: "timer-edit", group: "This page", label: "Set the time exactly", keys: ["E"], run: () => setDraft(formatClock(latest.current.remaining)) },
+    { id: "timer-edit", group: "This page", label: "Set the time exactly", ...(editKey ? { keys: ["E"] } : {}), run: () => setDraft(formatClock(latest.current.remaining)) },
     ...PRESETS.map((minutes) => ({ id: `timer-${minutes}`, group: "This page", label: `Set the timer to ${minutes} minutes`, keys: ["T", ...String(minutes).split("")], run: () => void latest.current.set(minutes * 60_000) })),
-  ], [running, resumeLabel]);
+  ], [running, resumeLabel, editKey]);
   useCommands("live-timer", commands);
 
   return <section className={styles.section} aria-label={shownLabel}>

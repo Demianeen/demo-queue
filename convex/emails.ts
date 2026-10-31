@@ -16,7 +16,7 @@ import { buildSubmissionEmail, emailSender } from "../lib/submission-email";
  */
 export const STATUS_EMAIL_LIMITS = {
   perAddress: { kind: "fixed window", rate: 5, period: HOUR },
-  perEvent: { kind: "token bucket", rate: 300, period: HOUR, capacity: 100 },
+  perEvent: { kind: "token bucket", rate: 600, period: HOUR, capacity: 400 },
 } as const;
 
 export const emailRateLimiter = new RateLimiter(components.rateLimiter, {

@@ -248,7 +248,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   const [showOpen, setShowOpen] = useState(false);
   const [tracks, setTracks] = useState<string[]>([]);
   const [activeCriterion, setActiveCriterion] = useState<Criterion>("innovation");
-  const pendingOne = useRef<{ at: number; criterion: Criterion } | null>(null);
+  const pendingOne = useRef<{ at: number; criterion: Criterion; submissionId: string } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const isClosed = data.judgingStatus === "closed";
 
@@ -327,13 +327,13 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
       event.preventDefault();
       const now = Date.now();
       const one = pendingOne.current;
-      if (key === "0" && one && now - one.at < 700) {
+      if (key === "0" && one && now - one.at < 700 && one.submissionId === String(selected.id)) {
         pendingOne.current = null;
         void updateScore(String(selected.id), one.criterion, 10);
         return;
       }
       const criterion = activeCriterion;
-      pendingOne.current = key === "1" ? { at: now, criterion } : null;
+      pendingOne.current = key === "1" ? { at: now, criterion, submissionId: String(selected.id) } : null;
       pick(criterion, Number(key));
     }
     window.addEventListener("keydown", onKeyDown);

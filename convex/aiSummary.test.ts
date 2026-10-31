@@ -529,15 +529,26 @@ test("an event that has spent its daily summary budget queues no more runs", asy
   expect(await t.run(async (ctx) => (await ctx.db.get(eventId))!.aiSummaryBudget)).toEqual({ day: today, used: 1 });
 });
 
-test("a rate-limited README read is retried later, never saved without the README", async () => {
+test("a rate-limited README read writes the summary at once, without the README", async () => {
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
-  vi.stubEnv("GITHUB_TOKEN", "gh-test-token");
   modelReturns();
-  let limited = 2;
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer gh-test-token");
+  fetchMock.mockImplementation(async () => new Response("rate limited", { status: 403, headers: { "retry-after": "3600" } }));
+  const { t, add } = await setup();
+  const id = await add(0);
+  await t.mutation(api.events.updateSubmission, { slug: "hack", submissionId: id, name: "Person 0", demoTitle: "Guardrail", description: "Policy checks", phone: "+440000000000" });
+  await runAll(t);
+  // One repository check, no retries an hour later.
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(generateText).toHaveBeenCalledTimes(1);
+  expect(await summaryOf(t, id)).toMatchObject({ usedReadme: false });
+  expect(await statusOf(t, id)).not.toBe("none");
+});
+
+test("a rate-limited README check keeps the summary already written", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  fetchMock.mockImplementation(async (url: string) => {
     if (String(url).endsWith("/repos/example/guardrail")) return publicRepository();
-    if (limited > 0) { limited -= 1; return new Response("rate limited", { status: 403, headers: { "retry-after": "60" } }); }
     return String(url).includes("/repos/example/guardrail/readme")
       ? new Response("# Guardrail\\nPolicy checks.", { status: 200 })
       : new Response("Not found", { status: 404 });
@@ -546,27 +557,13 @@ test("a rate-limited README read is retried later, never saved without the READM
   const id = await add(0);
   await t.mutation(api.events.updateSubmission, { slug: "hack", submissionId: id, name: "Person 0", demoTitle: "Guardrail", description: "Policy checks", phone: "+440000000000" });
   await runAll(t);
-  // Three runs each check the repository first and try the README; the last also reads the three dependency files.
-  expect(fetchMock).toHaveBeenCalledTimes(9);
-  expect(generateText).toHaveBeenCalledTimes(1);
-  expect(await summaryOf(t, id)).toMatchObject({ usedReadme: true });
-});
+  const written = await summaryOf(t, id);
+  expect(written).toMatchObject({ usedReadme: true });
 
-test("a README read that stays rate limited gives up without saving a summary", async () => {
-  vi.stubEnv("OPENAI_API_KEY", "sk-test");
-  modelReturns();
   fetchMock.mockImplementation(async () => new Response("rate limited", { status: 429 }));
-  const { t, add } = await setup();
-  const id = await add(0);
-  await t.mutation(api.events.updateSubmission, { slug: "hack", submissionId: id, name: "Person 0", demoTitle: "Guardrail", description: "Policy checks", phone: "+440000000000" });
-  await runAll(t);
-  // The first read and three retries.
-  expect(fetchMock).toHaveBeenCalledTimes(4);
-  expect(generateText).not.toHaveBeenCalled();
-  expect(await summaryOf(t, id)).toBeNull();
-  // Judges see "No summary", not "being written" for ever.
-  expect(await statusOf(t, id)).toBe("none");
-  expect(await t.run(async (ctx) => (await ctx.db.get(id))!.aiSummaryGaveUp?.reason)).toBe("readme_rate_limited");
+  await t.action(internal.aiSummaryAction.generateSubmissionSummary, { submissionId: id, refreshReadme: true });
+  expect(generateText).toHaveBeenCalledTimes(1);
+  expect(await summaryOf(t, id)).toEqual(written);
 });
 
 test("a private repository's README is never read, even when the token could read it", async () => {

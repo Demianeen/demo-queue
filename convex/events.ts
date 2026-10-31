@@ -570,6 +570,8 @@ export function blankEventState(now: number) {
     demoTimerEndsAt: undefined,
     lineupTarget: undefined,
     lastAdvanceSnapshot: undefined,
+    phase: undefined,
+    finishedAt: undefined,
     updatedAt: now,
   };
 }
@@ -2417,6 +2419,8 @@ async function publishQueueOperation(
     await ctx.db.patch(event._id, {
       queuePublished: true,
       stageScreenMode: "demo",
+      // A demo night's Stage is its published lineup, as setPhase does it.
+      ...(event.eventType !== "hackathon" && eventPhase(event) === "submissions" ? { phase: "stage" as const } : {}),
       updatedAt: Date.now(),
     });
     await logAction(ctx, event._id, "queue_published", actor);
@@ -3200,6 +3204,7 @@ export const setLineupTarget = mutation({
 
 export const markNoShowArgs = v.object({
   slug: v.string(),
+  expectedCurrentId: v.optional(v.string()),
   });
 
 async function markNoShowOperation(
@@ -3218,7 +3223,7 @@ async function markNoShowOperation(
       .collect();
 
     const current = lineupSorted(submissions)[0];
-    if (!current) {
+    if (!current || (args.expectedCurrentId !== undefined && String(current._id) !== args.expectedCurrentId)) {
       return;
     }
 
@@ -3242,7 +3247,9 @@ export const markNoShow = mutation({
 // Advance the show: the person at the top of the lineup (current) is marked
 // done, so the next person becomes position 0. Order is positional, so nothing
 // else needs to move.
-export const pickNextArgs = v.object({ slug: v.string(), });
+// expectedCurrentId: the presenter the organiser saw. A second click, or a
+// second organiser, that arrives after the show moved on does nothing.
+export const pickNextArgs = v.object({ slug: v.string(), expectedCurrentId: v.optional(v.string()) });
 
 async function pickNextOperation(
   ctx: MutationCtx,
@@ -3261,7 +3268,7 @@ async function pickNextOperation(
 
     const lineup = lineupSorted(submissions);
     const current = lineup[0];
-    if (!current) {
+    if (!current || (args.expectedCurrentId !== undefined && String(current._id) !== args.expectedCurrentId)) {
       return;
     }
 

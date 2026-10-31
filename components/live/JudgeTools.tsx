@@ -127,6 +127,24 @@ export function JudgesCard({ slug, eventName, overview, openKey, onOpen, onManag
   const judges = useMemo(() => overview?.judges ?? [], [overview]);
   const judgeLabels = useMemo(() => judgeInitials(judges.map((judge) => judge.judgeName)), [judges]);
   const [moving, setMoving] = useState(false);
+  const [making, setMaking] = useState(false);
+  const createJudgeAccess = useMutation(api.judging.createJudgeAccess);
+  const linkless = judges.filter((judge) => judge.onRoster && !judge.hasLink);
+  async function makeAllLinks() {
+    setMaking(true);
+    let made = 0;
+    try {
+      for (const judge of linkless) {
+        await createJudgeAccess({ slug, judgeName: judge.judgeName, capabilityToken: randomToken() });
+        made += 1;
+      }
+      toast(`Made ${made} link${made === 1 ? "" : "s"}`);
+    } catch (error) {
+      toast.error(errorText(error, `Made ${made} of ${linkless.length} links. Try again for the rest.`));
+    } finally {
+      setMaking(false);
+    }
+  }
   const open = judges.find((judge) => judge.judgeKey === openKey) ?? null;
   const index = open ? judges.indexOf(open) : -1;
   const commands = useMemo<Command[]>(() => [
@@ -140,7 +158,7 @@ export function JudgesCard({ slug, eventName, overview, openKey, onOpen, onManag
   return <section className={`dq-card ${styles.listCard}`} aria-labelledby="judges-card-title">
     <div className={styles.listHead}>
       <h2 id="judges-card-title">Judges <span className={styles.count}>{overview ? judges.filter((judge) => judge.onRoster).length : ""}</span></h2>
-      <span className={styles.headActions}><CopyAllLinks eventName={eventName} judges={judges} disabled={!overview} /><Button variant="outline" size="sm" onClick={onManage}>Manage</Button></span>
+      <span className={styles.headActions}>{linkless.length > 0 && <Button variant="outline" size="sm" disabled={making} onClick={() => void makeAllLinks()}>Make {linkless.length} link{linkless.length === 1 ? "" : "s"}</Button>}<CopyAllLinks eventName={eventName} judges={judges} disabled={!overview} /><Button variant="outline" size="sm" onClick={onManage}>Manage</Button></span>
     </div>
     {overview === undefined ? [0, 1, 2, 3].map((key) => <div key={key} className={styles.judgeRow} aria-hidden><Skeleton className="size-6 rounded-full" /><Skeleton className="h-3 w-28" /><Skeleton className="ml-auto h-3 w-20" /></div>)
       : judges.length === 0 ? <div className={styles.empty}>No judges yet. Add their names, and each gets a private link to score from their laptop.<div className="mt-3"><Button size="sm" variant="outline" onClick={onManage}>Add judges</Button></div></div>
@@ -183,7 +201,7 @@ export function CopyAllLinks({ eventName, judges, disabled }: { eventName: strin
         <button type="button" role="tab" aria-selected={format === "text"} onClick={() => setFormat("text")}>WhatsApp or Slack</button>
         <button type="button" role="tab" aria-selected={format === "notion"} onClick={() => setFormat("notion")}>Notion table</button>
       </div>
-      {rows.length === 0 ? <p className={styles.empty}>No active judge has a link yet. Add judges, or turn one back on.</p>
+      {rows.length === 0 ? <p className={styles.empty}>No active judge has a link yet. Use Make links, add judges, or turn one back on.</p>
         : <pre className={styles.preview} aria-label="What gets copied">{previewLines.join("\n")}{hidden > 0 ? `\n…${hidden} more` : ""}</pre>}
       <Button className="w-full" onClick={() => void copy()} disabled={rows.length === 0}>Copy {rows.length} link{rows.length === 1 ? "" : "s"}</Button>
       <p className={styles.note}>Notion table pastes as two columns, Judge and Link. Only active judges are included.</p>

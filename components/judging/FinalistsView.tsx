@@ -63,7 +63,7 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
   const finalistsSubmitted = decision?.finalistStatus === "submitted" && ticked === null;
   const shownOrder = order ?? finalistOrder(finalists, finalistsSubmitted ? serverPlacements : [], scoreById);
   const winners = shownOrder.slice(0, WINNER_COUNT);
-  const winnersSubmitted = decision?.placementStatus === "submitted" && order === null && winners.join(",") === serverPlacements.join(",");
+  const winnersSubmitted = decision?.placementStatus === "submitted" && winners.join(",") === serverPlacements.join(",");
 
   async function act(action: () => Promise<unknown>, failure: string, done?: string) {
     setBusy(true);
@@ -77,6 +77,8 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
   }
   function reorder(next: string[]) {
     setOrder(next);
+    // Only the winners are saved: a move below the line, or one that changes nothing, keeps them submitted.
+    if (next.slice(0, WINNER_COUNT).join(",") === winners.join(",")) return;
     void act(() => savePlacementDraft({ slug, placementIds: next.slice(0, WINNER_COUNT) as Id<"submissions">[] }), "Could not save the order.");
   }
 

@@ -26,7 +26,7 @@ export function AddToDemoers({ pool, onAdd }: { pool: PoolPerson[]; onAdd: (id: 
     return (needle ? pool.filter((person) => `${person.name} ${person.demo}`.toLowerCase().includes(needle)) : pool).slice(0, 8);
   }, [pool, search]);
   const commands = useMemo<Command[]>(() => [
-    { id: "add-to-demoers", group: "This page", label: "Add to demoers", keys: ["A"], run: () => setOpen(true), disabled: pool.length === 0 },
+    { id: "add-to-demoers", group: "This page", label: "Add to demoers", keys: ["D"], run: () => setOpen(true), disabled: pool.length === 0 },
   ], [pool.length]);
   useCommands("add-to-demoers", commands);
 

@@ -341,8 +341,9 @@ Built from the B6 boards (Overview, Judging, Ranking, Finalists).
 - AI summaries: at most one run per submission per 10 minutes, and a
   daily budget per event of 3 runs per submission, at least 20.
   Participants queue none once submissions are closed.
-- A rate-limited README read is retried up to 3 times, then the run gives
-  up without saving a summary.
+- A rate-limited README read does not wait: a new summary is written at once
+  without the README, and an existing one is kept. The next close of
+  submissions reads the README again.
 - README text is read only from repositories GitHub reports as public.
 - Going back from Stage to Submissions on a demo night leaves the lineup
   published; the confirm says "The lineup stays published."

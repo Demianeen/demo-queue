@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import {
-  BookOpenIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -16,9 +16,6 @@ import {
   SearchIcon,
   SparklesIcon,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
 import { api } from "../../../../convex/_generated/api";
 import { Skeleton } from "@/app/Skeleton";
 import { Button } from "@/components/ui/button";
@@ -31,6 +28,11 @@ import { timeLeftMs, type TimerReading } from "@/lib/timer-clock";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { videoEmbedUrl, youtubeEmbedUrl } from "@/lib/video-embed";
 import styles from "./judge.module.css";
+
+// The markdown renderer is most of this page's script, and only a project with a repository needs it.
+const Readme = dynamic(() => import("./Readme").then((module) => module.Readme), {
+  loading: () => <section className={styles.readmeSection}><div className={styles.readmeLoading}><Skeleton w="58%" h={24} /><Skeleton h={14} /><Skeleton w="85%" h={14} /></div></section>,
+});
 
 type Workspace = FunctionReturnType<typeof api.judging.getJudgeWorkspace>;
 type Project = Workspace["projects"][number];
@@ -85,48 +87,33 @@ function formatTimer(ms: number) {
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${ss}` : `${minutes}:${ss}`;
 }
 
-/** The judging clock, read the same way as on the organiser's pages: see lib/timer-clock.ts. */
-function useJudgingClock(timer: TimerReading | undefined) {
+/**
+ * The judging clock, read the same way as on the organiser's pages (see
+ * lib/timer-clock.ts). It ticks on its own, once a second just after the shown
+ * second changes, so the rest of the judge page does not re-render with it.
+ */
+function JudgingClock({ timer, closed, judgingPaused }: { timer: TimerReading & { paused: boolean }; closed: boolean; judgingPaused: boolean }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setNow(Date.now());
-    if (!timer?.running) return;
-    const id = window.setInterval(() => setNow(Date.now()), 250);
-    return () => window.clearInterval(id);
-  }, [timer?.running, timer?.serverNow, timer?.remainingMs]);
-  return timeLeftMs(timer, now);
-}
-
-function Readme({ repositoryUrl }: { repositoryUrl: string | null }) {
-  const [state, setState] = useState<{ status: "idle" | "loading" | "ready" | "error"; markdown: string }>({ status: "idle", markdown: "" });
-  useEffect(() => {
-    if (!repositoryUrl) { setState({ status: "idle", markdown: "" }); return; }
-    const controller = new AbortController();
-    setState({ status: "loading", markdown: "" });
-    void fetch(`/api/github-readme?url=${encodeURIComponent(repositoryUrl)}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("README unavailable");
-        return await response.json() as { markdown: string };
-      })
-      .then((result) => setState({ status: "ready", markdown: result.markdown }))
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setState({ status: "error", markdown: "" });
-      });
-    return () => controller.abort();
-  }, [repositoryUrl]);
-  return (
-    <section className={styles.readmeSection} id="project-readme">
-      <div className={styles.sectionLabel}><BookOpenIcon /> README</div>
-      {state.status === "loading" ? (
-        <div className={styles.readmeLoading}><Skeleton w="58%" h={24} /><Skeleton h={14} /><Skeleton w="85%" h={14} /><Skeleton h={90} /></div>
-      ) : state.status === "ready" ? (
-        <div className={styles.markdown}><ReactMarkdown rehypePlugins={[rehypeRaw, rehypeSanitize]}>{state.markdown}</ReactMarkdown></div>
-      ) : (
-        <p className={styles.emptyCopy}>{repositoryUrl ? "The README could not be displayed here. Open the repository to review it on GitHub." : "No GitHub repository was provided."}</p>
-      )}
-    </section>
-  );
+    if (!timer.running) return;
+    let id = 0;
+    const tick = () => {
+      const current = Date.now();
+      setNow(current);
+      const left = timeLeftMs(timer, current);
+      id = window.setTimeout(tick, (((left % 1000) + 1000) % 1000) + 20);
+    };
+    tick();
+    return () => window.clearTimeout(id);
+  }, [timer]);
+  const remainingMs = timeLeftMs(timer, now);
+  const timeUp = remainingMs <= 0;
+  const label = closed ? "Judging closed" : judgingPaused ? "Judging paused" : timer.paused ? "Clock paused at" : timeUp ? "Time's up" : "Judging closes in";
+  return <span className={styles.timeBlock}>
+    <span>{label}</span>
+    {!closed && <strong className={timeUp && !judgingPaused ? styles.overtime : undefined}>{formatTimer(remainingMs)}</strong>}
+  </span>;
 }
 
 type AiSummary = NonNullable<Project["aiSummary"]>;
@@ -260,8 +247,6 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   const [activeCriterion, setActiveCriterion] = useState<Criterion>("innovation");
   const pendingOne = useRef<{ at: number; criterion: Criterion } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const remainingMs = useJudgingClock(data.timer);
-  const timeUp = remainingMs <= 0;
   const isClosed = data.judgingStatus === "closed";
 
   // Saved scores from the server fill in anything not edited on this page.
@@ -362,7 +347,6 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   const showOption = SHOW_OPTIONS.find((option) => option.value === show)!;
   const trackLabel = tracks.length === 0 ? "All" : tracks.length === 1 ? (tracks[0] === MAIN_EVENT ? "Main event only" : data.tracks.find((track) => String(track.id) === tracks[0])?.name ?? "1 track") : `${tracks.length} selected`;
   const note = selected ? reviewNote(selected, data.reviewTarget) : null;
-  const clockLabel = isClosed ? "Judging closed" : data.judgingPaused ? "Judging paused" : data.timer.paused ? "Clock paused at" : timeUp ? "Time's up" : "Judging closes in";
 
   return (
     <TooltipProvider delay={1000}>
@@ -373,10 +357,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
           <span className={styles.eventName}>{data.eventName}</span>
           {data.practice && <span className="dq-practice-badge">Practice</span>}
           <span className={styles.divider} />
-          <span className={styles.timeBlock}>
-            <span>{clockLabel}</span>
-            {!isClosed && <strong className={timeUp && !data.judgingPaused ? styles.overtime : undefined}>{formatTimer(remainingMs)}</strong>}
-          </span>
+          <JudgingClock timer={data.timer} closed={isClosed} judgingPaused={data.judgingPaused} />
         </div>
         <div className={styles.topActions}>
           <span className={styles.progress}>Yours: {yoursScored} of {data.yoursTotal} scored</span>
@@ -426,7 +407,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
           </div>
           <nav className={styles.assignmentList} aria-label="Projects">
             <h2 className={styles.mineHeading}><span>{GROUP_HEADINGS[show]}</span><span>{visible.length}</span></h2>
-            {visible.map((project) => <ProjectRow key={String(project.id)} project={project} active={String(project.id) === selectedId} scores={scores[String(project.id)]} reviewTarget={data.reviewTarget} onSelect={() => setSelectedId(String(project.id))} />)}
+            {visible.map((project) => <ProjectRow key={String(project.id)} project={project} active={String(project.id) === selectedId} scores={scores[String(project.id)]} reviewTarget={data.reviewTarget} onSelect={setSelectedId} />)}
             {visible.length === 0 && <p className={styles.railEmpty}>{search || tracks.length ? "Nothing here matches. Clear the search or the track filter." : show === "yours" ? "You've scored all of yours. Help out with projects still waiting for a second review." : show === "helpOut" ? "Nothing needs help right now. Every other project has its reviews." : show === "scored" ? "You haven't scored anything yet." : "No projects are in judging yet."}</p>}
             {show !== "all" && hiddenInAll > 0 && <button type="button" className={styles.moreLink} onClick={() => setShow("all")}>Show {hiddenInAll} more in All</button>}
           </nav>
@@ -514,15 +495,15 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   );
 }
 
-function ProjectRow({ project, active, scores, reviewTarget, onSelect }: { project: Project; active: boolean; scores: ScoreState | undefined; reviewTarget: number; onSelect: () => void }) {
+const ProjectRow = memo(function ProjectRow({ project, active, scores, reviewTarget, onSelect }: { project: Project; active: boolean; scores: ScoreState | undefined; reviewTarget: number; onSelect: (id: string) => void }) {
   const id = String(project.id);
   const complete = scores ? scoreIsComplete(scores) : Boolean(project.review?.completed);
   const note = project.group === "helpOut" ? `${project.completeReviewCount} of ${reviewTarget}` : null;
   return (
-    <button aria-current={active ? "true" : undefined} className={active ? styles.assignmentActive : styles.assignmentButton} id={`judge-row-${id}`} onClick={onSelect} type="button">
+    <button aria-current={active ? "true" : undefined} className={active ? styles.assignmentActive : styles.assignmentButton} id={`judge-row-${id}`} onClick={() => onSelect(id)} type="button">
       {complete ? <CheckCircle2Icon aria-label="Scored" className={styles.completeIcon} /> : <CircleIcon aria-label="Not scored" className={styles.incompleteIcon} />}
       <span className={styles.assignmentText}><strong>{project.demoTitle}</strong><small>{project.teamName ?? project.name} · {project.tracks.join(", ") || "Main event"}</small></span>
       {note ? <span className={styles.rowNote}>{note}</span> : <span />}
     </button>
   );
-}
+});

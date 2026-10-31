@@ -250,7 +250,15 @@ function neutralizeMarkers(value: string) {
 }
 
 function dataBlock(name: BlockName, value: string) {
-  return `<<<BEGIN ${name}>>>\n${neutralizeMarkers(value)}\n<<<END ${name}>>>`;
+  return `<<<BEGIN ${name}>>>\n${neutralizeMarkers(wellFormed(value))}\n<<<END ${name}>>>`;
+}
+
+/**
+ * Drops a lone surrogate, half an emoji, as a cut at a character limit can
+ * leave: OpenAI refuses a request whose text has one.
+ */
+export function wellFormed(text: string) {
+  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
 }
 
 /**

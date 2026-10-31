@@ -309,6 +309,23 @@ test("a model failure is logged and leaves the submission alone", async () => {
   log.mockRestore();
 });
 
+test("a README cut through an emoji at its limit is sent without the half emoji", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  // As in kelektiv/node-cron: the 12,000th character is the first half of "🤝".
+  const readme = `# Guardrail\n${"x".repeat(12_000 - 13)}🤝 Contributing`;
+  expect(readme.charCodeAt(11_999)).toBe(0xd83e);
+  fetchMock.mockImplementation(async (url: string) => (String(url).endsWith("/readme") ? new Response(readme, { status: 200 }) : publicRepository()));
+  const { t, add } = await setup();
+  const id = await add(0);
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  const [options] = generateText.mock.calls[0];
+  expect(String(options.prompt)).toContain("<<<BEGIN README>>>\n# Guardrail\nxxx");
+  expect(String(options.prompt)).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  expect(await summaryOf(t, id)).toMatchObject({ usedReadme: true });
+});
+
 test("a refused model call logs its HTTP status and the API's error type and code, never its message", async () => {
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
   const { APICallError, RetryError } = await import("ai");

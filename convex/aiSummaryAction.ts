@@ -5,6 +5,7 @@ import { generateText, Output } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createHash } from "node:crypto";
 import { internal } from "./_generated/api";
+import { logAiUsage } from "./aiUsage";
 import { env, internalAction, type ActionCtx } from "./_generated/server";
 import {
   buildSummaryPrompt,
@@ -18,6 +19,7 @@ import {
   type ReadOutput,
   type SummaryManifest,
 } from "../lib/ai-summary";
+import { hasTokens, usageFromError, usageFromResult, type AiUsageResult, type LoggedUsage } from "../lib/ai-usage";
 
 const README_TIMEOUT_MS = 8_000;
 /** Proposed: a rate-limited README read is retried this many times, then the run gives up without saving. */
@@ -141,17 +143,26 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
   const giveUp = (reason: string) =>
     ctx.runMutation(internal.aiSummaries.markSummaryGaveUp, { submissionId: args.submissionId, sourceKey: input.sourceKey, reason });
   // Proposed: when the language check rejects a summary, try once more with a stricter instruction.
+  // Every call is logged with its tokens, whatever happens to its output: OpenAI bills them all.
+  const logCall = (usage: LoggedUsage, result: AiUsageResult) =>
+    logAiUsage(ctx, { ...usage, eventId: input.eventId, submissionId: args.submissionId, feature: "summary", result });
   for (const stricter of [false, true]) {
     const { system, prompt } = buildSummaryPrompt({ ...input, readme, manifests }, input.sections, { stricter });
+    let usage: LoggedUsage | null = null;
+    let stage: "call" | "output" | "save" = "call";
     let result: { saved: boolean; reason: string };
     try {
       // Exactly one capped string per section; anything else fails here and is logged.
-      const { output } = await generateText({
+      const response = await generateText({
         model: createOpenAI({ apiKey })(model),
         output: Output.object({ schema: summaryOutputSchemaFor(input.sections, read) }),
         system,
         prompt,
       });
+      usage = usageFromResult(response, model);
+      stage = "output";
+      const output = response.output;
+      stage = "save";
       result = await ctx.runMutation(internal.aiSummaries.saveSummary, {
         submissionId: args.submissionId,
         sourceKey: input.sourceKey,
@@ -164,20 +175,29 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
       });
     } catch (error) {
       log("failed", error instanceof Error ? error.name : "unknown");
+      // A reply that did not match the schema still reports its usage; a failed request does not.
+      const known = usage ?? usageFromError(error, model);
+      const unusable = stage === "output" || (stage === "call" && hasTokens(known));
+      await logCall(known, unusable ? "failed" : "error");
       await giveUp("model_failed");
       return { saved: false };
     }
+    const logged: LoggedUsage = usage ?? { model };
     if (result.saved) {
       log("saved", result.reason);
+      await logCall(logged, "saved");
       return { saved: true };
     }
     if (!stricter && result.reason.startsWith("evaluative_language")) {
       log("retrying", result.reason);
+      await logCall(logged, "retried");
       continue;
     }
     log("rejected", result.reason);
     // A newer run covers changed fields; anything else is final for these fields.
-    if (result.reason !== "source_changed" && result.reason !== "sample_mode") await giveUp(result.reason);
+    const superseded = result.reason === "source_changed" || result.reason === "sample_mode";
+    await logCall(logged, superseded ? "discarded" : "rejected");
+    if (!superseded) await giveUp(result.reason);
     return { saved: false };
   }
   return { saved: false };

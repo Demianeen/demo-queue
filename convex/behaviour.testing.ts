@@ -23,6 +23,8 @@ export const modules = {
   "./sponsors.ts": () => import("./sponsors"),
   "./aiSummaries.ts": () => import("./aiSummaries"),
   "./aiSummaryAction.ts": () => import("./aiSummaryAction"),
+  "./aiUsage.ts": () => import("./aiUsage"),
+  "./ai.ts": () => import("./ai"),
   "./judgingSheetSync.ts": () => import("./judgingSheetSync"),
   "./googleSheets.ts": () => import("./googleSheets"),
   "./phases.ts": () => import("./phases"),
@@ -87,6 +89,18 @@ export async function judgeLink(t: TestClient, judgeName: string, slug = "hack")
   const capabilityToken = `${judgeName.toLowerCase().replace(/\s+/g, "-")}-secret-token`;
   await t.mutation(api.judging.createJudgeAccess, { slug, judgeName, capabilityToken });
   return capabilityToken;
+}
+
+/**
+ * Each judge's key, by their name in lower case ("alex"). Keys are made when
+ * a judge is added and never come from a name, so tests look them up.
+ */
+export async function judgeKeys(t: TestClient, slug = "hack") {
+  return await t.run(async (ctx) => {
+    const event = (await ctx.db.query("events").collect()).find((row) => row.slug === slug)!;
+    const links = await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect();
+    return Object.fromEntries(links.map((link) => [link.judgeName.toLowerCase(), link.judgeKey])) as Record<string, string>;
+  });
 }
 
 export async function score(t: TestClient, capabilityToken: string, submissionId: Id<"submissions">, value: number, slug = "hack") {

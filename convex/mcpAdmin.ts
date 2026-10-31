@@ -34,7 +34,7 @@ function submissionDto(s: Submission) {
     tracks: s.tracks, trackIds: s.trackIds, teamName: s.teamName, githubUrl: s.githubUrl,
     status: s.status, queueOrder: s.queueOrder, teamMembers: s.teamMembers,
     videoUrl: s.videoUrl, videoDeleteAt: s.videoDeleteAt, videoDeletedAt: s.videoDeletedAt,
-    rulesAcceptedAt: s.rulesAcceptedAt, roundOneAssignedJudges: s.roundOneAssignedJudges,
+    rulesAcceptedAt: s.rulesAcceptedAt, roundOneAssignedJudges: s.roundOneAssignedJudges, roundOneAssignedJudgeKeys: s.roundOneAssignedJudgeKeys,
     aiSummary: s.aiSummary, aiRead: s.aiRead, createdAt: s.createdAt, updatedAt: s.updatedAt,
   };
 }
@@ -502,6 +502,24 @@ export const moveJudgeScores = internalMutation({
   handler: (ctx, { principal, input }) => judging.moveJudgeScoresForOrganization(ctx, {
     ...input, submissionIds: input.submissionIds?.map((value) => submissionId(ctx, value)),
   }, principal),
+});
+
+export const addJudgesInput = judging.addJudgesArgs;
+export const addJudges = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: addJudgesInput },
+  handler: (ctx, { principal, input }) => judging.addJudgesForOrganization(ctx, input, principal),
+});
+
+export const removeJudgeInput = judging.removeJudgeArgs;
+export const removeJudge = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: removeJudgeInput },
+  handler: (ctx, { principal, input }) => judging.removeJudgeForOrganization(ctx, input, principal),
+});
+
+export const renameJudgeInput = judging.renameJudgeArgs;
+export const renameJudge = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: renameJudgeInput },
+  handler: (ctx, { principal, input }) => judging.renameJudgeForOrganization(ctx, input, principal),
 });
 
 export const setJudgeLinkActiveInput = judging.setJudgeLinkActiveArgs;

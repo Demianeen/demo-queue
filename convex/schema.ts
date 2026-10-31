@@ -11,6 +11,12 @@ export const practiceAiSummariesValidator = v.union(v.literal("sample"), v.liter
 
 /** Where each social came from: typed by the team, or imported from Luma. */
 const socialSource = v.union(v.literal("typed"), v.literal("luma"));
+// AI usage: what a call to OpenAI did (lib/ai-usage.ts).
+export const aiUsageFeatureValidator = v.union(v.literal("summary"), v.literal("shuffle"));
+export const aiUsageResultValidator = v.union(
+  v.literal("saved"), v.literal("retried"), v.literal("rejected"), v.literal("discarded"), v.literal("failed"), v.literal("error"),
+);
+
 export const socialSourcesValidator = v.object({
   twitter: v.optional(socialSource),
   linkedin: v.optional(socialSource),
@@ -382,4 +388,37 @@ export default defineSchema({
     }),
     expiresAt: v.number(),
   }).index("by_event_and_email", ["eventId", "emailHash"]),
+
+  // One row per call to OpenAI, including retries and rejected output, because
+  // OpenAI bills them all. Token counts only, never the prompt, the project
+  // text or the output. Dollars are worked out when read (lib/ai-prices.ts).
+  aiUsage: defineTable({
+    organizationId: v.string(),
+    eventId: v.id("events"),
+    submissionId: v.optional(v.id("submissions")),
+    feature: aiUsageFeatureValidator,
+    // The model OpenAI reported; the requested one when the call failed before answering.
+    model: v.string(),
+    serviceTier: v.optional(v.string()),
+    // Unset when the call failed before OpenAI reported usage.
+    inputTokens: v.optional(v.number()),
+    // Part of inputTokens.
+    cachedInputTokens: v.optional(v.number()),
+    // Includes reasoningTokens.
+    outputTokens: v.optional(v.number()),
+    reasoningTokens: v.optional(v.number()),
+    result: aiUsageResultValidator,
+    createdAt: v.number(),
+  }).index("by_organization_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_event_and_createdAt", ["eventId", "createdAt"]),
+
+  // One row per practice sample summary written: no model call, so not in
+  // aiUsage, but the AI usage page counts them. Removed with the practice event.
+  aiSampleSummaries: defineTable({
+    organizationId: v.string(),
+    eventId: v.id("events"),
+    submissionId: v.id("submissions"),
+    createdAt: v.number(),
+  }).index("by_organization_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_event", ["eventId"]),
 });

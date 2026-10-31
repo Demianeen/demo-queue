@@ -5,7 +5,7 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import { requireOrganization, requireOwnedEvent, type OrganizationPrincipal } from "./organizationAuth";
 import { aiSummariesConfigured, summaryMode } from "./aiSummaries";
 import { recordChange } from "./changeLog";
-import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment, sameJudge } from "../lib/judging-assignment";
+import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment, judgeKeyOf } from "../lib/judging-assignment";
 import {
   EVENT_PHASES,
   PHASE_EFFECT_TEXT,
@@ -44,8 +44,8 @@ export function judgingRemaining(event: Doc<"events">, now: number) {
  */
 async function assignNewSubmissions(ctx: MutationCtx, event: Doc<"events">) {
   const links = await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(200);
-  const off = links.filter((link) => !link.active);
-  const roster = (event.roundOneJudges ?? []).filter((judge) => !off.some((link) => sameJudge(link.judgeName, judge)));
+  const off = new Set(links.filter((link) => !link.active).map((link) => link.judgeKey));
+  const roster = (event.roundOneJudges ?? []).filter((reference) => !off.has(judgeKeyOf(reference)));
   if (roster.length < 2) return 0;
   const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
   const counts = buildJudgeAssignmentCounts(submissions.map((submission) => submission.roundOneAssignedJudges));

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
-import { addProject, createEvent, judgeLink, openJudging, score, setupTest } from "./behaviour.testing";
+import { addProject, createEvent, judgeKeys, judgeLink, openJudging, score, setupTest } from "./behaviour.testing";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -65,11 +65,11 @@ test("turning a judge off can't be undone once their projects' new judges have s
   for (const name of ["Alex", "Sam", "Taylor"]) tokens.set(name, await judgeLink(t, name));
   await openJudging(t);
 
-  const preview = await t.query(api.judging.previewRedistribution, { slug: "hack", unavailableJudgeKey: "taylor" });
+  const preview = await t.query(api.judging.previewRedistribution, { slug: "hack", unavailableJudgeKey: (await judgeKeys(t)).taylor });
   expect(preview.length).toBeGreaterThan(0);
-  await t.mutation(api.judging.applyRedistribution, { slug: "hack", unavailableJudgeKey: "taylor", assignments: preview.map((row) => ({ submissionId: row.submissionId, judges: row.judges })) });
+  await t.mutation(api.judging.applyRedistribution, { slug: "hack", unavailableJudgeKey: (await judgeKeys(t)).taylor, assignments: preview.map((row) => ({ submissionId: row.submissionId, judges: row.judges })) });
   const moved = preview[0];
-  const newJudge = moved.judges.find((name) => name !== "Taylor")!;
+  const newJudge = moved.judgeNames.find((name) => name !== "Taylor")!;
   vi.advanceTimersByTime(60_000);
   await score(t, tokens.get(newJudge)!, moved.submissionId, 7);
 

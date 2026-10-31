@@ -174,7 +174,7 @@ function example(value: unknown): unknown {
   }
 }
 
-test("component OAuth discovery, DCR, PKCE consent, initialize and discovery expose 89 tools without provider token signing", async () => {
+test("component OAuth discovery, DCR, PKCE consent, initialize and discovery expose 92 tools without provider token signing", async () => {
   const t = setup();
   const metadata = await t.fetch("/.well-known/oauth-protected-resource/mcp");
   expect(await metadata.json()).toMatchObject({ resource, authorization_servers: [site], scopes_supported: ["events:read", "events:manage"] });
@@ -187,7 +187,7 @@ test("component OAuth discovery, DCR, PKCE consent, initialize and discovery exp
   expect(await success(t, connection.access_token, "list_organizations", {})).toEqual({ organizations: [{ id: "org_one", name: "one" }, { id: "org_two", name: "two" }], nextCursor: null, hasMore: false });
   const tools = await listed(t, connection.access_token);
   expect(tools.map((tool) => tool.name)).toEqual(["list_organizations", "list_events", "get_event", "create_event", "list_styles", "create_style", "set_default_style", "list_members", "list_invitations", "send_invitations", "revoke_invitation", ...ADMIN_TOOLS.map((tool) => tool.name)]);
-  expect(tools).toHaveLength(89);
+  expect(tools).toHaveLength(92);
   expect(await success(t, connection.access_token, "list_events", { organizationId: "org_one" })).toEqual({ page: [], isDone: true, continueCursor: "_end_cursor" });
 });
 
@@ -236,7 +236,7 @@ test("manage-only OAuth requests include reads and respect read-only consent", a
   expect(managedToken.scope).toBe("events:manage");
   await success(t, managedToken.access_token, "create_event", eventInput("org_one", "manage-implies-read"));
   expect(await success(t, managedToken.access_token, "list_events", { organizationId: "org_one" })).toMatchObject({ page: [{ slug: "manage-implies-read" }] });
-  expect((await listed(t, managedToken.access_token))).toHaveLength(89);
+  expect((await listed(t, managedToken.access_token))).toHaveLength(92);
 
   const read = await approve(t, await start(t, undefined, "events:manage"), { access: "read" });
   const readResponse = await exchange(t, read);
@@ -297,10 +297,10 @@ test("API keys are disclosed once, store no plaintext, stay owner scoped and sto
   expect(JSON.stringify(storedCredentials)).toContain("hash");
   expect((await bob.query(api.mcpConsent.listConnections, { paginationOpts: { numItems: 100, cursor: null } })).page.map((connection) => connection.id).sort()).toEqual([bobFull.id, bobRead.id].sort());
   await expect(bob.mutation(api.mcpConsent.revokeConnection, { id: issued.id })).rejects.toThrow();
-  expect((await listed(t, issued.apiKey))).toHaveLength(89);
+  expect((await listed(t, issued.apiKey))).toHaveLength(92);
   await alice.mutation(api.mcpConsent.revokeConnection, { id: issued.id });
   expect((await rpc(t, issued.apiKey, "tools/list")).status).toBe(401);
-  expect((await listed(t, bobFull.apiKey))).toHaveLength(89);
+  expect((await listed(t, bobFull.apiKey))).toHaveLength(92);
   expect((await listed(t, bobRead.apiKey)).some((tool) => tool.name === "create_event")).toBe(false);
 });
 
@@ -332,7 +332,7 @@ test("PKCE mismatch, code replay, wrong client, redirect and resource never issu
   const correct = await approve(t, await start(t));
   expect(await (await exchange(t, correct, { resource: "https://evil.example/mcp" })).json()).toMatchObject({ error: "invalid_target" });
   const exchanged = tokensSchema.parse(await (await exchange(t, correct)).json());
-  expect((await listed(t, exchanged.access_token))).toHaveLength(89);
+  expect((await listed(t, exchanged.access_token))).toHaveLength(92);
   expect(await (await exchange(t, correct)).json()).toMatchObject({ error: "invalid_grant" });
 });
 
@@ -350,7 +350,7 @@ test("expired authorization requests, codes and access tokens are rejected and r
   expect((await rpc(t, connection.access_token, "tools/list")).status).toBe(401);
   const refreshed = await form(t, "token", { grant_type: "refresh_token", client_id: connection.clientId, refresh_token: connection.refresh_token });
   expect(refreshed.status).toBe(200);
-  expect((await listed(t, tokensSchema.parse(await refreshed.json()).access_token))).toHaveLength(89);
+  expect((await listed(t, tokensSchema.parse(await refreshed.json()).access_token))).toHaveLength(92);
 });
 
 test("refresh tokens rotate, reject wrong clients and revoke their connection on old-generation reuse", async () => {
@@ -369,7 +369,7 @@ test("refresh tokens rotate, reject wrong clients and revoke their connection on
     current = next.refresh_token;
     latest = next.access_token;
   }
-  expect((await listed(t, latest))).toHaveLength(89);
+  expect((await listed(t, latest))).toHaveLength(92);
   const replay = await form(t, "token", { grant_type: "refresh_token", client_id: connection.clientId, refresh_token: connection.refresh_token });
   expect(await replay.json()).toMatchObject({ error: "invalid_grant" });
   expect((await rpc(t, latest, "tools/list")).status).toBe(401);
@@ -383,7 +383,7 @@ test("two approvals for one OAuth client exchange in reverse order with independ
   const second = await approve(t, await start(t, clientId), { organizationIds: ["org_two"], access: "read" });
   const secondToken = tokensSchema.parse(await (await exchange(t, second)).json());
   const firstToken = tokensSchema.parse(await (await exchange(t, first)).json());
-  expect((await listed(t, firstToken.access_token))).toHaveLength(89);
+  expect((await listed(t, firstToken.access_token))).toHaveLength(92);
   expect((await listed(t, secondToken.access_token)).some((tool) => tool.name === "create_event")).toBe(false);
   expect((await call(t, firstToken.access_token, "list_events", { organizationId: "org_two" })).value).toEqual({ error: "access_denied" });
   expect((await call(t, secondToken.access_token, "list_events", { organizationId: "org_one" })).value).toEqual({ error: "access_denied" });
@@ -489,7 +489,7 @@ test("malformed admin arguments return structured safe errors through component 
   expect(await success(t, connection.apiKey, "get_event_admin", { organizationId: "org_one", slug: "safe-validation" })).toMatchObject({ event: { slug: "safe-validation" } });
 });
 
-test("the 85 tools from the earlier server keep their flat argument names and required fields", async () => {
+test("the 88 tools from the earlier server keep their flat argument names and required fields", async () => {
   const t = setup();
   const { createToolServer, serveMcp } = await import("./mcpWorkos");
   const legacy = toolsSchema.parse(JSON.parse(await t.run(async (ctx) => {
@@ -506,7 +506,7 @@ test("the 85 tools from the earlier server keep their flat argument names and re
   const memberTools = ["list_members", "list_invitations", "send_invitations", "revoke_invitation"];
   const earlierTools = componentTools.filter((tool) => !memberTools.includes(tool.name));
   expect(earlierTools.map((tool) => tool.name)).toEqual(legacy.result.tools.map((tool) => tool.name));
-  expect(earlierTools).toHaveLength(85);
+  expect(earlierTools).toHaveLength(88);
   for (const tool of earlierTools) {
     const previous = legacy.result.tools.find((item) => item.name === tool.name);
     if (!previous) throw new Error(`Missing legacy tool ${tool.name}`);
@@ -593,22 +593,24 @@ test("component HTTP judging tools prepare, redistribute, time and close a real 
   expect(await run("save_judges", { judges: ["Alex", "Sam", "Taylor", "Jo"] })).toMatchObject({ judgeCount: 4 });
   const added = z.object({ submissionIds: z.array(z.string()) }).parse(await run("add_test_submissions", { submissions: [1, 2].map((index) => ({ name: `Team ${index}`, teamName: `Team ${index}`, demoTitle: `Project ${index}`, description: "Working prototype", phone: "+447700900001", teamMembers: ["One", "Two"] })) }));
   const link = z.object({ path: z.string() }).parse(await run("create_judge_link", { judgeName: "Alex" }));
-  expect(await run("list_judge_links")).toMatchObject([{ judgeKey: "alex", active: true, path: link.path }]);
+  const links = z.array(z.object({ judgeKey: z.string(), judgeName: z.string(), active: z.boolean(), path: z.string() })).parse(await run("list_judge_links"));
+  expect(links.find((row) => row.judgeName === "Alex")).toMatchObject({ judgeKey: expect.stringMatching(/^j_/), active: true, path: link.path });
   await run("close_submissions");
   await run("start_assignment_preparation");
   expect(await run("prepare_assignment_batch")).toEqual({ processed: 2, done: true });
-  const progress = z.object({ scoring: z.array(z.object({ submissionId: z.string(), assignedJudges: z.array(z.string()) })) }).parse(await run("get_judging_progress"));
+  const progress = z.object({ scoring: z.array(z.object({ submissionId: z.string(), assignedJudges: z.array(z.string()), assignedJudgeKeys: z.array(z.string()) })) }).parse(await run("get_judging_progress"));
   expect(progress.scoring.map((row) => row.submissionId).sort()).toEqual([...added.submissionIds].sort());
-  const unavailable = progress.scoring[0]?.assignedJudges[0];
+  // A judge is named by their key, never by their name in lower case.
+  const unavailable = progress.scoring[0]?.assignedJudgeKeys[0];
   if (!unavailable) throw new Error("No judge assigned");
-  const preview = z.array(z.object({ submissionId: z.string(), judges: z.array(z.string()) })).parse(await run("preview_redistribution", { unavailableJudgeKey: unavailable.toLowerCase() }));
+  const preview = z.array(z.object({ submissionId: z.string(), judges: z.array(z.string()) })).parse(await run("preview_redistribution", { unavailableJudgeKey: unavailable }));
   expect(preview.length).toBeGreaterThan(0);
-  await run("apply_redistribution", { unavailableJudgeKey: unavailable.toLowerCase(), assignments: preview.map(({ submissionId, judges }) => ({ submissionId, judges })) });
+  await run("apply_redistribution", { unavailableJudgeKey: unavailable, assignments: preview.map(({ submissionId, judges }) => ({ submissionId, judges })) });
   await run("set_judging_timer", { durationMs: 60000 });
   await run("start_judging");
   await run("add_judging_time", { deltaMs: 10000 });
   expect(await run("get_judging_timer")).toMatchObject({ status: "open", timerStatus: "running", remainingMs: 70000 });
-  const redistributed = z.object({ scoring: z.array(z.object({ assignedJudges: z.array(z.string()) })) }).parse(await run("get_judging_progress"));
+  const redistributed = z.object({ scoring: z.array(z.object({ assignedJudges: z.array(z.string()), assignedJudgeKeys: z.array(z.string()) })) }).parse(await run("get_judging_progress"));
   const judges = [...new Set(redistributed.scoring.flatMap((row) => row.assignedJudges))];
   for (const judgeName of judges) {
     const activeLink = z.object({ path: z.string() }).parse(await run("create_judge_link", { judgeName }));
@@ -620,9 +622,9 @@ test("component HTTP judging tools prepare, redistribute, time and close a real 
     }
   }
   await run("close_judging");
-  const reviewedJudge = judges[0];
+  const reviewedJudge = redistributed.scoring[0]?.assignedJudgeKeys[0];
   if (!reviewedJudge) throw new Error("Reviewed judge missing");
-  expect(await run("save_normalization_decision", { judgeKey: reviewedJudge.toLowerCase(), decision: "raw" })).toEqual({ scoreBasisReady: true });
+  expect(await run("save_normalization_decision", { judgeKey: reviewedJudge, decision: "raw" })).toEqual({ scoreBasisReady: true });
   expect(await run("get_normalization_overview")).toMatchObject({ judgingStatus: "closed" });
   await run("reopen_judging");
   expect(await run("get_judging_timer")).toMatchObject({ status: "open" });
@@ -747,7 +749,7 @@ for (const transport of ["oauth", "apiKey"] as const) {
     expect((await call(t, bearer, "list_events", { organizationId: "org_one" })).value).toEqual({ error: "access_denied" });
     await owner.mutation(api.mcpConsent.revokeConnection, { id: all.id });
     expect((await rpc(t, bearer, "tools/list")).status).toBe(401);
-    expect((await listed(t, selected.apiKey))).toHaveLength(89);
+    expect((await listed(t, selected.apiKey))).toHaveLength(92);
     expect((await t.run((ctx) => ctx.db.query("events").collect())).map((event) => event.slug)).toEqual([futureSlug]);
   });
 
@@ -819,7 +821,7 @@ test("connection pagination keeps older active grants reachable after unused app
   expect(found).not.toContain(other.id);
   await owner.mutation(api.mcpConsent.revokeConnection, { id: oldest.id });
   expect((await rpc(t, oldest.apiKey, "tools/list")).status).toBe(401);
-  expect((await listed(t, newest.apiKey))).toHaveLength(89);
+  expect((await listed(t, newest.apiKey))).toHaveLength(92);
 });
 
 test("component tools take event track ids, show track names and keep tracks inside their event", async () => {

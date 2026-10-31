@@ -86,6 +86,8 @@ test("a practice event defaults to sample summaries: every submission gets one, 
     expect(publicAiSummary(row)!.sections[0].text).toBe(row.description.split(/(?<=[.!?])\s+/)[0]);
   }
   expect(await statuses(t, created.eventId)).toEqual(Array(6).fill("ready"));
+  // Each one is logged for the AI usage page, which no longer reads the submissions.
+  expect(await t.run((ctx) => ctx.db.query("aiSampleSummaries").withIndex("by_event", (q) => q.eq("eventId", created.eventId)).collect())).toHaveLength(6);
 });
 
 test("switching to the real model summarises after that, is in Recent changes, and Undo goes back to samples", async () => {

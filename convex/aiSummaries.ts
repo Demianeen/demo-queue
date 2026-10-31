@@ -127,6 +127,8 @@ async function writeSampleSummary(ctx: MutationCtx, event: Doc<"events">, submis
     model: "sample",
     usedReadme: false,
   }, true);
+  // Counted on the AI usage page, at no cost.
+  if (result.saved && event.workosOrganizationId) await ctx.db.insert("aiSampleSummaries", { organizationId: event.workosOrganizationId, eventId: event._id, submissionId: submission._id, createdAt: Date.now() });
   return result.saved;
 }
 
@@ -136,6 +138,9 @@ export const SUMMARY_DEBOUNCE_MS = 10 * 60_000;
 export const SUMMARY_DAILY_RUNS_PER_SUBMISSION = 3;
 export const SUMMARY_DAILY_FLOOR = 20;
 const DAY_MS = 24 * 60 * 60_000;
+
+/** How many summary runs an event with this many submissions may queue per UTC day. */
+export const summaryDailyCap = (submissionCount: number) => Math.max(SUMMARY_DAILY_FLOOR, SUMMARY_DAILY_RUNS_PER_SUBMISSION * submissionCount);
 
 export type SummaryQueueSource = "participant" | "organiser" | "close";
 
@@ -149,7 +154,7 @@ async function takeSummaryBudget(ctx: MutationCtx, eventId: Id<"events">, now: n
   if (!event) return false;
   const day = Math.floor(now / DAY_MS);
   const used = event.aiSummaryBudget?.day === day ? event.aiSummaryBudget.used : 0;
-  const cap = Math.max(SUMMARY_DAILY_FLOOR, SUMMARY_DAILY_RUNS_PER_SUBMISSION * submissionCount);
+  const cap = summaryDailyCap(submissionCount);
   if (used >= cap) {
     console.log(JSON.stringify({ event: "ai-summary", status: "skipped", reason: "daily_budget", eventId }));
     return false;
@@ -294,6 +299,8 @@ async function summaryInputFor(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, 
   if (!tracksStale && !needsSummary(event, submission, args.refreshReadme)) return null;
   const sourceKey = summarySourceKey(submission);
   return {
+    // For the usage log only; the prompt takes the project fields below.
+    eventId: event._id,
     demoTitle: submission.demoTitle,
     description: submission.description,
     githubUrl: submission.githubUrl ?? null,

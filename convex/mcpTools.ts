@@ -123,7 +123,7 @@ export const ADMIN_TOOLS: RegisteredAdminTool[] = [
   }),
   defineAdminTool({
     name: "save_judges", browser: "events.saveRoundOneJudges", input: operations.saveRoundOneJudgesInput, effect: "write",
-    description: "Save the event's round-one judge roster, preserving existing assignment/review constraints.",
+    description: "Replace the event's judge roster with a list of names. Judges are matched to the list by the names they have now; a new name adds a judge with their own link; a judge left out is removed (refused once they have scores). To change one judge, prefer add_judges, remove_judge and rename_judge, which use judge keys.",
     invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.saveRoundOneJudges, { principal, input }),
   }),
   defineAdminTool({
@@ -425,6 +425,21 @@ export const ADMIN_TOOLS: RegisteredAdminTool[] = [
     name: "move_judge_scores", browser: "judging.moveJudgeScores", input: operations.moveJudgeScoresInput, effect: "write",
     description: "Move scores from one judge to another, for when someone scored on the wrong link. All of the first judge's scores, or only submissionIds. Refuses a project both judges scored.",
     invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.moveJudgeScores, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "add_judges", browser: "judging.addJudges", input: operations.addJudgesInput, effect: "write",
+    description: "Add judges by name, each with a new judge key and their own private link. Names a judge on the roster already has are skipped. A judge added during judging gets no projects until assignments change.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.addJudges, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "remove_judge", browser: "judging.removeJudge", input: operations.removeJudgeInput, effect: "write",
+    description: "Take a judge (by judgeKey) off the roster. Their projects go to other judges and their link stops working. Refused once they have scores: use set_judge_link_active or apply_redistribution to turn them off instead.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.removeJudge, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "rename_judge", browser: "judging.renameJudge", input: operations.renameJudgeInput, effect: "write",
+    description: "Change the name a judge (by judgeKey) is shown by. Their key, link, assignments and scores stay. Refuses an empty name or one another judge has.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.renameJudge, { principal, input }),
   }),
   defineAdminTool({
     name: "set_judge_link_active", browser: "judging.deactivateJudgeAccess", input: operations.setJudgeLinkActiveInput, effect: "write",

@@ -1,0 +1,51 @@
+/* The Judges dialog: one row per judge, the fixes inline under the row. */
+.dialog { width: min(600px, calc(100vw - 32px)); max-width: min(600px, calc(100vw - 32px)) !important; padding: 0; gap: 0; max-height: calc(100dvh - 48px); display: flex; flex-direction: column; }
+.header { display: flex; align-items: flex-start; gap: 12px; padding: 20px 20px 12px; }
+.heading { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.heading p { font-size: 13px; line-height: 19px; color: var(--dq-fg-2); }
+
+.list { list-style: none; margin: 0; padding: 0 12px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
+.empty { margin: 4px 20px 0; font-size: 13px; color: var(--dq-fg-3); }
+.item { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 8px; }
+.item[data-open] { background: var(--dq-selected); }
+.row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.avatar { flex: none; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--dq-accent); background: var(--dq-accent-soft); }
+.avatar[data-off] { color: var(--dq-fg-3); background: var(--dq-segment); }
+.avatarSkeleton { flex: none; width: 28px; height: 28px; border-radius: 50%; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.name { font-size: 14px; font-weight: 500; color: var(--dq-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name[data-off] { color: var(--dq-fg-3); }
+.offBadge { margin-left: 6px; font-size: 11px; font-weight: 500; color: var(--dq-fg-2); background: var(--dq-segment); border-radius: 4px; padding: 1px 6px; }
+.nameInput { height: 28px; margin-left: -7px; max-width: 260px; font-size: 14px; font-weight: 500; }
+.status { font-size: 12px; color: var(--dq-fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status[data-off] { color: var(--dq-fg-3); }
+.notOpened { color: var(--dq-warning-fg); }
+.hint { margin: 0; padding-left: 38px; font-size: 12px; color: var(--dq-accent); }
+
+.menu { min-width: 260px; }
+.menuItem { flex-direction: column; align-items: flex-start; gap: 1px; }
+.menuNote { font-size: 11px; color: var(--dq-fg-3); font-weight: 400; }
+
+.confirm { margin-left: 38px; display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--dq-line); border-radius: 8px; background: var(--dq-card); }
+.confirm[data-tone="danger"] { border-color: var(--dq-destructive-line); background: var(--dq-destructive-bg); }
+/* Solid red, as in the design; the organiser theme would draw a plain button otherwise. */
+.dangerButton, .dangerButton:hover { background: var(--dq-destructive) !important; color: #fff !important; border-color: transparent !important; }
+.dangerButton:hover { filter: brightness(0.92); }
+.confirmTitle { font-size: 13px; font-weight: 600; }
+.confirmText { font-size: 12px; line-height: 18px; color: var(--dq-fg-2); }
+.moves { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 12px; line-height: 18px; color: var(--dq-fg-2); }
+.confirmActions { display: flex; gap: 6px; }
+
+.add { margin: 10px 20px 0; display: flex; flex-direction: column; gap: 6px; }
+.addRow { display: flex; align-items: flex-start; gap: 8px; }
+.addInput { flex: 1; min-height: 36px; max-height: 160px; resize: none; font-size: 14px; }
+.help { margin: 0; font-size: 12px; line-height: 17px; color: var(--dq-fg-3); }
+.error { margin: 0; font-size: 12px; color: var(--dq-destructive); }
+
+.footer { margin-top: 20px; padding: 14px 20px; border-top: 1px solid var(--dq-divider-soft); display: flex; align-items: center; gap: 8px; }
+.summary { flex: 1; font-size: 12px; color: var(--dq-fg-2); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 520px) {
+  .header { flex-direction: column; }
+  .status { white-space: normal; }
+}

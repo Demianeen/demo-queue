@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, type ReactNode } from "react";
-import { Building2, CalendarDays, Check, ChevronsUpDown, Code2, FlaskConical, Gavel, Inbox, Keyboard, Link2, ListChecks, ListOrdered, MonitorPlay, Palette, Plug, Plus, Presentation, Radio, Search, Settings, Trophy, UserCheck, Users, type LucideIcon } from "lucide-react";
+import { Building2, CalendarDays, Check, ChevronsUpDown, Code2, FlaskConical, Gauge, Gavel, Inbox, Keyboard, Link2, ListChecks, ListOrdered, MonitorPlay, Palette, Plug, Plus, Presentation, Radio, Search, Settings, Trophy, UserCheck, Users, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarInset,
@@ -119,6 +119,7 @@ function ShellSidebar({ organizations, activeOrganizationId, email, displayName,
           <NavItem href="/styles" label="Styles" keys={["G", "S"]} icon={<Palette aria-hidden />} active={pathname === "/styles"} />
           <NavItem href="/members" label="Members" keys={["G", "M"]} icon={<Users aria-hidden />} active={pathname === "/members"} />
           <NavItem href="/events/connections" label="Connections" keys={["G", "C"]} icon={<Plug aria-hidden />} active={pathname === "/events/connections"} />
+          <NavItem href="/ai-usage" label="AI usage" keys={["G", "I"]} icon={<Gauge aria-hidden />} active={pathname === "/ai-usage"} />
         </SidebarMenu>
       </SidebarGroup>
     </SidebarContent>
@@ -174,6 +175,7 @@ function GlobalCommands({ liveEvent, organizations, activeOrganizationId, switch
       { id: "go-styles", group: "Go to", label: "Styles", keys: ["G", "S"], icon: Palette, keywords: ["theme", "brand"], run: () => router.push("/styles") },
       { id: "go-members", group: "Go to", label: "Members", keys: ["G", "M"], icon: Users, keywords: ["people", "invite", "team"], run: () => router.push("/members") },
       { id: "go-connections", group: "Go to", label: "Connections", keys: ["G", "C"], icon: Plug, keywords: ["mcp", "assistant", "google"], run: () => router.push("/events/connections") },
+      { id: "go-ai-usage", group: "Go to", label: "AI usage", keys: ["G", "I"], icon: Gauge, keywords: ["cost", "openai", "spend"], run: () => router.push("/ai-usage") },
       { id: "go-guide", group: "Go to", label: "Getting started", keys: ["G", "G"], icon: ListChecks, keywords: ["guide", "help"], run: () => router.push("/events/getting-started") },
       { id: "shortcuts", group: "Help", label: "Keyboard shortcuts", keys: ["?"], icon: Keyboard, run: () => setSheetOpen(true) },
     ];

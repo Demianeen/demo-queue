@@ -57,7 +57,7 @@ async function copyText(text: string, html?: string) {
   await navigator.clipboard.writeText(text);
 }
 
-async function copyJudgeLink(judge: JudgeRow) {
+export async function copyJudgeLink(judge: JudgeRow) {
   if (!judge.path) return;
   try { await navigator.clipboard.writeText(absoluteUrl(judge.path)); toast(`Copied ${judge.judgeName}'s link`); } catch { toast.error("Could not copy the link."); }
 }
@@ -260,6 +260,7 @@ function JudgeFixes({ slug, judge, judges, judgingStatus, titleById, moving, set
     ? act(() => applyRedistribution({ slug, unavailableJudgeKey: judge.judgeKey, assignments: offPlan.map((row) => ({ submissionId: row.submissionId, judges: overrides[String(row.submissionId)] ?? row.judges })) }), `Turned off ${judge.judgeName}`, "Could not turn the judge off.")
     : act(() => deactivateJudgeAccess({ slug, judgeKey: judge.judgeKey, active: false }), `Turned off ${judge.judgeName}`, "Could not turn the judge off.");
   const others = judges.filter((row) => row.active && row.judgeKey !== judge.judgeKey);
+  const judgeItems = Object.fromEntries(judges.map((row) => [row.judgeKey, row.judgeName]));
 
   return <div className={styles.fixes}>
     {judge.path ? <div className={styles.linkBox}><span className="dq-mono">{shortLink(judge.path)}</span><Button variant="outline" size="xs" onClick={() => void copyJudgeLink(judge)}><Copy aria-hidden />Copy link</Button></div>
@@ -284,13 +285,14 @@ function JudgeFixes({ slug, judge, judges, judgingStatus, titleById, moving, set
         {offPlan && offPlan.length > 0 && <ul className={styles.planList} aria-label="Who takes their projects">
           {offPlan.map((row) => {
             const id = String(row.submissionId);
-            const kept = row.previousJudges.find((name) => name !== judge.judgeName) ?? row.previousJudges[0];
-            const chosen = (overrides[id] ?? row.judges).find((name) => name !== kept) ?? "";
+            // Judges are compared by key: a name is only a label.
+            const kept = row.previousJudges.find((key) => key !== judge.judgeKey) ?? row.previousJudges[0];
+            const chosen = (overrides[id] ?? row.judges).find((key) => key !== kept) ?? "";
             return <li key={id} className={styles.planRow}>
               <span className={styles.planTitle}>{titleById.get(id) ?? "A project"}</span>
-              <Select value={chosen} onValueChange={(value) => setOverrides((current) => ({ ...current, [id]: row.previousJudges.map((name) => (name === judge.judgeName ? String(value) : name)) }))}>
+              <Select items={judgeItems} value={chosen} onValueChange={(value) => setOverrides((current) => ({ ...current, [id]: row.previousJudges.map((key) => (key === judge.judgeKey ? String(value) : key)) }))}>
                 <SelectTrigger className={styles.planSelect} aria-label={`Who takes ${titleById.get(id) ?? "this project"}`}><SelectValue /></SelectTrigger>
-                <SelectContent>{others.filter((candidate) => candidate.judgeName !== kept).map((candidate) => <SelectItem key={candidate.judgeKey} value={candidate.judgeName}>{candidate.judgeName}</SelectItem>)}</SelectContent>
+                <SelectContent>{others.filter((candidate) => candidate.judgeKey !== kept).map((candidate) => <SelectItem key={candidate.judgeKey} value={candidate.judgeKey}>{candidate.judgeName}</SelectItem>)}</SelectContent>
               </Select>
             </li>;
           })}
@@ -302,7 +304,7 @@ function JudgeFixes({ slug, judge, judges, judgingStatus, titleById, moving, set
   </div>;
 }
 
-function MoveScoresDialog({ slug, from, judges, open, onOpenChange }: { slug: string; from: JudgeRow; judges: JudgeRow[]; open: boolean; onOpenChange: (open: boolean) => void }) {
+export function MoveScoresDialog({ slug, from, judges, open, onOpenChange }: { slug: string; from: JudgeRow; judges: JudgeRow[]; open: boolean; onOpenChange: (open: boolean) => void }) {
   const moveJudgeScores = useMutation(api.judging.moveJudgeScores);
   const targets = judges.filter((row) => row.judgeKey !== from.judgeKey);
   const [to, setTo] = useState<string>("");
@@ -329,7 +331,7 @@ function MoveScoresDialog({ slug, from, judges, open, onOpenChange }: { slug: st
     <DialogContent>
       <DialogHeader><DialogTitle>Move {from.judgeName}&apos;s scores</DialogTitle><DialogDescription>For when someone scored on the wrong link. {projects.length === 0 ? `${from.judgeName} has no scores to move.` : clashCount > 0 ? `${target?.judgeName ?? "The other judge"} already scored ${clashCount === 1 ? "one of these" : `${clashCount} of these`}, so ${clashCount === 1 ? "it stays" : "they stay"} with ${from.judgeName}.` : "Choose the projects to move."}</DialogDescription></DialogHeader>
       <label className={styles.field}><span>Move to</span>
-        <Select value={to} onValueChange={(value) => setTo(String(value))}>
+        <Select items={Object.fromEntries(targets.map((row) => [row.judgeKey, row.judgeName]))} value={to} onValueChange={(value) => setTo(String(value))}>
           <SelectTrigger className="w-full"><SelectValue placeholder="Choose a judge" /></SelectTrigger>
           <SelectContent>{targets.map((row) => <SelectItem key={row.judgeKey} value={row.judgeKey}>{row.judgeName}</SelectItem>)}</SelectContent>
         </Select>

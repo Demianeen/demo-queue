@@ -34,6 +34,7 @@ import { HackathonSubmissions } from "@/components/live/HackathonSubmissions";
 import { StageTab } from "@/components/live/StageTab";
 import { AddToDemoers } from "@/components/live/AddToDemoers";
 import { PracticeTools } from "@/components/live/PracticeTools";
+import { JudgesDialog } from "@/components/live/JudgesDialog";
 import { UndoToaster } from "@/components/live/changes";
 import { useCommandRegistry, useCommands, type Command } from "@/components/shell/commands";
 import { makeSampleHackathonTeam, makeSamplePerson, pickSampleTracks } from "@/lib/sampleData";
@@ -47,7 +48,6 @@ import { SubmissionPreviewTrigger, type SubmissionPreview } from "@/components/S
 import { SubmissionRowActions } from "@/components/SubmissionRowActions";
 import { Skeleton } from "@/app/Skeleton";
 import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError, socialLinksError } from "@/lib/validation";
-import { parseRoundOneJudges } from "@/lib/judging-assignment";
 import { timeLeftMs } from "@/lib/timer-clock";
 import {
   DndContext,
@@ -347,7 +347,6 @@ export default function AdminPage() {
   const restorePreviousPresenter = useMutation(api.events.restorePreviousPresenter);
   const shuffleLineup = useMutation(api.events.shuffleLineup);
   const requestJudgingSheetSync = useMutation(api.events.requestJudgingSheetSync);
-  const saveRoundOneJudges = useMutation(api.events.saveRoundOneJudges);
   const aiShuffle = useAction(api.ai.aiShuffle);
   const createJudgingSheet = useAction(api.googleSheets.createJudgingSheet);
 
@@ -405,9 +404,6 @@ export default function AdminPage() {
   // A type change asks first, inline, with the meet link a demo night needs.
   const [typeChange, setTypeChange] = useState<{ to: "demo" | "hackathon"; meetUrl: string; busy: boolean } | null>(null);
   const [judgesOpen, setJudgesOpen] = useState(false);
-  const [judgesText, setJudgesText] = useState("");
-  const [judgesBusy, setJudgesBusy] = useState(false);
-  const [judgesMessage, setJudgesMessage] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const searchParams = useSearchParams();
   const rawView = searchParams.get("view");
@@ -1128,39 +1124,7 @@ export default function AdminPage() {
 
   function openRoundOneJudges() {
     if (!admin) return;
-    setJudgesText(admin.event.roundOneJudges.join("\n"));
-    setJudgesMessage("");
     setJudgesOpen(true);
-  }
-
-  async function saveJudges(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    let judges: string[];
-    try {
-      judges = parseRoundOneJudges(judgesText);
-    } catch (error) {
-      setJudgesMessage(error instanceof Error ? error.message : "Invalid judge list.");
-      return;
-    }
-
-    setJudgesBusy(true);
-    setJudgesMessage("");
-    try {
-      const result = await saveRoundOneJudges({
-        slug: params.slug,
-        judges,
-      });
-      setJudgesOpen(false);
-      setJudgesMessage(
-        result.reassignedSubmissionCount > 0
-          ? `${result.judgeCount} judges saved. ${result.reassignedSubmissionCount} existing assignments redistributed.`
-          : `${result.judgeCount} judges saved. Assign submissions when entries are closed.`,
-      );
-    } catch (error) {
-      setJudgesMessage(error instanceof Error ? error.message : "Could not save judges.");
-    } finally {
-      setJudgesBusy(false);
-    }
   }
 
   async function saveEdit(id: Id<"submissions">, values: SubmissionFields) {
@@ -1339,56 +1303,7 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        {judgesOpen ? (
-          <div
-            aria-labelledby="round-one-judges-title"
-            aria-modal="true"
-            className="admin-modal-backdrop"
-            role="dialog"
-          >
-            <form className="admin-modal" onSubmit={saveJudges}>
-              <div className="admin-modal-heading">
-                <h2 id="round-one-judges-title">Judges</h2>
-                <p>
-                  Paste one judge name per line. You will distribute submissions after entries close.
-                </p>
-              </div>
-              <label className="admin-modal-field">
-                <span>Judge names</span>
-                <textarea
-                  autoFocus
-                  value={judgesText}
-                  onChange={(event) => {
-                    setJudgesText(event.currentTarget.value);
-                    setJudgesMessage("");
-                  }}
-                  placeholder={"Alex Morgan\nSam Lee\nJordan Taylor"}
-                  rows={8}
-                />
-              </label>
-              <p className="admin-modal-help">
-                At least 2 unique names. Blank lines and duplicate names are ignored. Existing assignments stay fixed.
-              </p>
-              {judgesMessage ? <p className="admin-modal-error">{judgesMessage}</p> : null}
-              <div className="admin-modal-actions">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setJudgesOpen(false);
-                    setJudgesMessage("");
-                  }}
-                  disabled={judgesBusy}
-                  type="button"
-                >
-                  Cancel
-                </Button>
-                <Button disabled={judgesBusy} type="submit">
-                  {judgesBusy ? "Saving..." : "Save judges"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        ) : null}
+        {isHackathonEvent ? <JudgesDialog slug={params.slug} eventName={admin.event.name} open={judgesOpen} onOpenChange={setJudgesOpen} /> : null}
 
 
         {view === "submissions" || view === "settings" ? <header className="admin-view-heading"><h1>{viewTitle}</h1><p>{viewDescription}</p></header> : null}
@@ -1773,7 +1688,7 @@ export default function AdminPage() {
             sheetBusy={sheetBusy}
             sheetSyncPending={judgingSheetSyncPending}
             sheetStatus={judgingSheetSyncStatus}
-            sheetMessage={judgesMessage && !judgesOpen ? judgesMessage : sheetMessage}
+            sheetMessage={sheetMessage}
             onCreateSheet={judgingActions.onCreateSheet}
             onSyncSheet={judgingActions.onSyncSheet}
           />

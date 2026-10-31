@@ -38,14 +38,7 @@ import {
   MAX_TEAM_MEMBER_NAME_LENGTH,
   MAX_TEAM_NAME_LENGTH,
 } from "../lib/hackathon";
-import {
-  assignRoundOneJudgePair,
-  buildJudgeAssignmentCounts,
-  isValidRoundOneAssignment,
-  parseRoundOneJudges,
-  rosterIncludesJudge,
-  sameJudge,
-} from "../lib/judging-assignment";
+import { judgeKeyOf, judgeNameKey, parseRoundOneJudges } from "../lib/judging-assignment";
 import { participantLineupStatus } from "../lib/event-state";
 import { eventPhase } from "../lib/event-phase";
 import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
@@ -74,7 +67,8 @@ import { ZodError } from "zod";
 import { amountOfTime, submissionTitle, withChange } from "./changeWrap";
 import { changeSummaryName, insertChange, recordChange } from "./changeLog";
 import { judgingRemaining, phaseFields } from "./phases";
-import { REVIEW_TARGET } from "./judging";
+import { addJudgesToEvent, removeJudgeFromEvent, REVIEW_TARGET } from "./judging";
+import { loadJudgeDirectory } from "./judgeDirectory";
 import { isJudgedStatus } from "../lib/judged-status";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -142,7 +136,6 @@ const adminSubmissionFields = (
   videoDeleteAt: submission.videoDeleteAt,
   videoDeletedAt: submission.videoDeletedAt,
   rulesAcceptedAt: submission.rulesAcceptedAt,
-  roundOneAssignedJudges: submission.roundOneAssignedJudges,
   aiSummary: publicAiSummary(submission),
   createdAt: submission.createdAt,
   updatedAt: submission.updatedAt,
@@ -993,6 +986,7 @@ export async function getAdminForOrganization(
       if (ids.length === 0 && !(submission.trackIds === undefined && submission.category)) noTrackCount += 1;
       for (const id of ids) trackCounts.set(id, (trackCounts.get(id) ?? 0) + 1);
     }
+    const judges = await loadJudgeDirectory(ctx, event);
     const adminSubmissions = await Promise.all(
       submissions.map(async (submission) => ({
         ...adminSubmissionFields(
@@ -1001,6 +995,9 @@ export async function getAdminForOrganization(
           membersBySubmission.get(submission._id) ?? [],
           await resolveSubmissionVideoUrl(ctx, submission),
         ),
+        // The judges' names to show (the judging sheet writes these), and their keys.
+        roundOneAssignedJudges: submission.roundOneAssignedJudges?.map(judges.nameOf),
+        roundOneAssignedJudgeKeys: submission.roundOneAssignedJudges?.map(judgeKeyOf),
         aiRead: publicAiRead(event, submission, byId, sponsors),
       })),
     );
@@ -1906,84 +1903,28 @@ async function saveRoundOneJudgesOperation(
       throw new ConvexError("Judge assignments are only available for hackathons.");
     }
 
-    let roster: string[];
+    let names: string[];
     try {
-      roster = parseRoundOneJudges(args.judges);
+      names = parseRoundOneJudges(args.judges);
     } catch (error) {
       throw new ConvexError(error instanceof Error ? error.message : "Invalid judge list.");
     }
 
-    const submissions = await ctx.db
-      .query("submissions")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .take(1000);
-    const removedAssignedJudges = submissions
-      .flatMap((submission) => submission.roundOneAssignedJudges ?? [])
-      .filter((judge) => !rosterIncludesJudge(roster, judge));
-    let reassignedSubmissionCount = 0;
-    if (removedAssignedJudges.length > 0) {
-      const reviews = await ctx.db
-        .query("reviews")
-        .withIndex("by_event", (q) => q.eq("eventId", event._id))
-        .take(1);
-      if (reviews.length > 0) {
-        const removed = [...new Set(removedAssignedJudges)].join(", ");
-        throw new ConvexError(
-          `Reviews have started. Redistribute these judges before removing them: ${removed}.`,
-        );
-      }
-
-      const retainedAssignments = submissions.map((submission) => {
-        const assignment = submission.roundOneAssignedJudges;
-        return isValidRoundOneAssignment(assignment) &&
-          assignment!.every((judge) => rosterIncludesJudge(roster, judge))
-          ? assignment
-          : undefined;
-      });
-      const counts = buildJudgeAssignmentCounts(retainedAssignments);
-      const now = Date.now();
-      for (const submission of submissions) {
-        const assignment = submission.roundOneAssignedJudges;
-        if (
-          !isValidRoundOneAssignment(assignment) ||
-          assignment!.every((judge) => rosterIncludesJudge(roster, judge))
-        ) {
-          continue;
-        }
-        await ctx.db.patch(submission._id, {
-          roundOneAssignedJudges: assignRoundOneJudgePair(roster, counts),
-          updatedAt: now,
-        });
-        reassignedSubmissionCount += 1;
-      }
-
+    // A whole list of names: judges are matched to it by the names they have
+    // now. New names are added first, so a judge taken off can be replaced by
+    // one put on. See addJudgesToEvent and removeJudgeFromEvent.
+    const wanted = new Set(names.map(judgeNameKey));
+    const leaving = (await loadJudgeDirectory(ctx, event)).roster.filter((judge) => !wanted.has(judgeNameKey(judge.name)));
+    await addJudgesToEvent(ctx, event, names, { syncSheet: false });
+    const reassigned = new Set<string>();
+    for (const judge of leaving) {
+      const current = (await ctx.db.get(event._id))!;
+      const result = await removeJudgeFromEvent(ctx, current, judge.key, { syncSheet: false, leaving: leaving.map((other) => other.key) });
+      for (const id of result.reassignedSubmissionIds) reassigned.add(String(id));
     }
-
-    const now = Date.now();
-    const judgeAccess = await ctx.db
-      .query("judgeAccess")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .take(100);
-    // Judges added to the roster get their link back; removed ones lose it.
-    // A judge on both the old and new roster keeps the link as it is, so one
-    // that was turned off deliberately stays off.
-    const previousRoster = event.roundOneJudges ?? [];
-    for (const access of judgeAccess) {
-      const listed = roster.some((judge) => sameJudge(judge, access.judgeName));
-      const wasListed = previousRoster.some((judge) => sameJudge(judge, access.judgeName));
-      const active = listed && (wasListed ? access.active : true);
-      if (access.active === active) continue;
-      await ctx.db.patch(access._id, {
-        active,
-        deactivatedAt: active ? undefined : now,
-        updatedAt: now,
-      });
-    }
-
-    await ctx.db.patch(event._id, { roundOneJudges: roster, updatedAt: now });
-    await logAction(ctx, event._id, "round_one_judges_saved", actor, String(roster.length));
     await queueJudgingSheetSync(ctx, event, 0);
-    return { judgeCount: roster.length, reassignedSubmissionCount };
+    await logAction(ctx, event._id, "round_one_judges_saved", actor, String(names.length));
+    return { judgeCount: names.length, reassignedSubmissionCount: reassigned.size };
 }
 
 export const saveRoundOneJudges = mutation({
@@ -2329,6 +2270,7 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
         .collect(),
     ]);
     const byId = tracksById(await listEventTracks(ctx, event._id));
+    const judges = await loadJudgeDirectory(ctx, event);
     const membersBySubmission = new Map<string, string[]>();
     for (const member of teamMembers) {
       const members = membersBySubmission.get(member.submissionId) ?? [];
@@ -2348,7 +2290,8 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
           description: submission.description,
           tracks: trackNamesFor(submission, byId),
           githubUrl: submission.githubUrl,
-          roundOneAssignedJudges: submission.roundOneAssignedJudges,
+          roundOneAssignedJudges: submission.roundOneAssignedJudges?.map(judges.nameOf),
+          roundOneAssignedJudgeKeys: submission.roundOneAssignedJudges?.map(judgeKeyOf),
           videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
           email: submission.email,
           phone: submission.phone,
@@ -2366,6 +2309,8 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
       spreadsheetId: event.judgingSheetId,
       revision: args.revision,
       submissions: sheetSubmissions,
+      // Every judge's key and name now, to match the sheet's judge cells.
+      judges: judges.judges.map((judge) => ({ key: judge.key, name: judge.name })),
     };
   },
 });
@@ -3477,7 +3422,16 @@ async function skipCurrentOperation(
       queueOrder: lastQueueOrder + 1,
       updatedAt: now,
     });
-    await clearAdvanceSnapshot(ctx, event, now);
+    // The next presenter starts on a fresh demo timer, as after Advance and No-show.
+    const demoDurationMs = demoTimerDuration(event);
+    await ctx.db.patch(event._id, {
+      lastAdvanceSnapshot: undefined,
+      demoTimerStatus: "idle",
+      demoTimerDurationMs: demoDurationMs,
+      demoTimerRemainingMs: demoDurationMs,
+      demoTimerEndsAt: undefined,
+      updatedAt: now,
+    });
 
     await logAction(ctx, event._id, "current_skipped", actor, current._id);
     await queueJudgingSheetSync(ctx, event);

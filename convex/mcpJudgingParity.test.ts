@@ -22,15 +22,19 @@ const principal = { organizationId: "org_parity", actor: "https://identity.examp
 const input = { slug: "hack" };
 afterEach(() => vi.useRealTimers());
 
+/**
+ * An event whose judges were set up before judges had ids: the roster holds
+ * their names, and their keys are those names normalized ("alex"). Events
+ * like this exist and are not migrated, so the tools must keep working on them.
+ */
 async function fixture(judges = ["Alex", "Sam", "Taylor", "Jo"]) {
   const t = convexTest(schema, modules);
   t.registerComponent("judgingDecisionHistory", tableHistorySchema, historyModules);
   const browser = t.withIdentity({ subject: "operator", org_id: principal.organizationId, tokenIdentifier: principal.actor });
   const eventId = await t.run((ctx) => ctx.db.insert("events", {
     name: "Hack", slug: "hack", eventType: "hackathon", workosOrganizationId: principal.organizationId,
-    meetUrl: "https://meet.example", queuePublished: false, createdAt: 1, updatedAt: 1,
+    meetUrl: "https://meet.example", queuePublished: false, roundOneJudges: judges, createdAt: 1, updatedAt: 1,
   }));
-  await t.mutation(internal.mcpAdmin.saveRoundOneJudges, { principal, input: { ...input, judges } });
   return { t, browser, eventId };
 }
 type Test = Awaited<ReturnType<typeof fixture>>["t"];
@@ -75,7 +79,6 @@ test("private roster save matches browser normalization and records the trusted 
   })).toEqual({ judgeCount: 2, reassignedSubmissionCount: 0 });
   const log = await t.run((ctx) => ctx.db.query("auditLog").withIndex("by_event", (q) => q.eq("eventId", eventId)).collect());
   expect(log.map(({ action, actor, details }) => ({ action, actor, details }))).toEqual([
-    { action: "round_one_judges_saved", actor: principal.actor, details: "4" },
     { action: "round_one_judges_saved", actor: principal.actor, details: "2" },
     { action: "round_one_judges_saved", actor: principal.actor, details: "2" },
   ]);
@@ -212,9 +215,10 @@ test("private redistribution rejects incomplete, duplicate, foreign and changed 
   await review(t, alex.capabilityToken, finished, 7);
   const previewInput = { ...input, unavailableJudgeKey: "alex" };
   const preview = await t.query(internal.mcpAdmin.previewRedistribution, { principal, input: previewInput });
+  // Judges come back as keys, with their names beside them.
   expect(preview).toMatchObject([
-    { submissionId: first, previousJudges: ["Alex", "Sam"], judges: ["Taylor", "Sam"], preservedCompletedJudge: "sam" },
-    { submissionId: second, previousJudges: ["Alex", "Sam"], judges: ["Jo", "Sam"], preservedCompletedJudge: null },
+    { submissionId: first, previousJudges: ["alex", "sam"], previousJudgeNames: ["Alex", "Sam"], judges: ["taylor", "sam"], judgeNames: ["Taylor", "Sam"], preservedCompletedJudge: "sam" },
+    { submissionId: second, previousJudges: ["alex", "sam"], judges: ["jo", "sam"], preservedCompletedJudge: null },
   ]);
   expect(await browser.query(api.judging.previewRedistribution, previewInput)).toEqual(preview);
   const assignments = preview.map(({ submissionId, judges }) => ({ submissionId, judges }));

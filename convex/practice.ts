@@ -15,7 +15,8 @@ import {
   submitDemoForEvent,
   submitHackathonForEvent,
 } from "./events";
-import { createJudgeAccessForOrganization, saveReviewForJudge } from "./judging";
+import { saveReviewForJudge } from "./judging";
+import { judgeKeyOf } from "../lib/judging-assignment";
 import { judgingRemaining } from "./phases";
 import { listEventTracks } from "./tracks";
 import { listEventSponsors } from "./sponsors";
@@ -200,10 +201,8 @@ export async function addPracticeSubmissionsForEvent(ctx: MutationCtx, event: Do
 async function addTestJudges(ctx: MutationCtx, event: Doc<"events">, count: number, principal: OrganizationPrincipal) {
   if (count === 0 || event.eventType !== "hackathon") return [];
   const names = Array.from({ length: count }, (_, index) => `Test judge ${String.fromCharCode(65 + index)}`);
+  // Each judge gets their link as they are added.
   await saveRoundOneJudgesForOrganization(ctx, { slug: event.slug, judges: names }, principal);
-  for (const judgeName of names) {
-    await createJudgeAccessForOrganization(ctx, { slug: event.slug, judgeName, capabilityToken: crypto.randomUUID() }, principal);
-  }
   return names;
 }
 
@@ -381,7 +380,7 @@ export async function scoreAsTestJudgesForOrganization(ctx: MutationCtx, args: I
     access: link,
     todo: submissions.filter((submission) =>
       isJudgedStatus(submission.status) &&
-      (submission.roundOneAssignedJudges ?? []).some((judge) => judge.normalize("NFKC").trim().toLocaleLowerCase("en") === link.judgeKey) &&
+      (submission.roundOneAssignedJudges ?? []).some((reference) => judgeKeyOf(reference) === link.judgeKey) &&
       !done.has(`${link.judgeKey}:${submission._id}`)),
   }));
   return recordChange(ctx, {
@@ -571,6 +570,7 @@ export const tidyPracticeEvents = internalMutation({
       if (changes.length === TIDY_CHANGE_ROWS) budget = 0;
     }
     if (budget > 0) await remove(ids(await ctx.db.query("auditLog").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
+    if (budget > 0) await remove(ids(await ctx.db.query("aiSampleSummaries").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("teamMembers").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("eventTracks").withIndex("by_event_and_order", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("eventSponsors").withIndex("by_event_and_order", (q) => q.eq("eventId", eventId)).take(budget)));

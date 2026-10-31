@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, type ReactNode } from "react";
-import { Building2, CalendarDays, Check, ChevronsUpDown, Code2, FlaskConical, ListChecks, Palette, Plug, Plus, Presentation, Search, Users } from "lucide-react";
+import { Building2, CalendarDays, Check, ChevronsUpDown, Code2, FlaskConical, Gavel, Inbox, Keyboard, Link2, ListChecks, ListOrdered, MonitorPlay, Palette, Plug, Plus, Presentation, Radio, Search, Settings, Trophy, UserCheck, Users, type LucideIcon } from "lucide-react";
+import { toast } from "sonner";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarInset,
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger,
@@ -19,8 +20,9 @@ import { WorkspaceAccountMenu } from "@/components/WorkspaceAccountMenu";
 import { CommandProvider, ShortcutTooltip, useCommandRegistry, useCommands, type Command } from "./commands";
 import { CommandMenu } from "./CommandMenu";
 import { ShortcutSheet } from "./ShortcutSheet";
-import { ADMIN_VIEW_KEYS, adminViewPath, adminViewsFor, judgingPath, JUDGES_KEY, LIVE_KEY, phaseTabLabel } from "@/lib/admin-views";
-import { adminPath } from "@/lib/routes";
+import { ADMIN_VIEW_KEYS, adminViewPath, adminViewsFor, judgingPath, JUDGES_KEY, LIVE_KEY, phaseTabLabel, type AdminView } from "@/lib/admin-views";
+import { absoluteUrl, adminPath, stagePath, submissionPath } from "@/lib/routes";
+import { liveGroup } from "@/lib/command-menu";
 import type { EventPhase } from "@/lib/event-phase";
 import { InPageLink, useInPageNavigate } from "@/components/InPageLink";
 
@@ -38,6 +40,8 @@ export type ShellProps = {
   liveEvent: ShellEvent | null | undefined;
   /** The event this page shows, when it is not the live one (an older or a practice event). */
   openEvent?: ShellEvent | null;
+  /** The org's real events loaded so far, newest first, for the command menu's search. */
+  events?: ShellEvent[];
   children: ReactNode;
 };
 
@@ -51,7 +55,7 @@ export function OrganiserShell(props: ShellProps) {
           <SidebarInset>{props.children}</SidebarInset>
         </SidebarProvider>
         <GlobalCommands {...props} />
-        <CommandMenu />
+        <CommandMenu liveEvent={props.liveEvent} events={props.events} searchable={!!props.activeOrganizationId && !!props.events} />
         <ShortcutSheet />
         <Toaster position="bottom-right" />
       </CommandProvider>
@@ -148,37 +152,52 @@ function NavItem({ href, label, keys, icon, active }: { href: string; label: str
   </SidebarMenuItem>;
 }
 
+const VIEW_ICONS: Record<AdminView, LucideIcon> = { submissions: Inbox, judging: Gavel, stage: Presentation, queue: ListOrdered, results: Trophy, settings: Settings };
+
+async function copyLink(url: string, done: string) {
+  try { await navigator.clipboard.writeText(url); toast(done); } catch { toast.error("Could not copy. Open Share on the event and copy it there."); }
+}
+
 /** Navigation and creation commands that work on every organiser page. */
 function GlobalCommands({ liveEvent, organizations, activeOrganizationId, switching, onSelectOrganization }: ShellProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const navigate = useInPageNavigate();
   const { setSheetOpen } = useCommandRegistry();
+  const onLiveEvent = !!liveEvent && pathname === adminPath(liveEvent.slug);
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [
-      { id: "new-event", group: "Create", label: "New event", keys: ["C"], run: () => router.push("/events/new") },
-      { id: "go-events", group: "Go to", label: "Events", keys: ["G", "E"], run: () => router.push("/events") },
-      { id: "go-practice", group: "Go to", label: "Practice", keys: ["G", "P"], run: () => router.push("/events/practice") },
-      { id: "new-practice", group: "Create", label: "New practice event", run: () => router.push("/events/practice?new=1") },
-      { id: "go-styles", group: "Go to", label: "Styles", keys: ["G", "S"], run: () => router.push("/styles") },
-      { id: "go-members", group: "Go to", label: "Members", keys: ["G", "M"], run: () => router.push("/members") },
-      { id: "go-connections", group: "Go to", label: "Connections", keys: ["G", "C"], run: () => router.push("/events/connections") },
-      { id: "go-guide", group: "Go to", label: "Getting started", keys: ["G", "G"], run: () => router.push("/events/getting-started") },
-      { id: "shortcuts", group: "Help", label: "Keyboard shortcuts", keys: ["?"], run: () => setSheetOpen(true) },
+      { id: "new-event", group: "Create", label: "New event", keys: ["C"], icon: Plus, run: () => router.push("/events/new") },
+      { id: "new-practice", group: "Create", label: "New practice event", icon: FlaskConical, keywords: ["test", "rehearse"], run: () => router.push("/events/practice?new=1") },
+      { id: "go-events", group: "Go to", label: "Events", keys: ["G", "E"], icon: CalendarDays, run: () => router.push("/events") },
+      { id: "go-practice", group: "Go to", label: "Practice", keys: ["G", "P"], icon: FlaskConical, run: () => router.push("/events/practice") },
+      { id: "go-styles", group: "Go to", label: "Styles", keys: ["G", "S"], icon: Palette, keywords: ["theme", "brand"], run: () => router.push("/styles") },
+      { id: "go-members", group: "Go to", label: "Members", keys: ["G", "M"], icon: Users, keywords: ["people", "invite", "team"], run: () => router.push("/members") },
+      { id: "go-connections", group: "Go to", label: "Connections", keys: ["G", "C"], icon: Plug, keywords: ["mcp", "assistant", "google"], run: () => router.push("/events/connections") },
+      { id: "go-guide", group: "Go to", label: "Getting started", keys: ["G", "G"], icon: ListChecks, keywords: ["guide", "help"], run: () => router.push("/events/getting-started") },
+      { id: "shortcuts", group: "Help", label: "Keyboard shortcuts", keys: ["?"], icon: Keyboard, run: () => setSheetOpen(true) },
     ];
     if (liveEvent) {
-      list.push({ id: "go-live", group: "Live now", label: `${liveEvent.name}: the live phase`, keys: ["G", LIVE_KEY], run: () => navigate(adminPath(liveEvent.slug)) });
+      // The event's name is the group's heading, so each row is just the place.
+      const group = liveGroup(liveEvent.name);
+      list.push({ id: "go-live", group, label: "Current phase", hint: liveEvent.phase ? phaseTabLabel(liveEvent.eventType, liveEvent.phase) : undefined, keys: ["G", LIVE_KEY], icon: Radio, keywords: ["live", "open event"], run: () => navigate(adminPath(liveEvent.slug)) });
       for (const item of adminViewsFor(liveEvent.eventType)) {
-        list.push({ id: `go-${item.view}`, group: "Live now", label: `${liveEvent.name}: ${item.label.toLowerCase()}`, keys: ["G", ADMIN_VIEW_KEYS[item.view]], run: () => navigate(adminViewPath(liveEvent.slug, item.view)) });
+        list.push({ id: `go-${item.view}`, group, label: item.label, keys: ["G", ADMIN_VIEW_KEYS[item.view]], icon: VIEW_ICONS[item.view], run: () => navigate(adminViewPath(liveEvent.slug, item.view)) });
       }
       // The Judges page is part of Judging now; its key still opens the judges.
-      if (liveEvent.eventType === "hackathon") list.push({ id: "go-judges", group: "Live now", label: `${liveEvent.name}: judges`, keys: ["G", JUDGES_KEY], run: () => navigate(judgingPath(liveEvent.slug)) });
+      if (liveEvent.eventType === "hackathon") list.push({ id: "go-judges", group, label: "Judges", keys: ["G", JUDGES_KEY], icon: UserCheck, run: () => navigate(judgingPath(liveEvent.slug)) });
+      // On the live event's own page, Share's commands under This page do the same.
+      if (!onLiveEvent) {
+        list.push({ id: "live-copy-submit", group, label: "Copy the submit link", icon: Link2, keywords: ["share", "qr"], run: () => void copyLink(absoluteUrl(submissionPath(liveEvent.slug)), "Submit link copied") });
+        list.push({ id: "live-open-stage", group, label: "Open presentation view", hint: "New tab", icon: MonitorPlay, keywords: ["stage", "projector"], run: () => { window.open(stagePath(liveEvent.slug), "_blank", "noopener"); } });
+      }
     }
     if (organizations.length > 1) for (const org of organizations) {
       if (org.id === activeOrganizationId) continue;
-      list.push({ id: `org-${org.id}`, group: "Switch organization", label: `Switch to ${org.name}`, disabled: switching, run: () => void onSelectOrganization(org.id) });
+      list.push({ id: `org-${org.id}`, group: "Switch organization", label: `Switch to ${org.name}`, icon: Building2, keywords: ["organization", "workspace"], disabled: switching, run: () => void onSelectOrganization(org.id) });
     }
     return list;
-  }, [router, navigate, setSheetOpen, liveEvent, organizations, activeOrganizationId, switching, onSelectOrganization]);
+  }, [router, navigate, setSheetOpen, liveEvent, onLiveEvent, organizations, activeOrganizationId, switching, onSelectOrganization]);
   useCommands("global", commands);
   return null;
 }

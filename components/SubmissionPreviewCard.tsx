@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { PreviewCard } from "@base-ui/react/preview-card";
-import { ExternalLinkIcon, SparklesIcon } from "lucide-react";
+import { ExternalLinkIcon } from "lucide-react";
 import { socialUrl, type SocialKind } from "@/lib/social";
 import { youtubeEmbedUrl } from "@/lib/video-embed";
 import { cn } from "@/lib/utils";
 import type { AiReadView } from "@/lib/ai-read";
-import { AiReadBlock } from "@/components/AiRead";
+import { AiPanel, aiSummaryCaveat } from "@/components/AiRead";
 
 export type PreviewPerson = {
   name: string;
@@ -135,21 +135,13 @@ export function SubmissionPreviewBody({ preview }: { preview: SubmissionPreview 
         </div>
       </div>
       {preview.aiSummary ? (
-        <div className="submission-preview-summary">
-          <strong><SparklesIcon aria-hidden="true" /> AI summary</strong>
-          <ul>
-            <li><b>What it does:</b> {preview.aiSummary.whatItDoes || "Not described"}</li>
-            <li><b>How it works:</b> {preview.aiSummary.howItWorks || "Not described"}</li>
-            <li><b>What to look for in the demo:</b> {preview.aiSummary.demoFocus || "Not described"}</li>
-          </ul>
-          <small>
-            {preview.aiSummary.sample ? "Sample summary (practice). The real model is off for this practice event." : `Written by AI from the team's description${preview.aiSummary.usedReadme ? " and README" : ""}. Check it against the demo.`}
-            {preview.aiSummary.stale ? " The project changed since; a new summary is on its way." : null}
-          </small>
-          {preview.aiRead ? <AiReadBlock read={preview.aiRead} organiser /> : null}
-        </div>
+        <AiPanel caveat={aiSummaryCaveat(preview.aiSummary)} read={preview.aiRead} organiser rows={[
+          { label: "What it does", text: preview.aiSummary.whatItDoes },
+          { label: "How it works", text: preview.aiSummary.howItWorks },
+          { label: "Look for in the demo", text: preview.aiSummary.demoFocus },
+        ]} />
       ) : preview.aiRead ? (
-        <div className="submission-preview-summary"><AiReadBlock read={preview.aiRead} organiser /></div>
+        <AiPanel caveat="The AI's read. Check it against the project." read={preview.aiRead} organiser rows={[]} />
       ) : null}
       <div className="submission-preview-people">
         {preview.teamName ? <span className="submission-preview-team">{preview.teamName}</span> : null}

@@ -1,16 +1,32 @@
-.block { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--dq-divider-soft); }
-.heading { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--dq-accent); }
-.heading svg { width: 13px; height: 13px; }
-.overall, .line { font-size: 12px; line-height: 17px; color: var(--dq-fg); }
-.overall strong { font-weight: 600; }
-.line { display: block; }
-.line strong { font-weight: 600; }
+/* Option A: one card. The top line holds the heading and the caveat; the body has the read, then the summary lines. */
+.panel { container-type: inline-size; border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); }
+.head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding: 9px 14px; border-bottom: 1px solid var(--dq-divider-soft); }
+.title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; line-height: 18px; font-weight: 600; color: var(--dq-fg); }
+.title svg { width: 13px; height: 13px; color: var(--dq-accent); }
+.caveat { font-size: 12px; line-height: 18px; color: var(--dq-fg-3); }
+.body { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 14px; }
+.verdict { margin: 0; font-size: 14px; line-height: 21px; color: var(--dq-fg); }
+.fit { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 10px; align-items: baseline; }
+.fit:empty { display: none; }
+.fitRow { display: contents; }
+.fitRow .level { justify-self: start; }
+.reason { min-width: 0; font-size: 13px; line-height: 19px; color: var(--dq-fg-2); }
+.rows { display: grid; gap: 6px; margin: 0; font-size: 13px; line-height: 19px; }
+.verdict ~ .rows, .fit ~ .rows, .pending ~ .rows, .fit ~ .pending { padding-top: 12px; border-top: 1px solid var(--dq-divider-soft); }
+.rows > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; }
+.rows dt { color: var(--dq-fg-3); }
+.rows dd { margin: 0; color: var(--dq-fg); }
+.missing { color: var(--dq-fg-3); font-style: italic; }
 .pending { display: grid; gap: 6px; }
 .note { font-size: 11px; color: var(--dq-fg-3); }
-.hint { font-size: 12px; color: var(--dq-fg-2); }
+/* A narrow card (the organiser's project panel) puts each reason under its level, and each label over its line. */
+@container (max-width: 460px) {
+  .fit { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .fitRow .reason { margin-bottom: 6px; }
+  .rows > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
 
 /* Level pills: green for a fit or a real use, amber for partial or light, grey for weak or no sign. */
-.level { display: inline-block; margin-right: 6px; }
 .level, .chipLevel { font-size: 11px; line-height: 16px; border: 1px solid var(--dq-line); background: var(--dq-card); color: var(--dq-fg-3); border-radius: 10px; padding: 0 7px; white-space: nowrap; }
 .level[data-tone="good"], .chipLevel[data-tone="good"] { color: var(--dq-success-fg); border-color: var(--dq-success-line); background: var(--dq-success-bg); }
 .level[data-tone="some"], .chipLevel[data-tone="some"] { color: var(--dq-warning-fg); border-color: var(--dq-warning-line); background: var(--dq-warning-bg); }

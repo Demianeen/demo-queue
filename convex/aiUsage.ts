@@ -21,7 +21,6 @@ const DAY_MS = 24 * 60 * 60_000;
 /** A month's summary reads at most this many calls; beyond it the page says the totals are partial. */
 export const MAX_MONTH_CALLS = 8_000;
 /** Practice events whose sample summaries are counted, newest first. */
-const MAX_PRACTICE_EVENTS = 100;
 const MAX_EVENT_SUBMISSIONS = 1000;
 
 /** Writes one usage row. The organization always comes from the event, never from the caller. */
@@ -134,31 +133,20 @@ export const monthSummary = query({
       models.set(key, (models.get(key) ?? 0) + 1);
     }
 
-    // Practice summaries written from samples made no model call. Counted from
-    // the summaries practice events hold now, so one that was later replaced,
-    // or a practice event that was tidied away, no longer counts.
-    let practiceSamples = 0;
-    const practiceEvents = await ctx.db
-      .query("events")
-      .withIndex("by_workosOrganizationId_and_practice", (q) => q.eq("workosOrganizationId", organizationId).eq("practice", true))
-      .order("desc")
-      .take(MAX_PRACTICE_EVENTS);
-    for (const event of practiceEvents) {
-      const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(MAX_EVENT_SUBMISSIONS);
-      let samples = 0;
-      let lastAt = 0;
-      for (const submission of submissions) {
-        const summary = submission.aiSummary;
-        if (summary?.sample !== true || summary.generatedAt < start || summary.generatedAt >= end) continue;
-        samples += 1;
-        lastAt = Math.max(lastAt, summary.generatedAt);
-      }
-      if (samples === 0) continue;
-      practiceSamples += samples;
-      const entry = rollup(event._id);
-      entry.samples = samples;
-      entry.lastAt = Math.max(entry.lastAt, lastAt);
+    // Practice summaries written from samples made no model call. Each one is
+    // logged when written (aiSampleSummaries), so this reads one month of that
+    // log instead of every practice event's submissions. A tidied practice
+    // event takes its rows with it.
+    const sampleRows = await ctx.db
+      .query("aiSampleSummaries")
+      .withIndex("by_organization_and_createdAt", (q) => q.eq("organizationId", organizationId).gte("createdAt", start).lt("createdAt", end))
+      .take(MAX_MONTH_CALLS);
+    for (const row of sampleRows) {
+      const entry = rollup(row.eventId);
+      entry.samples += 1;
+      entry.lastAt = Math.max(entry.lastAt, row.createdAt);
     }
+    const practiceSamples = sampleRows.length;
 
     const now = Date.now();
     const today = Math.floor(now / DAY_MS);

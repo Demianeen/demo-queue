@@ -381,4 +381,14 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_organization_and_createdAt", ["organizationId", "createdAt"])
     .index("by_event_and_createdAt", ["eventId", "createdAt"]),
+
+  // One row per practice sample summary written: no model call, so not in
+  // aiUsage, but the AI usage page counts them. Removed with the practice event.
+  aiSampleSummaries: defineTable({
+    organizationId: v.string(),
+    eventId: v.id("events"),
+    submissionId: v.id("submissions"),
+    createdAt: v.number(),
+  }).index("by_organization_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_event", ["eventId"]),
 });

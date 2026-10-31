@@ -253,3 +253,12 @@ test("a blank practice hackathon starts with sample tracks and sponsors, and a c
   const demo = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "demo" }, testSubmissions: 0, testJudges: 0 });
   expect(await setup(demo.eventId)).toEqual({ tracks: [], sponsors: [] });
 });
+
+test("test people send no email, so practice never spends the sending allowance", async () => {
+  const { t } = setupTest();
+  const emails = () => t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter((row) => row.name.includes("sendStatusLinkEmail")).length);
+  const quiet = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "hackathon" }, testSubmissions: 5, testJudges: 0 });
+  await t.mutation(api.practice.addPracticeSubmissions, { slug: quiet.slug, count: 5 });
+  await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "demo" }, testSubmissions: 3, testJudges: 0 });
+  expect(await emails()).toBe(0);
+});

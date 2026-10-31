@@ -139,7 +139,9 @@ Nothing new in Convex.
 - Test submissions go through the real submit path (`submitDemo` and
   `submitHackathon` share their code with it), with random tracks (a third
   with none) and team members. Test people use plus-addresses of the
-  creator's email, so the confirmation emails reach them.
+  creator's email. They send no confirmation email: every email spends the
+  daily sending allowance real participants need. Real people who submit to
+  a practice event still get theirs.
 - Test judges are real judge links. `practice.scoreAsTestJudges` scores
   through the real review path.
 - `practice.addPracticeSubmissions` (+5, +20, +50),

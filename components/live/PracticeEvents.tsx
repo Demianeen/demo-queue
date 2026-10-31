@@ -130,7 +130,7 @@ function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boole
           <Toggle label="Write AI summaries with the real model" checked={realModel} describedBy="practice-ai-hint" onChange={setRealModel} />
           <span id="practice-ai-hint" className={styles.note}>Costs money per project. Off uses sample summaries and a sample AI read.</span>
         </div>}
-        <p className={styles.note}>Test people get the event&apos;s tracks at random, a third of them none. Their confirmation emails arrive in your inbox.</p>
+        <p className={styles.note}>Test people get the event&apos;s tracks at random, a third of them none. They send no emails.</p>
         {error && <p role="alert" className={styles.error}>{error}</p>}
         <Button type="submit" className="w-full" disabled={busy || (startFrom === "copy" && !live)}>{busy ? "Making it…" : "Create and open"}</Button>
       </form>

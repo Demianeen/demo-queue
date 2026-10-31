@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -57,7 +57,12 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
   const [ticked, setTicked] = useState<string[] | null>(null);
   const [order, setOrder] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setTicked(null); setOrder(null); }, [serverKey]);
+  // Draft saves still on their way. Ticks stay clickable while one saves, so local
+  // copies only give way to the server once every save is in; Convex runs one
+  // client's mutations in order, so the last tick wins.
+  const pendingDrafts = useRef(0);
+  const [savingDraft, setSavingDraft] = useState(false);
+  useEffect(() => { if (pendingDrafts.current === 0) { setTicked(null); setOrder(null); } }, [serverKey]);
 
   const finalists = ticked ?? serverFinalists;
   const finalistsSubmitted = decision?.finalistStatus === "submitted" && ticked === null;
@@ -69,16 +74,25 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
     setBusy(true);
     try { await action(); if (done) toast(done); } catch (error) { toast.error(errorText(error, failure)); setTicked(null); setOrder(null); } finally { setBusy(false); }
   }
+  async function saveDraft(next: string[], failure: string) {
+    pendingDrafts.current += 1;
+    setSavingDraft(true);
+    try { await saveFinalistDraft({ slug, finalistIds: next as Id<"submissions">[] }); } catch (error) { toast.error(errorText(error, failure)); } finally {
+      pendingDrafts.current -= 1;
+      // The server has every save now (or refused one): show what it holds.
+      if (pendingDrafts.current === 0) { setSavingDraft(false); setTicked(null); setOrder(null); }
+    }
+  }
   function toggle(id: string) {
     const next = finalists.includes(id) ? shownOrder.filter((item) => item !== id) : addFinalist(shownOrder, id, scoreById);
     setTicked(next);
     setOrder(null);
-    void act(() => saveFinalistDraft({ slug, finalistIds: next as Id<"submissions">[] }), "Could not save the finalists.");
+    void saveDraft(next, "Could not save the finalists.");
   }
   // Before finalists are submitted a drag orders the draft: submitting keeps that order, so the winners are picked too.
   function reorderDraft(next: string[]) {
     setTicked(next);
-    void act(() => saveFinalistDraft({ slug, finalistIds: next as Id<"submissions">[] }), "Could not save the order.");
+    void saveDraft(next, "Could not save the order.");
   }
   function reorder(next: string[]) {
     setOrder(next);
@@ -103,7 +117,7 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
         <li data-done={finalistsSubmitted ? "" : undefined}>{finalistsSubmitted ? <Check aria-hidden /> : <span>1</span>}{finalistsSubmitted ? "Finalists submitted" : "Pick finalists"}</li>
         <li aria-hidden className={styles.stepLine} />
         <li data-done={winnersSubmitted ? "" : undefined} data-current={finalistsSubmitted && !winnersSubmitted ? "" : undefined}>{winnersSubmitted ? <Check aria-hidden /> : <span>2</span>}{winnersSubmitted ? "Winners submitted" : "Winners after the final presentations"}</li>
-        {decision?.updatedAt && (ticked !== null || order !== null || decision.finalistStatus !== "submitted" || decision.placementStatus === "draft") && <li className={styles.saved}>{busy ? "Saving…" : <>Draft saved <TimeAgo at={decision.updatedAt} /></>}</li>}
+        {decision?.updatedAt && (ticked !== null || order !== null || decision.finalistStatus !== "submitted" || decision.placementStatus === "draft") && <li className={styles.saved}>{busy || savingDraft ? "Saving…" : <>Draft saved <TimeAgo at={decision.updatedAt} /></>}</li>}
       </ol>
       <div className={`dq-card ${styles.list}`}>
         <div className={styles.listHead}><strong>All {rows.length} projects</strong>{filters}</div>
@@ -142,9 +156,9 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
         <div className={styles.cardFoot}>
           {finalistsSubmitted
             ? <><p className={styles.help}>Starts in the order you submitted. Drag, or Alt and an arrow key, to reorder. The top three are the winners.</p>
-              <Button size="sm" disabled={busy || winnersSubmitted || finalists.length === 0} onClick={() => void act(() => submitPlacements({ slug, placementIds: winners as Id<"submissions">[] }), "Could not submit the winners.", "Winners submitted.")}>{winnersSubmitted ? "Winners submitted" : "Submit winners"}</Button></>
+              <Button size="sm" disabled={busy || savingDraft || winnersSubmitted || finalists.length === 0} onClick={() => void act(() => submitPlacements({ slug, placementIds: winners as Id<"submissions">[] }), "Could not submit the winners.", "Winners submitted.")}>{winnersSubmitted ? "Winners submitted" : "Submit winners"}</Button></>
             : <><p className={styles.help}>Drag, or Alt and an arrow key, to order them now or after the final presentations. The top three are the winners, and this is the pitch order.</p>
-              <Button size="sm" disabled={busy || finalists.length === 0} onClick={() => void act(() => submitFinalists({ slug, finalistIds: shownOrder as Id<"submissions">[] }), "Could not submit the finalists.", "Finalists submitted.")}>Submit finalists</Button></>}
+              <Button size="sm" disabled={busy || savingDraft || finalists.length === 0} onClick={() => void act(() => submitFinalists({ slug, finalistIds: shownOrder as Id<"submissions">[] }), "Could not submit the finalists.", "Finalists submitted.")}>Submit finalists</Button></>}
         </div>
         {winnersSubmitted && <p className={styles.help}>Winners submitted {decision?.updatedAt ? clockTime(decision.updatedAt) : ""} · version {decision?.placementVersion}. Reordering saves a new draft until you submit again.</p>}
       </section>

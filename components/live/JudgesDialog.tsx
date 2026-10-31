@@ -92,13 +92,15 @@ function JudgeItem({ slug, judge, judges, overview, initials, open, setOpen, onM
   const [draft, setDraft] = useState(judge.judgeName);
   const [plan, setPlan] = useState<Plan | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  // Rename was picked from the ⋯ menu: the menu leaves focus where it is, so the name field keeps it.
+  const renaming = useRef(false);
   const off = judge.hasLink && !judge.active;
   const scores = judge.assignedScoredCount + judge.helpedCount;
   const unscored = judge.assignedCount - judge.assignedScoredCount;
   const handedOut = assigned(overview.judgingStatus);
 
   useEffect(() => {
-    if (open === "rename") { setDraft(judge.judgeName); requestAnimationFrame(() => input.current?.select()); }
+    if (open === "rename") { setDraft(judge.judgeName); requestAnimationFrame(() => { input.current?.focus(); input.current?.select(); }); }
     if (open !== "off") setPlan(null);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -175,8 +177,8 @@ function JudgeItem({ slug, judge, judges, overview, initials, open, setOpen, onM
           : <Button variant="outline" size="sm" disabled={busy} onClick={() => void act(() => createJudgeAccess({ slug, judgeName: judge.judgeName, capabilityToken: randomToken() }), `Made a link for ${judge.judgeName}`, "Could not make the link.")}>Make link</Button>}
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`More for ${judge.judgeName}`} disabled={busy} />}><MoreHorizontal aria-hidden /></DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className={styles.menu}>
-          <DropdownMenuItem onClick={() => setOpen("rename")}>Rename</DropdownMenuItem>
+        <DropdownMenuContent align="end" className={styles.menu} finalFocus={() => { if (!renaming.current) return true; renaming.current = false; return false; }}>
+          <DropdownMenuItem onClick={() => { renaming.current = true; setOpen("rename"); }}>Rename</DropdownMenuItem>
           {judge.hasLink && !off && <MenuItem label="Replace link" note="The old link stops working" onClick={() => setOpen("replace")} />}
           <MenuItem label="Move scores to another judge" note="For a judge who scored on the wrong link" disabled={judges.length < 2} onClick={onMove} />
           <DropdownMenuSeparator />

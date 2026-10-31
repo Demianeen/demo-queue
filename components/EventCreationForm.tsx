@@ -3,14 +3,14 @@
 import { useSiteOrigin } from "@/lib/use-site-origin";
 import { VISUAL_STYLES, VISUAL_STYLE_LABELS } from "@/lib/visual-style";
 
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { ConvexError } from "convex/values";
 import { useMutation } from "convex/react";
 import { CodeXml, Link as LinkIcon, Presentation } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { adminPath, submissionPath } from "@/lib/routes";
-import { slugify } from "@/lib/tokens";
+import { randomToken, slugify } from "@/lib/tokens";
 import { StagePresentationPreview } from "./StagePresentationPreview";
 import { buildStagePreviewFixture } from "@/lib/stage-preview-fixture";
 import { DEFAULT_EVENT_THEME } from "@/lib/event-theme";
@@ -41,18 +41,22 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
   const [sponsors, setSponsors] = useState<DraftSponsor[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
+  // The link suffix is random, so it is drawn once on the client: drawn during
+  // render, the server and the browser would show different links.
+  const [slugSuffix, setSlugSuffix] = useState("");
+  useEffect(() => setSlugSuffix(randomToken(3)), []);
   const selectedStyle = styleChoice === "default" ? styles.find((style) => style.isDefault) : styles.find((style) => style._id === styleChoice);
   const visualStyle = selectedStyle?.preset ?? VISUAL_STYLES.find((style) => style === styleChoice) ?? "neutral";
   const defaultStyle = styles.find((style) => style.isDefault);
   const defaultName = defaultStyle?.preset ? VISUAL_STYLE_LABELS[defaultStyle.preset] : defaultStyle?.name ?? VISUAL_STYLE_LABELS.neutral;
   const presetItems = VISUAL_STYLES.map((style) => ({ value: style, label: VISUAL_STYLE_LABELS[style] }));
   const items = [{ value: "default", label: `${defaultName} (organization default)` }, ...presetItems.filter((style) => style.value === "neutral"), ...styles.filter((style) => !style.preset).map((style) => ({ value: style._id, label: style.name })), ...presetItems.filter((style) => style.value !== "neutral")];
-  const slug = slugify(name);
+  const slug = slugSuffix ? slugify(name, slugSuffix) : "";
   const hackathon = eventType === "hackathon";
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isCreating) return;
+    if (isCreating || !slug) return;
     setIsCreating(true); setError("");
     try {
       // Tracks and sponsors are a hackathon's; a demo night is created without them.
@@ -66,6 +70,8 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
       window.location.assign(adminPath(slug));
     } catch (error) {
       setError(error instanceof ConvexError && typeof error.data === "string" ? error.data : "Could not create the event. Please try again.");
+      // A fresh suffix, so trying again does not hit a taken link.
+      setSlugSuffix(randomToken(3));
       setIsCreating(false);
     }
   }

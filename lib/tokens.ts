@@ -4,14 +4,14 @@ export function randomToken(bytes = 32) {
   return Array.from(values, (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-export function slugify(value: string) {
+export function slugify(value: string, suffix = randomToken(3)) {
   const normalized = value
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-  return `${normalized || "demo-night"}-${randomToken(3)}`;
+  return `${normalized || "demo-night"}-${suffix}`;
 }
 
 export function randomQueueOrder() {

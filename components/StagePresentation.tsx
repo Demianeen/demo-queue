@@ -13,7 +13,7 @@ import { stageSubmissionPrompt } from "@/lib/event-state";
 import type { StagePresentationData, StageTimerData } from "@/lib/stage-presentation";
 import { cn } from "@/lib/utils";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
-import { timeLeftMs } from "@/lib/timer-clock";
+import { submissionsClockLabel, timeLeftMs } from "@/lib/timer-clock";
 
 function formatTimer(ms: number) {
   const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
@@ -129,7 +129,9 @@ export function StagePresentation({
   const lineupListRef = useRef<HTMLOListElement | null>(null);
   const previousCurrentId = useRef<string | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
-  const stageClock = useStageTimer(stage.stageTimer);
+  const submissionsClock = useStageTimer(stage.stageTimer);
+  // The submissions clock still counts below zero; past it the label says the deadline passed.
+  const stageClock = { ...submissionsClock, label: submissionsClockLabel(submissionsClock.remainingMs, submissionsClock.label) };
   const judgingClock = useJudgingStageClock(stage.judgingTimer);
   // During judging the shown clock is the judging clock, so the stage never disagrees with judges.
   const queueTimer = judgingClock ?? stageClock;

@@ -26,3 +26,8 @@ export function timeLeftMs(timer: TimerReading | null | undefined, now: number) 
   if (!timer) return 0;
   return timer.running ? timerEndsAt(timer) - now : timer.remainingMs;
 }
+
+/** The submissions clock keeps counting below zero; once it does, its label says the deadline passed. */
+export function submissionsClockLabel(remainingMs: number, label: string) {
+  return remainingMs < 0 ? "Deadline passed" : label;
+}

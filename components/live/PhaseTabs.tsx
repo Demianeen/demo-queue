@@ -14,6 +14,7 @@ import { formatClock, parseClock, useRemaining, type ServerTimer } from "./clock
 import { errorText } from "./changes";
 import styles from "./live.module.css";
 import { InPageLink } from "@/components/InPageLink";
+import { submissionsClockLabel } from "@/lib/timer-clock";
 
 export type AdminData = FunctionReturnType<typeof api.events.getAdmin>;
 type AdminItem = AdminData["pool"][number];
@@ -39,7 +40,7 @@ export function SubmissionsClock({ slug, admin, onShare }: { slug: string; admin
       <h2><span className="dq-dot" data-tone={admin.event.submissionsOpen ? "success" : undefined} aria-hidden />{admin.event.submissionsOpen ? "Submissions open" : "Submissions closed"}</h2>
       <button type="button" className={styles.linkButton} onClick={onShare}>Share the submit link →</button>
     </div>
-    <ExactTimer label="Submissions close in" timer={admin.event.stageTimer}
+    <ExactTimer label="Submissions close in" labelFor={(remainingMs) => submissionsClockLabel(remainingMs, "Submissions close in")} timer={admin.event.stageTimer}
       help={admin.event.eventType === "hackathon"
         ? "The stage shows this clock. At 0:00 the submit link stays open until you move to Judging from the phase control."
         : "The stage shows this clock. At 0:00 the submit link stays open until you move to Queue from the phase control."}
@@ -141,6 +142,8 @@ export function ResultsTab({ slug, admin }: { slug: string; admin: AdminData }) 
 
 type ClockControls = {
   label: string;
+  /** A label that follows the time left, such as "Deadline passed" below zero. */
+  labelFor?: (remainingMs: number) => string;
   timer: ServerTimer;
   help?: string;
   onSet: (ms: number) => Promise<unknown>;
@@ -151,9 +154,9 @@ type ClockControls = {
 };
 
 /** A big clock you click to type an exact time, with presets and pause. */
-export function ExactTimer({ label, timer, help, onSet, onPause, onResume, resumeLabel = "Resume", extra }: ClockControls) {
+export function ExactTimer({ label, labelFor, timer, help, onSet, onPause, onResume, resumeLabel = "Resume", extra }: ClockControls) {
   const remaining = useRemaining(timer);
-  const shownLabel = label;
+  const shownLabel = labelFor?.(remaining) ?? label;
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);

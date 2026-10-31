@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { timeLeftMs, timerEndsAt } from "../lib/timer-clock.ts";
+import { submissionsClockLabel, timeLeftMs, timerEndsAt } from "../lib/timer-clock.ts";
 
 const minute = 60_000;
 
@@ -37,5 +37,17 @@ test("every clock surface reads the time through the shared helper", () => {
     const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
     assert.match(source, /timeLeftMs\(/, `${file} should use timeLeftMs`);
     assert.doesNotMatch(source, /Date\.now\(\) - \w*\.?serverNow/, `${file} should not offset by the query clock`);
+  }
+});
+
+test("the submissions clock says the deadline passed once it is below zero", () => {
+  assert.equal(submissionsClockLabel(5 * minute, "Submissions close in"), "Submissions close in");
+  assert.equal(submissionsClockLabel(0, "Submissions close in"), "Submissions close in");
+  assert.equal(submissionsClockLabel(-1_000, "Submissions close in"), "Deadline passed");
+  assert.equal(submissionsClockLabel(-2 * minute, "On clock"), "Deadline passed");
+  // The projector and the organiser's Submissions tab both label it this way.
+  for (const file of ["components/StagePresentation.tsx", "components/live/PhaseTabs.tsx"]) {
+    const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+    assert.match(source, /submissionsClockLabel\(/, `${file} should label the submissions clock`);
   }
 });

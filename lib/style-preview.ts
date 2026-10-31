@@ -16,19 +16,19 @@ export const PREVIEW_PAGES = [
 export type PreviewPage = (typeof PREVIEW_PAGES)[number];
 
 /**
- * The preview's tabs, one per page a person opens. A tab with more than one
- * page shows them as states: the stage through the night (welcome while
- * submissions are open, the pitches, the winners with or without the
- * finalists), and the status page as each team sees it.
+ * The preview's tabs: what the room sees and what a team sees. Each shows its
+ * pages as steps: the stage through the night (welcome while submissions are
+ * open, the pitches, the winners with or without the finalists), and the
+ * submit form followed by the status page the team gets after submitting.
+ * The stage is a projector page, so it has no phone view.
  */
-export const PREVIEW_TABS: { label: string; stateLabel?: string; pages: { page: PreviewPage; label: string }[] }[] = [
-  { label: "Stage", stateLabel: "Moment", pages: [
+export const PREVIEW_TABS: { label: string; stateLabel: string; phone: boolean; pages: { page: PreviewPage; label: string }[] }[] = [
+  { label: "Stage", stateLabel: "Moment", phone: false, pages: [
     { page: "welcome", label: "Welcome" }, { page: "stage", label: "Pitching" },
     { page: "winners", label: "Winners" }, { page: "winners-only", label: "Winners only" },
   ] },
-  { label: "Submit form", pages: [{ page: "submit", label: "Submit form" }] },
-  { label: "Status page", stateLabel: "Status", pages: [
-    { page: "status-submitted", label: "Submitted" }, { page: "status-finalist", label: "Finalist" },
+  { label: "Submit form", stateLabel: "Step", phone: true, pages: [
+    { page: "submit", label: "Form" }, { page: "status-submitted", label: "Submitted" }, { page: "status-finalist", label: "Finalist" },
     { page: "status-1st", label: "1st" }, { page: "status-2nd", label: "2nd" }, { page: "status-3rd", label: "3rd" },
   ] },
 ];

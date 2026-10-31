@@ -66,7 +66,7 @@ including syncing schema/functions and running development checks, without
 asking for permission again.
 
 Preview frontend and Production deployments run through CI/CD, not local `convex deploy`.
-Preview runs only the Next.js build. Its branch-scoped settings must use the
+Preview runs only the Next.js build. Its settings, set once for the whole Preview environment and never per branch, must use the
 canonical development backend and matching WorkOS credentials. The build guard
 rejects mismatches and strips inherited Convex deployment credentials. Never
 provision a Convex Preview deployment. Production retains its existing deploy

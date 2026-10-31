@@ -740,7 +740,7 @@ export default function AdminPage() {
 
   async function next() {
     if (!queueIsLive) return;
-    await pickNext({ slug: params.slug, });
+    await pickNext({ slug: params.slug, expectedCurrentId: board.lineup[0] });
   }
 
   async function skip() {

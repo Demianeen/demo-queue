@@ -31,6 +31,7 @@ const IGNORED_FIELDS = new Set([
   "judgingSheetSyncRevision", "judgingSheetSyncedRevision", "judgingSheetSyncedAt", "judgingSheetSyncError",
   "scoreBasisVersion", "confirmedScoreBasisVersion", "assignmentVersion",
   "lastAdvanceSnapshot", "statusLinkEmailedAt", "aiSummary", "submissionSurgeAt",
+  "aiSummaryGaveUp", "summaryQueuedFor", "summaryRunPending", "aiSummaryBudget",
 ]);
 
 /**

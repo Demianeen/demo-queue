@@ -68,7 +68,7 @@ export function StageTab({ slug, admin }: { slug: string; admin: AdminData }) {
     void act(() => reorderLineup({ slug, orderedIds: next }), "Could not change the pitch order.");
   }
 
-  const next = () => act(() => pickNext({ slug }), "Could not move to the next pitch.");
+  const next = () => act(() => pickNext({ slug, expectedCurrentId: current?.id }), "Could not move to the next pitch.");
   const previous = () => act(() => restorePreviousPresenter({ slug }), "Could not go back to the previous pitch.");
   const commands = useMemo<Command[]>(() => live ? [
     { id: "stage-next", group: "This page", label: "Next pitch", keys: ["N"], disabled: !current, run: () => void next() },

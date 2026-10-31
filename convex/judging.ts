@@ -1134,6 +1134,7 @@ export async function closeJudgingForOrganization(
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
   if (event.judgingStatus !== "open") throw new ConvexError("Judging is not open.");
+  if (event.submissionsClosedAt === undefined) throw new ConvexError("Close submissions first.");
   await recordChange(ctx, {
     event, principal, kind: "phase_changed", summary: "closed judging", undoLabel: "Reopen",
     undo: "phase", fromPhase: eventPhase(event), toPhase: "stage",

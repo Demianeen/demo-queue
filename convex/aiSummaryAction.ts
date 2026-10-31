@@ -20,20 +20,7 @@ import {
 
 const README_TIMEOUT_MS = 8_000;
 /** Proposed: a rate-limited README read is retried this many times, then the run gives up without saving. */
-export const README_RETRY_LIMIT = 3;
-const README_RETRY_DEFAULT_MS = 15 * 60_000;
-const README_RETRY_MAX_MS = 60 * 60_000;
-
-type ReadmeResult = { kind: "ok"; text: string | null; manifests: SummaryManifest[] } | { kind: "limited"; retryAfterMs: number };
-
-/** How long GitHub asks us to wait, from Retry-After or the rate limit reset, within an hour. */
-function retryAfterMs(response: Response) {
-  const retryAfter = Number(response.headers.get("retry-after"));
-  if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.min(retryAfter * 1000, README_RETRY_MAX_MS);
-  const reset = Number(response.headers.get("x-ratelimit-reset"));
-  if (Number.isFinite(reset) && reset > 0) return Math.min(Math.max(reset * 1000 - Date.now(), 1000), README_RETRY_MAX_MS);
-  return README_RETRY_DEFAULT_MS;
-}
+type ReadmeResult = { kind: "ok"; text: string | null; manifests: SummaryManifest[] } | { kind: "limited" };
 
 function githubHeaders(accept: string): Record<string, string> {
   const token = env.GITHUB_TOKEN?.trim();
@@ -57,8 +44,7 @@ async function fetchReadme(githubUrl: string | null): Promise<ReadmeResult> {
       headers: githubHeaders("application/vnd.github+json"),
       signal: AbortSignal.timeout(README_TIMEOUT_MS),
     });
-    // Rate limited: try again later rather than write a summary without the README.
-    if (isRateLimited(repository)) return { kind: "limited", retryAfterMs: retryAfterMs(repository) };
+    if (isRateLimited(repository)) return { kind: "limited" };
     if (!repository.ok) return none;
     const details = (await repository.json()) as { private?: unknown; visibility?: unknown };
     if (details.private !== false || details.visibility !== "public") return none;
@@ -66,15 +52,16 @@ async function fetchReadme(githubUrl: string | null): Promise<ReadmeResult> {
       headers: githubHeaders("application/vnd.github.raw+json"),
       signal: AbortSignal.timeout(README_TIMEOUT_MS),
     });
-    if (isRateLimited(response)) return { kind: "limited", retryAfterMs: retryAfterMs(response) };
+    if (isRateLimited(response)) return { kind: "limited" };
     const text = response.ok ? await response.text() : "";
     const manifests: SummaryManifest[] = [];
-    for (const file of SUMMARY_MANIFEST_FILES) {
+    // Dependency files only add to a README; without one, save the requests.
+    for (const file of text.trim() ? SUMMARY_MANIFEST_FILES : []) {
       const manifest = await fetch(url.replace(/\/readme$/, `/contents/${file}`), {
         headers: githubHeaders("application/vnd.github.raw+json"),
         signal: AbortSignal.timeout(README_TIMEOUT_MS),
       });
-      if (isRateLimited(manifest)) return { kind: "limited", retryAfterMs: retryAfterMs(manifest) };
+      if (isRateLimited(manifest)) break;
       // A missing file is a 404: the project simply has none.
       const content = manifest.ok ? await manifest.text() : "";
       if (content.trim()) manifests.push({ file, text: content.slice(0, SUMMARY_MANIFEST_LIMIT) });
@@ -100,6 +87,7 @@ const summaryRunArgs = {
   submissionId: v.id("submissions"),
   refreshReadme: v.optional(v.boolean()),
   contextChanged: v.optional(v.boolean()),
+  // Unused: runs queued before README reads stopped retrying still carry it.
   readmeAttempt: v.optional(v.number()),
   // When this run was queued to start; it clears the submission's pending marker when it ends.
   queuedFor: v.optional(v.number()),
@@ -113,21 +101,18 @@ const summaryRunArgs = {
 export const generateSubmissionSummary = internalAction({
   args: summaryRunArgs,
   handler: async (ctx, args): Promise<{ saved: boolean }> => {
-    let retriesLater = false;
     try {
-      const result = await writeSummary(ctx, args);
-      retriesLater = result.retriesLater === true;
-      return { saved: result.saved };
+      return await writeSummary(ctx, args);
     } finally {
-      // However the run ends, except when it retries later, judges stop seeing the read as being checked.
-      if (!retriesLater && args.queuedFor !== undefined) {
+      // However the run ends, judges stop seeing the read as being checked.
+      if (args.queuedFor !== undefined) {
         await ctx.runMutation(internal.aiSummaries.endSummaryRun, { submissionId: args.submissionId, queuedFor: args.queuedFor });
       }
     }
   },
 });
 
-async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunArgs>): Promise<{ saved: boolean; retriesLater?: boolean }> {
+async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunArgs>): Promise<{ saved: boolean }> {
   const input = await ctx.runQuery(internal.aiSummaries.summaryInput, { submissionId: args.submissionId, refreshReadme: args.refreshReadme, contextChanged: args.contextChanged });
   if (!input) {
     log("skipped", "not_needed");
@@ -139,25 +124,16 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
     return { saved: false };
   }
   const fetched = await fetchReadme(input.githubUrl);
-  if (fetched.kind === "limited") {
-    const attempt = (args.readmeAttempt ?? 0) + 1;
-    if (attempt > README_RETRY_LIMIT) {
-      log("skipped", "readme_rate_limited");
-      await ctx.runMutation(internal.aiSummaries.markSummaryGaveUp, { submissionId: args.submissionId, sourceKey: input.sourceKey, reason: "readme_rate_limited" });
-      return { saved: false };
-    }
-    await ctx.scheduler.runAfter(fetched.retryAfterMs, internal.aiSummaryAction.generateSubmissionSummary, {
-      submissionId: args.submissionId,
-      ...(args.refreshReadme ? { refreshReadme: true } : {}),
-      ...(args.contextChanged ? { contextChanged: true } : {}),
-      ...(args.queuedFor !== undefined ? { queuedFor: args.queuedFor } : {}),
-      readmeAttempt: attempt,
-    });
-    log("deferred", "readme_rate_limited");
-    return { saved: false, retriesLater: true };
+  // GitHub rate limited the README read. A summary that only waited on a README
+  // check stays as it is; a new one is written now without the README, so judges
+  // are not left waiting. The next close reads the README again.
+  if (fetched.kind === "limited" && input.readmeCheckOnly) {
+    log("skipped", "readme_rate_limited");
+    return { saved: false };
   }
-  const readme = fetched.text;
-  const manifests = fetched.manifests;
+  if (fetched.kind === "limited") log("without_readme", "readme_rate_limited");
+  const readme = fetched.kind === "ok" ? fetched.text : null;
+  const manifests = fetched.kind === "ok" ? fetched.manifests : [];
   const read = summaryReadInput(input.tracks, input.sponsors);
   const readmeHash = readme === null ? undefined : createHash("sha256").update(readme).digest("hex");
   // The description and repository are unchanged: write again only when the README changed.

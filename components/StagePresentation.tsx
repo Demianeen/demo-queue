@@ -1,6 +1,7 @@
 "use client";
 
 import { EventWelcome } from "./EventWelcome";
+import { StageWinners } from "./results/StageWinners";
 import { eventRootProps, eventThemeContract, eventTokenProperties } from "@/lib/event-theme-contract";
 import Image from "next/image";
 import { AstraBackdrop } from "@/components/AstraBackdrop";
@@ -274,8 +275,10 @@ export function StagePresentation({
   }, [currentId, isLive]);
 
   const Root = embedded ? "div" : "main";
+  // Once the event finishes with its winners submitted, the stage shows them instead of the lineup.
+  const results = stage.results;
 
-  if (visualStyle === "neutral" && showQrStage) return <Root className="neutral-stage" data-event-stage="classic" style={eventTokenProperties(eventThemeContract("neutral", stage.event.theme))} inert={embedded ? true : undefined}>
+  if (visualStyle === "neutral" && showQrStage && !results) return <Root className="neutral-stage" data-event-stage="classic" style={eventTokenProperties(eventThemeContract("neutral", stage.event.theme))} inert={embedded ? true : undefined}>
     <EventWelcome name={stage.event.name} eventType={stage.event.eventType} submissionUrl={submissionUrl} theme={stage.event.theme} closed={stage.event.submissionsClosed} />
     {showQueueTimer && <div className={`neutral-stage-timer is-${queueTimerUrgency}`} aria-live="polite">{queueTimer.label} <strong>{queueTimer.display}</strong></div>}
     {showSubmissionCount && <p className="neutral-stage-count">{waitingCount} {isHackathon ? "projects" : "demos"} submitted</p>}
@@ -324,7 +327,7 @@ export function StagePresentation({
       ) : (
         <span className="codex-mark stage-mark" aria-hidden />
       )}
-      <section className="stage-grid">
+      {results ? <StageWinners eventName={stage.event.name} results={results} /> : <section className="stage-grid">
         {showQrStage ? (
           <div className="stage-main stage-qr-main">
             {showQueueTimer ? (
@@ -461,7 +464,7 @@ export function StagePresentation({
             </div>
           )}
         </aside>
-      </section>
+      </section>}
     </Root>
   );
 }

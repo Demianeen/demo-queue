@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
@@ -16,6 +17,9 @@ export type Command = {
   group: string;
   keys?: string[];
   hint?: string;
+  /** Other words that find it in the command menu. */
+  keywords?: string[];
+  icon?: LucideIcon;
   run: () => void;
   disabled?: boolean;
 };
@@ -45,7 +49,7 @@ export function useCommands(owner: string, commands: Command[], context?: string
   const registry = useContext(CommandContext);
   const latest = useRef(commands);
   latest.current = commands;
-  const signature = commands.map((command) => `${command.id}:${command.label}:${command.disabled ? 1 : 0}:${(command.keys ?? []).join("")}`).join("|");
+  const signature = commands.map((command) => `${command.id}:${command.group}:${command.label}:${command.hint ?? ""}:${command.disabled ? 1 : 0}:${(command.keys ?? []).join("")}`).join("|");
   useEffect(() => {
     if (!registry) return;
     registry.register(owner, latest.current.map((command) => ({ ...command, run: () => latest.current.find((next) => next.id === command.id)?.run() })));
@@ -121,6 +125,13 @@ export function KeySequence({ keys, chord = false }: { keys: string[]; chord?: b
       {index > 0 && !chord && <span>then</span>}
       <Kbd>{key}</Kbd>
     </span>)}
+  </KbdGroup>;
+}
+
+/** Keys as compact caps, "G" "O", for rows in the command menu. */
+export function KeyCaps({ keys }: { keys: string[] }) {
+  return <KbdGroup className="dq-shortcut-keys" aria-label={keys.join(" ")}>
+    {keys.map((key, index) => <Kbd key={`${key}-${index}`}>{key}</Kbd>)}
   </KbdGroup>;
 }
 

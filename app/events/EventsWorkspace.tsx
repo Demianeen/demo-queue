@@ -117,7 +117,9 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
     </EventTabs>
     : body;
 
-  return <OrganiserShell organizations={organizations} activeOrganizationId={activeOrganizationId} email={email} displayName={displayName} switching={switching} onSelectOrganization={switchOrganization} liveEvent={liveEvent} openEvent={openEvent}>
+  const menuEvents = useMemo(() => active && initialData ? events.results.map((event) => ({ name: event.name, slug: event.slug, eventType: event.eventType, phase: event.phase })) : undefined, [active, initialData, events.results]);
+
+  return <OrganiserShell organizations={organizations} activeOrganizationId={activeOrganizationId} email={email} displayName={displayName} switching={switching} onSelectOrganization={switchOrganization} liveEvent={liveEvent} openEvent={openEvent} events={menuEvents}>
     {(switching || !active || (!isLoading && !isAuthenticated)) && <title>{`${VIEW_TITLES[view]} | Demo Queue`}</title>}
     {openEvent?.practice && eventSlug && <div className="px-4 pt-3"><PracticeBar slug={eventSlug} /></div>}
     <PageHeader crumbs={crumbs} actions={view === "events" && active && events.results.length > 0 ? <ShortcutTooltip label="New event" keys={["C"]}><Button size="sm" render={<Link href="/events/new" />} nativeButton={false}><Plus aria-hidden />New event</Button></ShortcutTooltip>

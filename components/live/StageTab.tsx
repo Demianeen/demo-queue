@@ -18,6 +18,9 @@ import { errorText } from "./changes";
 import { ExactTimer, ListSkeleton, TrackChips, teamLine, useFinalists, type AdminData } from "./PhaseTabs";
 import styles from "./live.module.css";
 
+// Extra time for the pitch on now; Next starts the following pitch at the usual length again.
+const STAGE_ADDS = [30, 60];
+
 type Row = { id: Id<"submissions">; title: string; team: string; tracks: string[]; score: number | null };
 
 async function act(action: () => Promise<unknown>, failure: string) {
@@ -81,7 +84,7 @@ export function StageTab({ slug, admin }: { slug: string; admin: AdminData }) {
   const demoTimer = event.demoTimer;
   return <div className={styles.phasePage}>
     {!onStage && <p className={styles.hint}>Stage starts when you move to it from the phase control: the submitted finalists become the lineup, in this order.</p>}
-    <ExactTimer label={current ? `${current.title}: pitch time left` : "Stage clock"} timer={demoTimer}
+    <ExactTimer label={current ? `${current.title}: pitch time left` : "Stage clock"} timer={demoTimer} adds={STAGE_ADDS}
       help={!current ? "Times each pitch. It starts with the first finalist." : event.showDemoTimerOnStage ? "Each pitch starts with this. The room sees it while Timer is on in the Room panel." : "Timer is off in the Room panel: the room does not see it. The clock keeps running here."}
       onSet={(ms) => adjustDemoTimer({ slug, deltaMs: Math.round((ms - timeLeftMs({ ...demoTimer, running: demoTimer.status === "running" }, Date.now())) / 1000) * 1000 })}
       onPause={() => pauseDemoTimer({ slug })} onResume={() => startDemoTimer({ slug })} resumeLabel="Start"

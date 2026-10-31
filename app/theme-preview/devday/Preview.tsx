@@ -186,6 +186,7 @@ export function DevDayPreview() {
             setNotice("This sample submission came back in the preview only.");
             return { restored: true as const };
           }}
+          editTeamMemberSocials={async () => setNotice("Team socials are held in this preview only.")}
         />
       ) : null}
       {view === "stage" || view === "qr" ? <StagePresentation stage={stage} submissionUrl={previewUrl} /> : null}

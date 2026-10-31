@@ -124,7 +124,7 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
       : view === "admin" && openEvent && eventSlug ? <EventHeaderActions slug={eventSlug} eventName={openEvent.name} eventType={openEvent.eventType} phase={openEvent.phase} roomOpen={roomOpen} onToggleRoom={toggleRoom} />
       : view === "members" && active && initialData ? <InvitePeopleAction />
       : view === "usage" && active && initialData ? <AiUsageHeaderActions /> : undefined} />
-    {withTabs(<div className={view === "admin" ? "dq-page-wide" : "dq-page"}>
+    {withTabs(<div className={view === "admin" || view === "styles" ? "dq-page-wide" : "dq-page"}>
       {signInFailed && <Alert variant="destructive" className="mb-4"><AlertDescription>Sign-in could not be completed. Your previous session is still active. <a href="/events/sign-in">Try signing in again</a>.</AlertDescription></Alert>}
       {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error} <a href="/events">Reload memberships</a></AlertDescription></Alert>}
       {switching ? <p role="status" className="dq-secondary">Switching organization…</p>
@@ -141,6 +141,8 @@ function OrganizationEvents({ organization, view, setView, initialData, events, 
   const { isAuthenticated } = useConvexAuth();
   const router = useRouter();
   const styleData = useQuery(api.organizationStyles.list, isAuthenticated ? {} : "skip") ?? initialData.styles;
+  // A backend from before brands answers without them; the pages then show no brands rather than fail.
+  const brands = (styleData.brands as typeof styleData.brands | undefined) ?? [];
   const { results, status, loadMore, firstPageLoading } = events;
   const pageName = view === "styles" ? "Styles" : view === "guide" ? "Getting started" : view === "create" || (results.length === 0) ? "Create event" : "Events";
   const title = showTitle ? <title>{`${pageName} · ${organization.name} | Demo Queue`}</title> : null;
@@ -157,8 +159,8 @@ function OrganizationEvents({ organization, view, setView, initialData, events, 
     {title}
     {view === "guide" && <div className="ws-column"><h1 className="sr-only">Getting started</h1><GettingStarted {...guideProps} alwaysOpen /></div>}
     {view === "events" && <div className="mb-6"><GettingStarted {...guideProps} /></div>}
-    <div hidden={view !== "styles"}><OrganizationStyles organizationId={organization.id} organizationName={organization.name} styles={styleData.styles} /></div>
-    <div hidden={view === "styles" || view === "members" || view === "details" || view === "admin" || view === "connections" || view === "guide" || view === "practice" || view === "usage" || (view !== "create" && results.length > 0)}><EventCreationForm organizationId={organization.id} organizationName={organization.name} firstEvent={!results.length} styles={styleData.styles} onManageStyles={() => setView("styles")} onCancel={results.length ? () => setView("events") : undefined} /></div>
+    <div hidden={view !== "styles"}><OrganizationStyles organizationId={organization.id} organizationName={organization.name} styles={styleData.styles} brands={brands} active={view === "styles"} /></div>
+    <div hidden={view === "styles" || view === "members" || view === "details" || view === "admin" || view === "connections" || view === "guide" || view === "practice" || view === "usage" || (view !== "create" && results.length > 0)}><EventCreationForm organizationId={organization.id} organizationName={organization.name} firstEvent={!results.length} styles={styleData.styles} brands={brands} onManageStyles={() => setView("styles")} onCancel={results.length ? () => setView("events") : undefined} /></div>
     {view === "events" && results.length > 0 && <section>
       <div className="workspace-list-heading"><div className="workspace-heading"><h1>Events</h1><p>Your events in {organization.name}, newest first.</p></div></div>
       <ul className="workspace-event-list dq-card" aria-label="Events">{results.map((event, index) => <li key={event.id}><Link className="workspace-event-row dq-row" data-selected={index === selected ? "" : undefined} onMouseEnter={() => setSelected(index)} href={eventDetailsPath(event.slug)}><span className="workspace-event-icon" aria-hidden>{event.eventType === "hackathon" ? <Code2 /> : <Presentation />}</span><span className="workspace-event-summary"><span className="workspace-event-name">{event.name}</span>{index === 0 && <span className="workspace-event-current"><span className="dq-dot" data-tone="accent" aria-hidden />Current event</span>}</span><span className="workspace-event-kind">{event.eventType === "hackathon" ? "Hackathon" : "Demo"}</span><span className="workspace-event-date">Created {eventCreatedDate(event.createdAt)}</span><ChevronRight className="workspace-event-chevron" aria-hidden /></Link></li>)}</ul>

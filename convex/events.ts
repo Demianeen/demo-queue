@@ -640,6 +640,9 @@ export async function createOrganizationEvent(
     const defaultStyle = !args.styleId && !args.visualStyle
       ? (await ctx.db.query("organizationStyles").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(MAX_ORGANIZATION_STYLES)).find((style) => style.isDefault)
       : null;
+    // With no choice and no organization default (an assistant may leave the
+    // style out), the event starts in Base, the plain style. New event in the
+    // app always sends a choice.
     const resolvedStyle = selectedStyle ?? defaultStyle;
     const visualStyle = resolvedStyle ? resolvedStyle.preset ?? "neutral" : args.visualStyle ?? "neutral";
     const theme = visualStyle === "neutral" ? (selectedStyle ?? defaultStyle)?.theme ?? DEFAULT_EVENT_THEME : undefined;

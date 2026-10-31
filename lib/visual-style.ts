@@ -22,3 +22,4 @@ export function isOutpostStyle(value: VisualStyle): value is "outpost" {
 
 export const MAX_CUSTOM_STYLES = 100;
 export const MAX_ORGANIZATION_STYLES = MAX_CUSTOM_STYLES + VISUAL_STYLES.length;
+export const MAX_STYLE_BRANDS = 50;

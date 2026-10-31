@@ -21,6 +21,7 @@ import { listEventTracks } from "./tracks";
 import { workosUserEmail } from "./members";
 import { eventPhase } from "../lib/event-phase";
 import { emailKey, isValidEmail } from "../lib/validation";
+import { deleteScoreBasis, readScoreBasis } from "./scoreBasis";
 
 /**
  * Practice events: a real event with the practice flag, so it runs exactly
@@ -466,6 +467,9 @@ export async function resetPracticeEventForOrganization(ctx: MutationCtx, args: 
   for (const table of ["reviews", "normalizationDecisions", "judgingDecisions"] as const) {
     for (const row of await ctx.db.query(table).withIndex("by_event", (q) => q.eq("eventId", event._id)).take(4000)) await ctx.db.delete(row._id);
   }
+  // The version keeps growing past the reset, so a stale confirm can never match.
+  const basis = await readScoreBasis(ctx, event);
+  await deleteScoreBasis(ctx, event._id);
   const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
   if (keep) {
     for (const submission of submissions) {
@@ -491,7 +495,7 @@ export async function resetPracticeEventForOrganization(ctx: MutationCtx, args: 
     assignmentVersion: undefined,
     assignmentPreparationCursor: undefined,
     assignmentPreparationTotal: undefined,
-    scoreBasisVersion: (event.scoreBasisVersion ?? 0) + 1,
+    scoreBasisVersion: basis.version + 1,
     confirmedScoreBasisVersion: undefined,
     phase: "submissions",
     finishedAt: undefined,
@@ -535,6 +539,7 @@ export const tidyPracticeEvents = internalMutation({
     if (budget > 0) await remove(ids(await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("normalizationDecisions").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("judgingDecisions").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
+    if (budget > 0) await remove(ids(await ctx.db.query("scoreBases").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) {
       const changes = await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(Math.min(budget, TIDY_CHANGE_ROWS));

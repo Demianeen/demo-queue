@@ -193,7 +193,7 @@ test("private normalization uses real judge reviews, persists decisions and pres
     { judgeKey: "alex", effectiveDecision: "apply" }, { judgeKey: "sam", decision: { decision: "raw", stale: false }, effectiveDecision: "raw" },
   ] });
   expect((await t.query(components.judgingDecisionHistory.lib.listHistory, historyArgs)).page).toEqual(beforeHistory.page);
-  expect(await t.run((ctx) => ctx.db.get(eventId))).toMatchObject({ confirmedScoreBasisVersion: 5 });
+  expect(await t.run((ctx) => ctx.db.query("scoreBases").withIndex("by_event", (q) => q.eq("eventId", eventId)).unique())).toMatchObject({ version: 5, confirmedVersion: 5 });
   await expect(t.mutation(internal.mcpAdmin.saveNormalizationDecision, { principal, input: { ...input, judgeKey: "missing", decision: "apply" } })).rejects.toThrow("no complete reviews");
 });
 

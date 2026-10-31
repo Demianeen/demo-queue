@@ -463,6 +463,7 @@ test("normalization decisions, finalist amendments, and placements stay independ
   expect(
     (await t.run(async (ctx) => await ctx.db.get(eventId)))?.scoreBasisVersion,
   ).toBeUndefined();
+  const eventBeforeScores = await t.run(async (ctx) => await ctx.db.get(eventId));
 
   for (const review of [
     { capabilityToken: "alex-secret", submissionId: firstId, score: 9 },
@@ -479,6 +480,15 @@ test("normalization decisions, finalist amendments, and placements stay independ
       demoClarity: review.score,
     });
   }
+  // Saving scores moves the score basis without touching the event, so the
+  // queries that read the event don't re-run on every save.
+  const afterScores = await t.run(async (ctx) => ({
+    event: await ctx.db.get(eventId),
+    basis: await ctx.db.query("scoreBases").withIndex("by_event", (q) => q.eq("eventId", eventId)).unique(),
+  }));
+  expect(afterScores.event).toEqual(eventBeforeScores);
+  expect(afterScores.basis?.version).toBe(4);
+  expect(afterScores.basis?.confirmedVersion).toBeUndefined();
   await t.mutation(api.judging.closeJudging, { slug: "hack", });
 
   const initialOverview = await t.query(api.judging.getNormalizationOverview, {

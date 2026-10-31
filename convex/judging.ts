@@ -21,6 +21,7 @@ import {
   mean,
   type ScoreRow,
 } from "../lib/normalization";
+import { bumpScoreBasis, confirmScoreBasis, readScoreBasis } from "./scoreBasis";
 
 const BATCH_SIZE = 50;
 const DEFAULT_TIMER_MS = 60 * 60 * 1000;
@@ -881,8 +882,7 @@ async function markScoreBasisChanged(ctx: MutationCtx, event: Doc<"events">, jud
     const decision = await ctx.db.query("normalizationDecisions").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", judgeKey)).unique();
     if (decision) await ctx.db.patch(decision._id, { stale: true, updatedAt: now });
   }
-  const current = await ctx.db.get(event._id);
-  await ctx.db.patch(event._id, { scoreBasisVersion: (current?.scoreBasisVersion ?? 0) + 1, confirmedScoreBasisVersion: undefined, updatedAt: now });
+  await bumpScoreBasis(ctx, event, now);
 }
 
 export const saveReview = mutation({
@@ -1314,7 +1314,7 @@ export const previewNormalization = query({
     return {
       ...normalizationPreviewForJudge(args.judgeKey, judgeName, submissions, state),
       scoreBasisReady: state.ready,
-      scoreBasisVersion: event.scoreBasisVersion ?? 0,
+      scoreBasisVersion: (await readScoreBasis(ctx, event)).version,
     };
   },
 });
@@ -1333,10 +1333,11 @@ export async function getNormalizationOverviewForOrganization(
     ctx.db.query("normalizationDecisions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(100),
   ]);
   const state = normalizationState(submissions, reviews, decisions);
+  const basis = await readScoreBasis(ctx, event);
   return {
     judgingStatus: event.judgingStatus ?? "setup",
     scoreBasisReady: state.ready,
-    scoreBasisVersion: event.scoreBasisVersion ?? 0,
+    scoreBasisVersion: basis.version,
     judges: (event.roundOneJudges ?? []).map((judgeName) =>
       normalizationPreviewForJudge(
         normalizeJudgeKey(judgeName),
@@ -1374,7 +1375,7 @@ async function saveNormalizationDecisionOperation(
   }
   const existing = state.decisionByJudge.get(args.judgeKey);
   const now = Date.now();
-  const version = event.scoreBasisVersion ?? 0;
+  const version = (await readScoreBasis(ctx, event)).version;
   const fields = {
     decision: args.decision,
     scoreBasisVersion: version,
@@ -1390,10 +1391,7 @@ async function saveNormalizationDecisionOperation(
       createdAt: now,
     });
   }
-  await ctx.db.patch(event._id, {
-    confirmedScoreBasisVersion: version,
-    updatedAt: now,
-  });
+  await confirmScoreBasis(ctx, event, now);
   return { scoreBasisReady: true };
 }
 
@@ -1478,7 +1476,7 @@ export const getFinalistDecision = query({
     return {
       judgingStatus: event.judgingStatus ?? "setup",
       scoreBasisReady: result.ready,
-      scoreBasisVersion: result.ready ? event.scoreBasisVersion ?? 0 : null,
+      scoreBasisVersion: result.ready ? (await readScoreBasis(ctx, event)).version : null,
       submissions: result.scored,
       finalistIds: decision?.finalistIds ?? [],
       finalistStatus: decision?.finalistStatus ?? "draft",
@@ -1611,10 +1609,8 @@ export const submitFinalists = mutation({
       incrementFinalist: true,
       recordHistory: true,
     });
-    await ctx.db.patch(event._id, {
-      confirmedScoreBasisVersion: event.scoreBasisVersion ?? 0,
-      updatedAt: now,
-    });
+    await confirmScoreBasis(ctx, event, now);
+    await ctx.db.patch(event._id, { updatedAt: now });
   },
 });
 

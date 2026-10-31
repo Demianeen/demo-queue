@@ -321,6 +321,13 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_event", ["eventId"]).index("by_event_and_judge", ["eventId", "judgeKey"]),
 
+  // The score basis, kept off the event so a saved score doesn't touch it (convex/scoreBasis.ts).
+  scoreBases: defineTable({
+    eventId: v.id("events"),
+    version: v.number(),
+    confirmedVersion: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_event", ["eventId"]),
   judgingDecisions: defineTable({
     eventId: v.id("events"),
     finalistIds: v.array(v.id("submissions")),

@@ -43,6 +43,7 @@ import type * as organizationAuth from "../organizationAuth.js";
 import type * as organizationStyles from "../organizationStyles.js";
 import type * as phases from "../phases.js";
 import type * as practice from "../practice.js";
+import type * as scoreBasis from "../scoreBasis.js";
 import type * as tracks from "../tracks.js";
 import type * as visualStyle from "../visualStyle.js";
 
@@ -88,6 +89,7 @@ declare const fullApi: ApiFromModules<{
   organizationStyles: typeof organizationStyles;
   phases: typeof phases;
   practice: typeof practice;
+  scoreBasis: typeof scoreBasis;
   tracks: typeof tracks;
   visualStyle: typeof visualStyle;
 }>;

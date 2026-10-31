@@ -8,6 +8,7 @@ import { movePhase } from "./phases";
 import { queueJudgingSheetSync } from "./judgingSheetSync";
 import { queueSummariesForEvent, summaryMode } from "./aiSummaries";
 import { eventPhase, PHASE_LABELS } from "../lib/event-phase";
+import { bumpScoreBasis } from "./scoreBasis";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -173,8 +174,8 @@ async function applySnapshotUndo(ctx: MutationCtx, event: Doc<"events">, change:
   }
   // Scores changed: normalization recomputes, as after any contributing score edit.
   if (change.docs.some((doc) => doc.table === "reviews")) {
-    const latest = await ctx.db.get(event._id);
-    await ctx.db.patch(event._id, { scoreBasisVersion: (latest?.scoreBasisVersion ?? 0) + 1, confirmedScoreBasisVersion: undefined, updatedAt: now });
+    await bumpScoreBasis(ctx, event, now);
+    await ctx.db.patch(event._id, { updatedAt: now });
     for (const decision of await ctx.db.query("normalizationDecisions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(200)) {
       await ctx.db.patch(decision._id, { stale: true, updatedAt: now });
     }

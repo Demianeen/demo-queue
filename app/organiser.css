@@ -291,6 +291,9 @@ body:has(.dq-app) .admin-primary-actions { border-color: var(--dq-divider); padd
 body:has(.dq-app) .admin-judges-panel .admin-primary-actions { border: 0; padding: 0; margin: 0; }
 body:has(.dq-app) .admin-section-label { font-size: 11px; font-weight: 500; color: var(--dq-fg-3); margin: 16px 0 8px; }
 body:has(.dq-app) .admin-settings-panel .admin-section-label:first-child { margin-top: 0; }
+.admin-type-confirm { display: grid; gap: 8px; margin-top: 8px; padding: 12px; border: 1px solid var(--dq-line); border-radius: 8px; background: var(--dq-panel); font-size: 13px; }
+.admin-type-confirm .field { margin: 0; }
+.admin-type-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
 body:has(.dq-app) .admin-page .field { gap: 6px; }
 body:has(.dq-app) .admin-page .field label { font-size: 12px; font-weight: 500; color: var(--dq-fg-2); }
 body:has(.dq-app) .admin-page :is(.field input, .field select, .field textarea, .ai-shuffle-row textarea, .target-field input, .stage-timer-duration input, .admin-modal :is(input, textarea)) {

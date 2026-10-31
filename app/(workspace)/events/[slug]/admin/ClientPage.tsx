@@ -397,6 +397,8 @@ export default function AdminPage() {
   const [sheetBusy, setSheetBusy] = useState(false);
   const [sheetMessage, setSheetMessage] = useState("");
   const [meetDraft, setMeetDraft] = useState<string | null>(null);
+  // A type change asks first, inline, with the meet link a demo night needs.
+  const [typeChange, setTypeChange] = useState<{ to: "demo" | "hackathon"; meetUrl: string; busy: boolean } | null>(null);
   const [judgesOpen, setJudgesOpen] = useState(false);
   const [judgesText, setJudgesText] = useState("");
   const [judgesBusy, setJudgesBusy] = useState(false);
@@ -1050,36 +1052,30 @@ export default function AdminPage() {
     await clearQueue({ slug: params.slug, });
   }
 
-  async function selectEventType(nextType: "demo" | "hackathon") {
+  function selectEventType(nextType: "demo" | "hackathon") {
     if (!admin) return;
-    if (nextType === admin.event.eventType) return;
-    const submissionCount = admin.event.submissionCount;
-    const needsConfirmation = submissionCount > 0 || Boolean(admin.event.judgingSheetUrl);
-    const confirmed =
-      !needsConfirmation ||
-      window.confirm(
-        `Change this event to ${nextType === "hackathon" ? "Hackathon" : "Demo queue"}? This permanently deletes ${submissionCount} submission${submissionCount === 1 ? "" : "s"}, team members, and uploaded files. Any exported Google Sheet remains in Drive but is disconnected from this event.`,
-      );
-    if (!confirmed) return;
-    // A demo night needs a meet link: demoers join the call from it.
-    let meetUrl: string | undefined;
-    if (nextType === "demo" && !admin.event.meetUrl.trim()) {
-      const typed = window.prompt("A demo night needs a Google Meet link: demoers join the call from it.", "https://meet.google.com/");
-      if (typed === null) return;
-      meetUrl = typed;
-    }
+    setTypeChange(nextType === admin.event.eventType ? null : { to: nextType, meetUrl: "", busy: false });
+  }
 
+  async function confirmEventType() {
+    if (!admin || !typeChange) return;
+    const submissionCount = admin.event.submissionCount;
+    // A demo night needs a meet link: demoers join the call from it.
+    const meetUrl = typeChange.to === "demo" && !admin.event.meetUrl.trim() ? typeChange.meetUrl : undefined;
+    setTypeChange({ ...typeChange, busy: true });
     try {
       await changeEventType({
         slug: params.slug,
-        eventType: nextType,
+        eventType: typeChange.to,
         confirmReset: submissionCount > 0,
         meetUrl,
       });
     } catch (error) {
       toast.error(errorText(error, "Could not change the event type."));
+      setTypeChange((current) => current && { ...current, busy: false });
       return;
     }
+    setTypeChange(null);
     setEditingId(null);
     setIsAdding(false);
     setSheetMessage("");
@@ -1244,7 +1240,7 @@ export default function AdminPage() {
   const viewTitle = view === "submissions" ? allSubmissionsLabel : view === "settings" ? "Settings" : admin.event.name;
   const viewDescription = view === "submissions"
     ? `Everyone who submitted. Add them to the ${lineupName}, edit, or hide them.`
-    : "Event type, meet link, Luma and tracks.";
+    : isHackathonEvent ? "Event type, meet link and tracks." : "Event type, meet link, Luma and tracks.";
   const goTo = (next: AdminView) => navigate(adminViewPath(params.slug, next));
   const isLiveTab = view === liveView(admin.event.eventType, admin.event.phase);
   // Share lives in the header; its command opens it from the Submissions clock too.
@@ -1699,10 +1695,21 @@ export default function AdminPage() {
                 <label htmlFor="adminEventType">Event type</label>
                 <EventTypeSelect
                   id="adminEventType"
-                  value={admin.event.eventType}
-                  onValueChange={(eventType) => void selectEventType(eventType)}
+                  value={typeChange?.to ?? admin.event.eventType}
+                  onValueChange={(eventType) => selectEventType(eventType)}
                 />
-                <span className="muted form-help">Changing type resets submissions and uploaded files.</span>
+                <span className="muted form-help">Changing it deletes every submission, so it asks first.</span>
+                {typeChange ? <TypeChangeConfirm
+                  to={typeChange.to}
+                  submissions={admin.event.submissionCount}
+                  sheet={Boolean(admin.event.judgingSheetUrl)}
+                  needsMeet={typeChange.to === "demo" && !admin.event.meetUrl.trim()}
+                  meetUrl={typeChange.meetUrl}
+                  busy={typeChange.busy}
+                  onMeetUrl={(meetUrl) => setTypeChange({ ...typeChange, meetUrl })}
+                  onCancel={() => setTypeChange(null)}
+                  onConfirm={() => void confirmEventType()}
+                /> : null}
               </div>
 
             <div className="field">
@@ -1736,7 +1743,8 @@ export default function AdminPage() {
                   : "Published demoers see it on their status pages. It stays hidden in the presentation view unless you enable it after publishing."}
               </span>
             </div>
-            <LumaEventSetting available={admin.event.luma.available} lumaEvent={admin.event.luma.event} slug={params.slug} />
+            {/* Luma imports demoers; a hackathon's teams submit themselves. */}
+            {isHackathonEvent ? null : <LumaEventSetting available={admin.event.luma.available} lumaEvent={admin.event.luma.event} slug={params.slug} />}
             </div>
 
           </section>
@@ -2567,4 +2575,40 @@ function SubmissionSurgeNotice({ at }: { at?: number }) {
 function AdminCommands({ commands, context }: { commands: Command[]; context: string }) {
   useCommands("event-admin", commands, context);
   return null;
+}
+
+function TypeChangeConfirm({ to, submissions, sheet, needsMeet, meetUrl, busy, onMeetUrl, onCancel, onConfirm }: {
+  to: "demo" | "hackathon";
+  submissions: number;
+  sheet: boolean;
+  needsMeet: boolean;
+  meetUrl: string;
+  busy: boolean;
+  onMeetUrl: (meetUrl: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const deletes = submissions > 0;
+  return (
+    <div className="admin-type-confirm" role="group" aria-labelledby="type-confirm-title"
+      onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onCancel(); } }}>
+      <strong id="type-confirm-title">Change to {to === "demo" ? "demo night" : "hackathon"}?</strong>
+      {deletes || sheet ? <span>
+        {deletes ? `This deletes ${submissions} submission${submissions === 1 ? "" : "s"}, their team members and uploaded files.` : ""}
+        {sheet ? `${deletes ? " " : ""}The judging sheet stays in Drive, disconnected.` : ""}
+      </span> : null}
+      {needsMeet ? <div className="field">
+        <label htmlFor="typeChangeMeetUrl">Google Meet link, needed for a demo night</label>
+        <input id="typeChangeMeetUrl" type="url" placeholder="https://meet.google.com/..." value={meetUrl} autoFocus
+          onChange={(event) => onMeetUrl(event.currentTarget.value)}
+          onKeyDown={(event) => { if (event.key === "Enter" && meetUrl.trim()) { event.preventDefault(); onConfirm(); } }} />
+      </div> : null}
+      <div className="admin-type-confirm-actions">
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+        <Button type="button" size="sm" variant={deletes ? "destructive" : "default"} disabled={busy || (needsMeet && !meetUrl.trim())} onClick={onConfirm}>
+          {busy ? "Changing..." : deletes ? "Delete and change" : "Change"}
+        </Button>
+      </div>
+    </div>
+  );
 }

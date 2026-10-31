@@ -1,8 +1,7 @@
 "use client";
 
-import { Component, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Component, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { Check, ChevronDown, FileSpreadsheet, RotateCcw, Search } from "lucide-react";
@@ -23,6 +22,7 @@ import { ProgressView, RankingView } from "./ProjectRows";
 import { FinalistsView } from "./FinalistsView";
 import { ClockCard, DetailPanel } from "./JudgingSide";
 import styles from "./judging.module.css";
+import { InPageLink } from "@/components/InPageLink";
 
 export type Preview = SubmissionPreview & { tracks: string[] };
 
@@ -54,7 +54,13 @@ export type JudgingPageProps = {
   onRemoveFromLineup: (id: Id<"submissions">) => Promise<void>;
   onHide: (id: Id<"submissions">) => Promise<void>;
   onManageJudges: () => void;
-  sheet: { url?: string; busy: boolean; syncPending: boolean; status: string; message: string; onCreate: () => void; onSync: () => void };
+  sheetUrl?: string;
+  sheetBusy: boolean;
+  sheetSyncPending: boolean;
+  sheetStatus: string;
+  sheetMessage: string;
+  onCreateSheet: () => void;
+  onSyncSheet: () => void;
 };
 
 function judgeKeyOf(name: string) {
@@ -67,11 +73,12 @@ function judgeKeyOf(name: string) {
  * beside them. The view, filters, open project and open judge are in the
  * address, so a reload or a shared link lands on the same thing.
  */
-export function JudgingPage(props: JudgingPageProps) {
+export const JudgingPage = memo(function JudgingPage(props: JudgingPageProps) {
   return <JudgingBoundary><JudgingPageInner {...props} /></JudgingBoundary>;
-}
+});
 
-function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onRemoveFromLineup, onHide, onManageJudges, sheet }: JudgingPageProps) {
+function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onRemoveFromLineup, onHide, onManageJudges, sheetUrl, sheetBusy, sheetSyncPending, sheetStatus, sheetMessage, onCreateSheet, onSyncSheet }: JudgingPageProps) {
+  const sheet = { url: sheetUrl, busy: sheetBusy, syncPending: sheetSyncPending, status: sheetStatus, message: sheetMessage, onCreate: onCreateSheet, onSync: onSyncSheet };
   const pathname = usePathname();
   const search = useSearchParams();
   const view = parseJudgingView(search.get("judging"));
@@ -95,14 +102,18 @@ function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onR
    * server on every call, and the search box calls this as you type.
    */
   const setParams = useCallback((patch: Record<string, string | null>) => {
-    const params = new URLSearchParams(search.toString());
+    const params = new URLSearchParams(window.location.search);
     for (const [key, value] of Object.entries(patch)) {
       if (value === null || value === "") params.delete(key);
       else params.set(key, value);
     }
     const next = params.toString();
     window.history.replaceState(null, "", next ? `${pathname}?${next}` : pathname);
-  }, [pathname, search]);
+  }, [pathname]);
+  // Opening the open project closes it. Stable, so memoized rows don't re-render when another row is picked.
+  const selectProject = useCallback((id: string) => {
+    setParams({ project: new URLSearchParams(window.location.search).get("project") === id ? null : id });
+  }, [setParams]);
 
   // The box shows each letter at once; the list filters at low priority, and the
   // address catches up once typing pauses.
@@ -180,7 +191,7 @@ function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onR
 
   const toolbar = <div className={styles.toolbar}>
     <div role="tablist" aria-label="Judging views" className="dq-segmented">
-      {JUDGING_VIEWS.map((item) => <Link key={item.view} role="tab" aria-selected={item.view === view} href={judgingPath(slug, { judging: item.view, track })} replace scroll={false}>{item.label}</Link>)}
+      {JUDGING_VIEWS.map((item) => <InPageLink key={item.view} role="tab" aria-selected={item.view === view} href={judgingPath(slug, { judging: item.view, track })} replace scroll={false}>{item.label}</InPageLink>)}
     </div>
     <span className={styles.toolbarFill} />
     {view === "ranking" && <span className={styles.evenOut}>
@@ -206,9 +217,9 @@ function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onR
     <div className={styles.main}>
       {toolbar}
       {view === "progress" && <ProgressView rows={visible} loading={loading} group={group} assigned={(progress?.scoring ?? []).some((row) => row.assignedJudges.length > 0)} showTracks={showTracks}
-        selectedId={projectId} onSelect={(id) => setParams({ project: id === projectId ? null : id })} onShowAll={() => setParams({ group: null })} filtered={filtered} onClearFilters={clearFilters} />}
+        selectedId={projectId} onSelect={selectProject} onShowAll={() => setParams({ group: null })} filtered={filtered} onClearFilters={clearFilters} />}
       {view === "ranking" && <RankingView rows={visible} loading={loading} evenOut={evenOut} closed={closed} showTracks={showTracks} sort={sort}
-        selectedId={projectId} onSelect={(id) => setParams({ project: id === projectId ? null : id })} filtered={filtered} onClearFilters={clearFilters} />}
+        selectedId={projectId} onSelect={selectProject} filtered={filtered} onClearFilters={clearFilters} />}
     </div>
     {<aside className={styles.side} aria-label={selected ? `${selected.title} details` : "Clock and judges"}>
       {selected ? <DetailPanel slug={slug} row={selected} closed={closed} evenOut={evenOut} decisions={decisions} inLineup={lineupIds.some((id) => String(id) === selected.id)}
@@ -259,7 +270,7 @@ function DisplayMenu({ view, sort, showTracks, onSort, onTracks }: { view: Judgi
 }
 
 /** Create or open the judging sheet, and sync it: at the right of the event tabs, as drawn. */
-function SheetControls({ sheet }: { sheet: JudgingPageProps["sheet"] }) {
+function SheetControls({ sheet }: { sheet: { url?: string; busy: boolean; syncPending: boolean; status: string; message: string; onCreate: () => void; onSync: () => void } }) {
   const slot = useContext(EventTabActionsContext);
   const controls = <span className={styles.sheet}>
     {(sheet.message || sheet.status) && <span className={styles.sheetStatus} role="status">{sheet.message || sheet.status}</span>}

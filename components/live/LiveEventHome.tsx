@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import Link from "next/link";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
@@ -12,12 +11,14 @@ import { ShortcutTooltip, useCommands, type Command } from "@/components/shell/c
 import { PHASE_LABELS, type EventPhase } from "@/lib/event-phase";
 import { adminViewPath } from "@/lib/admin-views";
 import { stagePath } from "@/lib/routes";
-import { formatClock, parseClock, timeAgo, useRemaining, useTick, type ServerTimer } from "./clock";
+import { formatClock, parseClock, useRemaining, type ServerTimer } from "./clock";
+import { TimeAgo } from "./TimeAgo";
 import { errorText, RecentChanges } from "./changes";
 import { PracticeTools } from "./PracticeTools";
 import { JudgingNow } from "@/components/judging/JudgingNow";
 import { Toggle } from "./Toggle";
 import styles from "./live.module.css";
+import { InPageLink } from "@/components/InPageLink";
 
 export type AdminData = FunctionReturnType<typeof api.events.getAdmin>;
 type PhasePreview = FunctionReturnType<typeof api.phases.previewPhaseChange>;
@@ -164,7 +165,7 @@ function PhaseClock({ slug, admin }: { slug: string; admin: AdminData }) {
       timer={event.demoTimer} help={presenter ? "Click the time to type an exact value. Advance presenters from the Queue." : "No one is presenting yet. Start the lineup from the Queue."}
       onSet={(ms) => adjustDemoTimer({ slug, deltaMs: Math.round((ms - demoRemaining) / 1000) * 1000 })}
       onPause={() => pauseDemoTimer({ slug })} onResume={() => startDemoTimer({ slug })} resumeLabel="Start"
-      extra={<Button variant="outline" render={<Link href={adminViewPath(slug, "queue")} />} nativeButton={false}>Open the queue</Button>} />;
+      extra={<Button variant="outline" render={<InPageLink href={adminViewPath(slug, "queue")} />} nativeButton={false}>Open the queue</Button>} />;
   }
 
   return <ExactTimer label="Submissions close in" timer={event.stageTimer} help="Click the time to type an exact value. The stage shows this clock; close submissions from the phase switch."
@@ -244,7 +245,6 @@ function JudgingProgress({ overview }: { overview: Overview }) {
 }
 
 function LatestSubmissions({ admin }: { admin: AdminData }) {
-  const now = useTick(true);
   const all = [...admin.pool, ...admin.lineup].sort((a, b) => b.createdAt - a.createdAt);
   const latest = all.slice(0, 5);
   const word = admin.event.eventType === "hackathon" ? "projects" : "people";
@@ -255,7 +255,7 @@ function LatestSubmissions({ admin }: { admin: AdminData }) {
       : <div className={styles.latest}>{latest.map((item) => <div key={item.id} className={styles.latestRow}>
         <span className={styles.latestTitle}>{item.demoTitle || item.name} {item.teamName && <span className={styles.latestTeam}>· {item.teamName}</span>}</span>
         <TrackChips tracks={item.tracks} hackathon={admin.event.eventType === "hackathon"} />
-        <span className={styles.latestWhen}>{timeAgo(item.createdAt, now)}</span>
+        <span className={styles.latestWhen}><TimeAgo at={item.createdAt} /></span>
       </div>)}</div>}
   </section>;
 }

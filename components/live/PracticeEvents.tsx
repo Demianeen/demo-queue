@@ -32,7 +32,8 @@ export function PracticeEvents() {
   const router = useRouter();
   const pathname = usePathname();
   const creating = search.get("new") === "1";
-  const setCreating = (open: boolean) => router.replace(open ? `${pathname}?new=1` : pathname, { scroll: false });
+  // Opening the dialog only changes the address, so it skips the server (see components/InPageLink.tsx)
+  const setCreating = (open: boolean) => window.history.replaceState(null, "", open ? `${pathname}?new=1` : pathname);
   const commands = useMemo<Command[]>(() => [{ id: "practice-new", group: "This page", label: "New practice event", keys: ["N"], run: () => setCreating(true) }], []); // eslint-disable-line react-hooks/exhaustive-deps
   useCommands("practice-list", commands, "Practice");
 

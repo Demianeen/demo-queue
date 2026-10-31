@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { X } from "lucide-react";
@@ -22,6 +21,7 @@ import { evenOutNote, scoreAverage, type RankedRow } from "@/lib/judging-board";
 import { chipDescription, formatScore } from "./ProjectRows";
 import type { BoardRow } from "./JudgingPage";
 import styles from "./judging.module.css";
+import { InPageLink } from "@/components/InPageLink";
 
 type NormalizationJudge = FunctionReturnType<typeof api.judging.getNormalizationOverview>["judges"][number];
 
@@ -135,7 +135,7 @@ export function ClockCard({ slug, admin, totals, onManageJudges, wide = false }:
   return <section className={wide ? styles.wide : `dq-card ${styles.card}`} aria-label="Judging clock">
     <div className={styles.cardHead}>
       <span>{wide && <span className="dq-dot" data-tone={open ? "accent" : undefined} aria-hidden />}{title}</span>
-      {wide ? <Link href={adminViewPath(slug, "judging")} className={styles.openLink}>Open judging →</Link> : <span className={styles.muted}>{note}</span>}
+      {wide ? <InPageLink href={adminViewPath(slug, "judging")} className={styles.openLink}>Open judging →</InPageLink> : <span className={styles.muted}>{note}</span>}
     </div>
     <div className={styles.clockRow}>{status === "closed" ? null : clock}{wide && draft === null && status !== "closed" && <span className={styles.muted}>{open ? (up ? "Judges can still save." : "left. Judges see the same clock.") : note}</span>}<span className={styles.clockActions}>{actions}</span></div>
     {event.judgingPaused && <p className={styles.warning}>Submissions are open again, so judges can&apos;t save scores until you close them.</p>}
@@ -204,7 +204,7 @@ export function DetailPanel({ slug, row, closed, evenOut, decisions, inLineup, o
         ? <Button variant="outline" size="sm" disabled={busy} onClick={() => void act(() => onRemoveFromLineup(row.submissionId), "Could not remove it from presenters.", `${row.title} removed from presenters.`)}>Remove from presenters</Button>
         : <Button variant="outline" size="sm" disabled={busy} onClick={() => void act(() => onAddToLineup(row.submissionId), "Could not add it to presenters.", `${row.title} added to presenters.`)}>Add to presenters</Button>}
       <Button variant="outline" size="sm" disabled={busy} onClick={() => void act(async () => { await onHide(row.submissionId); onClose(); }, "Could not hide it.", `${row.title} hidden from results. Undo from Recent changes.`)}>Hide from results</Button>
-      <Button variant="outline" size="sm" render={<Link href={`${adminViewPath(slug, "submissions")}&edit=${row.id}`} />} nativeButton={false}>Edit submission</Button>
+      <Button variant="outline" size="sm" render={<InPageLink href={`${adminViewPath(slug, "submissions")}&edit=${row.id}`} />} nativeButton={false}>Edit submission</Button>
     </div>
   </section>;
 }

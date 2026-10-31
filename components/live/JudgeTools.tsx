@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useConvex, useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ChevronDown, Copy, MoreHorizontal } from "lucide-react";
@@ -21,8 +20,9 @@ import { judgeInitials } from "@/lib/judging-board";
 import { absoluteUrl } from "@/lib/routes";
 import { randomToken } from "@/lib/tokens";
 import { errorText } from "./changes";
-import { timeAgo, useTick } from "./clock";
+import { TimeAgo } from "./TimeAgo";
 import styles from "./judge-tools.module.css";
+import { InPageLink } from "@/components/InPageLink";
 
 export type JudgesOverview = FunctionReturnType<typeof api.judging.getJudgesOverview>;
 export type JudgeRow = JudgesOverview["judges"][number];
@@ -72,10 +72,10 @@ function Scored({ judge }: { judge: JudgeRow }) {
   </span>;
 }
 
-function Opened({ judge, now }: { judge: JudgeRow; now: number }) {
+function Opened({ judge }: { judge: JudgeRow }) {
   if (!judge.hasLink) return <span className={styles.muted}>No link yet</span>;
   if (!judge.active) return <span className={styles.muted}>Off</span>;
-  if (judge.openedAt) return <span className={styles.muted}>opened {timeAgo(judge.openedAt, now)}</span>;
+  if (judge.openedAt) return <span className={styles.muted}>opened <TimeAgo at={judge.openedAt} /></span>;
   // A saved score means the link was opened, even when the open was never recorded.
   return judge.assignedScoredCount + judge.helpedCount > 0 ? <span className={styles.muted}>opened</span> : <span className={styles.notOpened}>Not opened</span>;
 }
@@ -86,23 +86,22 @@ function Opened({ judge, now }: { judge: JudgeRow; now: number }) {
  * Judging, where the fixes are.
  */
 export function JudgesList({ slug, overview }: { slug: string; overview: JudgesOverview | undefined }) {
-  const now = useTick(true);
   const judges = useMemo(() => [...(overview?.judges ?? [])].filter((judge) => judge.onRoster || judge.active)
     .sort((left, right) => left.assignedScoredCount + left.helpedCount - (right.assignedScoredCount + right.helpedCount) || left.judgeName.localeCompare(right.judgeName)), [overview]);
   const judgeLabels = useMemo(() => judgeInitials((overview?.judges ?? []).map((judge) => judge.judgeName)), [overview]);
   return <section className={`dq-card ${styles.listCard}`} aria-labelledby="judges-list-title">
     <div className={styles.listHead}><h2 id="judges-list-title">Judges <span className={styles.count}>{overview ? judges.length : ""}</span></h2><span className={styles.muted}>least scored first</span></div>
     {overview === undefined ? [0, 1, 2].map((key) => <div key={key} className={styles.judgeRow} aria-hidden><Skeleton className="size-6 rounded-full" /><Skeleton className="h-3 w-32" /><Skeleton className="ml-auto h-3 w-24" /></div>)
-      : judges.length === 0 ? <p className={styles.empty}>No judges yet. Add them on <Link href={judgingPath(slug)}>Judging</Link>.</p>
+      : judges.length === 0 ? <p className={styles.empty}>No judges yet. Add them on <InPageLink href={judgingPath(slug)}>Judging</InPageLink>.</p>
       : judges.map((judge) => <div key={judge.judgeKey} className={styles.judgeRow} data-off={judge.hasLink && !judge.active ? "" : undefined}>
         <span className={styles.avatar} aria-hidden>{judgeLabels.get(judge.judgeName) ?? "?"}</span>
         <span className={styles.judgeName}>{judge.judgeName}</span>
-        <span className={styles.rowEnd}><Opened judge={judge} now={now} /><Scored judge={judge} />
+        <span className={styles.rowEnd}><Opened judge={judge} /><Scored judge={judge} />
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`More for ${judge.judgeName}`} />}><MoreHorizontal aria-hidden /></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem disabled={!judge.path || !judge.active} onClick={() => void copyJudgeLink(judge)}>Copy link</DropdownMenuItem>
-              <DropdownMenuItem render={<Link href={judgingPath(slug, { judge: judge.judgeKey })} />}>Replace, move scores or turn off…</DropdownMenuItem>
+              <DropdownMenuItem render={<InPageLink href={judgingPath(slug, { judge: judge.judgeKey })} />}>Replace, move scores or turn off…</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </span>
@@ -125,7 +124,6 @@ export function JudgesCard({ slug, eventName, overview, openKey, onOpen, onManag
   /** Project titles, for the turn-off plan. */
   titleById: ReadonlyMap<string, string>;
 }) {
-  const now = useTick(true);
   const judges = useMemo(() => overview?.judges ?? [], [overview]);
   const judgeLabels = useMemo(() => judgeInitials(judges.map((judge) => judge.judgeName)), [judges]);
   const [moving, setMoving] = useState(false);
@@ -151,7 +149,7 @@ export function JudgesCard({ slug, eventName, overview, openKey, onOpen, onManag
           aria-expanded={judge.judgeKey === openKey} onClick={() => onOpen(judge.judgeKey === openKey ? null : judge.judgeKey)}>
           <span className={styles.avatar} aria-hidden>{judgeLabels.get(judge.judgeName) ?? "?"}</span>
           <span className={styles.judgeName}>{judge.judgeName}{!judge.onRoster && <span className={styles.badge}>Not on the roster</span>}</span>
-          <span className={styles.rowEnd}><Opened judge={judge} now={now} /><Scored judge={judge} /><MoreHorizontal aria-hidden className={styles.more} /></span>
+          <span className={styles.rowEnd}><Opened judge={judge} /><Scored judge={judge} /><MoreHorizontal aria-hidden className={styles.more} /></span>
         </button>
         {judge.judgeKey === openKey && <JudgeFixes slug={slug} judge={judge} judges={judges} judgingStatus={overview.judgingStatus} titleById={titleById} moving={moving} setMoving={setMoving} />}
       </div>)}

@@ -8,7 +8,7 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { memberNames } from "@/app/(workspace)/members/actions";
-import { timeAgo, useTick } from "./clock";
+import { TimeAgo } from "./TimeAgo";
 import styles from "./live.module.css";
 
 export type RecentChange = FunctionReturnType<typeof api.changes.listRecentChanges>["changes"][number];
@@ -94,7 +94,6 @@ export function RecentChanges({ slug, compact = 5 }: { slug: string; compact?: n
   const names = useMemberNames();
   const undo = useUndo(slug);
   const [all, setAll] = useState(false);
-  const now = useTick(true);
   const rows = data ? (all ? data.changes : data.changes.slice(0, compact)) : [];
   const more = data ? data.changes.length > compact || data.hasMore : false;
   return <section className={`dq-card ${styles.sideCard}`} aria-labelledby="recent-changes">
@@ -109,7 +108,7 @@ export function RecentChanges({ slug, compact = 5 }: { slug: string; compact?: n
         return <li key={change.id} className={styles.changeRow} data-undone={change.undoneAt !== null ? "" : undefined}>
           <span className={styles.avatar} aria-hidden data-you={change.isYou ? "" : undefined}>{initials(who)}</span>
           <div className={styles.changeText}>
-            <p><strong>{who}</strong> {change.summary}<span className={styles.changeWhen}> · {timeAgo(change.createdAt, now)}</span></p>
+            <p><strong>{who}</strong> {change.summary}<span className={styles.changeWhen}> · <TimeAgo at={change.createdAt} /></span></p>
             {!change.canUndo && change.undoBlockedReason && change.undoneAt === null && <p className={styles.changeBlocked}>{change.undoBlockedReason}</p>}
           </div>
           {change.canUndo ? <Button variant="link" size="xs" className={styles.undoLink} onClick={() => void undo(change)} aria-label={`${change.undoLabel}: ${change.summary}`}>{change.undoLabel}</Button>

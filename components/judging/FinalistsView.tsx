@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorText } from "@/components/live/changes";
-import { timeAgo, useTick } from "@/components/live/clock";
+import { TimeAgo } from "@/components/live/TimeAgo";
 import { finalistOrder, moveItem, placeLabel, REVIEW_TARGET, WINNER_COUNT, type RankedRow } from "@/lib/judging-board";
 import { CriteriaChip, CriteriaHeader, formatScore, slots } from "./ProjectRows";
 import type { BoardRow } from "./JudgingPage";
@@ -47,7 +47,6 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
   const submitFinalists = useMutation(api.judging.submitFinalists);
   const savePlacementDraft = useMutation(api.judging.savePlacementDraft);
   const submitPlacements = useMutation(api.judging.submitPlacements);
-  const now = useTick(true);
   const scoreById = useMemo(() => new Map(rows.map((row) => [row.id, row.final])), [rows]);
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
 
@@ -97,7 +96,7 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
         <li data-done={finalistsSubmitted ? "" : undefined}>{finalistsSubmitted ? <Check aria-hidden /> : <span>1</span>}{finalistsSubmitted ? "Finalists submitted" : "Pick finalists"}</li>
         <li aria-hidden className={styles.stepLine} />
         <li data-done={winnersSubmitted ? "" : undefined} data-current={finalistsSubmitted && !winnersSubmitted ? "" : undefined}>{winnersSubmitted ? <Check aria-hidden /> : <span>2</span>}{winnersSubmitted ? "Winners submitted" : "Winners after the final presentations"}</li>
-        {decision?.updatedAt && (ticked !== null || order !== null || decision.finalistStatus !== "submitted" || decision.placementStatus === "draft") && <li className={styles.saved}>{busy ? "Saving…" : `Draft saved ${timeAgo(decision.updatedAt, now)}`}</li>}
+        {decision?.updatedAt && (ticked !== null || order !== null || decision.finalistStatus !== "submitted" || decision.placementStatus === "draft") && <li className={styles.saved}>{busy ? "Saving…" : <>Draft saved <TimeAgo at={decision.updatedAt} /></>}</li>}
       </ol>
       <div className={`dq-card ${styles.list}`}>
         <div className={styles.listHead}><strong>All {rows.length} projects</strong>{filters}</div>

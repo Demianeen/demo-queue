@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { ArrowDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -87,6 +87,32 @@ function Empty({ filtered, onClearFilters, children }: { filtered: boolean; onCl
   return <div className={styles.empty}>{filtered ? <>No projects match. <Button variant="link" size="sm" onClick={onClearFilters}>Clear the search and track</Button></> : children}</div>;
 }
 
+/** A click anywhere on a row opens it, except on its links, buttons and open popups. */
+function rowClick(id: string, onSelect: (id: string) => void) {
+  return (event: React.MouseEvent) => { if (!(event.target as HTMLElement).closest("a, button:not([data-select]), [role=dialog]")) onSelect(id); };
+}
+
+// Rows re-render only when their own project or selection changes, not when another row is picked or the search narrows.
+const ProgressRow = memo(function ProgressRow({ row, selected, showTracks, onSelect }: { row: RankedRow<BoardRow>; selected: boolean; showTracks: boolean; onSelect: (id: string) => void }) {
+  return <div className={styles.row} data-selected={selected ? "" : undefined} onClick={rowClick(row.id, onSelect)}>
+    <button type="button" data-select="" className={styles.selectButton} aria-label={`Open ${row.title}`} aria-pressed={selected}><StatusIcon completeReviews={row.completeReviews} /></button>
+    <span className={styles.title}>{row.preview ? <SubmissionPreviewTrigger preview={row.preview} className={styles.titleTrigger} /> : row.title}<span className={styles.team}>{row.team}</span></span>
+    {showTracks && row.tracks.length > 0 && <span className={styles.tracks}><TrackChips tracks={row.tracks} /></span>}
+    <span className={styles.chips}>{slots(row, REVIEW_TARGET).map((chip, index) => <AverageChip key={chip?.judgeKey ?? `empty-${index}`} chip={chip} />)}</span>
+    <span className={`dq-mono ${styles.final}`}>{formatScore(row.final)}</span>
+  </div>;
+});
+
+const RankRow = memo(function RankRow({ row, selected, showTracks, slotCount, evenOut, onSelect }: { row: RankedRow<BoardRow>; selected: boolean; showTracks: boolean; slotCount: number; evenOut: boolean; onSelect: (id: string) => void }) {
+  return <div role="row" className={styles.row} data-selected={selected ? "" : undefined} onClick={rowClick(row.id, onSelect)}>
+    <span role="cell" className={styles.rank}><button type="button" data-select="" className={styles.selectButton} aria-label={`Open ${row.title}, ranked ${row.rank}`} aria-pressed={selected}>{row.rank}</button></span>
+    <span role="cell" className={styles.title}>{row.preview ? <SubmissionPreviewTrigger preview={row.preview} className={styles.titleTrigger} /> : row.title}<span className={styles.team}>{row.team}</span></span>
+    {showTracks && <span role="cell" className={styles.tracks}>{row.tracks.length > 0 && <TrackChips tracks={row.tracks} />}</span>}
+    <span role="cell" className={styles.chips}>{slots(row, slotCount).map((chip, index) => <CriteriaChip key={chip?.judgeKey ?? `empty-${index}`} chip={chip} />)}</span>
+    <span role="cell" className={`dq-mono ${styles.final}`} title={evenOut && row.final !== null && row.rawFinal !== null && Math.abs(row.final - row.rawFinal) >= 0.005 ? `Raw ${row.rawFinal.toFixed(2)}` : undefined}>{formatScore(row.final)}</span>
+  </div>;
+});
+
 /**
  * Progress: projects grouped by how many reviews they still need, each with
  * one chip per judge. Opening a group from the Overview's counts shows only
@@ -111,13 +137,7 @@ export function ProgressView({ rows, loading, group, assigned, showTracks, selec
           return <section key={item.group} aria-label={item.label}>
             <h3 className={styles.groupHead}>{item.label}<span className={styles.count}>{members.length}</span></h3>
             {members.length === 0 && <p className={styles.groupEmpty}>{item.group === "done" ? "None yet." : "None. Nice."}</p>}
-            {shown.map((row) => <div key={row.id} className={styles.row} data-selected={row.id === selectedId ? "" : undefined} onClick={(event) => { if (!(event.target as HTMLElement).closest("a, button:not([data-select]), [role=dialog]")) onSelect(row.id); }}>
-              <button type="button" data-select="" className={styles.selectButton} aria-label={`Open ${row.title}`} aria-pressed={row.id === selectedId}><StatusIcon completeReviews={row.completeReviews} /></button>
-              <span className={styles.title}>{row.preview ? <SubmissionPreviewTrigger preview={row.preview} className={styles.titleTrigger} /> : row.title}<span className={styles.team}>{row.team}</span></span>
-              {showTracks && row.tracks.length > 0 && <span className={styles.tracks}><TrackChips tracks={row.tracks} /></span>}
-              <span className={styles.chips}>{slots(row, REVIEW_TARGET).map((chip, index) => <AverageChip key={chip?.judgeKey ?? `empty-${index}`} chip={chip} />)}</span>
-              <span className={`dq-mono ${styles.final}`}>{formatScore(row.final)}</span>
-            </div>)}
+            {shown.map((row) => <ProgressRow key={row.id} row={row} selected={row.id === selectedId} showTracks={showTracks} onSelect={onSelect} />)}
             {!open && members.length > GROUP_PREVIEW && <button type="button" className={styles.more} onClick={() => setExpanded((current) => new Set(current).add(item.group))}>{members.length - GROUP_PREVIEW} more</button>}
           </section>;
         })}
@@ -151,13 +171,7 @@ export function RankingView({ rows, loading, evenOut, closed, showTracks, sort, 
       </div>
       {loading ? <RowsSkeleton count={6} />
         : rows.length === 0 ? <Empty filtered={filtered} onClearFilters={onClearFilters}>No projects in judging yet.</Empty>
-        : shown.map((row) => <div key={row.id} role="row" className={styles.row} data-selected={row.id === selectedId ? "" : undefined} onClick={(event) => { if (!(event.target as HTMLElement).closest("a, button:not([data-select]), [role=dialog]")) onSelect(row.id); }}>
-          <span role="cell" className={styles.rank}><button type="button" data-select="" className={styles.selectButton} aria-label={`Open ${row.title}, ranked ${row.rank}`} aria-pressed={row.id === selectedId}>{row.rank}</button></span>
-          <span role="cell" className={styles.title}>{row.preview ? <SubmissionPreviewTrigger preview={row.preview} className={styles.titleTrigger} /> : row.title}<span className={styles.team}>{row.team}</span></span>
-          {showTracks && <span role="cell" className={styles.tracks}>{row.tracks.length > 0 && <TrackChips tracks={row.tracks} />}</span>}
-          <span role="cell" className={styles.chips}>{slots(row, slotCount).map((chip, index) => <CriteriaChip key={chip?.judgeKey ?? `empty-${index}`} chip={chip} />)}</span>
-          <span role="cell" className={`dq-mono ${styles.final}`} title={evenOut && row.final !== null && row.rawFinal !== null && Math.abs(row.final - row.rawFinal) >= 0.005 ? `Raw ${row.rawFinal.toFixed(2)}` : undefined}>{formatScore(row.final)}</span>
-        </div>)}
+        : shown.map((row) => <RankRow key={row.id} row={row} selected={row.id === selectedId} showTracks={showTracks} slotCount={slotCount} evenOut={evenOut} onSelect={onSelect} />)}
       {!loading && !all && rows.length > RANKING_PREVIEW && <button type="button" className={styles.more} onClick={() => setAll(true)}>{rows.length - RANKING_PREVIEW} more</button>}
     </div>
     <p className={styles.footnote}>{closed ? "Judging is closed, so this is the final order." : "Live while judging runs."} Each chip is one judge&apos;s scores as they entered them: I innovation, E execution, D demo clarity. Hover a chip for the judge&apos;s name and labelled scores, or a letter for its criterion. {evenOut ? "Final evens out judges who score high or low across the board; turn that off to rank by raw scores." : "Final is the raw average of complete reviews."} Tracks and sorting by one criterion are in Display.</p>

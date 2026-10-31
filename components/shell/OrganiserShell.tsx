@@ -21,6 +21,7 @@ import { CommandMenu } from "./CommandMenu";
 import { ShortcutSheet } from "./ShortcutSheet";
 import { ADMIN_VIEW_KEYS, adminViewPath, adminViewsFor, judgingPath, JUDGES_KEY } from "@/lib/admin-views";
 import { PHASE_LABELS, type EventPhase } from "@/lib/event-phase";
+import { InPageLink, useInPageNavigate } from "@/components/InPageLink";
 
 type Organization = { id: string; name: string };
 export type ShellEvent = { name: string; slug: string; eventType: "demo" | "hackathon"; practice?: boolean; phase?: EventPhase };
@@ -131,7 +132,7 @@ function ShellSidebar({ organizations, activeOrganizationId, email, displayName,
 /** An event in the sidebar: one item with its phase. Its sections are the tabs on its page. */
 function EventNav({ event, active }: { event: ShellEvent; active: boolean }) {
   return <SidebarMenuItem>
-    <SidebarMenuButton render={<Link href={adminViewPath(event.slug, "home")} />} isActive={active}>
+    <SidebarMenuButton render={<InPageLink href={adminViewPath(event.slug, "home")} />} isActive={active}>
       {event.practice ? <FlaskConical aria-hidden /> : event.eventType === "hackathon" ? <Code2 aria-hidden /> : <Presentation aria-hidden />}<span className="truncate">{event.name}</span>
       {event.phase && <span className="dq-nav-phase" data-phase={event.phase}>{PHASE_LABELS[event.phase]}</span>}
     </SidebarMenuButton>
@@ -149,6 +150,7 @@ function NavItem({ href, label, keys, icon, active }: { href: string; label: str
 /** Navigation and creation commands that work on every organiser page. */
 function GlobalCommands({ liveEvent, organizations, activeOrganizationId, switching, onSelectOrganization }: ShellProps) {
   const router = useRouter();
+  const navigate = useInPageNavigate();
   const { setSheetOpen } = useCommandRegistry();
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [
@@ -164,17 +166,17 @@ function GlobalCommands({ liveEvent, organizations, activeOrganizationId, switch
     ];
     if (liveEvent) {
       for (const item of adminViewsFor(liveEvent.eventType)) {
-        list.push({ id: `go-${item.view}`, group: "Live now", label: `${liveEvent.name}: ${item.label.toLowerCase()}`, keys: ["G", ADMIN_VIEW_KEYS[item.view]], run: () => router.push(adminViewPath(liveEvent.slug, item.view)) });
+        list.push({ id: `go-${item.view}`, group: "Live now", label: `${liveEvent.name}: ${item.label.toLowerCase()}`, keys: ["G", ADMIN_VIEW_KEYS[item.view]], run: () => navigate(adminViewPath(liveEvent.slug, item.view)) });
       }
       // The Judges page is part of Judging now; its key still opens the judges.
-      if (liveEvent.eventType === "hackathon") list.push({ id: "go-judges", group: "Live now", label: `${liveEvent.name}: judges`, keys: ["G", JUDGES_KEY], run: () => router.push(judgingPath(liveEvent.slug)) });
+      if (liveEvent.eventType === "hackathon") list.push({ id: "go-judges", group: "Live now", label: `${liveEvent.name}: judges`, keys: ["G", JUDGES_KEY], run: () => navigate(judgingPath(liveEvent.slug)) });
     }
     if (organizations.length > 1) for (const org of organizations) {
       if (org.id === activeOrganizationId) continue;
       list.push({ id: `org-${org.id}`, group: "Switch organization", label: `Switch to ${org.name}`, disabled: switching, run: () => void onSelectOrganization(org.id) });
     }
     return list;
-  }, [router, setSheetOpen, liveEvent, organizations, activeOrganizationId, switching, onSelectOrganization]);
+  }, [router, navigate, setSheetOpen, liveEvent, organizations, activeOrganizationId, switching, onSelectOrganization]);
   useCommands("global", commands);
   return null;
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +11,7 @@ import { REVIEW_GROUPS, reviewGroup } from "@/lib/judging-board";
 import { ClockCard } from "./JudgingSide";
 import { JudgingBoundary } from "./JudgingPage";
 import styles from "./judging.module.css";
+import { InPageLink } from "@/components/InPageLink";
 
 /**
  * Overview's main block during the judging phase: the judging clock with
@@ -32,9 +32,9 @@ function JudgingNowInner({ slug, admin, overview, onManageJudges }: { slug: stri
   return <div className={styles.now}>
     <ClockCard slug={slug} admin={admin} totals={overview?.totals} onManageJudges={onManageJudges} wide />
     {assigned && <div className={styles.groupCards} aria-label="Reviews">
-      {counts ? counts.map((item) => <Link key={item.group} href={judgingPath(slug, { group: item.group })} className={`dq-card ${styles.groupCard}`}>
+      {counts ? counts.map((item) => <InPageLink key={item.group} href={judgingPath(slug, { group: item.group })} className={`dq-card ${styles.groupCard}`}>
         <span>{item.label}</span><strong>{item.count}</strong><span className={styles.muted}>{item.note}</span>
-      </Link>)
+      </InPageLink>)
         : REVIEW_GROUPS.map((item) => <div key={item.group} className={`dq-card ${styles.groupCard}`} aria-hidden>
           <span>{item.label}</span><Skeleton className="h-6 w-8" /><Skeleton className="h-3 w-20" />
         </div>)}

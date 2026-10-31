@@ -26,6 +26,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { parseAdminView, adminViewPath, judgingPath, type AdminView } from "@/lib/admin-views";
+import { useInPageNavigate } from "@/components/InPageLink";
 import { LiveEventHome } from "@/components/live/LiveEventHome";
 import { UndoToaster } from "@/components/live/changes";
 import { useCommands, type Command } from "@/components/shell/commands";
@@ -252,51 +253,59 @@ function adminStageModeState({
   };
 }
 
-function useTimerView(timer: StageTimer | undefined) {
-  const [clientNow, setClientNow] = useState(() => Date.now());
+/** A timer's status, label and time left at `now`, read like every other clock (lib/timer-clock.ts). */
+function timerView(timer: StageTimer | undefined, now: number) {
+  if (!timer) return { status: "idle" as const, label: "ready", remainingMs: 0, display: formatTimerMs(0) };
+  const remainingMs = timeLeftMs({ ...timer, running: timer.status === "running" }, now);
+  const label = timer.status === "running" ? (remainingMs < 0 ? "over time" : "on clock") : timer.status === "paused" ? "paused" : "ready";
+  return { status: timer.status, label, remainingMs, display: formatTimerMs(remainingMs) };
+}
 
+/**
+ * The time shown, ticking on its own. The admin page holds every tab, so it
+ * must not re-render with the clock: only this readout does, once a second
+ * just after the shown second changes.
+ */
+function TimerReadout({ timer }: { timer: StageTimer | undefined }) {
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    setClientNow(Date.now());
+    setNow(Date.now());
     if (!timer || timer.status !== "running") return;
-
-    const interval = window.setInterval(() => {
-      setClientNow(Date.now());
-    }, 250);
-
-    return () => window.clearInterval(interval);
-  }, [timer]);
-
-  if (!timer) {
-    return {
-      status: "idle" as const,
-      label: "ready",
-      remainingMs: 0,
-      display: formatTimerMs(0),
+    let id = 0;
+    const tick = () => {
+      const current = Date.now();
+      setNow(current);
+      const left = timerView(timer, current).remainingMs;
+      id = window.setTimeout(tick, (((left % 1000) + 1000) % 1000) + 20);
     };
-  }
+    tick();
+    return () => window.clearTimeout(id);
+  }, [timer]);
+  const view = timerView(timer, now);
+  return <div className="stage-timer-readout-row">
+    <div className="stage-timer-readout">{view.display}</div>
+    <span className={`pill ${view.status === "running" ? (view.remainingMs < 0 ? "yellow" : "green") : ""}`}>{view.label}</span>
+  </div>;
+}
 
-  // The same reading as every other clock: see lib/timer-clock.ts.
-  const remainingMs = timeLeftMs({ ...timer, running: timer.status === "running" }, clientNow);
-  const label =
-    timer.status === "running"
-      ? remainingMs < 0
-        ? "over time"
-        : "on clock"
-      : timer.status === "paused"
-        ? "paused"
-        : "ready";
-
-  return {
-    status: timer.status,
-    label,
-    remainingMs,
-    display: formatTimerMs(remainingMs),
-  };
+/** Whether a timer has run past zero. Re-renders once, when a running timer reaches zero. */
+function useOvertime(timer: StageTimer | undefined) {
+  const [now, setNow] = useState(() => Date.now());
+  const left = timer ? timerView(timer, now).remainingMs : 0;
+  useEffect(() => {
+    if (!timer || timer.status !== "running") return;
+    const untilZero = timerView(timer, Date.now()).remainingMs;
+    if (untilZero < 0) return;
+    const id = window.setTimeout(() => setNow(Date.now()), untilZero + 20);
+    return () => window.clearTimeout(id);
+  }, [timer]);
+  return left < 0;
 }
 
 export default function AdminPage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
+  const navigate = useInPageNavigate();
   const { isAuthenticated } = useConvexAuth();
   const admin = useQuery(api.events.getAdmin, isAuthenticated ? { slug: params.slug } : "skip");
 
@@ -394,7 +403,7 @@ export default function AdminPage() {
   useEffect(() => { setActiveTab(view === "queue" ? "lineup" : "all"); }, [view]);
   const rawView = searchParams.get("view");
   useEffect(() => {
-    if (rawView === "judges") router.replace(judgingPath(params.slug));
+    if (rawView === "judges") window.history.replaceState(null, "", judgingPath(params.slug));
   }, [rawView, router, params.slug]);
   const editParam = view === "submissions" ? searchParams.get("edit") : null;
   useEffect(() => {
@@ -456,9 +465,14 @@ export default function AdminPage() {
   }, [demoTimerDurationMs]);
 
   const effectiveStageTimer = queueTimerOverride ?? admin?.event.stageTimer;
-  const stageTimerView = useTimerView(effectiveStageTimer);
+  // Status only: the time left is read when a button is pressed, and shown by TimerReadout.
+  const stageTimerView = { status: effectiveStageTimer?.status ?? "idle" };
+  const stageRemainingMs = () => timerView(effectiveStageTimer, Date.now()).remainingMs;
+  const stageOvertime = useOvertime(effectiveStageTimer);
   const effectiveDemoTimer = demoTimerOverride ?? admin?.event.demoTimer;
-  const demoTimerView = useTimerView(effectiveDemoTimer);
+  const demoTimerView = { status: effectiveDemoTimer?.status ?? "idle" };
+  const demoRemainingMs = () => timerView(effectiveDemoTimer, Date.now()).remainingMs;
+  const demoOvertime = useOvertime(effectiveDemoTimer);
   const judgingSheetSyncPending = isJudgingSheetSyncPending({
     spreadsheetUrl: admin?.event.judgingSheetUrl,
     requestedRevision: admin?.event.judgingSheetSyncRevision ?? 0,
@@ -540,6 +554,25 @@ export default function AdminPage() {
     params.slug,
     setDemoTimerDuration,
   ]);
+
+  // Judging gets handlers that keep their identity, so the admin page's own
+  // re-renders (other tabs' state, timers) skip the memoized Judging page.
+  const judgingHandlers = useRef<{
+    addToLineup: (id: Id<"submissions">) => Promise<void>;
+    removeFromLineup: (id: Id<"submissions">) => Promise<void>;
+    hide: (id: Id<"submissions">) => Promise<void>;
+    manageJudges: () => void;
+    createSheet: () => void;
+    syncSheet: () => void;
+  } | null>(null);
+  const judgingActions = useMemo(() => ({
+    onAddToLineup: (id: Id<"submissions">) => judgingHandlers.current!.addToLineup(id),
+    onRemoveFromLineup: (id: Id<"submissions">) => judgingHandlers.current!.removeFromLineup(id),
+    onHide: (id: Id<"submissions">) => judgingHandlers.current!.hide(id),
+    onManageJudges: () => judgingHandlers.current!.manageJudges(),
+    onCreateSheet: () => judgingHandlers.current!.createSheet(),
+    onSyncSheet: () => judgingHandlers.current!.syncSheet(),
+  }), []);
 
   if (!admin) {
     return (
@@ -793,8 +826,8 @@ export default function AdminPage() {
       effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
     );
     const remainingMs =
-      stageTimerView.status === "paused" && stageTimerView.remainingMs > 0
-        ? stageTimerView.remainingMs
+      stageTimerView.status === "paused" && stageRemainingMs() > 0
+        ? stageRemainingMs()
         : durationMs;
 
     showQueueTimerImmediately({
@@ -812,7 +845,7 @@ export default function AdminPage() {
     showQueueTimerImmediately({
       status: "paused",
       durationMs: effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
-      remainingMs: stageTimerView.remainingMs,
+      remainingMs: stageRemainingMs(),
       endsAt: undefined,
       serverNow: now,
     });
@@ -842,8 +875,8 @@ export default function AdminPage() {
     const now = Date.now();
     const nextRemainingMs =
       stageTimerView.status === "running"
-        ? clampSignedTimerMs(stageTimerView.remainingMs + deltaMs)
-        : clampTimerMs(stageTimerView.remainingMs + deltaMs);
+        ? clampSignedTimerMs(stageRemainingMs() + deltaMs)
+        : clampTimerMs(stageRemainingMs() + deltaMs);
     showQueueTimerImmediately({
       status: stageTimerView.status,
       durationMs: effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
@@ -861,7 +894,7 @@ export default function AdminPage() {
     const now = Date.now();
     const durationMs = effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS;
     const remainingMs =
-      demoTimerView.status === "paused" ? demoTimerView.remainingMs : durationMs;
+      demoTimerView.status === "paused" ? demoRemainingMs() : durationMs;
 
     showDemoTimerImmediately({
       status: "running",
@@ -878,7 +911,7 @@ export default function AdminPage() {
     showDemoTimerImmediately({
       status: "paused",
       durationMs: effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS,
-      remainingMs: demoTimerView.remainingMs,
+      remainingMs: demoRemainingMs(),
       endsAt: undefined,
       serverNow: now,
     });
@@ -889,8 +922,8 @@ export default function AdminPage() {
     const now = Date.now();
     const nextRemainingMs =
       demoTimerView.status === "running" || demoTimerView.status === "paused"
-        ? clampSignedTimerMs(demoTimerView.remainingMs + deltaMs)
-        : clampTimerMs(demoTimerView.remainingMs + deltaMs);
+        ? clampSignedTimerMs(demoRemainingMs() + deltaMs)
+        : clampTimerMs(demoRemainingMs() + deltaMs);
     showDemoTimerImmediately({
       status: demoTimerView.status,
       durationMs: effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS,
@@ -1052,6 +1085,13 @@ export default function AdminPage() {
     }
   }
 
+  judgingHandlers.current = {
+    addToLineup, removeFromLineup, hide,
+    manageJudges: () => openRoundOneJudges(),
+    createSheet: () => void createJudgingSheetFile(),
+    syncSheet: () => void syncJudgingSheetNow(),
+  };
+
   function openRoundOneJudges() {
     if (!admin) return;
     setJudgesText(admin.event.roundOneJudges.join("\n"));
@@ -1136,6 +1176,8 @@ export default function AdminPage() {
     stageScreenMode: admin.event.stageScreenMode,
   });
   const activeTimerView = timerIsDemoLike ? demoTimerView : stageTimerView;
+  const activeTimer = timerIsDemoLike ? effectiveDemoTimer : effectiveStageTimer;
+  const activeOvertime = timerIsDemoLike ? demoOvertime : stageOvertime;
   const activeTimerVisible =
     activeTimerMode === "demo"
       ? admin.event.showDemoTimerOnStage ?? false
@@ -1170,7 +1212,7 @@ export default function AdminPage() {
   const viewDescription = view === "submissions"
     ? `Everyone who submitted. Add them to the ${lineupName}, edit, or hide them.`
     : "Event type, meet link, Luma and tracks.";
-  const goTo = (next: AdminView) => router.push(adminViewPath(params.slug, next));
+  const goTo = (next: AdminView) => navigate(adminViewPath(params.slug, next));
   const adminCommands: Command[] = [
     queueIsLive && currentLineupItem
       ? { id: "admin-advance", group: "This page", label: livePrimaryLabel, keys: ["A"], run: () => void livePrimaryAction() }
@@ -1433,7 +1475,7 @@ export default function AdminPage() {
               ) : null}
 
             <div className="admin-section-label">Presentation timer</div>
-            <div className={`stage-timer-admin${activeTimerView.remainingMs < 0 ? " is-overtime" : ""}`}>
+            <div className={`stage-timer-admin${activeOvertime ? " is-overtime" : ""}`}>
               <div className="stage-timer-admin-heading">
                 <span className="stage-timer-admin-title">
                   <Clock size={16} aria-hidden />
@@ -1465,14 +1507,7 @@ export default function AdminPage() {
                     <span>Show submissions count</span>
                   </label>
                 ) : null}
-                <div className="stage-timer-readout-row">
-                  <div className="stage-timer-readout">{activeTimerView.display}</div>
-                  <span
-                    className={`pill ${activeTimerIsRunning ? (activeTimerView.remainingMs < 0 ? "yellow" : "green") : ""}`}
-                  >
-                    {activeTimerView.label}
-                  </span>
-                </div>
+                <TimerReadout timer={activeTimer} />
                 <p className="stage-timer-note">{timerAvailabilityMessage}</p>
                 {activeTimerMode === "queue" ? (
                   <div className="stage-timer-controls" aria-label="Queue timer controls">
@@ -1669,19 +1704,17 @@ export default function AdminPage() {
             admin={admin}
             previews={submissionPreviews}
             lineupIds={board.lineup}
-            onAddToLineup={addToLineup}
-            onRemoveFromLineup={removeFromLineup}
-            onHide={hide}
-            onManageJudges={openRoundOneJudges}
-            sheet={{
-              url: admin.event.judgingSheetUrl,
-              busy: sheetBusy,
-              syncPending: judgingSheetSyncPending,
-              status: judgingSheetSyncStatus,
-              message: judgesMessage && !judgesOpen ? judgesMessage : sheetMessage,
-              onCreate: () => void createJudgingSheetFile(),
-              onSync: () => void syncJudgingSheetNow(),
-            }}
+            onAddToLineup={judgingActions.onAddToLineup}
+            onRemoveFromLineup={judgingActions.onRemoveFromLineup}
+            onHide={judgingActions.onHide}
+            onManageJudges={judgingActions.onManageJudges}
+            sheetUrl={admin.event.judgingSheetUrl}
+            sheetBusy={sheetBusy}
+            sheetSyncPending={judgingSheetSyncPending}
+            sheetStatus={judgingSheetSyncStatus}
+            sheetMessage={judgesMessage && !judgesOpen ? judgesMessage : sheetMessage}
+            onCreateSheet={judgingActions.onCreateSheet}
+            onSyncSheet={judgingActions.onSyncSheet}
           />
         ) : null}
 

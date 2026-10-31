@@ -218,8 +218,8 @@ export async function addJudgesToEvent(ctx: MutationCtx, event: Doc<"events">, n
 
 /**
  * Takes a judge off the roster. Refused once they have a score: turn them
- * off instead, so the scores stay. Projects they were given go to the least
- * busy judge who is on, beside the judge already there. Their link stops
+ * off instead, so the scores stay. Projects they were given go to judges
+ * who are on, beside the judge already there (see replacementPicker). Their link stops
  * working and is kept, so adding them again brings it back.
  */
 export async function removeJudgeFromEvent(ctx: MutationCtx, event: Doc<"events">, judgeKey: string, { syncSheet = true, leaving = [] as string[] } = {}) {
@@ -237,13 +237,14 @@ export async function removeJudgeFromEvent(ctx: MutationCtx, event: Doc<"events"
   if (affected.length > 0) {
     // Judges who are off, or leaving in the same save, take nothing new.
     const candidates = directory.roster.filter((other) => other.key !== judge.key && !leaving.includes(other.key) && other.access?.active !== false).map((other) => other.key);
-    const counts = buildJudgeAssignmentCounts(submissions.map((submission) => submission.roundOneAssignedJudges));
+    const reviews = await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(4000);
+    const replacementJudge = replacementPicker(candidates, submissions.filter(isJudgingSubmission), reviews);
     for (const submission of affected) {
       const current = submission.roundOneAssignedJudges!;
       const kept = current.map(judgeKeyOf).find((key) => key !== judge.key)!;
       let replacement: string;
       try {
-        replacement = replacementJudge(candidates, [judge.key, kept], counts);
+        replacement = replacementJudge(String(submission._id), [judge.key, kept]);
       } catch {
         throw new ConvexError(`Add another judge before removing ${judge.name}: their projects need someone.`);
       }
@@ -596,21 +597,36 @@ export const prepareAssignmentBatch = mutation({
 
 const overrideValidator = v.object({ submissionId: v.id("submissions"), judges: v.array(v.string()) });
 
-/** The least loaded of these judge keys, leaving out `excluded`. */
-function replacementJudge(
+/**
+ * Who takes a removed or turned-off judge's unscored projects, one project
+ * per call. Judges who still have unscored projects of their own come first:
+ * they are active and on the page. The projects are spread one at a time
+ * among them, the judge with the most left first, then roster order. A judge
+ * who has finished comes next, and a judge with no projects of their own (one
+ * added after the hand-out, who gets none of their own) only when nobody else
+ * can. Never the judge already on the project, nor one who scored it.
+ */
+function replacementPicker(
   candidateKeys: string[],
-  excluded: string[],
-  counts: ReturnType<typeof buildJudgeAssignmentCounts>,
+  judging: Doc<"submissions">[],
+  reviews: Doc<"reviews">[],
 ) {
-  const replacement = candidateKeys
-    .filter((key) => !excluded.includes(key))
-    .map((key, index) => ({ key, index, load: counts.individual.get(key) ?? 0 }))
-    .sort((a, b) => a.load - b.load || a.index - b.index)[0]?.key;
-  if (!replacement) {
-    throw new ConvexError("Add another available judge before redistributing reviews.");
-  }
-  counts.individual.set(replacement, (counts.individual.get(replacement) ?? 0) + 1);
-  return replacement;
+  const { left } = helpState(judging, reviews, candidateKeys, new Set());
+  const withProjects = new Set(judging.flatMap((submission) => (submission.roundOneAssignedJudges ?? []).map(judgeKeyOf)));
+  const tier = (key: string) => ((left.get(key) ?? 0) > 0 ? 0 : withProjects.has(key) ? 1 : 2);
+  const given = new Map<string, number>();
+  return (submissionId: string, excluded: string[]) => {
+    const scored = new Set(reviews.filter((review) => review.completed && String(review.submissionId) === submissionId).map((review) => review.judgeKey));
+    const replacement = candidateKeys
+      .map((key, index) => ({ key, index, tier: tier(key), given: given.get(key) ?? 0, left: left.get(key) ?? 0 }))
+      .filter(({ key }) => !excluded.includes(key) && !scored.has(key))
+      .sort((a, b) => a.tier - b.tier || a.given - b.given || b.left - a.left || a.index - b.index)[0]?.key;
+    if (!replacement) {
+      throw new ConvexError("Add another available judge before redistributing reviews.");
+    }
+    given.set(replacement, (given.get(replacement) ?? 0) + 1);
+    return replacement;
+  };
 }
 
 export const previewRedistributionArgs = v.object({
@@ -631,7 +647,6 @@ export async function previewRedistributionForOrganization(
   const unavailableKey = unavailable.judgeKey;
   const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
   const reviews = await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000);
-  const counts = buildJudgeAssignmentCounts(submissions.map((s) => s.roundOneAssignedJudges));
   const overrides = new Map((args.overrides ?? []).map((item) => [String(item.submissionId), item.judges.map(judgeKeyOf)]));
   const completedBySubmission = new Map<string, string[]>();
   for (const review of reviews.filter((review) => review.completed)) {
@@ -640,6 +655,7 @@ export async function previewRedistributionForOrganization(
   }
   // Judges who are turned off take nothing new.
   const candidates = directory.roster.filter((judge) => judge.access?.active !== false).map((judge) => judge.key);
+  const replacementJudge = replacementPicker(candidates, submissions.filter(isJudgingSubmission), reviews);
 
   const changes = [];
   for (const submission of submissions) {
@@ -652,7 +668,7 @@ export async function previewRedistributionForOrganization(
     if (completedJudges.includes(unavailableKey)) continue;
     const keptJudge = currentKeys.find((key) => key !== unavailableKey)!;
     const automatic = currentKeys.map((key) =>
-      key === unavailableKey ? replacementJudge(candidates, [unavailableKey, keptJudge], counts) : key,
+      key === unavailableKey ? replacementJudge(String(submission._id), [unavailableKey, keptJudge]) : key,
     );
     const judges = overrides.get(String(submission._id)) ?? automatic;
     changes.push({

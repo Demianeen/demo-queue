@@ -196,10 +196,11 @@ test("the month summary works out cost from tokens and prices, by day, feature a
 test("practice sample summaries count without a model call, and the event says samples only", async () => {
   const { t } = setupTest();
   const { eventId } = await createEvent(t, { slug: "dry-run", extra: { practice: true } });
-  const sample = { sections: [], sourceKey: "k", model: "sample", usedReadme: false, sample: true };
-  await addProject(t, eventId, 1, { aiSummary: { ...sample, generatedAt: Date.UTC(2026, 9, 20) } });
-  await addProject(t, eventId, 2, { aiSummary: { ...sample, generatedAt: Date.UTC(2026, 9, 21) } });
-  await addProject(t, eventId, 3, { aiSummary: { ...sample, generatedAt: Date.UTC(2026, 8, 21) } });
+  // Each sample summary is logged when it is written; only this month's count.
+  for (const [index, createdAt] of [Date.UTC(2026, 9, 20), Date.UTC(2026, 9, 21), Date.UTC(2026, 8, 21)].entries()) {
+    const submissionId = await addProject(t, eventId, index + 1);
+    await t.run((ctx) => ctx.db.insert("aiSampleSummaries", { organizationId: ORG, eventId, submissionId, createdAt }));
+  }
   const summary = await t.query(api.aiUsage.monthSummary, { month: MONTH });
   expect(summary.practiceSamples).toBe(2);
   expect(summary.totals.calls).toBe(0);

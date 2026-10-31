@@ -111,6 +111,8 @@ function needsSummary(event: Doc<"events">, submission: Doc<"submissions">, refr
 async function writeSampleSummary(ctx: MutationCtx, event: Doc<"events">, submission: Doc<"submissions">) {
   const sections = buildSampleSummary(submission, summarySections(event));
   const text = (key: string) => sections.find((section) => section.key === key)?.text;
+  const now = Date.now();
+  if (event.workosOrganizationId) await ctx.db.insert("aiSampleSummaries", { organizationId: event.workosOrganizationId, eventId: event._id, submissionId: submission._id, createdAt: now });
   await ctx.db.patch(submission._id, {
     aiSummary: {
       ...(text("whatItDoes") !== undefined ? { whatItDoes: text("whatItDoes") } : {}),
@@ -122,7 +124,7 @@ async function writeSampleSummary(ctx: MutationCtx, event: Doc<"events">, submis
       usedReadme: false,
       promptVersion: SUMMARY_PROMPT_VERSION,
       sample: true,
-      generatedAt: Date.now(),
+      generatedAt: now,
     },
     aiSummaryGaveUp: undefined,
   });

@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { ShortcutTooltip, useCommands, type Command } from "@/components/shell/commands";
 import { judgingPath } from "@/lib/admin-views";
-import { initials } from "@/lib/judging-board";
+import { judgeInitials } from "@/lib/judging-board";
 import { absoluteUrl } from "@/lib/routes";
 import { randomToken } from "@/lib/tokens";
 import { errorText } from "./changes";
@@ -89,12 +89,13 @@ export function JudgesList({ slug, overview }: { slug: string; overview: JudgesO
   const now = useTick(true);
   const judges = useMemo(() => [...(overview?.judges ?? [])].filter((judge) => judge.onRoster || judge.active)
     .sort((left, right) => left.assignedScoredCount + left.helpedCount - (right.assignedScoredCount + right.helpedCount) || left.judgeName.localeCompare(right.judgeName)), [overview]);
+  const judgeLabels = useMemo(() => judgeInitials((overview?.judges ?? []).map((judge) => judge.judgeName)), [overview]);
   return <section className={`dq-card ${styles.listCard}`} aria-labelledby="judges-list-title">
     <div className={styles.listHead}><h2 id="judges-list-title">Judges <span className={styles.count}>{overview ? judges.length : ""}</span></h2><span className={styles.muted}>least scored first</span></div>
     {overview === undefined ? [0, 1, 2].map((key) => <div key={key} className={styles.judgeRow} aria-hidden><Skeleton className="size-6 rounded-full" /><Skeleton className="h-3 w-32" /><Skeleton className="ml-auto h-3 w-24" /></div>)
       : judges.length === 0 ? <p className={styles.empty}>No judges yet. Add them on <Link href={judgingPath(slug)}>Judging</Link>.</p>
       : judges.map((judge) => <div key={judge.judgeKey} className={styles.judgeRow} data-off={judge.hasLink && !judge.active ? "" : undefined}>
-        <span className={styles.avatar} aria-hidden>{initials(judge.judgeName)}</span>
+        <span className={styles.avatar} aria-hidden>{judgeLabels.get(judge.judgeName) ?? "?"}</span>
         <span className={styles.judgeName}>{judge.judgeName}</span>
         <span className={styles.rowEnd}><Opened judge={judge} now={now} /><Scored judge={judge} />
           <DropdownMenu>
@@ -126,6 +127,7 @@ export function JudgesCard({ slug, eventName, overview, openKey, onOpen, onManag
 }) {
   const now = useTick(true);
   const judges = useMemo(() => overview?.judges ?? [], [overview]);
+  const judgeLabels = useMemo(() => judgeInitials(judges.map((judge) => judge.judgeName)), [judges]);
   const [moving, setMoving] = useState(false);
   const open = judges.find((judge) => judge.judgeKey === openKey) ?? null;
   const index = open ? judges.indexOf(open) : -1;
@@ -147,7 +149,7 @@ export function JudgesCard({ slug, eventName, overview, openKey, onOpen, onManag
       : judges.map((judge) => <div key={judge.judgeKey}>
         <button type="button" className={styles.judgeRow} data-button="" data-open={judge.judgeKey === openKey ? "" : undefined} data-off={judge.hasLink && !judge.active ? "" : undefined}
           aria-expanded={judge.judgeKey === openKey} onClick={() => onOpen(judge.judgeKey === openKey ? null : judge.judgeKey)}>
-          <span className={styles.avatar} aria-hidden>{initials(judge.judgeName)}</span>
+          <span className={styles.avatar} aria-hidden>{judgeLabels.get(judge.judgeName) ?? "?"}</span>
           <span className={styles.judgeName}>{judge.judgeName}{!judge.onRoster && <span className={styles.badge}>Not on the roster</span>}</span>
           <span className={styles.rowEnd}><Opened judge={judge} now={now} /><Scored judge={judge} /><MoreHorizontal aria-hidden className={styles.more} /></span>
         </button>

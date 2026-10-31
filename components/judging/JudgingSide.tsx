@@ -18,7 +18,7 @@ import type { JudgesOverview } from "@/components/live/JudgeTools";
 import { errorText } from "@/components/live/changes";
 import { formatClock, parseClock, useRemaining } from "@/components/live/clock";
 import { adminViewPath } from "@/lib/admin-views";
-import { evenOutNote, initials, scoreAverage, type RankedRow } from "@/lib/judging-board";
+import { evenOutNote, scoreAverage, type RankedRow } from "@/lib/judging-board";
 import { chipDescription, formatScore } from "./ProjectRows";
 import type { BoardRow } from "./JudgingPage";
 import styles from "./judging.module.css";
@@ -185,7 +185,7 @@ export function DetailPanel({ slug, row, closed, evenOut, decisions, inLineup, o
         const note = evenOut ? evenOutNote(chip) : null;
         const average = chip.completed ? scoreAverage(chip.scores) : null;
         return <div key={chip.judgeKey} className={styles.judgeScore}>
-          <span className={styles.avatar} aria-hidden>{initials(chip.judgeName)}</span>
+          <span className={styles.avatar} aria-hidden>{chip.initials}</span>
           <div className={styles.judgeScoreBody}>
             <div className={styles.judgeScoreTop}><strong>{chip.judgeName}</strong><span className="dq-mono">{average === null ? (chip.scores ? "scoring" : "–") : average.toFixed(2)}</span></div>
             <span className={styles.judgeScoreLine}>{chipDescription(chip)}</span>

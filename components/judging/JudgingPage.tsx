@@ -11,14 +11,14 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import type { SubmissionPreview } from "@/components/SubmissionPreviewCard";
+import { teamShortLabel, type SubmissionPreview } from "@/components/SubmissionPreviewCard";
 import type { AdminData } from "@/components/live/LiveEventHome";
 import { JudgesCard } from "@/components/live/JudgeTools";
 import { Toggle } from "@/components/live/Toggle";
 import { EventTabActionsContext } from "@/components/live/EventTabs";
 import { JUDGING_VIEWS, judgingPath, parseJudgingView, type JudgingView } from "@/lib/admin-views";
 import { JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
-import { CRITERIA, parseReviewGroup, rankRows, type JudgeChip, type RankSort } from "@/lib/judging-board";
+import { CRITERIA, judgeInitials, parseReviewGroup, rankRows, type JudgeChip, type RankSort } from "@/lib/judging-board";
 import { ProgressView, RankingView } from "./ProjectRows";
 import { FinalistsView } from "./FinalistsView";
 import { ClockCard, DetailPanel } from "./JudgingSide";
@@ -31,7 +31,10 @@ export type BoardRow = {
   id: string;
   submissionId: Id<"submissions">;
   title: string;
+  /** "Sam Lee +2": the presenter and how many others; the full team is in the preview card. */
   team: string;
+  /** Every name on the team, for search. */
+  people: string;
   tracks: string[];
   chips: JudgeChip[];
   completeReviews: number;
@@ -102,6 +105,8 @@ function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onR
   const contributing = (normalization?.judges ?? []).filter((judge) => judge.completeReviewCount > 0);
   const evenOut = closed ? contributing.length === 0 || contributing.every((judge) => judge.effectiveDecision !== "raw") : search.get("raw") !== "1";
 
+  // Same names as the Judges card, so a chip's initials match the judge beside it
+  const judgeLabels = useMemo(() => judgeInitials([...(overview?.judges ?? []).map((judge) => judge.judgeName), ...(progress?.scoring ?? []).flatMap((row) => row.assignedJudges)]), [overview, progress]);
   const rows = useMemo<BoardRow[]>(() => {
     if (!progress) return [];
     const reviews = new Map(progress.reviews.map((review) => [`${String(review.submissionId)}:${review.judgeKey}`, review]));
@@ -117,6 +122,7 @@ function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onR
         return {
           judgeKey: key,
           judgeName,
+          initials: judgeLabels.get(judgeName) ?? "?",
           scores: review ? { innovation: review.innovation, execution: review.execution, demoClarity: review.demoClarity } : null,
           completed: review?.completed ?? false,
           evenedOut: normalized && applies ? normalized.clamped : null,
@@ -124,18 +130,19 @@ function JudgingPageInner({ slug, admin, previews, lineupIds, onAddToLineup, onR
       });
       return {
         id, submissionId: row.submissionId, title: row.demoTitle,
-        team: preview ? preview.people.map((person) => person.name).join(", ") : row.presenterName,
+        team: preview ? teamShortLabel(preview) || row.presenterName : row.presenterName,
+        people: preview ? preview.people.map((person) => person.name).join(" ") : row.presenterName,
         tracks: preview?.tracks ?? row.tracks, chips, completeReviews: row.completeReviewCount, assignedCount: row.assignedJudges.length, preview,
       };
     });
-  }, [progress, previews, decisions, closed]);
+  }, [progress, previews, decisions, closed, judgeLabels]);
 
   const ranked = useMemo(() => rankRows(rows, evenOut, sort), [rows, evenOut, sort]);
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("en");
     return ranked.filter((row) => {
       if (track === MAIN_EVENT ? row.tracks.length > 0 : track && !row.tracks.includes(track)) return false;
-      return !needle || [row.title, row.team].some((value) => value.toLocaleLowerCase("en").includes(needle));
+      return !needle || [row.title, row.people].some((value) => value.toLocaleLowerCase("en").includes(needle));
     });
   }, [ranked, query, track]);
   const selected = projectId ? ranked.find((row) => row.id === projectId) ?? null : null;

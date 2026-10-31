@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { SubmissionPreviewTrigger } from "@/components/SubmissionPreviewCard";
 import { TrackChips } from "@/components/live/LiveEventHome";
 import { JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
-import { CRITERIA, initials, REVIEW_GROUPS, REVIEW_TARGET, reviewGroup, scoreAverage, type JudgeChip, type RankedRow, type RankSort, type ReviewGroup } from "@/lib/judging-board";
+import { CRITERIA, REVIEW_GROUPS, REVIEW_TARGET, reviewGroup, scoreAverage, type JudgeChip, type RankedRow, type RankSort, type ReviewGroup } from "@/lib/judging-board";
 import type { BoardRow } from "./JudgingPage";
 import styles from "./judging.module.css";
 
@@ -42,7 +42,7 @@ function AverageChip({ chip }: { chip: JudgeChip | null }) {
   const average = chip?.completed ? scoreAverage(chip.scores) : null;
   if (!chip || (!chip.completed && !chip.scores)) return <ChipTip chip={chip} className={styles.chipEmpty}><span className="sr-only">{chip ? `${chip.judgeName}: not reviewed yet` : "Not reviewed yet"}</span></ChipTip>;
   return <ChipTip chip={chip} className={styles.chip} >
-    <span className={styles.chipInitials} aria-hidden>{initials(chip.judgeName)}</span>
+    <span className={styles.chipInitials} aria-hidden>{chip.initials}</span>
     <span className="dq-mono">{average === null ? "…" : average.toFixed(1)}</span>
     <span className="sr-only">{chip.judgeName}: {chipDescription(chip)}</span>
   </ChipTip>;
@@ -52,7 +52,7 @@ function AverageChip({ chip }: { chip: JudgeChip | null }) {
 export function CriteriaChip({ chip }: { chip: JudgeChip | null }) {
   if (!chip || !chip.scores) return <ChipTip chip={chip} className={styles.chipEmptyWide}><span className="sr-only">{chip ? `${chip.judgeName}: not reviewed yet` : "Not reviewed yet"}</span></ChipTip>;
   return <ChipTip chip={chip} className={styles.chipWide} >
-    <span className={styles.chipInitials} aria-hidden>{initials(chip.judgeName)}</span>
+    <span className={styles.chipInitials} aria-hidden>{chip.initials}</span>
     {CRITERIA.map((criterion) => <span key={criterion} className={`dq-mono ${styles.digit}`} aria-hidden>{chip.scores?.[criterion] ?? "–"}</span>)}
     <span className="sr-only">{chip.judgeName}: {chipDescription(chip)}</span>
   </ChipTip>;
@@ -114,7 +114,7 @@ export function ProgressView({ rows, loading, group, assigned, showTracks, selec
             {shown.map((row) => <div key={row.id} className={styles.row} data-selected={row.id === selectedId ? "" : undefined} onClick={(event) => { if (!(event.target as HTMLElement).closest("a, button:not([data-select]), [role=dialog]")) onSelect(row.id); }}>
               <button type="button" data-select="" className={styles.selectButton} aria-label={`Open ${row.title}`} aria-pressed={row.id === selectedId}><StatusIcon completeReviews={row.completeReviews} /></button>
               <span className={styles.title}>{row.preview ? <SubmissionPreviewTrigger preview={row.preview} className={styles.titleTrigger} /> : row.title}<span className={styles.team}>{row.team}</span></span>
-              {showTracks && <span className={styles.tracks}><TrackChips tracks={row.tracks} /></span>}
+              {showTracks && row.tracks.length > 0 && <span className={styles.tracks}><TrackChips tracks={row.tracks} /></span>}
               <span className={styles.chips}>{slots(row, REVIEW_TARGET).map((chip, index) => <AverageChip key={chip?.judgeKey ?? `empty-${index}`} chip={chip} />)}</span>
               <span className={`dq-mono ${styles.final}`}>{formatScore(row.final)}</span>
             </div>)}
@@ -154,7 +154,7 @@ export function RankingView({ rows, loading, evenOut, closed, showTracks, sort, 
         : shown.map((row) => <div key={row.id} role="row" className={styles.row} data-selected={row.id === selectedId ? "" : undefined} onClick={(event) => { if (!(event.target as HTMLElement).closest("a, button:not([data-select]), [role=dialog]")) onSelect(row.id); }}>
           <span role="cell" className={styles.rank}><button type="button" data-select="" className={styles.selectButton} aria-label={`Open ${row.title}, ranked ${row.rank}`} aria-pressed={row.id === selectedId}>{row.rank}</button></span>
           <span role="cell" className={styles.title}>{row.preview ? <SubmissionPreviewTrigger preview={row.preview} className={styles.titleTrigger} /> : row.title}<span className={styles.team}>{row.team}</span></span>
-          {showTracks && <span role="cell" className={styles.tracks}><TrackChips tracks={row.tracks} /></span>}
+          {showTracks && <span role="cell" className={styles.tracks}>{row.tracks.length > 0 && <TrackChips tracks={row.tracks} />}</span>}
           <span role="cell" className={styles.chips}>{slots(row, slotCount).map((chip, index) => <CriteriaChip key={chip?.judgeKey ?? `empty-${index}`} chip={chip} />)}</span>
           <span role="cell" className={`dq-mono ${styles.final}`} title={evenOut && row.final !== null && row.rawFinal !== null && Math.abs(row.final - row.rawFinal) >= 0.005 ? `Raw ${row.rawFinal.toFixed(2)}` : undefined}>{formatScore(row.final)}</span>
         </div>)}

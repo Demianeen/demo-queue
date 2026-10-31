@@ -18,6 +18,29 @@ export function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "?";
 }
 
+/**
+ * Initials that tell every judge apart. "Test judge A" and "Test judge B" are
+ * both "TJ", so clashing names use their first and last words ("TA", "TB"),
+ * and a clash that remains gets a number.
+ */
+export function judgeInitials(names: string[]) {
+  const unique = [...new Set(names)];
+  const firstLast = (name: string) => {
+    const parts = name.split(/\s+/).filter(Boolean);
+    return parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : initials(name);
+  };
+  const clashes = (pick: (name: string) => string, name: string) => unique.some((other) => other !== name && pick(other) === pick(name));
+  const result = new Map<string, string>();
+  for (const name of unique) result.set(name, clashes(initials, name) ? firstLast(name) : initials(name));
+  const picked = new Map(result);
+  for (const name of unique) {
+    const label = picked.get(name)!;
+    const same = unique.filter((other) => picked.get(other) === label);
+    if (same.length > 1) result.set(name, `${label[0]}${same.indexOf(name) + 1}`);
+  }
+  return result;
+}
+
 /** The mean of the three criteria, or null until all three are in. */
 export function scoreAverage(scores: Scores | undefined | null) {
   if (!scores) return null;
@@ -46,6 +69,8 @@ export function parseReviewGroup(value: string | null | undefined): ReviewGroup 
 export type JudgeChip = {
   judgeKey: string;
   judgeName: string;
+  /** From judgeInitials over the event's judges, so no two chips look alike. */
+  initials: string;
   scores: Scores | null;
   completed: boolean;
   evenedOut: Scores | null;

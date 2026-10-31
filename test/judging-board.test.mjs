@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { evenOutNote, finalistOrder, finalScore, initials, moveItem, placeLabel, rankRows, reviewGroup, scoreAverage } from "../lib/judging-board.ts";
+import { evenOutNote, finalistOrder, finalScore, initials, judgeInitials, moveItem, placeLabel, rankRows, reviewGroup, scoreAverage } from "../lib/judging-board.ts";
 
 const chip = (judgeName, scores, evenedOut = null, completed = true) => ({ judgeKey: judgeName.toLowerCase(), judgeName, scores, evenedOut, completed });
 
@@ -58,4 +58,14 @@ test("finalists: winners order first, the rest by score, and moves stay in range
   assert.deepEqual(moveItem(["a", "b", "c"], 0, -1), ["a", "b", "c"]);
   assert.equal(placeLabel(1), "2nd");
   assert.equal(placeLabel(3), "");
+});
+
+test("judge initials tell judges apart", () => {
+  const labels = judgeInitials(["Test judge A", "Test judge B", "Alex Chen", "Ann Cole", "Alex Chen"]);
+  assert.equal(labels.get("Test judge A"), "TA");
+  assert.equal(labels.get("Test judge B"), "TB");
+  // "Alex Chen" and "Ann Cole" clash as AC either way, so they get numbers
+  assert.equal(labels.get("Alex Chen"), "A1");
+  assert.equal(labels.get("Ann Cole"), "A2");
+  assert.equal(judgeInitials(["Priya Shah"]).get("Priya Shah"), "PS");
 });

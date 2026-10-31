@@ -34,7 +34,7 @@ section + section .groupHead { border-top: 1px solid var(--dq-divider); }
 .tick { flex: 0 0 18px; display: inline-flex; }
 .title { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; overflow: hidden; white-space: nowrap; }
 .titleTrigger, .titleText { font-weight: 500; color: var(--dq-fg); overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
-.team { color: var(--dq-fg-3); overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.team { color: var(--dq-fg-3); overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1000 auto; }
 .tracks { flex: none; display: inline-flex; }
 @media (max-width: 1279px) { .tracks { display: none; } }
 .chips { flex: none; display: inline-flex; gap: 6px; justify-content: flex-end; }

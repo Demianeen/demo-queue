@@ -242,3 +242,12 @@ div.videoFallback { font-weight: 400; color: var(--dq-fg-3); text-decoration: no
 .guide p { margin: 8px 0 0; color: var(--dq-fg-3); }
 
 .aiSummaryMissing { color: var(--dq-fg-3); font-style: italic; }
+
+/* Help out: whose project a row helps, who covered it, who is scoring it now. */
+.mineHeading[data-tone="behind"] { color: var(--dq-warning-fg); font-weight: 600; }
+.assignmentButton[data-dim] strong, .assignmentButton[data-dim] svg { opacity: 0.55; }
+.assignmentText small[data-tone="warning"] { color: var(--dq-warning-fg); }
+.assignmentText small[data-tone="done"] { color: var(--dq-success-fg); }
+.helpNote { margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--dq-warning-line); border-radius: 8px; background: var(--dq-warning-bg); color: var(--dq-fg); font-size: 13px; line-height: 19px; }
+.helpNote[data-tone="done"] { border-color: var(--dq-success-line); background: var(--dq-success-bg); }
+.helpNote strong { font-weight: 600; }

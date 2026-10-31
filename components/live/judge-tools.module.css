@@ -21,6 +21,12 @@
 .scored { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; color: var(--dq-fg-2); }
 .pie { width: 12px; height: 12px; border-radius: 6px; background: conic-gradient(var(--dq-accent) var(--share), var(--dq-accent-soft) 0); }
 .pie[data-empty] { background: transparent; border: 1px dashed var(--dq-line); }
+.scored[data-tone="behind"] { color: var(--dq-warning-fg); font-weight: 600; }
+.scored[data-tone="behind"] .pie { background: conic-gradient(var(--dq-warning-fg) var(--share), var(--dq-warning-line) 0); border: 0; }
+.scored[data-tone="done"] { color: var(--dq-success-fg); }
+.scored[data-tone="done"] .pie { background: var(--dq-success); }
+.judgeItem[data-behind] { margin: 2px 0; padding: 2px 0 8px; border: 1px solid var(--dq-warning-line); border-radius: 8px; background: var(--dq-warning-bg); }
+.behindNote { margin: 0; padding: 0 8px 0 36px; font-size: 12px; line-height: 17px; color: var(--dq-warning-fg); }
 .empty { color: var(--dq-fg-2); padding: 12px 4px; font-size: 13px; }
 .note { font-size: 12px; line-height: 18px; color: var(--dq-fg-3); margin-top: 8px; }
 

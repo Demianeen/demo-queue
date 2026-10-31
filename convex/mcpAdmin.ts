@@ -194,6 +194,12 @@ export const setStageTimerVisible = internalMutation({
   handler: (ctx, { principal, input }) => events.setStageTimerVisibleForOrganization(ctx, input, principal),
 });
 
+export const setStageResultsShowFinalistsInput = events.setStageResultsShowFinalistsArgs;
+export const setStageResultsShowFinalists = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: setStageResultsShowFinalistsInput },
+  handler: (ctx, { principal, input }) => events.setStageResultsShowFinalistsForOrganization(ctx, input, principal),
+});
+
 export const setStageTimerDurationInput = events.setStageTimerDurationArgs;
 export const setStageTimerDuration = internalMutation({
   args: { principal: organizationPrincipalValidator, input: setStageTimerDurationInput },

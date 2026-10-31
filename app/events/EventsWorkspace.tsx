@@ -8,6 +8,7 @@ import { useConvexAuth, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { EventCreationForm } from "@/components/EventCreationForm";
 import { OrganizationStyles } from "@/components/OrganizationStyles";
+import { InvitePeopleAction } from "@/components/OrganizationMembers";
 import { ChevronRight, Presentation, Code2, Plus } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { GettingStarted } from "@/components/GettingStarted";
@@ -118,7 +119,8 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
     {(switching || !active || (!isLoading && !isAuthenticated)) && <title>{`${VIEW_TITLES[view]} | Demo Queue`}</title>}
     {openEvent?.practice && eventSlug && <div className="px-4 pt-3"><PracticeBar slug={eventSlug} /></div>}
     <PageHeader crumbs={crumbs} actions={view === "events" && active && events.results.length > 0 ? <ShortcutTooltip label="New event" keys={["C"]}><Button size="sm" render={<Link href="/events/new" />} nativeButton={false}><Plus aria-hidden />New event</Button></ShortcutTooltip>
-      : view === "admin" && openEvent && eventSlug ? <EventHeaderActions slug={eventSlug} eventName={openEvent.name} eventType={openEvent.eventType} phase={openEvent.phase} roomOpen={roomOpen} onToggleRoom={toggleRoom} /> : undefined} />
+      : view === "admin" && openEvent && eventSlug ? <EventHeaderActions slug={eventSlug} eventName={openEvent.name} eventType={openEvent.eventType} phase={openEvent.phase} roomOpen={roomOpen} onToggleRoom={toggleRoom} />
+      : view === "members" && active && initialData ? <InvitePeopleAction /> : undefined} />
     {withTabs(<div className={view === "admin" ? "dq-page-wide" : "dq-page"}>
       {signInFailed && <Alert variant="destructive" className="mb-4"><AlertDescription>Sign-in could not be completed. Your previous session is still active. <a href="/events/sign-in">Try signing in again</a>.</AlertDescription></Alert>}
       {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error} <a href="/events">Reload memberships</a></AlertDescription></Alert>}

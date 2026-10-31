@@ -31,6 +31,7 @@ import { canonicalViewParam, liveView, parseAdminView, adminViewPath, type Admin
 import { useInPageNavigate } from "@/components/InPageLink";
 import { ResultsTab, SubmissionsClock } from "@/components/live/PhaseTabs";
 import { StageTab } from "@/components/live/StageTab";
+import { AddToDemoers } from "@/components/live/AddToDemoers";
 import { PracticeTools } from "@/components/live/PracticeTools";
 import { UndoToaster } from "@/components/live/changes";
 import { useCommandRegistry, useCommands, type Command } from "@/components/shell/commands";
@@ -1831,10 +1832,17 @@ export default function AdminPage() {
                       {admin.event.eventType === "hackathon" ? "Presentation lineup" : "Demoers"}
                     </h2>
                     <p className="muted" style={{ margin: "4px 0 0" }}>
-                      Drag rows to set the live running order.
+                      {isHackathonEvent ? "Drag rows to set the live running order." : "Only the people who will demo. Drag rows to reorder."}
                     </p>
                   </div>
                   <div className="lineup-table-actions">
+                    {isHackathonEvent ? null : <AddToDemoers
+                      pool={board.pool.flatMap((id) => {
+                        const item = itemsById.get(id);
+                        return item ? [{ id, name: item.name, demo: item.demoTitle ?? "" }] : [];
+                      })}
+                      onAdd={addToLineup}
+                    />}
                     {admin.event.eventType === "demo" ? <Tooltip>
                       <TooltipTrigger
                         aria-label="Add person"
@@ -1893,7 +1901,7 @@ export default function AdminPage() {
                         emptyMessage={
                           isHackathonEvent
                             ? "Use All submissions to add a submission to the presentation lineup."
-                            : "Use All people to add someone to Demoers."
+                            : "No demoers yet. Add to demoers (A), Shuffle or AI shuffle."
                         }
                       >
                         {board.lineup.map((id, index) => {

@@ -62,14 +62,26 @@ async function copyJudgeLink(judge: JudgeRow) {
   try { await navigator.clipboard.writeText(absoluteUrl(judge.path)); toast(`Copied ${judge.judgeName}'s link`); } catch { toast.error("Could not copy the link."); }
 }
 
-/** How far a judge is through their own list: "3 of 8", with a small pie. */
-function Scored({ judge }: { judge: JudgeRow }) {
-  const share = judge.assignedCount === 0 ? 0 : judge.assignedScoredCount / judge.assignedCount;
-  return <span className={styles.scored}>
+/**
+ * What a judge has left of their own list (covered projects stop counting):
+ * "3 left", "9 left · behind" in amber while judging runs, or "Done" with
+ * how many others they helped. The small pie is how far through they are.
+ */
+function Left({ judge, live }: { judge: JudgeRow; live: boolean }) {
+  const share = judge.assignedCount === 0 ? 0 : (judge.assignedCount - judge.leftCount) / judge.assignedCount;
+  const behind = live && judge.behind;
+  return <span className={styles.scored} data-tone={behind ? "behind" : judge.assignedCount > 0 && judge.leftCount === 0 ? "done" : undefined} title={`${judge.assignedScoredCount} of ${judge.assignedCount} scored`}>
     <span className={styles.pie} style={{ ["--share" as string]: `${Math.round(share * 360)}deg` }} data-empty={share === 0 ? "" : undefined} aria-hidden />
-    <span className="dq-mono">{judge.assignedScoredCount} of {judge.assignedCount}</span>
-    {judge.helpedCount > 0 && <span className={styles.muted}>+{judge.helpedCount}</span>}
+    {judge.assignedCount === 0 ? <span className={styles.muted}>None assigned</span>
+      : judge.leftCount === 0 ? <span>Done{judge.helpedCount > 0 && ` · helped ${judge.helpedCount}`}</span>
+      : <><span className="dq-mono">{judge.leftCount} left{behind && " · behind"}</span>{judge.helpedCount > 0 && <span className={styles.muted}>+{judge.helpedCount}</span>}</>}
   </span>;
+}
+
+/** Under a judge who is behind: where the help comes from. */
+function BehindNote({ judge, live }: { judge: JudgeRow; live: boolean }) {
+  if (!live || !judge.behind) return null;
+  return <p className={styles.behindNote}>Judges who finish see {judge.judgeName}&apos;s projects first in Help out.</p>;
 }
 
 function Opened({ judge }: { judge: JudgeRow }) {
@@ -89,14 +101,15 @@ export function JudgesList({ slug, overview }: { slug: string; overview: JudgesO
   const judges = useMemo(() => [...(overview?.judges ?? [])].filter((judge) => judge.onRoster || judge.active)
     .sort((left, right) => left.assignedScoredCount + left.helpedCount - (right.assignedScoredCount + right.helpedCount) || left.judgeName.localeCompare(right.judgeName)), [overview]);
   const judgeLabels = useMemo(() => judgeInitials((overview?.judges ?? []).map((judge) => judge.judgeName)), [overview]);
+  const live = overview?.judgingStatus === "open";
   return <section className={`dq-card ${styles.listCard}`} aria-labelledby="judges-list-title">
     <div className={styles.listHead}><h2 id="judges-list-title">Judges <span className={styles.count}>{overview ? judges.length : ""}</span></h2><span className={styles.muted}>least scored first</span></div>
     {overview === undefined ? [0, 1, 2].map((key) => <div key={key} className={styles.judgeRow} aria-hidden><Skeleton className="size-6 rounded-full" /><Skeleton className="h-3 w-32" /><Skeleton className="ml-auto h-3 w-24" /></div>)
       : judges.length === 0 ? <p className={styles.empty}>No judges yet. Add them on <InPageLink href={judgingPath(slug)}>Judging</InPageLink>.</p>
-      : judges.map((judge) => <div key={judge.judgeKey} className={styles.judgeRow} data-off={judge.hasLink && !judge.active ? "" : undefined}>
+      : judges.map((judge) => <div key={judge.judgeKey} data-behind={live && judge.behind ? "" : undefined} className={styles.judgeItem}><div className={styles.judgeRow} data-off={judge.hasLink && !judge.active ? "" : undefined}>
         <span className={styles.avatar} aria-hidden>{judgeLabels.get(judge.judgeName) ?? "?"}</span>
         <span className={styles.judgeName}>{judge.judgeName}</span>
-        <span className={styles.rowEnd}><Opened judge={judge} /><Scored judge={judge} />
+        <span className={styles.rowEnd}><Opened judge={judge} /><Left judge={judge} live={live} />
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`More for ${judge.judgeName}`} />}><MoreHorizontal aria-hidden /></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -105,7 +118,7 @@ export function JudgesList({ slug, overview }: { slug: string; overview: JudgesO
             </DropdownMenuContent>
           </DropdownMenu>
         </span>
-      </div>)}
+      </div><BehindNote judge={judge} live={live} /></div>)}
   </section>;
 }
 
@@ -130,6 +143,7 @@ export function JudgesCard({ slug, eventName, overview, openKey, onOpen, onManag
   const { linkless, making, makeAllLinks } = useMakeLinks(slug, judges);
   const open = judges.find((judge) => judge.judgeKey === openKey) ?? null;
   const index = open ? judges.indexOf(open) : -1;
+  const live = overview?.judgingStatus === "open";
   const commands = useMemo<Command[]>(() => [
     { id: "judges-next", group: "This page", label: "Next judge", keys: ["J"], disabled: judges.length === 0, run: () => onOpen(judges[Math.min(index + 1, judges.length - 1)]?.judgeKey ?? null) },
     { id: "judges-previous", group: "This page", label: "Previous judge", keys: ["K"], disabled: judges.length === 0, run: () => onOpen(judges[Math.max(index - 1, 0)]?.judgeKey ?? null) },
@@ -145,13 +159,14 @@ export function JudgesCard({ slug, eventName, overview, openKey, onOpen, onManag
     </div>
     {overview === undefined ? [0, 1, 2, 3].map((key) => <div key={key} className={styles.judgeRow} aria-hidden><Skeleton className="size-6 rounded-full" /><Skeleton className="h-3 w-28" /><Skeleton className="ml-auto h-3 w-20" /></div>)
       : judges.length === 0 ? <div className={styles.empty}>No judges yet. Add their names, and each gets a private link to score from their laptop.<div className="mt-3"><Button size="sm" variant="outline" onClick={onManage}>Add judges</Button></div></div>
-      : judges.map((judge) => <div key={judge.judgeKey}>
+      : judges.map((judge) => <div key={judge.judgeKey} data-behind={live && judge.behind ? "" : undefined} className={styles.judgeItem}>
         <button type="button" className={styles.judgeRow} data-button="" data-open={judge.judgeKey === openKey ? "" : undefined} data-off={judge.hasLink && !judge.active ? "" : undefined}
           aria-expanded={judge.judgeKey === openKey} onClick={() => onOpen(judge.judgeKey === openKey ? null : judge.judgeKey)}>
           <span className={styles.avatar} aria-hidden>{judgeLabels.get(judge.judgeName) ?? "?"}</span>
           <span className={styles.judgeName}>{judge.judgeName}{!judge.onRoster && <span className={styles.badge}>Not on the roster</span>}</span>
-          <span className={styles.rowEnd}><Opened judge={judge} /><Scored judge={judge} /><MoreHorizontal aria-hidden className={styles.more} /></span>
+          <span className={styles.rowEnd}><Opened judge={judge} /><Left judge={judge} live={live} /><MoreHorizontal aria-hidden className={styles.more} /></span>
         </button>
+        <BehindNote judge={judge} live={live} />
         {judge.judgeKey === openKey && <JudgeFixes slug={slug} judge={judge} judges={judges} judgingStatus={overview.judgingStatus} titleById={titleById} moving={moving} setMoving={setMoving} />}
       </div>)}
     <p className={styles.note}>Each judge has one private link. &quot;Not opened&quot; ten minutes before judging is the one to chase.</p>

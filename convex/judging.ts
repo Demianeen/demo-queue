@@ -5,6 +5,7 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import { Doc } from "./_generated/dataModel";
 import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment, sameJudge } from "../lib/judging-assignment";
 import { isCompleteReview, isJudgingScore } from "../lib/judging-rubric";
+import { behindJudges, helpOutOwner, isCovered, leftByJudge, reviewStarted, reviewsByProject, type HelpProject, type HelpReview } from "../lib/judging-help";
 import { TableHistory } from "@convex-dev/table-history";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { components } from "./_generated/api";
@@ -190,6 +191,7 @@ export async function getJudgesOverviewForOrganization(
       completeBySubmission.set(String(review.submissionId), (completeBySubmission.get(String(review.submissionId)) ?? 0) + 1);
     }
   }
+  const help = helpState(judging, reviews, keys, new Set(links.filter((link) => link.active).map((link) => link.judgeKey)));
   const rows = keys.map((judgeKey) => {
     const link = linkByKey.get(judgeKey);
     const judgeName = roster.find((judge) => normalizeJudgeKey(judge) === judgeKey) ?? link?.judgeName ?? judgeKey;
@@ -211,6 +213,10 @@ export async function getJudgesOverviewForOrganization(
       assignedScoredCount: complete.filter((review) => assignedIds.has(String(review.submissionId))).length,
       // Complete reviews on projects assigned to someone else.
       helpedCount: complete.filter((review) => !assignedIds.has(String(review.submissionId))).length,
+      // Their projects not scored yet and not covered by others: what they still have to do.
+      leftCount: help.left.get(judgeKey) ?? 0,
+      // Most left, by a margin: Help out sends finished judges to them first.
+      behind: help.behind.has(judgeKey),
       // Started but not finished, on any project.
       inProgressCount: started.filter((review) => !review.completed).length,
       lastScoredAt: started.reduce<number | null>((latest, review) => Math.max(latest ?? 0, review.updatedAt), null),
@@ -617,6 +623,28 @@ function isAssignedTo(submission: Doc<"submissions">, judgeName: string) {
 }
 
 /**
+ * The projects in judging and their reviews, read by lib/judging-help: what
+ * each judge has left (covered projects stop counting) and who is behind,
+ * among the judges whose link is on.
+ */
+function helpState(
+  judging: Doc<"submissions">[],
+  reviews: Doc<"reviews">[],
+  judgeKeys: string[],
+  activeKeys: ReadonlySet<string>,
+) {
+  const judgingIds = new Set(judging.map((submission) => String(submission._id)));
+  const projects: HelpProject[] = judging.map((submission) => ({ id: String(submission._id), judgeKeys: (submission.roundOneAssignedJudges ?? []).map(normalizeJudgeKey) }));
+  const helpReviews: HelpReview[] = reviews.filter((review) => judgingIds.has(String(review.submissionId))).map((review) => ({
+    submissionId: String(review.submissionId), judgeKey: review.judgeKey, completed: review.completed, started: reviewStarted(review), updatedAt: review.updatedAt,
+  }));
+  const keys = [...new Set([...judgeKeys, ...projects.flatMap((project) => project.judgeKeys)])];
+  const left = leftByJudge(projects, helpReviews, keys);
+  const behind = behindJudges(keys.filter((key) => activeKeys.has(key)).map((key) => ({ judgeKey: key, left: left.get(key) ?? 0 })));
+  return { projects, byProject: reviewsByProject(helpReviews), left, behind };
+}
+
+/**
  * What a judge may read about a submission: the project, its team and its links.
  * Never phones, emails or tokens.
  */
@@ -737,10 +765,18 @@ export const REVIEW_TARGET = 2;
  *
  * Groups, as the Show select counts them:
  * - yours: assigned to this judge and not fully scored by them yet
+ * - covered: assigned to this judge, not started by them, and already given
+ *   its two complete reviews by others; it no longer counts as theirs
  * - helpOut: assigned to other judges, fewer than 2 complete reviews, not
  *   yet fully scored by this judge
  * - scored: fully scored by this judge
  * - all: every project in judging
+ *
+ * Help out comes with whose project each one helps (`helpFor`) and every
+ * judge's left count, so the page lists the judge with the most left first.
+ * `scorers` are other judges' unfinished reviews with when they last saved:
+ * the page decides "scoring it now" on its own ticking clock, so it never
+ * goes stale while this query stays cached.
  */
 export const getJudgeWorkspace = query({
   args: { slug: v.string(), capabilityToken: v.string() },
@@ -766,17 +802,24 @@ export const getJudgeWorkspace = query({
         ...base,
         tracks: eventTracks.map((track) => ({ id: track._id, name: track.name, description: track.description ?? null, count: 0 })),
         mainEventCount: 0,
-        counts: { yours: 0, helpOut: 0, scored: 0, all: 0 },
+        counts: { yours: 0, covered: 0, helpOut: 0, scored: 0, all: 0 },
         yoursTotal: 0,
         yoursScored: 0,
+        judges: [],
         projects: [],
       };
     }
-    const [submissions, reviews] = await Promise.all([
+    const [submissions, reviews, links] = await Promise.all([
       ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
       ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(4000),
+      ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(200),
     ]);
     const judging = submissions.filter(isJudgingSubmission);
+    const roster = event.roundOneJudges ?? [];
+    const nameByKey = new Map<string, string>([...links.map((link) => [link.judgeKey, link.judgeName] as const), ...roster.map((judge) => [normalizeJudgeKey(judge), judge] as const)]);
+    const nameOf = (key: string) => nameByKey.get(key) ?? key;
+    const help = helpState(judging, reviews, roster.map(normalizeJudgeKey), new Set(links.filter((link) => link.active).map((link) => link.judgeKey)));
+    const me = access.judgeKey;
     const completeBySubmission = new Map<string, number>();
     const mine = new Map<string, Doc<"reviews">>();
     for (const review of reviews) {
@@ -786,26 +829,31 @@ export const getJudgeWorkspace = query({
     const views = await judgeSubmissionViews(ctx, event, judging);
     const trackCounts = new Map<string, number>();
     let mainEventCount = 0;
-    const counts = { yours: 0, helpOut: 0, scored: 0, all: views.length };
+    const counts = { yours: 0, covered: 0, helpOut: 0, scored: 0, all: views.length };
     let yoursTotal = 0;
     let yoursScored = 0;
     const projects = views.map((view, index) => {
       const submission = judging[index];
+      const helpProject = help.projects[index];
+      const projectReviews = help.byProject.get(String(view.id)) ?? [];
       const assignedToMe = isAssignedTo(submission, access.judgeName);
       const review = mine.get(String(view.id)) ?? null;
       const scoredByMe = review?.completed === true;
       const completeReviewCount = completeBySubmission.get(String(view.id)) ?? 0;
       const needsReview = completeReviewCount < REVIEW_TARGET;
-      const group: "yours" | "helpOut" | "scored" | "other" = scoredByMe
+      const covered = assignedToMe && isCovered(helpProject, me, projectReviews);
+      const group: "yours" | "covered" | "helpOut" | "scored" | "other" = scoredByMe
         ? "scored"
-        : assignedToMe ? "yours" : needsReview ? "helpOut" : "other";
-      if (group === "yours") counts.yours += 1;
-      if (group === "helpOut") counts.helpOut += 1;
-      if (group === "scored") counts.scored += 1;
-      if (assignedToMe) {
+        : covered ? "covered" : assignedToMe ? "yours" : needsReview ? "helpOut" : "other";
+      if (group !== "other") counts[group] += 1;
+      if (assignedToMe && !covered) {
         yoursTotal += 1;
         if (scoredByMe) yoursScored += 1;
       }
+      // Who covered it: the helpers, or whoever else completed it when no helper did.
+      const completers = projectReviews.filter((other) => other.completed && other.judgeKey !== me);
+      const helpers = completers.filter((other) => !helpProject.judgeKeys.includes(other.judgeKey));
+      const coveredBy = covered ? (helpers.length ? helpers : completers).map((other) => nameOf(other.judgeKey)) : [];
       for (const id of view.trackIds) trackCounts.set(String(id), (trackCounts.get(String(id)) ?? 0) + 1);
       if (view.trackIds.length === 0) mainEventCount += 1;
       return {
@@ -814,6 +862,11 @@ export const getJudgeWorkspace = query({
         group,
         completeReviewCount,
         needsReview,
+        coveredBy,
+        helpFor: assignedToMe ? null : helpOutOwner(helpProject, projectReviews, help.left),
+        scorers: projectReviews.filter((other) => other.judgeKey !== me && other.started && !other.completed).map((other) => ({
+          judgeKey: other.judgeKey, judgeName: nameOf(other.judgeKey), updatedAt: other.updatedAt, assigned: helpProject.judgeKeys.includes(other.judgeKey),
+        })),
         review: review
           ? { innovation: review.innovation ?? null, execution: review.execution ?? null, demoClarity: review.demoClarity ?? null, completed: review.completed, updatedAt: review.updatedAt }
           : null,
@@ -826,6 +879,7 @@ export const getJudgeWorkspace = query({
       counts,
       yoursTotal,
       yoursScored,
+      judges: [...help.left].map(([judgeKey, left]) => ({ judgeKey, judgeName: nameOf(judgeKey), left, behind: help.behind.has(judgeKey) })),
       projects,
     };
   },

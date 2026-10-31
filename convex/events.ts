@@ -3678,7 +3678,17 @@ export const restoreSubmissionForOrganization = withChange<Infer<typeof restoreS
 );
 
 export const reorderLineupForOrganization = withChange<Infer<typeof reorderLineupArgs>, Awaited<ReturnType<typeof reorderLineupOperation>>>(
-  () => ({ kind: "lineup_reordered", summary: "reordered the lineup", watch: { submissions: "all", teamMembers: "all" } }),
+  async (ctx, args, event) => {
+    // Adding to the demoers sends the lineup with the new person at the end: say who was added.
+    const added: Id<"submissions">[] = [];
+    for (const id of new Set(args.orderedIds)) {
+      const submission = await ctx.db.get(id);
+      if (submission?.eventId === event._id && !["queued", "up_next", "current", "done", "no_show", "withdrawn"].includes(submission.status)) added.push(id);
+    }
+    const summary = added.length === 0 ? "reordered the lineup"
+      : `added ${added.length === 1 ? await submissionTitle(ctx, event, added[0]) : `${added.length} people`} to the lineup`;
+    return { kind: "lineup_reordered", summary, watch: { submissions: "all", teamMembers: "all" } };
+  },
   reorderLineupOperation,
 );
 

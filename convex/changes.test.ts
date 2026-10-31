@@ -43,9 +43,9 @@ test("undo refuses when a later change touched the same fields, and names it", a
   await t.mutation(api.events.restoreSubmission, { slug: "demo", submissionId: id });
   await t.mutation(api.events.reorderLineup, { slug: "demo", orderedIds: [id] });
   const rows = await recent(t, "demo");
-  expect(rows.find((row) => row.id === hidden.id)).toMatchObject({ canUndo: false, undoBlockedReason: 'Changed again since: undo "reordered the lineup" first.' });
+  expect(rows.find((row) => row.id === hidden.id)).toMatchObject({ canUndo: false, undoBlockedReason: 'Changed again since: undo "added Project 0 to the lineup" first.' });
   const before = await t.run((ctx) => ctx.db.get(id));
-  await expect(t.mutation(api.changes.undoChange, { slug: "demo", changeId: hidden.id })).rejects.toThrow('undo "reordered the lineup" first');
+  await expect(t.mutation(api.changes.undoChange, { slug: "demo", changeId: hidden.id })).rejects.toThrow('undo "added Project 0 to the lineup" first');
   expect(await t.run((ctx) => ctx.db.get(id))).toEqual(before);
 });
 

@@ -722,11 +722,13 @@ export default function AdminPage() {
     await restoreSubmission({ slug: params.slug, submissionId: id });
   }
 
-  async function addToLineup(id: Id<"submissions">) {
-    if (board.lineup.includes(id)) return;
+  // Adds to the end, in order. Several at once when the board does not show the ones added a moment ago yet.
+  async function addToLineup(...ids: Id<"submissions">[]) {
+    const added = ids.filter((id) => !board.lineup.includes(id));
+    if (added.length === 0) return;
     await reorderLineup({
       slug: params.slug,
-      orderedIds: [...board.lineup, id],
+      orderedIds: [...board.lineup, ...added],
     });
   }
 
@@ -1782,7 +1784,7 @@ export default function AdminPage() {
                         const item = itemsById.get(id);
                         return item ? [{ id, name: item.name, demo: item.demoTitle ?? "" }] : [];
                       })}
-                      onAdd={addToLineup}
+                      onAdd={(ids) => addToLineup(...ids)}
                     />}
                     {admin.event.eventType === "demo" ? <Tooltip>
                       <TooltipTrigger
@@ -1842,7 +1844,7 @@ export default function AdminPage() {
                         emptyMessage={
                           isHackathonEvent
                             ? "Use All submissions to add a submission to the presentation lineup."
-                            : "No demoers yet. Add to demoers (A), Shuffle or AI shuffle."
+                            : "No demoers yet. Add to demoers (D), Shuffle or AI shuffle."
                         }
                       >
                         {board.lineup.map((id, index) => {

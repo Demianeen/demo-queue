@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -15,33 +15,39 @@ export type PoolPerson = { id: Id<"submissions">; name: string; demo: string };
 /**
  * Add to demoers: searches the people who are not in the queue, and Enter
  * adds the highlighted one to the end. It stays open so you can add several.
+ * Someone just added leaves the list at once, and is sent again with the next
+ * one until the queue shows them, so fast Enter presses add everyone, in
+ * order. The Undo toast says who was added.
  */
-export function AddToDemoers({ pool, onAdd }: { pool: PoolPerson[]; onAdd: (id: Id<"submissions">) => Promise<void> }) {
+export function AddToDemoers({ pool, onAdd }: { pool: PoolPerson[]; onAdd: (ids: Id<"submissions">[]) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [active, setActive] = useState(0);
-  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState<Id<"submissions">[]>([]);
+  // Added, and still in the pool until the queue updates.
+  const waiting = useMemo(() => sent.filter((id) => pool.some((person) => person.id === id)), [sent, pool]);
+  // Once the queue shows them, forget them: if they are moved back to the pool, they can be added again.
+  useEffect(() => { if (waiting.length !== sent.length) setSent(waiting); }, [waiting, sent]);
   const matches = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return (needle ? pool.filter((person) => `${person.name} ${person.demo}`.toLowerCase().includes(needle)) : pool).slice(0, 8);
-  }, [pool, search]);
+    const left = pool.filter((person) => !waiting.includes(person.id));
+    return (needle ? left.filter((person) => `${person.name} ${person.demo}`.toLowerCase().includes(needle)) : left).slice(0, 8);
+  }, [pool, search, waiting]);
   const commands = useMemo<Command[]>(() => [
     { id: "add-to-demoers", group: "This page", label: "Add to demoers", keys: ["D"], run: () => setOpen(true), disabled: pool.length === 0 },
   ], [pool.length]);
   useCommands("add-to-demoers", commands);
 
   async function add(person: PoolPerson | undefined) {
-    if (!person || busy) return;
-    setBusy(true);
+    if (!person || waiting.includes(person.id)) return;
+    setSent([...waiting, person.id]);
+    setSearch("");
+    setActive(0);
     try {
-      await onAdd(person.id);
-      toast.success(`${person.name} added to demoers.`);
-      setSearch("");
-      setActive(0);
+      await onAdd([...waiting, person.id]);
     } catch (error) {
+      setSent((ids) => ids.filter((id) => id !== person.id));
       toast.error(errorText(error, "Could not add them to demoers."));
-    } finally {
-      setBusy(false);
     }
   }
 

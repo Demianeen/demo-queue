@@ -44,6 +44,28 @@ test("making a demo night's queue live moves it to Stage", async () => {
   expect((await t.query(api.events.getAdmin, { slug: "night" })).event.phase).toBe("stage");
 });
 
+test("adding demoers says who was added, and fast adds keep everyone in order", async () => {
+  const { t } = setupTest();
+  const { eventId } = await createEvent(t, { slug: "night", eventType: "demo", extra: { queuePublished: true, phase: "stage" } });
+  const first = await addProject(t, eventId, 0, { status: "queued", queueOrder: 1 });
+  const ada = await addProject(t, eventId, 1);
+  const bo = await addProject(t, eventId, 2);
+  const summaries = async () => (await t.query(api.changes.listRecentChanges, { slug: "night" })).changes.map((change) => change.summary);
+
+  // Add to demoers: the lineup as the browser saw it, with Ada at the end.
+  await t.mutation(api.events.reorderLineup, { slug: "night", orderedIds: [first, ada] });
+  expect((await summaries())[0]).toBe("added Project 1 to the lineup");
+  // A fast second Enter, before the browser saw Ada in the lineup, sends her again with Bo.
+  await t.mutation(api.events.reorderLineup, { slug: "night", orderedIds: [first, ada, bo] });
+  expect((await summaries())[0]).toBe("added Project 2 to the lineup");
+  const lineup = (await t.query(api.events.getAdmin, { slug: "night" })).lineup.map((item) => item.id);
+  expect(lineup).toEqual([first, ada, bo]);
+
+  // Dragging the lineup into a new order is still a reorder.
+  await t.mutation(api.events.reorderLineup, { slug: "night", orderedIds: [first, bo, ada] });
+  expect((await summaries())[0]).toBe("reordered the lineup");
+});
+
 test("No-show takes only the presenter the organiser saw", async () => {
   const { t } = setupTest();
   const { eventId } = await createEvent(t, { slug: "night", eventType: "demo", extra: { queuePublished: true, phase: "stage" } });

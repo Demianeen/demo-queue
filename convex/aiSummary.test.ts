@@ -164,6 +164,23 @@ test("closing submissions writes one summary per submission in judging, from pro
   expect(await summaryOf(t, withdrawn)).toBeNull();
 });
 
+test("a finalist in the Stage lineup or one that already pitched still gets its summary; hidden does not", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  const { t, add } = await setup();
+  const queued = await add(1, { status: "queued", queueOrder: 1 });
+  const done = await add(2, { status: "done" });
+  const noShow = await add(3, { status: "no_show" });
+  const hidden = await add(4, { status: "hidden" });
+
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+
+  expect(generateText).toHaveBeenCalledTimes(3);
+  for (const id of [queued, done, noShow]) expect(await summaryOf(t, id)).toMatchObject({ whatItDoes: expect.any(String) });
+  expect(await summaryOf(t, hidden)).toBeNull();
+});
+
 test("judges see the summary, labelled fields only", async () => {
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
   modelReturns();

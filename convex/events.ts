@@ -75,6 +75,7 @@ import { amountOfTime, submissionTitle, withChange } from "./changeWrap";
 import { changeSummaryName, insertChange, recordChange } from "./changeLog";
 import { judgingRemaining, phaseFields } from "./phases";
 import { REVIEW_TARGET } from "./judging";
+import { isJudgedStatus } from "../lib/judged-status";
 
 const STAGE_LINEUP_LIMIT = 10;
 const DEFAULT_STAGE_TIMER_MS = 5 * 60 * 1000;
@@ -744,7 +745,7 @@ export async function getOrganizationEventDetailsForOrganization(
       isHackathon ? ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(4000) : [],
     ]);
     // The event tabs' counts: presenters in the lineup, and judging scores in of the scores needed.
-    const judgingIds = new Set(submissions.filter((submission) => submission.status === "candidate" || submission.status === "queued").map((submission) => String(submission._id)));
+    const judgingIds = new Set(submissions.filter((submission) => isJudgedStatus(submission.status)).map((submission) => String(submission._id)));
     // A helper's extra review never counts past a project's target.
     const perProject = new Map<string, number>();
     for (const review of reviews) {

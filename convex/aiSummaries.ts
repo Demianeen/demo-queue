@@ -6,6 +6,7 @@ import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { listEventSponsors } from "./sponsors";
 import { trackKey } from "../lib/tracks";
 import { eventPhase } from "../lib/event-phase";
+import { isJudgedStatus } from "../lib/judged-status";
 import {
   DEFAULT_SUMMARY_SECTIONS,
   buildSampleSummary,
@@ -75,7 +76,7 @@ export function summaryMode(event: Pick<Doc<"events">, "practice" | "practiceAiS
 }
 
 function inJudging(event: Doc<"events">, submission: Doc<"submissions">) {
-  return event.eventType === "hackathon" && (submission.status === "candidate" || submission.status === "queued");
+  return event.eventType === "hackathon" && isJudgedStatus(submission.status);
 }
 
 /**

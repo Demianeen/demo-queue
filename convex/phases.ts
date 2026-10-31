@@ -17,6 +17,7 @@ import {
   type PhaseEffect,
 } from "../lib/event-phase";
 import { finalistLineupPlan } from "../lib/finalist-lineup";
+import { isJudgedStatus } from "../lib/judged-status";
 
 export const DEFAULT_JUDGING_TIMER_MS = 60 * 60 * 1000;
 export const MAX_JUDGING_TIMER_MS = 99 * 60 * 60 * 1000;
@@ -26,7 +27,7 @@ export const phaseValidator = v.union(...EVENT_PHASES.map((phase) => v.literal(p
 const ASSIGNED_STATUSES = new Set(["ready", "open", "closed"]);
 
 function isJudgingSubmission(submission: Doc<"submissions">) {
-  return submission.status === "candidate" || submission.status === "queued";
+  return isJudgedStatus(submission.status);
 }
 
 /** The judging timer's time left now: counting down when running, held when paused or idle. */

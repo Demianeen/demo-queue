@@ -14,6 +14,7 @@ import { recordChange } from "./changeLog";
 import { withChange } from "./changeWrap";
 import { closeJudgingForEvent, closeSubmissionsForEvent, judgingRemaining, reopenJudgingForEvent, syncFinalistLineup } from "./phases";
 import { eventPhase } from "../lib/event-phase";
+import { isJudgedStatus } from "../lib/judged-status";
 import type { DataModel } from "./_generated/dataModel";
 import {
   adjusted,
@@ -43,8 +44,9 @@ export function normalizeJudgeKey(value: string) {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
 }
 
+/** In judging: waiting, in the stage lineup, or already pitched. See isJudgedStatus. */
 function isJudgingSubmission(submission: Doc<"submissions">) {
-  return submission.status === "candidate" || submission.status === "queued";
+  return isJudgedStatus(submission.status);
 }
 
 async function adminEvent(ctx: QueryCtx | MutationCtx, slug: string) {

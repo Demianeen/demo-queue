@@ -635,6 +635,84 @@ test("normalization decisions, finalist amendments, and placements stay independ
   expect(history.page).toHaveLength(3);
 });
 
+test("finalists who pitched on Stage stay in judging: totals, finalists, scores and winners", async () => {
+  const { t, eventId } = await createHackathon(["Alex", "Sam"]);
+  const ids: Id<"submissions">[] = [];
+  for (const index of [1, 2, 3, 4, 5]) ids.push(await addSubmission(t, eventId, index));
+  for (const [judgeName, capabilityToken] of [["Alex", "alex-secret"], ["Sam", "sam-secret"]] as const) {
+    await t.mutation(api.judging.createJudgeAccess, { slug: "hack", judgeName, capabilityToken });
+  }
+  await prepareAssignments(t);
+  await t.mutation(api.judging.startJudging, { slug: "hack" });
+  for (const [index, id] of ids.entries()) {
+    for (const capabilityToken of ["alex-secret", "sam-secret"]) {
+      const score = 9 - index;
+      await t.mutation(api.judging.saveReview, { slug: "hack", capabilityToken, submissionId: id, innovation: score, execution: score, demoClarity: score });
+    }
+  }
+  await t.mutation(api.judging.closeJudging, { slug: "hack" });
+  const finalistIds = ids.slice(0, 3);
+  await t.mutation(api.judging.submitFinalists, { slug: "hack", finalistIds });
+
+  const snapshot = async () => {
+    const details = await t.query(api.events.getOrganizationEventDetails, { slug: "hack" });
+    const progress = await t.query(api.judging.getAdminProgress, { slug: "hack" });
+    const overview = await t.query(api.judging.getJudgesOverview, { slug: "hack" });
+    const decision = await t.query(api.judging.getFinalistDecision, { slug: "hack" });
+    const workspace = await t.query(api.judging.getJudgeWorkspace, { slug: "hack", capabilityToken: "alex-secret" });
+    return {
+      scores: details?.scores,
+      totalSubmissions: progress.totalSubmissions,
+      scored: progress.scoring.map((row) => [String(row.submissionId), row.score]).sort(),
+      projects: overview.totals.projects,
+      targetReviews: overview.totals.targetReviews,
+      completeReviews: overview.totals.completeReviews,
+      ranked: decision.submissions.map((row) => [String(row.submissionId), row.score]),
+      judgeProjects: workspace.projects.length,
+    };
+  };
+  const before = await snapshot();
+  expect(before).toMatchObject({ scores: { complete: 10, target: 10 }, totalSubmissions: 5, projects: 5, targetReviews: 10, completeReviews: 10, judgeProjects: 5 });
+  expect(before.ranked.map(([id]) => id)).toEqual(ids.map(String));
+  expect(before.ranked.every(([, score]) => typeof score === "number")).toBe(true);
+
+  // The finalists are the Stage lineup; Next moves each one on, the last is a no-show.
+  const lineup = await t.run((ctx) => ctx.db.query("submissions").withIndex("by_event_status", (q) => q.eq("eventId", eventId).eq("status", "queued")).collect());
+  expect(lineup.sort((a, b) => (a.queueOrder ?? 0) - (b.queueOrder ?? 0)).map((row) => row._id)).toEqual(finalistIds);
+  await t.mutation(api.events.pickNext, { slug: "hack" });
+  expect(await snapshot()).toEqual(before);
+  await t.mutation(api.events.pickNext, { slug: "hack" });
+  await t.mutation(api.events.markNoShow, { slug: "hack" });
+  const statuses = await t.run(async (ctx) => Promise.all(finalistIds.map(async (id) => (await ctx.db.get(id))!.status)));
+  expect(statuses).toEqual(["done", "done", "no_show"]);
+  expect(await snapshot()).toEqual(before);
+
+  // Judging reopens from Stage: a judge can still open and rescore a project that pitched.
+  await t.mutation(api.judging.reopenJudging, { slug: "hack" });
+  await t.mutation(api.judging.saveReview, { slug: "hack", capabilityToken: "alex-secret", submissionId: ids[0], innovation: 10, execution: 10, demoClarity: 10 });
+  expect((await t.query(api.judging.getMyAssignments, { slug: "hack", capabilityToken: "alex-secret" })).assignments.length
+    + (await t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "alex-secret" })).length).toBe(5);
+  await t.mutation(api.judging.closeJudging, { slug: "hack" });
+  // Closing again keeps the pitched finalists where they are.
+  expect(await t.run(async (ctx) => Promise.all(finalistIds.map(async (id) => (await ctx.db.get(id))!.status)))).toEqual(["done", "done", "no_show"]);
+  const after = await snapshot();
+  expect(after).toMatchObject({ scores: { complete: 10, target: 10 }, totalSubmissions: 5, projects: 5, judgeProjects: 5 });
+
+  // Winners can be picked from the finalists after their pitches.
+  const placementIds = [finalistIds[1], finalistIds[0], finalistIds[2]];
+  await t.mutation(api.judging.savePlacementDraft, { slug: "hack", placementIds });
+  await t.mutation(api.judging.submitPlacements, { slug: "hack", placementIds });
+  expect(await t.query(api.judging.getFinalistDecision, { slug: "hack" })).toMatchObject({ finalistIds, finalistStatus: "submitted", placementIds, placementStatus: "submitted" });
+  expect(await t.query(api.events.getOrganizationEventDetails, { slug: "hack" })).toMatchObject({
+    resultsStatus: "confirmed",
+    winners: [
+      { place: 1, demoTitle: "Demo 2", teamName: "Person 2" },
+      { place: 2, demoTitle: "Demo 1", teamName: "Person 1" },
+      { place: 3, demoTitle: "Demo 3", teamName: "Person 3" },
+    ],
+  });
+});
+
 test("judges can read and score every submission in judging", async () => {
   const { t, eventId } = await createHackathon(["Alex", "Sam", "Taylor"]);
   const ids: Id<"submissions">[] = [];

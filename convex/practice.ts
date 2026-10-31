@@ -20,6 +20,7 @@ import { judgingRemaining } from "./phases";
 import { listEventTracks } from "./tracks";
 import { workosUserEmail } from "./members";
 import { eventPhase } from "../lib/event-phase";
+import { isJudgedStatus } from "../lib/judged-status";
 import { emailKey, isValidEmail } from "../lib/validation";
 import { deleteScoreBasis, readScoreBasis } from "./scoreBasis";
 
@@ -357,7 +358,7 @@ export async function scoreAsTestJudgesForOrganization(ctx: MutationCtx, args: I
   const queues = links.filter((link) => link.active).map((link) => ({
     access: link,
     todo: submissions.filter((submission) =>
-      (submission.status === "candidate" || submission.status === "queued") &&
+      isJudgedStatus(submission.status) &&
       (submission.roundOneAssignedJudges ?? []).some((judge) => judge.normalize("NFKC").trim().toLocaleLowerCase("en") === link.judgeKey) &&
       !done.has(`${link.judgeKey}:${submission._id}`)),
   }));

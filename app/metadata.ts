@@ -1,16 +1,30 @@
+import { cache } from "react";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import { getEnv } from "./env";
 
 const client = new ConvexHttpClient(getEnv().NEXT_PUBLIC_CONVEX_URL);
 
+// One request per page render: the title and the page both ask.
+const eventMeta = cache((slug: string) => client.query(api.events.getEventMeta, { slug }));
+
 export async function eventTitle(slug: string) {
   try {
-    const event = await client.query(api.events.getEventMeta, { slug });
+    const event = await eventMeta(slug);
     return event.name;
   } catch (error) {
     if (isNotFound(error)) return null;
     throw error;
+  }
+}
+
+/** The event's name, type and look, or null if it cannot be read: the page then loads plain. */
+export async function eventLook(slug: string) {
+  try {
+    const { name, eventType, visualStyle, theme } = await eventMeta(slug);
+    return { name, eventType, visualStyle, theme };
+  } catch {
+    return null;
   }
 }
 

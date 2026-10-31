@@ -94,7 +94,7 @@ test("private judge links are generated, rotated, listed and absent from public 
   ]);
   expect(await browser.query(api.judging.listJudgeAccess, input)).toMatchObject([{ judgeKey: "alex", token: rotated.capabilityToken, active: true }]);
   const publicEvent = await t.query(api.events.getEventMeta, input);
-  expect(publicEvent).toEqual({ name: "Hack", slug: "hack", eventType: "hackathon" });
+  expect(publicEvent).toEqual({ name: "Hack", slug: "hack", eventType: "hackathon", visualStyle: "codex" });
   expect(JSON.stringify(await t.query(api.events.getStage, input))).not.toContain(rotated.capabilityToken);
   await expect(t.query(api.judging.listJudgeAccess, input)).rejects.toThrow("Sign in");
   await expect(t.mutation(api.judging.createJudgeAccess, { ...input, judgeName: "Alex", capabilityToken: "chosen-by-public-client" })).rejects.toThrow("Sign in");

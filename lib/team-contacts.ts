@@ -38,6 +38,19 @@ export function normalizeInternationalPhone(value: string) {
   return phoneNumber?.isValid() ? phoneNumber.number : null;
 }
 
+/**
+ * Spaces a full international number the way it is written ("+44 7700
+ * 900123"), reading a leading 00 as +. Anything else stays as typed, for
+ * validation to explain.
+ */
+export function formatInternationalPhone(value: string) {
+  const trimmed = value.trim();
+  const international = trimmed.startsWith("00") ? `+${trimmed.slice(2)}` : trimmed;
+  if (!international.startsWith("+")) return value;
+  const phoneNumber = parsePhoneNumberFromString(international);
+  return phoneNumber?.isValid() ? phoneNumber.formatInternational() : value;
+}
+
 export const teamContactSchema = z.object({
   name: z
     .string()

@@ -98,7 +98,7 @@ test("legacy capabilities cannot read or update unowned events while public page
   const t = convexTest(schema, modules);
   const legacy = { name: "Legacy event", slug: "legacy-preserved", adminToken: "existing-capability", meetUrl: "https://meet.google.com/legacy", queuePublished: false, createdAt: 1, updatedAt: 1 };
   const eventId = await t.run((ctx) => ctx.db.insert("events", legacy));
-  expect(await t.query(api.events.getEventMeta, { slug: legacy.slug })).toEqual({ name: legacy.name, slug: legacy.slug, eventType: "demo" });
+  expect(await t.query(api.events.getEventMeta, { slug: legacy.slug })).toEqual({ name: legacy.name, slug: legacy.slug, eventType: "demo", visualStyle: "codex" });
   expect((await t.query(api.events.getStage, { slug: legacy.slug })).event.name).toBe(legacy.name);
   await expect(t.withIdentity(identity("org_outpost")).mutation(api.events.updateEvent, { slug: legacy.slug, name: "Renamed legacy event", meetUrl: legacy.meetUrl })).rejects.toThrow("Unauthorized");
   await expect(t.query(api.events.getAdmin, { slug: legacy.slug, adminToken: legacy.adminToken } as { slug: string })).rejects.toThrow();

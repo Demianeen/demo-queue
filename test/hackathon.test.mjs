@@ -7,6 +7,7 @@ import {
   normalizeGithubRepositoryUrl,
 } from "../lib/hackathon.ts";
 import {
+  formatInternationalPhone,
   normalizeInternationalPhone,
   parseTeamContact,
   teamContactSchema,
@@ -36,6 +37,11 @@ test("video links reject unsafe or malformed URLs", () => {
 
 test("team contacts normalize valid international WhatsApp numbers", () => {
   assert.equal(normalizeInternationalPhone(" +44 20 7946 0958 "), "+442079460958");
+  assert.equal(formatInternationalPhone("+447442106036"), "+44 7442 106036");
+  assert.equal(formatInternationalPhone(" 0014155552671"), "+1 415 555 2671");
+  // Not a full international number: left as typed for validation to explain.
+  assert.equal(formatInternationalPhone("07442 106036"), "07442 106036");
+  assert.equal(formatInternationalPhone("+44 12"), "+44 12");
   assert.deepEqual(
     parseTeamContact({
       name: " Sam Lee ",

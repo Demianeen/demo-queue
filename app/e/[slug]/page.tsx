@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import ClientPage from "./ClientPage";
-import { eventTitle } from "@/app/metadata";
+import { eventLook, eventTitle } from "@/app/metadata";
 
 type PageProps = {
   params: Promise<{ slug: string }>;
@@ -15,6 +15,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-export default function SubmissionPage() {
-  return <ClientPage />;
+export default async function SubmissionPage({ params }: PageProps) {
+  const { slug } = await params;
+  return <ClientPage look={await eventLook(slug)} />;
 }

@@ -801,6 +801,9 @@ export const getEventMeta = query({
       name: event.name,
       slug: event.slug,
       eventType: eventType(event),
+      // The submit page's loading state wears the event's look.
+      visualStyle: normalizeVisualStyle(event.visualStyle),
+      theme: event.theme,
     };
   },
 });

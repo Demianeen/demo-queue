@@ -51,14 +51,14 @@ export function SubmissionsClock({ slug, admin, onShare }: { slug: string; admin
 
 type Decision = FunctionReturnType<typeof api.judging.getFinalistDecision> | undefined;
 
-/** The finalists in their order: the winners first once submitted, then the rest by score. */
+/** The finalists in their order: the winners first once submitted, then the rest as submitted (the pitch order). */
 export function useFinalists(slug: string, admin: AdminData) {
   const decision = useQuery(api.judging.getFinalistDecision, admin.event.eventType === "hackathon" ? { slug } : "skip");
   return useMemo(() => {
     if (!decision) return null;
     const scored = new Map(decision.submissions.map((row) => [String(row.submissionId), row]));
     const placements = decision.placementStatus === "submitted" ? decision.placementIds.map(String) : [];
-    const order = finalistOrder(decision.finalistIds.map(String), placements, new Map([...scored].map(([id, row]) => [id, row.score])));
+    const order = finalistOrder(decision.finalistIds.map(String), placements);
     const items = new Map([...admin.pool, ...admin.lineup, ...admin.completed, ...admin.noShows, ...admin.withdrawn, ...admin.hidden].map((item) => [String(item.id), item]));
     const rows = order.map((id) => {
       const item = items.get(id);
@@ -155,10 +155,14 @@ type ClockControls = {
   extra?: ReactNode;
   /** E types an exact time. Off where the page's list already uses E. */
   editKey?: boolean;
+  /** Seconds to add to the time left, shown instead of the presets: a pitch needs a little more, not a new length. */
+  adds?: number[];
 };
 
+const addLabel = (seconds: number) => seconds % 60 === 0 ? `+${seconds / 60} min` : `+${seconds} s`;
+
 /** A big clock you click to type an exact time, with presets and pause. */
-export function ExactTimer({ label, labelFor, countsBelowZero = false, timer, help, onSet, onPause, onResume, resumeLabel = "Resume", extra, editKey = true }: ClockControls) {
+export function ExactTimer({ label, labelFor, countsBelowZero = false, timer, help, onSet, onPause, onResume, resumeLabel = "Resume", extra, editKey = true, adds }: ClockControls) {
   const remaining = useRemaining(timer);
   const shownLabel = labelFor?.(remaining) ?? label;
   const reading = countsBelowZero ? formatSignedClock(remaining) : formatClock(remaining);
@@ -186,8 +190,10 @@ export function ExactTimer({ label, labelFor, countsBelowZero = false, timer, he
   const commands = useMemo<Command[]>(() => [
     { id: "timer-toggle", group: "This page", label: running ? "Pause timer" : `${resumeLabel} timer`, keys: ["P"], run: () => void latest.current.toggle() },
     { id: "timer-edit", group: "This page", label: "Set the time exactly", ...(editKey ? { keys: ["E"] } : {}), run: () => setDraft(formatClock(latest.current.remaining)) },
-    ...PRESETS.map((minutes) => ({ id: `timer-${minutes}`, group: "This page", label: `Set the timer to ${minutes} minutes`, keys: ["T", ...String(minutes).split("")], run: () => void latest.current.set(minutes * 60_000) })),
-  ], [running, resumeLabel, editKey]);
+    ...(adds
+      ? adds.map((seconds) => ({ id: `timer-add-${seconds}`, group: "This page", label: `Add ${addLabel(seconds).slice(1)}`, run: () => void latest.current.set(Math.max(0, latest.current.remaining) + seconds * 1000) }))
+      : PRESETS.map((minutes) => ({ id: `timer-${minutes}`, group: "This page", label: `Set the timer to ${minutes} minutes`, keys: ["T", ...String(minutes).split("")], run: () => void latest.current.set(minutes * 60_000) }))),
+  ], [running, resumeLabel, editKey, adds]);
   useCommands("live-timer", commands);
 
   return <section className={styles.section} aria-label={shownLabel}>
@@ -202,7 +208,8 @@ export function ExactTimer({ label, labelFor, countsBelowZero = false, timer, he
           <Button type="submit" className="bg-[var(--dq-accent)] hover:bg-[var(--dq-accent)]" disabled={busy || parsed === null}>{parsed === null ? "Type mm:ss" : `Set to ${formatClock(parsed)}`}</Button>
           <Button type="button" variant="outline" onClick={() => setDraft(null)}>Cancel</Button>
         </form>}
-      {draft === null && <span className={styles.presets} aria-label="Presets">{PRESETS.map((minutes) => <button key={minutes} type="button" className={styles.preset} disabled={busy} onClick={() => void set(minutes * 60_000)}>{minutes} min</button>)}</span>}
+      {draft === null && adds && <span className={styles.presets} aria-label="Add time">{adds.map((seconds) => <button key={seconds} type="button" className={styles.preset} disabled={busy} onClick={() => void set(Math.max(0, remaining) + seconds * 1000)}>{addLabel(seconds)}</button>)}</span>}
+      {draft === null && !adds && <span className={styles.presets} aria-label="Presets">{PRESETS.map((minutes) => <button key={minutes} type="button" className={styles.preset} disabled={busy} onClick={() => void set(minutes * 60_000)}>{minutes} min</button>)}</span>}
       <div className={styles.timerActions}>
         <ShortcutTooltip label={running ? "Pause timer" : `${resumeLabel} timer`} keys={["P"]}>
           <Button variant="outline" onClick={() => void toggle()} disabled={busy}>{running ? "Pause" : resumeLabel}</Button>

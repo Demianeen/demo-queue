@@ -1581,6 +1581,10 @@ h3 {
   animation: skeleton-sweep 1.4s ease-in-out infinite;
 }
 
+[data-event-shell] .skeleton {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
 .skeleton.on-dark {
   background: rgba(255, 255, 255, 0.08);
 }

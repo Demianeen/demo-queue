@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation } from "convex/react";
 import { QRCodeSVG } from "qrcode.react";
-import { Copy, Expand, PanelRight, Presentation, QrCode, X } from "lucide-react";
+import { Copy, Expand, ExternalLink, PanelRight, Presentation, QrCode, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,8 @@ import styles from "./live.module.css";
 
 /**
  * The phase control, Share and Room, in the header of every tab of an event.
- * The presentation view opens from the Room panel, or with S.
+ * Share holds both links: the submit link for people, and the presentation
+ * view for the projector. It also opens from the Room panel, or with S.
  */
 export function EventHeaderActions({ slug, eventName, eventType, phase, roomOpen, onToggleRoom }: {
   slug: string; eventName: string; eventType: "demo" | "hackathon"; phase: EventPhase; roomOpen: boolean; onToggleRoom: () => void;
@@ -27,10 +28,11 @@ export function EventHeaderActions({ slug, eventName, eventType, phase, roomOpen
   const [fullscreen, setFullscreen] = useState(false);
   const setStageScreenMode = useMutation(api.events.setStageScreenMode);
   const submitUrl = absoluteUrl(submissionPath(slug));
+  const stageUrl = absoluteUrl(stagePath(slug));
   const openStage = () => window.open(stagePath(slug), "_blank", "noopener");
 
-  async function copy() {
-    try { await navigator.clipboard.writeText(submitUrl); toast("Submit link copied"); } catch { toast.error("Could not copy. Select the link and copy it instead."); }
+  async function copy(url = submitUrl, done = "Submit link copied") {
+    try { await navigator.clipboard.writeText(url); toast(done); } catch { toast.error("Could not copy. Select the link and copy it instead."); }
   }
   async function putOnStage() {
     try { await setStageScreenMode({ slug, mode: "qr" }); setShareOpen(false); toast("The stage shows the submit QR code"); } catch (error) { toast.error(errorText(error, "Could not change the stage.")); }
@@ -42,6 +44,7 @@ export function EventHeaderActions({ slug, eventName, eventType, phase, roomOpen
     { id: "share-fullscreen", group: "This page", label: "Show the submit QR full screen", keys: ["F"], run: () => setFullscreen(true) },
     { id: "share-stage", group: "This page", label: "Put the submit QR on stage", run: () => void putOnStage() },
     { id: "open-stage", group: "This page", label: "Open presentation view", keys: ["S"], run: openStage },
+    { id: "copy-stage", group: "This page", label: "Copy the presentation view link", run: () => void copy(stageUrl, "Presentation link copied") },
     { id: "room", group: "This page", label: roomOpen ? "Close the Room panel" : "Open the Room panel", keys: ["R"], run: onToggleRoom },
   ], [slug, roomOpen, onToggleRoom]); // eslint-disable-line react-hooks/exhaustive-deps
   useCommands("event-header", commands);
@@ -59,6 +62,12 @@ export function EventHeaderActions({ slug, eventName, eventType, phase, roomOpen
           <Button variant="outline" size="sm" onClick={() => void putOnStage()}><Presentation aria-hidden />Put on stage</Button>
         </div>
         <p className={styles.note}>Full screen fills this laptop with the QR so you can hold it up to someone. Esc closes it.</p>
+        <div className={styles.sideHead}><h2 className="text-[13px] font-medium">Presentation view</h2></div>
+        <div className={styles.shareUrl}><code>{stageUrl}</code><Button variant="ghost" size="xs" onClick={() => void copy(stageUrl, "Presentation link copied")}><Copy aria-hidden />Copy</Button></div>
+        <div className={styles.shareActions}>
+          <Button variant="outline" size="sm" onClick={() => { setShareOpen(false); openStage(); }}><ExternalLink aria-hidden />Open</Button>
+        </div>
+        <p className={styles.note}>Open it on the laptop that drives the projector. It shows what you pick in Room: the submit QR, the lineup and the timer.</p>
       </PopoverContent>
     </Popover>
     <ShortcutTooltip label="What the room sees" keys={["R"]}>

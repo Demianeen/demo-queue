@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { browserClientId } from "@/lib/client-id";
@@ -53,6 +53,7 @@ export function SubmissionEmailField({
   id,
   name,
   label,
+  help,
   value,
   onChange,
   onTakenChange,
@@ -64,7 +65,8 @@ export function SubmissionEmailField({
   slug: string;
   id: string;
   name: string;
-  label: string;
+  label: ReactNode;
+  help?: ReactNode;
   value: string;
   onChange: (value: string) => void;
   onTakenChange: (taken: boolean) => void;
@@ -77,12 +79,13 @@ export function SubmissionEmailField({
   useEffect(() => onTakenChange(taken), [taken, onTakenChange]);
   const errorId = `${id}-error`;
   const takenId = `${id}-taken`;
+  const helpId = `${id}-help`;
 
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
       <input
-        aria-describedby={[taken && takenId, error && errorId].filter(Boolean).join(" ") || undefined}
+        aria-describedby={[help && helpId, taken && takenId, error && errorId].filter(Boolean).join(" ") || undefined}
         aria-invalid={Boolean(taken || error) || undefined}
         autoComplete={autoComplete}
         id={id}
@@ -94,6 +97,11 @@ export function SubmissionEmailField({
         type="email"
         value={value}
       />
+      {help ? (
+        <span className="muted form-help" id={helpId}>
+          {help}
+        </span>
+      ) : null}
       {error && !taken ? (
         <span className="form-error" id={errorId}>
           {error}

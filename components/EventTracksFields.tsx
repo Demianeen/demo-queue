@@ -35,18 +35,15 @@ export function EventTracksFields({
   }
 
   return (
-    <fieldset className="workspace-field workspace-tracks">
-      <legend className="workspace-label">
-        Tracks <span className="workspace-tracks-optional">· optional</span>
-      </legend>
-      <p className="workspace-help">
-        Teams pick none, one or several when they submit. You can change these later from the admin page.
-      </p>
+    <fieldset className="new-event-field workspace-tracks" aria-describedby="tracks-help">
+      <legend className="workspace-label">Tracks</legend>
       {tracks.map((track, index) => (
         <div className="workspace-track-row" key={track.key}>
           <div className="workspace-track-inputs">
             <Input
               aria-label={`Track ${index + 1} name`}
+              className="new-event-input"
+              data-size="track"
               maxLength={MAX_TRACK_NAME_LENGTH}
               onChange={(event) => update(track.key, { name: event.target.value })}
               placeholder="Track name"
@@ -54,7 +51,8 @@ export function EventTracksFields({
             />
             <Input
               aria-label={`Track ${index + 1} description`}
-              className="workspace-track-description"
+              className="new-event-input workspace-track-description"
+              data-size="name"
               maxLength={MAX_TRACK_DESCRIPTION_LENGTH}
               onChange={(event) => update(track.key, { description: event.target.value })}
               placeholder="Short description shown to teams (optional)"
@@ -96,11 +94,14 @@ export function EventTracksFields({
       ))}
       {tracks.length < MAX_EVENT_TRACKS ? (
         <div>
-          <Button className="workspace-track-add" onClick={add} type="button" variant="outline">
+          <Button className="workspace-track-add" onClick={add} type="button" variant="outline" size="sm">
             <Plus aria-hidden size={16} /> Add track
           </Button>
         </div>
       ) : null}
+      <p id="tracks-help" className="new-event-help">
+        Optional. Teams pick none, one or several; none means the main event. Descriptions are shown to teams. You can change them later in Settings.
+      </p>
     </fieldset>
   );
 }

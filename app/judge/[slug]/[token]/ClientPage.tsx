@@ -39,7 +39,7 @@ type Workspace = FunctionReturnType<typeof api.judging.getJudgeWorkspace>;
 type Project = Workspace["projects"][number];
 type Criterion = (typeof JUDGING_CRITERIA)[number];
 type ScoreState = Partial<Record<Criterion, number>>;
-type Show = "yours" | "helpOut" | "scored" | "all";
+type Show = "yours" | "helpOut" | "all";
 
 const CRITERION_HELP: Record<Criterion, string> = {
   innovation: "Originality of the idea and how clearly it differs from existing solutions.",
@@ -60,17 +60,16 @@ export function scoreBand(value: number) {
   return SCORE_BANDS.find((band) => value >= band.from && value <= band.to) ?? SCORE_BANDS[0];
 }
 
+// Scored projects stay where they are, ticked, so the list never moves under the judge. Counts are what is left.
 const SHOW_OPTIONS: { value: Show; label: string; hint: string; key: string }[] = [
-  { value: "yours", label: "Yours", hint: "Assigned to you, not scored yet", key: "1" },
+  { value: "yours", label: "Yours", hint: "Assigned to you. Scored ones stay, ticked", key: "1" },
   { value: "helpOut", label: "Help out", hint: "Other judges' projects still waiting for a second review", key: "2" },
-  { value: "scored", label: "Scored", hint: "Ones you've scored, to change a score", key: "3" },
-  { value: "all", label: "All", hint: "Every project in the event", key: "4" },
+  { value: "all", label: "All", hint: "Every project in the event", key: "3" },
 ];
 
 const GROUP_HEADINGS: Record<Show, string> = {
-  yours: "Yours · assigned to you, not scored yet",
-  helpOut: "Help out · other judges' projects still waiting for a second review",
-  scored: "Scored · yours to change",
+  yours: "Yours",
+  helpOut: "Help out · waiting for a second review",
   all: "Every project",
 };
 
@@ -267,14 +266,16 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   const searchKey = search.trim().toLocaleLowerCase("en");
   const trackMatch = useCallback((project: Project) => tracks.length === 0 || tracks.some((track) => (track === MAIN_EVENT ? project.trackIds.length === 0 : project.trackIds.map(String).includes(track))), [tracks]);
   const filtered = useMemo(() => data.projects.filter((project) => trackMatch(project) && matchesSearch(project, searchKey)), [data.projects, trackMatch, searchKey]);
-  const order: Record<Project["group"], number> = { yours: 0, helpOut: 1, scored: 2, other: 3 };
-  const visible = useMemo(() => (show === "all" ? [...filtered].sort((a, b) => order[a.group] - order[b.group]) : filtered.filter((project) => project.group === show)), [filtered, show]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Rows never change group when scored: yours are the ones assigned to you, help out the others you can still help with or helped with.
+  const visible = useMemo(() => (show === "all"
+    ? [...filtered].sort((a, b) => Number(b.assignedToMe) - Number(a.assignedToMe))
+    : filtered.filter((project) => show === "yours" ? project.assignedToMe : !project.assignedToMe && (project.group === "helpOut" || project.group === "scored"))), [filtered, show]);
   const hiddenInAll = filtered.length - visible.length;
 
   useEffect(() => {
     setSelectedId((current) => {
       if (current && data.projects.some((project) => String(project.id) === current)) return current;
-      const first = visible[0] ?? data.projects[0];
+      const first = visible.find((project) => !project.review?.completed) ?? visible[0] ?? data.projects[0];
       return first ? String(first.id) : null;
     });
   }, [data.projects, visible]);
@@ -293,6 +294,16 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   function step(offset: number) {
     const next = selectedIndex < 0 ? (offset > 0 ? visible[0] : undefined) : visible[selectedIndex + offset];
     if (next) setSelectedId(String(next.id));
+  }
+
+  const isScored = (project: Project) => { const own = scores[String(project.id)]; return own ? scoreIsComplete(own) : project.review?.completed === true; };
+  const visibleLeft = visible.filter((project) => !isScored(project)).length;
+  // Next project: the next one not scored yet, after this one, then from the top; the next row when every one is scored.
+  const nextTarget = visible.slice(selectedIndex + 1).find((project) => !isScored(project))
+    ?? visible.slice(0, Math.max(selectedIndex, 0)).find((project) => !isScored(project))
+    ?? visible[selectedIndex + 1];
+  function goNext() {
+    if (nextTarget) setSelectedId(String(nextTarget.id));
   }
 
   async function updateScore(submissionId: string, criterion: Criterion, value: number) {
@@ -314,14 +325,14 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
     setActiveCriterion(JUDGING_CRITERIA[Math.min(index + 1, JUDGING_CRITERIA.length - 1)]);
   }
 
-  // Keys: J/K walk the list, / searches, 0 to 9 score (1 then 0 is 10), and 1 to 4 pick Show while it is open.
+  // Keys: J goes to the next project not scored yet, K back one row, / searches, 0 to 9 score (1 then 0 is 10), and 1 to 3 pick Show while it is open.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
       const key = event.key;
-      if (showOpen && /^[1-4]$/.test(key)) { event.preventDefault(); setShow(SHOW_OPTIONS[Number(key) - 1].value); setShowOpen(false); return; }
+      if (showOpen && /^[1-3]$/.test(key)) { event.preventDefault(); setShow(SHOW_OPTIONS[Number(key) - 1].value); setShowOpen(false); return; }
       if (key === "/") { event.preventDefault(); searchRef.current?.focus(); return; }
-      if (key.toLowerCase() === "j") { step(1); return; }
+      if (key.toLowerCase() === "j") { goNext(); return; }
       if (key.toLowerCase() === "k") { step(-1); return; }
       if (!/^[0-9]$/.test(key) || !selected || !canScore) return;
       event.preventDefault();
@@ -409,9 +420,10 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
             </div>
           </div>
           <nav className={styles.assignmentList} aria-label="Projects">
-            <h2 className={styles.mineHeading}><span>{GROUP_HEADINGS[show]}</span><span>{visible.length}</span></h2>
+            <h2 className={styles.mineHeading}><span>{GROUP_HEADINGS[show]}</span><span>{show === "all" ? visible.length : `${visibleLeft} left of ${visible.length}`}</span></h2>
+            {show === "yours" && visible.length > 0 && visibleLeft === 0 && !search && tracks.length === 0 && <p className={styles.railEmpty}>All yours are scored. Help out with projects still waiting for a second review.</p>}
             {visible.map((project) => <ProjectRow key={String(project.id)} project={project} active={String(project.id) === selectedId} scores={scores[String(project.id)]} reviewTarget={data.reviewTarget} onSelect={setSelectedId} />)}
-            {visible.length === 0 && <p className={styles.railEmpty}>{search || tracks.length ? "Nothing here matches. Clear the search or the track filter." : show === "yours" ? "You've scored all of yours. Help out with projects still waiting for a second review." : show === "helpOut" ? "Nothing needs help right now. Every other project has its reviews." : show === "scored" ? "You haven't scored anything yet." : "No projects are in judging yet."}</p>}
+            {visible.length === 0 && <p className={styles.railEmpty}>{search || tracks.length ? "Nothing here matches. Clear the search or the track filter." : show === "yours" ? "No projects are assigned to you. Help out with projects still waiting for a second review." : show === "helpOut" ? "Nothing needs help right now. Every other project has its reviews." : "No projects are in judging yet."}</p>}
             {show !== "all" && hiddenInAll > 0 && <button type="button" className={styles.moreLink} onClick={() => setShow("all")}>Show {hiddenInAll} more in All</button>}
           </nav>
         </aside>
@@ -489,7 +501,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
           </details>
           <div className={styles.scoreNav}>
             <ShortcutTooltip label="Previous project" keys={["K"]}><Button variant="outline" disabled={selectedIndex <= 0} onClick={() => step(-1)}><ChevronLeftIcon /> Previous</Button></ShortcutTooltip>
-            <ShortcutTooltip label="Next project" keys={["J"]}><Button className={styles.nextProject} disabled={selectedIndex >= visible.length - 1} onClick={() => step(1)}>Next project <ChevronRightIcon /></Button></ShortcutTooltip>
+            <ShortcutTooltip label="Next project not scored yet" keys={["J"]}><Button className={styles.nextProject} disabled={!nextTarget} onClick={goNext}>Next project <ChevronRightIcon /></Button></ShortcutTooltip>
           </div>
         </aside>
       </div>

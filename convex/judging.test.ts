@@ -584,12 +584,13 @@ test("normalization decisions, finalist amendments, and placements stay independ
     slug: "hack",
     finalistIds: [secondId, firstId],
   });
+  // Judging closed into Stage, so the finalists became the lineup: the first one pitches now.
   expect(
     await t.query(api.events.getParticipant, {
       slug: "hack",
       participantToken: "participant-2",
     }),
-  ).toMatchObject({ submission: { finalist: true, status: "candidate" } });
+  ).toMatchObject({ submission: { finalist: true, status: "current" } });
   expect(
     await t.query(api.events.getParticipant, {
       slug: "hack",

@@ -16,6 +16,7 @@ import {
   type EventPhase,
   type PhaseEffect,
 } from "../lib/event-phase";
+import { finalistLineupPlan } from "../lib/finalist-lineup";
 
 export const DEFAULT_JUDGING_TIMER_MS = 60 * 60 * 1000;
 export const MAX_JUDGING_TIMER_MS = 99 * 60 * 60 * 1000;
@@ -120,6 +121,34 @@ export async function closeJudgingForEvent(ctx: MutationCtx, event: Doc<"events"
   });
 }
 
+/**
+ * On a hackathon the stage lineup is the submitted finalists, in pitch order,
+ * so the queue's machinery (current presenter, advance, the per-pitch clock,
+ * the projector's "Now pitching") runs the final presentations. Runs when the
+ * event reaches Stage and whenever finalists are submitted during Stage.
+ * Nothing is deleted: see finalistLineupPlan.
+ */
+export async function syncFinalistLineup(ctx: MutationCtx, event: Doc<"events">) {
+  if (event.eventType !== "hackathon") return null;
+  const decision = await ctx.db.query("judgingDecisions").withIndex("by_event", (q) => q.eq("eventId", event._id)).unique();
+  if (!decision || decision.finalistStatus !== "submitted") return null;
+  const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
+  const plan = finalistLineupPlan(
+    submissions.map((submission) => ({ id: String(submission._id), status: submission.status, queueOrder: submission.queueOrder })),
+    decision.finalistIds.map(String),
+  );
+  const now = Date.now();
+  const byId = new Map(submissions.map((submission) => [String(submission._id), submission]));
+  // Queued and waiting both hold their emails, so this is only a status and order change.
+  for (const update of plan.updates) {
+    await ctx.db.patch(byId.get(update.id)!._id, { status: update.status, queueOrder: update.queueOrder, updatedAt: now });
+  }
+  if (plan.lineup.length > 0 && !event.queuePublished) {
+    await ctx.db.patch(event._id, { queuePublished: true, stageScreenMode: "demo", updatedAt: now });
+  }
+  return plan;
+}
+
 export async function reopenJudgingForEvent(ctx: MutationCtx, event: Doc<"events">) {
   if (event.judgingStatus !== "closed") throw new ConvexError("Judging is not closed.");
   const now = Date.now();
@@ -153,7 +182,9 @@ function stepEffects(event: Pick<Doc<"events">, "eventType" | "judgingStatus" | 
     ];
   }
   if (hackathon && from === "judging" && to === "stage") {
-    return event.judgingStatus === "open" ? ["judging_close"] : event.judgingStatus === "closed" ? [] : ["judging_skipped"];
+    const judging: PhaseEffect[] = event.judgingStatus === "open" ? ["judging_close"] : event.judgingStatus === "closed" ? [] : ["judging_skipped"];
+    // With judging skipped there are no finalists to line up.
+    return event.judgingStatus === "open" || event.judgingStatus === "closed" ? [...judging, "finalists_lineup"] : judging;
   }
   if (hackathon && from === "stage" && to === "judging") {
     return event.judgingStatus === "closed" ? ["judging_reopen", "scores_kept"] : [];
@@ -215,8 +246,9 @@ async function runStep(ctx: MutationCtx, event: Doc<"events">, step: Step) {
     await closeSubmissionsForEvent(ctx, event);
   } else if (hackathon && step.from === "judging" && step.to === "submissions") {
     await reopenSubmissionsForEvent(ctx, event);
-  } else if (hackathon && step.from === "judging" && step.to === "stage" && event.judgingStatus === "open") {
-    await closeJudgingForEvent(ctx, event);
+  } else if (hackathon && step.from === "judging" && step.to === "stage") {
+    if (event.judgingStatus === "open") await closeJudgingForEvent(ctx, event);
+    await syncFinalistLineup(ctx, (await ctx.db.get(event._id)) ?? event);
   } else if (hackathon && step.from === "stage" && step.to === "judging" && event.judgingStatus === "closed") {
     await reopenJudgingForEvent(ctx, event);
   } else if (!hackathon && step.from === "submissions" && step.to === "stage" && !event.queuePublished) {

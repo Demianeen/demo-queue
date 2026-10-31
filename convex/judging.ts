@@ -11,7 +11,7 @@ import { components } from "./_generated/api";
 import { aiSummaryStatus, publicAiSummary } from "./aiSummaries";
 import { recordChange } from "./changeLog";
 import { withChange } from "./changeWrap";
-import { closeJudgingForEvent, closeSubmissionsForEvent, judgingRemaining, reopenJudgingForEvent } from "./phases";
+import { closeJudgingForEvent, closeSubmissionsForEvent, judgingRemaining, reopenJudgingForEvent, syncFinalistLineup } from "./phases";
 import { eventPhase } from "../lib/event-phase";
 import type { DataModel } from "./_generated/dataModel";
 import {
@@ -1611,6 +1611,8 @@ export const submitFinalists = mutation({
     });
     await confirmScoreBasis(ctx, event, now);
     await ctx.db.patch(event._id, { updatedAt: now });
+    // During Stage the lineup follows the finalists; before it, moving to Stage does this.
+    if (eventPhase(event) === "stage") await syncFinalistLineup(ctx, event);
   },
 });
 

@@ -143,7 +143,7 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
           {finalistsSubmitted
             ? <><p className={styles.help}>Starts in the order you submitted. Drag, or Alt and an arrow key, to reorder. The top three are the winners.</p>
               <Button size="sm" disabled={busy || winnersSubmitted || finalists.length === 0} onClick={() => void act(() => submitPlacements({ slug, placementIds: winners as Id<"submissions">[] }), "Could not submit the winners.", "Winners submitted.")}>{winnersSubmitted ? "Winners submitted" : "Submit winners"}</Button></>
-            : <><p className={styles.help}>In score order. Order them into winners after the final presentations, or drag now to pick both at once: this order is also the pitch order.</p>
+            : <><p className={styles.help}>Drag, or Alt and an arrow key, to order them now or after the final presentations. The top three are the winners, and this is the pitch order.</p>
               <Button size="sm" disabled={busy || finalists.length === 0} onClick={() => void act(() => submitFinalists({ slug, finalistIds: shownOrder as Id<"submissions">[] }), "Could not submit the finalists.", "Finalists submitted.")}>Submit finalists</Button></>}
         </div>
         {winnersSubmitted && <p className={styles.help}>Winners submitted {decision?.updatedAt ? clockTime(decision.updatedAt) : ""} · version {decision?.placementVersion}. Reordering saves a new draft until you submit again.</p>}

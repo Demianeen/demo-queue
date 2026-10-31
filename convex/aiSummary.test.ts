@@ -680,3 +680,55 @@ test("an explicit refresh rewrites a summary written with an older prompt, even 
   await runAll(t);
   expect(generateText).toHaveBeenCalledTimes(1);
 });
+
+test("the model reads the picked tracks' descriptions, and a summary is rewritten only when one of them changes", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  generateText.mockImplementation(async () => ({
+    output: {
+      whatItDoes: "Books meetings from a chat thread.",
+      howItWorks: "An agent with calendar tool calls.",
+      demoFocus: "A meeting booked from one message.",
+    },
+  }));
+  const { t, eventId, add } = await setup();
+  const agents = await t.run((ctx) => ctx.db.insert("eventTracks", { eventId, name: "AI agents", description: "Agents that do real work end to end", order: 0, createdAt: 1, updatedAt: 1 }));
+  const tools = await t.run((ctx) => ctx.db.insert("eventTracks", { eventId, name: "Developer tools", order: 1, createdAt: 1, updatedAt: 1 }));
+  const picked = await add(1, { trackIds: [agents] });
+  const other = await add(2, { trackIds: [tools] });
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  const call = generateText.mock.calls.find(([options]) => String(options.prompt).includes("Demo 1"))![0];
+  expect(call.prompt).toContain("<<<BEGIN TRACKS>>>\n- AI agents: Agents that do real work end to end\n<<<END TRACKS>>>");
+  expect((await summaryOf(t, picked))!.tracksKey).toMatch(/^t1:/);
+  expect(generateText).toHaveBeenCalledTimes(2);
+
+  // A rename, or a description on a track nobody here picked, rewrites nothing.
+  await t.mutation(api.tracks.updateTrack, { slug: "hack", trackId: agents, name: "Agents", description: "Agents that do real work end to end" });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(2);
+
+  // A changed description rewrites the summaries of the teams that picked it, and only theirs.
+  await t.mutation(api.tracks.updateTrack, { slug: "hack", trackId: agents, name: "Agents", description: "Agents that act without a person" });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(3);
+  expect(String(generateText.mock.calls[2][0].prompt)).toContain("- Agents: Agents that act without a person");
+  const otherKey = (await summaryOf(t, other))!.tracksKey;
+  await t.mutation(api.tracks.updateTrack, { slug: "hack", trackId: agents, name: "Agents", description: "Agents that act without a person" });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(3);
+  expect((await summaryOf(t, other))!.tracksKey).toBe(otherKey);
+});
+
+test("summaries written before track descriptions went in are left alone until a description changes", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  const { t, eventId, add } = await setup();
+  const agents = await t.run((ctx) => ctx.db.insert("eventTracks", { eventId, name: "AI agents", description: "Agents that do real work", order: 0, createdAt: 1, updatedAt: 1 }));
+  const id = await add(1, { trackIds: [agents] });
+  const key = summarySourceKey({ description: "Description 1", githubUrl: undefined });
+  await t.run((ctx) => ctx.db.patch(id, { aiSummary: { whatItDoes: "Old.", howItWorks: "Old.", demoFocus: "Old.", sourceKey: key, model: "m", usedReadme: false, promptVersion: 2, generatedAt: 1 } }));
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  expect(generateText).not.toHaveBeenCalled();
+  expect((await summaryOf(t, id))!.whatItDoes).toBe("Old.");
+});

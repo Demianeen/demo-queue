@@ -171,6 +171,8 @@ export default defineSchema({
         usedReadme: v.boolean(),
         // SHA-256 of the README text the summary was written from, when there was one.
         readmeHash: v.optional(v.string()),
+        // summaryTracksKey of the track descriptions it was written from; missing before track descriptions went in.
+        tracksKey: v.optional(v.string()),
         // SUMMARY_PROMPT_VERSION it was written with; missing on the first version.
         promptVersion: v.optional(v.number()),
         // A practice sample summary, written without the model.

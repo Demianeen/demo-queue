@@ -79,9 +79,9 @@ function log(status: string, reason: string) {
  * skipped and logged. A failure is logged and leaves any older summary alone.
  */
 export const generateSubmissionSummary = internalAction({
-  args: { submissionId: v.id("submissions"), refreshReadme: v.optional(v.boolean()), readmeAttempt: v.optional(v.number()) },
+  args: { submissionId: v.id("submissions"), refreshReadme: v.optional(v.boolean()), tracksChanged: v.optional(v.boolean()), readmeAttempt: v.optional(v.number()) },
   handler: async (ctx, args): Promise<{ saved: boolean }> => {
-    const input = await ctx.runQuery(internal.aiSummaries.summaryInput, { submissionId: args.submissionId, refreshReadme: args.refreshReadme });
+    const input = await ctx.runQuery(internal.aiSummaries.summaryInput, { submissionId: args.submissionId, refreshReadme: args.refreshReadme, tracksChanged: args.tracksChanged });
     if (!input) {
       log("skipped", "not_needed");
       return { saved: false };
@@ -102,6 +102,7 @@ export const generateSubmissionSummary = internalAction({
       await ctx.scheduler.runAfter(fetched.retryAfterMs, internal.aiSummaryAction.generateSubmissionSummary, {
         submissionId: args.submissionId,
         ...(args.refreshReadme ? { refreshReadme: true } : {}),
+        ...(args.tracksChanged ? { tracksChanged: true } : {}),
         readmeAttempt: attempt,
       });
       log("deferred", "readme_rate_limited");
@@ -133,6 +134,7 @@ export const generateSubmissionSummary = internalAction({
           submissionId: args.submissionId,
           sourceKey: input.sourceKey,
           lines: input.sections.map((section) => ({ key: section.key, text: String((output as Record<string, unknown>)[section.key] ?? "") })),
+          tracksKey: input.tracksKey,
           model,
           usedReadme: readme !== null,
           readmeHash,

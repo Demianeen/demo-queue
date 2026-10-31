@@ -10,6 +10,7 @@ import {
   SUMMARY_README_LIMIT,
   stripSectionPrefix,
   summarySourceKey,
+  summaryTracksKey,
 } from "../lib/ai-summary.ts";
 
 test("the source key changes only with the description or the repository", () => {
@@ -143,4 +144,22 @@ test("the prompt asks for the description alone without a README, no remarks on 
   assert.match(system, /Never mention what is missing, unavailable or unknown/);
   assert.match(system, /return an empty string for that field instead of guessing/);
   assert.doesNotMatch(system, /say so briefly/);
+});
+
+test("the TRACKS block carries each track's description", () => {
+  const tracks = [{ name: "AI agents", description: "Agents that do real work end to end" }, { name: "Best use of Daytona" }];
+  const { system, prompt } = buildSummaryPrompt({ demoTitle: "Guardrail", description: "Checks tool calls.", tracks, readme: null });
+  assert.match(prompt, /<<<BEGIN TRACKS>>>\n- AI agents: Agents that do real work end to end\n- Best use of Daytona\n<<<END TRACKS>>>/);
+  assert.match(system, /each with the organiser's description of the track/);
+  // The sections are unchanged: no track line yet.
+  assert.match(system, /Fill exactly three fields/);
+  // Older callers still pass plain names.
+  assert.match(buildSummaryPrompt({ demoTitle: "A", description: "B", tracks: ["Main"], readme: null }).prompt, /<<<BEGIN TRACKS>>>\n- Main\n<<<END TRACKS>>>/);
+});
+
+test("the tracks key changes with a picked track's description, not with a rename", () => {
+  const base = [{ id: "t1", description: "Agents that do real work" }, { id: "t2" }];
+  assert.equal(summaryTracksKey(base), summaryTracksKey([{ id: "t1", description: " Agents that do real work " }, { id: "t2", description: "" }]));
+  assert.notEqual(summaryTracksKey(base), summaryTracksKey([{ id: "t1", description: "Agents that act alone" }, { id: "t2" }]));
+  assert.notEqual(summaryTracksKey(base), summaryTracksKey([{ id: "t1", description: "Agents that do real work" }]));
 });

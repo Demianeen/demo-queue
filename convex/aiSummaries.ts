@@ -14,8 +14,10 @@ import {
   stripSectionPrefix,
   summaryOutputSchemaFor,
   summarySourceKey,
+  summaryTracksKey,
   type PracticeAiSummaries,
   type SummarySection,
+  type SummaryTrack,
 } from "../lib/ai-summary";
 
 /** Gap between summaries when a whole event is queued, so the model is not hit all at once. */
@@ -33,6 +35,23 @@ export function summarySections(event: Pick<Doc<"events">, "aiSummarySections">)
   } catch {
     return DEFAULT_SUMMARY_SECTIONS;
   }
+}
+
+/**
+ * The tracks the model is given: the organiser's tracks the team picked, with
+ * their descriptions, or the team's free-text category for older entries.
+ * Only the organiser's tracks count for its key.
+ */
+function summaryTracks(submission: Doc<"submissions">, byId: ReadonlyMap<Id<"eventTracks">, Doc<"eventTracks">>) {
+  const picked = (submission.trackIds ?? []).flatMap((id) => byId.get(id) ?? []);
+  const tracks: SummaryTrack[] = picked.length > 0
+    ? picked.map((track) => ({ name: track.name, description: track.description }))
+    : trackNamesFor(submission, byId).map((name) => ({ name }));
+  return {
+    tracks,
+    names: picked.map((track) => track.name),
+    tracksKey: summaryTracksKey(picked.map((track) => ({ id: String(track._id), description: track.description }))),
+  };
 }
 
 /**
@@ -130,11 +149,15 @@ export async function queueAiSummaryIfStale(
   event: Doc<"events">,
   submission: Doc<"submissions">,
   delayMs = 0,
-  options: { refreshReadme?: boolean; source?: SummaryQueueSource; submissionCount?: number } = {},
+  options: { refreshReadme?: boolean; tracksChanged?: boolean; source?: SummaryQueueSource; submissionCount?: number } = {},
 ) {
-  if (!needsSummary(event, submission, options.refreshReadme)) return false;
-  // A practice event on sample summaries never calls the model.
+  const needed = needsSummary(event, submission, options.refreshReadme);
+  // A changed track description rewrites a written summary; the run checks the key first.
+  const tracksOnly = !needed && options.tracksChanged === true && inJudging(event, submission) && Boolean(submission.aiSummary);
+  if (!needed && !tracksOnly) return false;
+  // A practice event on sample summaries never calls the model; its samples do not use tracks.
   if (summaryMode(event) === "sample") {
+    if (tracksOnly) return false;
     await writeSampleSummary(ctx, event, submission);
     return true;
   }
@@ -154,6 +177,7 @@ export async function queueAiSummaryIfStale(
   await ctx.scheduler.runAfter(runAt - now, internal.aiSummaryAction.generateSubmissionSummary, {
     submissionId: submission._id,
     ...(options.refreshReadme ? { refreshReadme: true } : {}),
+    ...(options.tracksChanged ? { tracksChanged: true } : {}),
   });
   await ctx.db.patch(submission._id, { summaryQueuedFor: runAt });
   return true;
@@ -187,24 +211,29 @@ export const queueEventSummaries = internalMutation({
 
 /** What the model is given: project fields only, never names or contact details. */
 export const summaryInput = internalQuery({
-  args: { submissionId: v.id("submissions"), refreshReadme: v.optional(v.boolean()) },
+  args: { submissionId: v.id("submissions"), refreshReadme: v.optional(v.boolean()), tracksChanged: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const submission = await ctx.db.get(args.submissionId);
     if (!submission) return null;
     const event = await ctx.db.get(submission.eventId);
     // Sample summaries are written without the model, so a run queued before a switch does nothing.
-    if (!event || summaryMode(event) === "sample" || !needsSummary(event, submission, args.refreshReadme)) return null;
+    if (!event || summaryMode(event) === "sample") return null;
     const byId = tracksById(await listEventTracks(ctx, event._id));
+    const { tracks, tracksKey } = summaryTracks(submission, byId);
+    // A track description edit rewrites only summaries written from other descriptions.
+    const tracksStale = args.tracksChanged === true && inJudging(event, submission) && Boolean(submission.aiSummary) && submission.aiSummary?.tracksKey !== tracksKey;
+    if (!tracksStale && !needsSummary(event, submission, args.refreshReadme)) return null;
     const sourceKey = summarySourceKey(submission);
     return {
       demoTitle: submission.demoTitle,
       description: submission.description,
       githubUrl: submission.githubUrl ?? null,
-      tracks: trackNamesFor(submission, byId),
+      tracks,
+      tracksKey,
       sourceKey,
       sections: summarySections(event),
       // Only the README can have changed: skip the model when its hash is the same.
-      readmeCheckOnly: submission.aiSummary?.sourceKey === sourceKey && submission.aiSummary?.promptVersion === SUMMARY_PROMPT_VERSION && submission.aiSummary?.sample !== true,
+      readmeCheckOnly: !tracksStale && submission.aiSummary?.sourceKey === sourceKey && submission.aiSummary?.promptVersion === SUMMARY_PROMPT_VERSION && submission.aiSummary?.sample !== true,
       readmeHash: submission.aiSummary?.readmeHash ?? null,
     };
   },
@@ -226,6 +255,8 @@ export const saveSummary = internalMutation({
     demoFocus: v.optional(v.string()),
     // Or one line per section key.
     lines: v.optional(v.array(v.object({ key: v.string(), text: v.string() }))),
+    // The track descriptions it was written from; a run started before an edit is not saved.
+    tracksKey: v.optional(v.string()),
     model: v.string(),
     usedReadme: v.boolean(),
     readmeHash: v.optional(v.string()),
@@ -236,6 +267,10 @@ export const saveSummary = internalMutation({
     const event = await ctx.db.get(submission.eventId);
     if (!event) return { saved: false, reason: "source_changed" };
     if (summaryMode(event) === "sample") return { saved: false, reason: "sample_mode" };
+    // Only tracks the organizer defined may be named; never the team's free-text category.
+    const byId = tracksById(await listEventTracks(ctx, submission.eventId));
+    const { names: adminTracks, tracksKey } = summaryTracks(submission, byId);
+    if (args.tracksKey !== undefined && args.tracksKey !== tracksKey) return { saved: false, reason: "source_changed" };
     const sections = summarySections(event);
     const given: Record<string, string> = {};
     for (const line of args.lines ?? []) given[line.key] = line.text;
@@ -250,9 +285,6 @@ export const saveSummary = internalMutation({
     const lines = output.data as Record<string, string>;
     // A section may be empty ("Not described"), but not all of them.
     if (sections.every((section) => !lines[section.key])) return { saved: false, reason: "invalid_output" };
-    // Only tracks the organizer defined may be named; never the team's free-text category.
-    const byId = tracksById(await listEventTracks(ctx, submission.eventId));
-    const adminTracks = (submission.trackIds ?? []).flatMap((id) => byId.get(id)?.name ?? []);
     const evaluative = findEvaluativeLanguage(sections.map((section) => lines[section.key]), adminTracks);
     if (evaluative) return { saved: false, reason: `evaluative_language:${evaluative}` };
     await ctx.db.patch(submission._id, {
@@ -262,6 +294,7 @@ export const saveSummary = internalMutation({
         ...(lines.demoFocus !== undefined ? { demoFocus: lines.demoFocus } : {}),
         sections: sections.map((section) => ({ key: section.key, label: section.label, text: lines[section.key] })),
         sourceKey: args.sourceKey,
+        ...(args.tracksKey !== undefined ? { tracksKey: args.tracksKey } : {}),
         model: args.model,
         usedReadme: args.usedReadme,
         readmeHash: args.readmeHash,

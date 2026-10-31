@@ -31,6 +31,7 @@ async function liveHackathon(t: TestClient) {
   await t.run(async (ctx) => {
     await ctx.db.insert("eventTracks", { eventId, name: "Developer tools", order: 0, createdAt: 1, updatedAt: 1 });
     await ctx.db.insert("eventTracks", { eventId, name: "AI agents", description: "Agents that do work", order: 1, createdAt: 1, updatedAt: 1 });
+    await ctx.db.insert("eventSponsors", { eventId, name: "Convex", usage: "Uses Convex for data", order: 0, createdAt: 1, updatedAt: 1 });
   });
   await addProject(t, eventId, 0);
   return eventId;
@@ -207,12 +208,13 @@ test("old practice events are tidied away, and real events never are", async () 
     event: await ctx.db.get(eventId),
     submissions: await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", eventId)).collect(),
     tracks: await ctx.db.query("eventTracks").withIndex("by_event_and_order", (q) => q.eq("eventId", eventId)).collect(),
+    sponsors: await ctx.db.query("eventSponsors").withIndex("by_event_and_order", (q) => q.eq("eventId", eventId)).collect(),
     live: await ctx.db.get(liveId),
     fresh: await ctx.db.get(fresh.eventId),
     aliases: await ctx.db.query("eventSlugAliases").withIndex("by_event", (q) => q.eq("eventId", eventId)).collect(),
     changes: await ctx.db.query("eventChanges").withIndex("by_event", (q) => q.eq("eventId", eventId)).collect(),
   }));
-  expect(rows).toMatchObject({ event: null, submissions: [], tracks: [], aliases: [], changes: [] });
+  expect(rows).toMatchObject({ event: null, submissions: [], tracks: [], sponsors: [], aliases: [], changes: [] });
   expect(rows.live).not.toBeNull();
   expect(rows.fresh).not.toBeNull();
 });
@@ -231,4 +233,23 @@ test("test projects use real public repositories and embeddable open-movie video
     expect(videoEmbedUrl(row.videoUrl)).toMatch(/^https:\/\/www\.youtube-nocookie\.com\/embed\//);
   }
   expect(new Set(rows.map((row) => row.videoUrl)).size).toBe(PRACTICE_VIDEOS.length);
+});
+
+test("a blank practice hackathon starts with sample tracks and sponsors, and a copy brings the real ones", async () => {
+  const { t } = setupTest();
+  await liveHackathon(t);
+  const setup = (eventId: string) => t.run(async (ctx) => {
+    const id = ctx.db.normalizeId("events", eventId)!;
+    return {
+      tracks: (await ctx.db.query("eventTracks").withIndex("by_event_and_order", (q) => q.eq("eventId", id)).collect()).map((row) => row.name),
+      sponsors: (await ctx.db.query("eventSponsors").withIndex("by_event_and_order", (q) => q.eq("eventId", id)).collect()).map((row) => row.name),
+    };
+  });
+
+  const blank = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "hackathon" }, testSubmissions: 6, testJudges: 0 });
+  expect(await setup(blank.eventId)).toEqual({ tracks: ["AI agents", "Developer tools", "Open"], sponsors: ["OpenAI", "Vercel"] });
+  const copy = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "copy", slug: "devday" }, testSubmissions: 0, testJudges: 0 });
+  expect(await setup(copy.eventId)).toEqual({ tracks: ["Developer tools", "AI agents"], sponsors: ["Convex"] });
+  const demo = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "demo" }, testSubmissions: 0, testJudges: 0 });
+  expect(await setup(demo.eventId)).toEqual({ tracks: [], sponsors: [] });
 });

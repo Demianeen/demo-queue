@@ -106,7 +106,7 @@ function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boole
   }
 
   return <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
-    <DialogContent className="sm:max-w-[400px]">
+    <DialogContent className="sm:max-w-[480px]">
       <DialogHeader><DialogTitle>New practice event</DialogTitle><DialogDescription className="sr-only">Choose what to start from and how many test people to fill it with.</DialogDescription></DialogHeader>
       <form className={styles.form} onSubmit={(submitEvent) => { submitEvent.preventDefault(); void create(); }}>
         <fieldset>
@@ -114,9 +114,9 @@ function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boole
           <RadioGroup value={startFrom} onValueChange={(value) => setStart(value as Start)} className={styles.options}>
             <label className={styles.option} data-disabled={live === null ? "" : undefined}>
               <RadioGroupItem value="copy" disabled={!live} />
-              <span><span className={styles.optionTitle}>{live === undefined ? "Copy the live event" : live ? `Copy ${live.name}` : "Copy the live event"}</span><span className={styles.optionDetail}>{live === null ? "There is no live event to copy." : "Its tracks, style, rules, timers and judging setup."}</span></span>
+              <span><span className={styles.optionTitle}>{live === undefined ? "Copy the live event" : live ? `Copy ${live.name}` : "Copy the live event"}</span><span className={styles.optionDetail}>{live === null ? "There is no live event to copy." : "Its tracks, sponsors, style, rules, timers and judging setup."}</span></span>
             </label>
-            <label className={styles.option}><RadioGroupItem value="hackathon" /><span><span className={styles.optionTitle}>Blank hackathon</span><span className={styles.optionDetail}>Tracks and judging, nothing filled in.</span></span></label>
+            <label className={styles.option}><RadioGroupItem value="hackathon" /><span><span className={styles.optionTitle}>Blank hackathon</span><span className={styles.optionDetail}>Judging, with sample tracks and sponsors to edit after.</span></span></label>
             <label className={styles.option}><RadioGroupItem value="demo" /><span><span className={styles.optionTitle}>Blank demo night</span><span className={styles.optionDetail}>A queue of demos, no judging.</span></span></label>
           </RadioGroup>
         </fieldset>
@@ -128,7 +128,7 @@ function NewPracticeDialog({ open, onOpenChange, organizationId }: { open: boole
         </fieldset>
         {judged && <div className={styles.field}>
           <Toggle label="Write AI summaries with the real model" checked={realModel} describedBy="practice-ai-hint" onChange={setRealModel} />
-          <span id="practice-ai-hint" className={styles.note}>Costs money per project. Off uses sample summaries.</span>
+          <span id="practice-ai-hint" className={styles.note}>Costs money per project. Off uses sample summaries and a sample AI read.</span>
         </div>}
         <p className={styles.note}>Test people get the event&apos;s tracks at random, a third of them none. Their confirmation emails arrive in your inbox.</p>
         {error && <p role="alert" className={styles.error}>{error}</p>}

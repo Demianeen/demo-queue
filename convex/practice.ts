@@ -18,6 +18,7 @@ import {
 import { createJudgeAccessForOrganization, saveReviewForJudge } from "./judging";
 import { judgingRemaining } from "./phases";
 import { listEventTracks } from "./tracks";
+import { listEventSponsors } from "./sponsors";
 import { workosUserEmail } from "./members";
 import { eventPhase } from "../lib/event-phase";
 import { isJudgedStatus } from "../lib/judged-status";
@@ -39,6 +40,16 @@ const TIDY_BATCH = 400;
 /** Change rows can be up to 600 KB each, so a tidy pass deletes only a few. */
 const TIDY_CHANGE_ROWS = 20;
 const DEFAULT_MEET_URL = "https://meet.google.com/";
+// A blank practice hackathon starts with these, so track picks, the AI read and judging by track can be tried. Edit them after.
+const SAMPLE_TRACKS = [
+  { name: "AI agents", description: "Software that plans and acts on its own: calls tools, browses or writes code." },
+  { name: "Developer tools", description: "Makes building, testing or shipping software faster." },
+  { name: "Open", description: "Anything else worth showing." },
+];
+const SAMPLE_SPONSORS = [
+  { name: "OpenAI", usage: "Calls the OpenAI API, for example a GPT model, embeddings or speech." },
+  { name: "Vercel", usage: "Deployed on Vercel, or built with Next.js or the AI SDK." },
+];
 // Ofcom keeps 020 7946 0000 to 0999 for drama, so these never reach a real phone.
 const TEST_PHONE_PREFIX = "+44 20 7946 0";
 
@@ -214,7 +225,13 @@ export const createPracticeEventForOwner = internalMutation({
     if (testJudges === 1) throw new ConvexError("Add at least 2 test judges, or none.");
     const name = (input.name?.trim() || (source ? `Dry run for ${source.name}` : eventType === "hackathon" ? "Practice hackathon" : "Practice demo night")).slice(0, 160);
     const slug = practiceSlug(name, random);
-    const tracks = source ? (await listEventTracks(ctx, source._id)).map((track) => ({ name: track.name, description: track.description })) : [];
+    const hackathon = eventType === "hackathon";
+    const tracks = source
+      ? (await listEventTracks(ctx, source._id)).map((track) => ({ name: track.name, description: track.description }))
+      : hackathon ? SAMPLE_TRACKS : [];
+    const sponsors = source
+      ? (await listEventSponsors(ctx, source._id)).map((sponsor) => ({ name: sponsor.name, usage: sponsor.usage }))
+      : hackathon ? SAMPLE_SPONSORS : [];
     const { eventId } = await createOrganizationEvent(ctx, {
       expectedOrganizationId: principal.organizationId,
       name,
@@ -222,7 +239,7 @@ export const createPracticeEventForOwner = internalMutation({
       eventType,
       visualStyle: source?.visualStyle ?? undefined,
       meetUrl: source?.meetUrl || DEFAULT_MEET_URL,
-    }, principal, tracks);
+    }, principal, tracks, sponsors);
     await ctx.db.patch(eventId, {
       practice: true,
       practiceOwnerActor: principal.actor,
@@ -264,9 +281,9 @@ export const createPracticeEventForOwner = internalMutation({
 });
 
 /**
- * New practice event: a copy of a real event (its tracks, style, judging and
- * stage timers, meet link and summary sections) or a blank hackathon or demo
- * night, filled with test judges and test submissions. An action, because
+ * New practice event: a copy of a real event (its tracks, sponsors, style,
+ * judging and stage timers, meet link and summary sections) or a blank
+ * hackathon (with sample tracks and sponsors) or demo night, filled with test judges and test submissions. An action, because
  * the creator's email comes from WorkOS.
  */
 export async function createPracticeEventForOrganization(
@@ -551,6 +568,7 @@ export const tidyPracticeEvents = internalMutation({
     if (budget > 0) await remove(ids(await ctx.db.query("auditLog").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("teamMembers").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("eventTracks").withIndex("by_event_and_order", (q) => q.eq("eventId", eventId)).take(budget)));
+    if (budget > 0) await remove(ids(await ctx.db.query("eventSponsors").withIndex("by_event_and_order", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("lumaGuestLookups").withIndex("by_event_and_email", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) await remove(ids(await ctx.db.query("eventSlugAliases").withIndex("by_event", (q) => q.eq("eventId", eventId)).take(budget)));
     if (budget > 0) {

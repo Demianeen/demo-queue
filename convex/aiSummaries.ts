@@ -434,8 +434,8 @@ export type AiRead = {
  * What judges and organisers see of the read: every track the team picked
  * (with no level when it has no description) and every sponsor, with the
  * stored level and reason when there is one. Null when there is nothing to
- * read for (no picked tracks and no sponsors, a practice sample summary), or
- * no read is written and no run is queued for one. A read written from older
+ * read for (no picked tracks and no sponsors), or no read is written and no
+ * run is queued for one. A practice sample summary gets a sample read. A read written from older
  * tracks or sponsors is shown until a run for a new one is queued.
  */
 export function publicAiRead(
@@ -444,9 +444,10 @@ export function publicAiRead(
   byId: ReadonlyMap<Id<"eventTracks">, Doc<"eventTracks">>,
   sponsors: Doc<"eventSponsors">[],
 ): AiRead | null {
-  if (event.eventType !== "hackathon" || summaryMode(event) === "sample") return null;
+  if (event.eventType !== "hackathon") return null;
   const { picked, tracksKey } = summaryTracks(submission, byId, sponsors);
   if (picked.length === 0 && sponsors.length === 0) return null;
+  if (summaryMode(event) === "sample") return submission.aiSummary?.sample === true ? sampleRead(submission, picked, sponsors) : null;
   const summary = submission.aiSummary;
   const written = summary?.read;
   const fresh = Boolean(summary) && summary?.tracksKey === tracksKey && summary?.sourceKey === summarySourceKey(submission);
@@ -467,6 +468,24 @@ export function publicAiRead(
       const entry = shown ? sponsorLevel.get(sponsor._id) : undefined;
       return { id: sponsor._id, name: sponsor.name, level: entry?.level ?? null, reason: entry?.reason ?? null };
     }),
+  };
+}
+
+/**
+ * A practice sample summary's read, so judges and organisers see the track
+ * and sponsor lines without the model. Levels come from the ids, the same on
+ * every load, and it is never stored, so track and sponsor edits show at once.
+ */
+function sampleRead(submission: Doc<"submissions">, picked: Doc<"eventTracks">[], sponsors: Doc<"eventSponsors">[]): AiRead {
+  const pick = <T,>(levels: readonly T[], id: string) => levels[[...`${submission._id}${id}`].reduce((sum, char) => sum + char.charCodeAt(0), 0) % levels.length];
+  return {
+    status: "ready",
+    overall: "Sample read (practice), in place of the real model.",
+    tracks: picked.map((track) => {
+      const described = Boolean(track.description?.trim());
+      return { id: track._id, name: track.name, level: described ? pick(TRACK_FIT_LEVELS, track._id) : null, reason: described ? `Sample reason for ${track.name}.` : null, described };
+    }),
+    sponsors: sponsors.map((sponsor) => ({ id: sponsor._id, name: sponsor.name, level: pick(SPONSOR_USE_LEVELS, sponsor._id), reason: `Sample reason for ${sponsor.name}.` })),
   };
 }
 

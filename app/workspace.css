@@ -99,8 +99,9 @@ body:has([data-event-style="neutral"]) > .page-bg, body:has(.neutral-stage) > .p
 /* The new event form: one card, controls sized to what they hold, the preview beside it */
 .new-event-grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 20px; border: 0; margin: 0; padding: 0; min-width: 0; }
 .new-event-card { border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; min-width: 0; box-sizing: border-box; }
-.new-event-grid > .new-event-card:first-child { flex: 999 1 600px; }
-.new-event-preview { flex: 1 1 340px; min-width: min(300px, 100%); gap: 10px; padding: 14px 16px; }
+.new-event-grid > .new-event-card:first-child { flex: 1 1 560px; max-width: 720px; }
+/* The preview takes the width the form does not use, and stays in view while the form scrolls */
+.new-event-preview { flex: 1 1 380px; min-width: min(300px, 100%); gap: 10px; padding: 14px 16px; position: sticky; top: 16px; }
 .new-event-preview-title { margin: 0; font-size: 13px; font-weight: 600; }
 .new-event-preview .workspace-preview-frame { margin-top: 0; }
 .new-event-field { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; border: 0; margin: 0; padding: 0; }
@@ -113,13 +114,16 @@ body:has([data-event-style="neutral"]) > .page-bg, body:has(.neutral-stage) > .p
 .new-event-link strong { font-weight: 400; color: var(--dq-fg); }
 .dq-app .new-event-input { width: 100%; max-width: 420px; }
 .dq-app .new-event-input[data-size="track"] { max-width: 200px; }
-.dq-app .new-event-input[data-size="style"] { max-width: 240px; }
+.dq-app .new-event-input[data-size="style"] { max-width: 300px; }
 .dq-app .new-event-input[data-size="meet"] { max-width: 340px; }
 .new-event-types { display: inline-flex; gap: 8px; }
 .new-event-types .workspace-event-type { gap: 8px; padding: 0 12px; }
 .new-event-types .workspace-event-type > svg { margin-left: 4px; }
 .new-event-inline { display: flex; align-items: center; gap: 10px; width: 100%; }
 .new-event-inline .workspace-text-link { margin-left: 0; font-size: 12px; white-space: nowrap; }
+/* The trigger wraps its content in a block span: keep the Aa chip and the style name on one line */
+.new-event [data-slot="select-trigger"] > span:first-child { display: flex; align-items: center; gap: 8px; }
+.new-event [data-slot="select-trigger"] .workspace-type-swatch { width: 18px; height: 18px; flex-basis: 18px; font-size: 10px; }
 .new-event .workspace-track-row { align-items: center; width: 100%; }
 .new-event .workspace-track-inputs { flex-direction: row; flex: 0 1 auto; gap: 6px; width: 100%; max-width: 626px; }
 .new-event .workspace-track-inputs > :first-child { flex: 0 1 200px; }

@@ -50,7 +50,7 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
       const trackInputs = tracks
         .filter((track) => track.name.trim())
         .map((track) => ({ name: track.name, description: track.description.trim() || undefined }));
-      await createEvent({ name, slug, eventType, visualStyle, styleId: selectedStyle?._id, meetUrl, expectedOrganizationId: organizationId, tracks: trackInputs });
+      await createEvent({ name, slug, eventType, visualStyle, styleId: selectedStyle?._id, meetUrl: meetUrl.trim() || undefined, expectedOrganizationId: organizationId, tracks: trackInputs });
       window.location.assign(adminPath(slug));
     } catch (error) {
       setError(error instanceof ConvexError && typeof error.data === "string" ? error.data : "Could not create the event. Please try again.");
@@ -71,7 +71,8 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
             </RadioGroup>
           </div>
           <EventTracksFields tracks={tracks} onChange={setTracks} />
-          <div className="workspace-field"><label htmlFor="meetUrl">Google Meet link</label><div className="workspace-input-icon"><LinkIcon aria-hidden /><Input id="meetUrl" type="url" placeholder="https://meet.google.com/..." value={meetUrl} onChange={(e) => setMeetUrl(e.target.value)} required /></div></div>
+          {/* Demoers join the call from the meet link; a hackathon may use one in Stage. */}
+          <div className="workspace-field"><label htmlFor="meetUrl">{eventType === "demo" ? "Google Meet link" : "Google Meet link (optional)"}</label><div className="workspace-input-icon"><LinkIcon aria-hidden /><Input id="meetUrl" type="url" placeholder="https://meet.google.com/..." value={meetUrl} onChange={(e) => setMeetUrl(e.target.value)} required={eventType === "demo"} aria-describedby="meetUrl-help" /></div><p id="meetUrl-help" className="workspace-help">{eventType === "demo" ? "Required for a demo night: demoers join the call from it." : "For finalists who pitch remotely. You can add it later in Settings."}</p></div>
           <Button className="workspace-submit" disabled={isCreating} type="submit">{isCreating ? "Creating…" : "Create event"}</Button>
           {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
           {onCancel && <Button variant="ghost" onClick={onCancel}>Back to events</Button>}

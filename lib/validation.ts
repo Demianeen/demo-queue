@@ -172,3 +172,18 @@ export function isValidLinkedin(value: string) {
     return false;
   }
 }
+
+/**
+ * A demo night needs a Google Meet link, because demoers join the call from
+ * it. A hackathon has none: an empty value is fine, a typed one must still be
+ * a web address. Returns the message to show, or null.
+ */
+export function meetUrlError(eventType: "demo" | "hackathon", value: string | undefined) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return eventType === "demo" ? "Add a Google Meet link: demoers join the call from it." : null;
+  let url: URL;
+  try { url = new URL(trimmed); } catch { return "Enter a valid meeting URL."; }
+  if (!["https:", "http:"].includes(url.protocol)) return "Enter an HTTP or HTTPS meeting URL.";
+  if (trimmed.length > 2048) return "That meeting URL is too long.";
+  return null;
+}

@@ -23,6 +23,7 @@ import { HOUR, RateLimiter } from "@convex-dev/rate-limiter";
 import {
   emailKey,
   isValidEmail,
+  meetUrlError,
   parseContactTextFields,
   parseSubmissionTextFields,
   socialLinksError,
@@ -598,7 +599,8 @@ export const createEventArgs = {
     eventType: v.union(v.literal("demo"), v.literal("hackathon")),
     visualStyle: v.optional(visualStyleValidator),
     styleId: v.optional(v.id("organizationStyles")),
-    meetUrl: v.string(),
+    // A demo night needs one; a hackathon has none (an empty string).
+    meetUrl: v.optional(v.string()),
   };
 
 type CreateEventInput = ObjectType<typeof createEventArgs>;
@@ -625,9 +627,8 @@ export async function createOrganizationEvent(
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(args.slug) || args.slug.length > 200) {
       throw new ConvexError("Invalid event slug.");
     }
-    let meetUrl: URL;
-    try { meetUrl = new URL(args.meetUrl); } catch { throw new ConvexError("Enter a valid meeting URL."); }
-    if (!["https:", "http:"].includes(meetUrl.protocol)) throw new ConvexError("Enter an HTTP or HTTPS meeting URL.");
+    const meetError = meetUrlError(args.eventType, args.meetUrl);
+    if (meetError) throw new ConvexError(meetError);
     const existing = await findEventBySlug(ctx, args.slug);
     const alias = await ctx.db.query("eventSlugAliases").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
 
@@ -651,7 +652,7 @@ export async function createOrganizationEvent(
       eventType: args.eventType,
       visualStyle,
       theme,
-      meetUrl: args.meetUrl.trim(),
+      meetUrl: args.meetUrl?.trim() ?? "",
       queuePublished: false,
       stageScreenMode: "qr",
       showSubmissionCountOnStage: false,
@@ -896,7 +897,7 @@ export const getStage = query({
       lineup: stageLineup.map(stageFields),
       remainingCount: lineup.length,
       waitingCount: activeSubmissionCount,
-      meetUrl: event.queuePublished && showMeetLinkOnStage ? event.meetUrl : null,
+      meetUrl: event.queuePublished && showMeetLinkOnStage && event.meetUrl ? event.meetUrl : null,
     };
   },
 });
@@ -1094,7 +1095,7 @@ export const getParticipant = query({
         canWithdraw: submission.status === "candidate" || submission.status === "queued",
         canSubmitAgain: canSubmitAgain(submission),
       },
-      meetUrl: mayJoin ? event.meetUrl : null,
+      meetUrl: mayJoin && event.meetUrl ? event.meetUrl : null,
     };
   },
 });
@@ -1809,6 +1810,8 @@ export const updateEvent = mutation({
     const principal = await requireOrganization(ctx);
     const { event } = await requireOwnedEvent(ctx, args.slug, principal);
     const name = args.name.trim();
+    const meetError = meetUrlError(eventType(event), args.meetUrl);
+    if (meetError) throw new ConvexError(meetError);
     await recordChange(ctx, { event, principal, kind: "event_updated", summary: name !== event.name ? `renamed the event to ${name}` : "updated the event details" }, async () => {
       await ctx.db.patch(event._id, {
         name,
@@ -1925,6 +1928,8 @@ export const changeEventTypeArgs = v.object({
   slug: v.string(),
   eventType: v.union(v.literal("demo"), v.literal("hackathon")),
   confirmReset: v.boolean(),
+  // Needed when a hackathon becomes a demo night and has no link yet.
+  meetUrl: v.optional(v.string()),
 });
 
 async function changeEventTypeOperation(
@@ -1937,6 +1942,9 @@ async function changeEventTypeOperation(
       throw new ConvexError("Event type cannot change after judging has started.");
     }
     if (eventType(event) === args.eventType) return { deletedSubmissions: 0 };
+    const meetUrl = args.meetUrl?.trim() || event.meetUrl;
+    const meetError = meetUrlError(args.eventType, meetUrl);
+    if (meetError) throw new ConvexError(meetError);
 
     const submissions = await ctx.db
       .query("submissions")
@@ -1953,6 +1961,7 @@ async function changeEventTypeOperation(
     await ctx.db.patch(event._id, {
       ...blankEventState(now),
       eventType: args.eventType,
+      meetUrl,
       judgingSheetId: undefined,
       judgingSheetUrl: undefined,
       judgingSheetCreatedAt: undefined,

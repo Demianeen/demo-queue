@@ -112,7 +112,7 @@ export const ADMIN_TOOLS: RegisteredAdminTool[] = [
   }),
   defineAdminTool({
     name: "change_event_type", browser: "events.changeEventType", input: operations.changeEventTypeInput, effect: "destructive",
-    description: "Change event type. Requires matching confirmation and confirmReset when submissions exist. Deletes submissions, team members and uploads, resets queue/timers and disconnects the Sheet. Does not delete the external Sheet.",
+    description: "Change event type. Requires matching confirmation and confirmReset when submissions exist. Deletes submissions, team members and uploads, resets queue/timers and disconnects the Sheet. Does not delete the external Sheet. A demo night needs a meetUrl: pass one when the event has none.",
     invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.changeEventType, { principal, input }),
   }),
   defineAdminTool({

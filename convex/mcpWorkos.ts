@@ -76,7 +76,7 @@ export function createToolServer(ctx: Pick<ActionCtx, "runQuery" | "runMutation"
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runQuery(internal.mcpData.getEvent, args)));
   server.registerTool("create_event", {
     description: "Create an initially unpublished event using a saved style, built-in preset, or the organization default.",
-    inputSchema: z.object({ organizationId, name: z.string().trim().min(1).max(160), slug: z.string().max(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), eventType: z.enum(["demo", "hackathon"]), meetUrl: z.url().max(2048).refine((url) => ["https:", "http:"].includes(new URL(url).protocol)), style: styleSelection.optional() }).strict(),
+    inputSchema: z.object({ organizationId, name: z.string().trim().min(1).max(160), slug: z.string().max(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), eventType: z.enum(["demo", "hackathon"]), meetUrl: z.url().max(2048).refine((url) => ["https:", "http:"].includes(new URL(url).protocol)).optional().describe("Google Meet link. Required for a demo night; optional for a hackathon."), style: styleSelection.optional() }).strict(),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runMutation(internal.mcpData.createEvent, {
     expectedOrganizationId: args.organizationId, actor: user.actor, name: args.name, slug: args.slug, eventType: args.eventType, meetUrl: args.meetUrl,

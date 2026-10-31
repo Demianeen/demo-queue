@@ -102,3 +102,15 @@ test("email format check refuses malformed addresses", async () => {
     assert.equal(isValidEmail(value), false, value);
   }
 });
+
+test("a demo night needs a meet link and a hackathon does not", async () => {
+  const { meetUrlError } = await import("../lib/validation.ts");
+  assert.match(meetUrlError("demo", ""), /Google Meet link/);
+  assert.match(meetUrlError("demo", "   "), /Google Meet link/);
+  assert.equal(meetUrlError("demo", "https://meet.google.com/abc-defg-hij"), null);
+  assert.equal(meetUrlError("hackathon", ""), null);
+  assert.equal(meetUrlError("hackathon", undefined), null);
+  assert.equal(meetUrlError("hackathon", "https://meet.google.com/abc"), null);
+  assert.match(meetUrlError("hackathon", "not a link"), /valid meeting URL/);
+  assert.match(meetUrlError("demo", "ftp://meet.example.com"), /HTTP or HTTPS/);
+});

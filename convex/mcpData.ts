@@ -29,7 +29,8 @@ export const listEvents = internalQuery({
   args: { principal: v.optional(organizationPrincipalValidator), organizationId: v.string(), paginationOpts: paginationOptsValidator },
   handler: async (ctx, { principal, organizationId, paginationOpts }) => {
     if (principal?.mcp) await requireApproval(ctx, principal.mcp.approvalId, organizationId, "events:read");
-    const result = await ctx.db.query("events").withIndex("by_workosOrganizationId", (q) => q.eq("workosOrganizationId", organizationId)).order("desc").paginate(paginationOpts);
+    // Real events only; practice events have their own list (list_practice_events).
+    const result = await ctx.db.query("events").withIndex("by_workosOrganizationId_and_practice", (q) => q.eq("workosOrganizationId", organizationId).eq("practice", undefined)).order("desc").paginate(paginationOpts);
     return { page: result.page.map(eventDto), isDone: result.isDone, continueCursor: result.continueCursor };
   },
 });

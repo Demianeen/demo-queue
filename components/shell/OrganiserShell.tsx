@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useMemo, type ReactNode } from "react";
-import { Building2, CalendarDays, Check, ChevronsUpDown, Code2, ListChecks, Palette, Plug, Plus, Presentation, Search, Users } from "lucide-react";
+import { Building2, CalendarDays, Check, ChevronsUpDown, Code2, FlaskConical, ListChecks, Palette, Plug, Plus, Presentation, Search, Users } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarInset,
-  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, SidebarProvider, SidebarTrigger,
+  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,12 +19,12 @@ import { WorkspaceAccountMenu } from "@/components/WorkspaceAccountMenu";
 import { CommandProvider, ShortcutTooltip, useCommandRegistry, useCommands, type Command } from "./commands";
 import { CommandMenu } from "./CommandMenu";
 import { ShortcutSheet } from "./ShortcutSheet";
-import { eventDetailsPath } from "@/lib/workspace-routes";
-import { adminPath } from "@/lib/routes";
-import { adminViewPath, adminViewsFor, type AdminView } from "@/lib/admin-views";
+import { ADMIN_VIEW_KEYS, adminViewPath, adminViewsFor, judgingPath, JUDGES_KEY } from "@/lib/admin-views";
+import { PHASE_LABELS, type EventPhase } from "@/lib/event-phase";
+import { InPageLink, useInPageNavigate } from "@/components/InPageLink";
 
 type Organization = { id: string; name: string };
-export type ShellEvent = { name: string; slug: string; eventType: "demo" | "hackathon" };
+export type ShellEvent = { name: string; slug: string; eventType: "demo" | "hackathon"; practice?: boolean; phase?: EventPhase };
 
 export type ShellProps = {
   organizations: Organization[];
@@ -33,8 +33,10 @@ export type ShellProps = {
   displayName: string;
   switching: boolean;
   onSelectOrganization: (id: string) => Promise<void>;
-  /** The org's current event, shown under "Current event". Undefined while loading, null when there is none. */
-  currentEvent: ShellEvent | null | undefined;
+  /** The org's live event, shown under "Live now". Undefined while loading, null when there is none. */
+  liveEvent: ShellEvent | null | undefined;
+  /** The event this page shows, when it is not the live one (an older or a practice event). */
+  openEvent?: ShellEvent | null;
   children: ReactNode;
 };
 
@@ -56,21 +58,14 @@ export function OrganiserShell(props: ShellProps) {
   </div>;
 }
 
-function useActiveAdminView(): AdminView | undefined {
+function ShellSidebar({ organizations, activeOrganizationId, email, displayName, switching, onSelectOrganization, liveEvent, openEvent }: ShellProps) {
   const pathname = usePathname();
-  const search = useSearchParams();
-  if (!/^\/events\/[^/]+\/admin$/.test(pathname)) return undefined;
-  const view = search.get("view");
-  return (view && ["queue", "submissions", "judging", "settings"].includes(view) ? view : "queue") as AdminView;
-}
-
-function ShellSidebar({ organizations, activeOrganizationId, email, displayName, switching, onSelectOrganization, currentEvent }: ShellProps) {
-  const pathname = usePathname();
-  const adminView = useActiveAdminView();
   const { setMenuOpen } = useCommandRegistry();
   const active = organizations.find((org) => org.id === activeOrganizationId);
-  const inCurrentEvent = !!currentEvent && pathname.startsWith(`/events/${currentEvent.slug}/`);
-  const eventsActive = pathname === "/events" || pathname === "/events/new" || (/^\/events\/[^/]+\/(overview|admin)$/.test(pathname) && !inCurrentEvent);
+  const inEvent = (event: ShellEvent | null | undefined) => !!event && pathname.startsWith(`/events/${event.slug}/`);
+  const other = openEvent && openEvent.slug !== liveEvent?.slug ? openEvent : null;
+  const practiceActive = pathname === "/events/practice" || (!!other?.practice && inEvent(other));
+  const eventsActive = pathname === "/events" || pathname === "/events/new" || (!!other && !other.practice && inEvent(other));
 
   return <Sidebar variant="inset" collapsible="offcanvas">
     <SidebarHeader className="gap-1 px-2 pt-2">
@@ -100,26 +95,22 @@ function ShellSidebar({ organizations, activeOrganizationId, email, displayName,
     </SidebarHeader>
     <SidebarContent>
       {active && <SidebarGroup>
-        <SidebarGroupLabel>Current event</SidebarGroupLabel>
+        <SidebarGroupLabel><span className="dq-dot mr-1.5" data-tone={liveEvent ? "success" : undefined} aria-hidden />Live now</SidebarGroupLabel>
         <SidebarMenu>
-          {currentEvent === undefined ? <SidebarMenuItem><div className="flex h-7 items-center px-2"><Skeleton className="h-3 w-32" /></div></SidebarMenuItem>
-            : currentEvent === null ? <SidebarMenuItem><SidebarMenuButton render={<Link href="/events/new" />} className="text-[var(--dq-fg-2)]"><Plus aria-hidden /><span>Create your first event</span></SidebarMenuButton></SidebarMenuItem>
-            : <SidebarMenuItem>
-              <SidebarMenuButton render={<Link href={eventDetailsPath(currentEvent.slug)} />} isActive={pathname === eventDetailsPath(currentEvent.slug)}>
-                {currentEvent.eventType === "hackathon" ? <Code2 aria-hidden /> : <Presentation aria-hidden />}<span>{currentEvent.name}</span>
-              </SidebarMenuButton>
-              <SidebarMenuSub>
-                {adminViewsFor(currentEvent.eventType).map((item) => <SidebarMenuSubItem key={item.view}>
-                  <SidebarMenuSubButton render={<Link href={adminViewPath(currentEvent.slug, item.view)} />} isActive={inCurrentEvent && adminView === item.view}><span>{item.label}</span></SidebarMenuSubButton>
-                </SidebarMenuSubItem>)}
-              </SidebarMenuSub>
-            </SidebarMenuItem>}
+          {liveEvent === undefined ? <SidebarMenuItem><div className="flex h-7 items-center px-2"><Skeleton className="h-3 w-32" /></div></SidebarMenuItem>
+            : liveEvent === null ? <SidebarMenuItem><SidebarMenuButton render={<Link href="/events/new" />} className="text-[var(--dq-fg-2)]"><Plus aria-hidden /><span>No live event. Create one</span></SidebarMenuButton></SidebarMenuItem>
+            : <EventNav event={liveEvent} active={inEvent(liveEvent)} />}
         </SidebarMenu>
+      </SidebarGroup>}
+      {active && other && <SidebarGroup>
+        <SidebarGroupLabel>{other.practice ? "Practice event" : "Open event"}</SidebarGroupLabel>
+        <SidebarMenu><EventNav event={other} active={inEvent(other)} /></SidebarMenu>
       </SidebarGroup>}
       <SidebarGroup>
         <SidebarGroupLabel>Workspace</SidebarGroupLabel>
         <SidebarMenu>
-          <NavItem href="/events" label="Events" keys={["G", "E"]} icon={<CalendarDays aria-hidden />} active={Boolean(eventsActive)} />
+          <NavItem href="/events" label="Events" keys={["G", "E"]} icon={<CalendarDays aria-hidden />} active={eventsActive} />
+          <NavItem href="/events/practice" label="Practice" keys={["G", "P"]} icon={<FlaskConical aria-hidden />} active={practiceActive} />
           <NavItem href="/styles" label="Styles" keys={["G", "S"]} icon={<Palette aria-hidden />} active={pathname === "/styles"} />
           <NavItem href="/members" label="Members" keys={["G", "M"]} icon={<Users aria-hidden />} active={pathname === "/members"} />
           <NavItem href="/events/connections" label="Connections" keys={["G", "C"]} icon={<Plug aria-hidden />} active={pathname === "/events/connections"} />
@@ -138,6 +129,16 @@ function ShellSidebar({ organizations, activeOrganizationId, email, displayName,
   </Sidebar>;
 }
 
+/** An event in the sidebar: one item with its phase. Its sections are the tabs on its page. */
+function EventNav({ event, active }: { event: ShellEvent; active: boolean }) {
+  return <SidebarMenuItem>
+    <SidebarMenuButton render={<InPageLink href={adminViewPath(event.slug, "home")} />} isActive={active}>
+      {event.practice ? <FlaskConical aria-hidden /> : event.eventType === "hackathon" ? <Code2 aria-hidden /> : <Presentation aria-hidden />}<span className="truncate">{event.name}</span>
+      {event.phase && <span className="dq-nav-phase" data-phase={event.phase}>{PHASE_LABELS[event.phase]}</span>}
+    </SidebarMenuButton>
+  </SidebarMenuItem>;
+}
+
 function NavItem({ href, label, keys, icon, active }: { href: string; label: string; keys: string[]; icon: ReactNode; active: boolean }) {
   return <SidebarMenuItem>
     <ShortcutTooltip label={label} keys={keys} side="right">
@@ -147,33 +148,35 @@ function NavItem({ href, label, keys, icon, active }: { href: string; label: str
 }
 
 /** Navigation and creation commands that work on every organiser page. */
-function GlobalCommands({ currentEvent, organizations, activeOrganizationId, switching, onSelectOrganization }: ShellProps) {
+function GlobalCommands({ liveEvent, organizations, activeOrganizationId, switching, onSelectOrganization }: ShellProps) {
   const router = useRouter();
+  const navigate = useInPageNavigate();
   const { setSheetOpen } = useCommandRegistry();
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [
       { id: "new-event", group: "Create", label: "New event", keys: ["C"], run: () => router.push("/events/new") },
       { id: "go-events", group: "Go to", label: "Events", keys: ["G", "E"], run: () => router.push("/events") },
+      { id: "go-practice", group: "Go to", label: "Practice", keys: ["G", "P"], run: () => router.push("/events/practice") },
+      { id: "new-practice", group: "Create", label: "New practice event", run: () => router.push("/events/practice?new=1") },
       { id: "go-styles", group: "Go to", label: "Styles", keys: ["G", "S"], run: () => router.push("/styles") },
       { id: "go-members", group: "Go to", label: "Members", keys: ["G", "M"], run: () => router.push("/members") },
       { id: "go-connections", group: "Go to", label: "Connections", keys: ["G", "C"], run: () => router.push("/events/connections") },
       { id: "go-guide", group: "Go to", label: "Getting started", keys: ["G", "G"], run: () => router.push("/events/getting-started") },
       { id: "shortcuts", group: "Help", label: "Keyboard shortcuts", keys: ["?"], run: () => setSheetOpen(true) },
     ];
-    if (currentEvent) {
-      list.push({ id: "go-summary", group: "Current event", label: `${currentEvent.name}: summary`, keys: ["G", "O"], run: () => router.push(eventDetailsPath(currentEvent.slug)) });
-      const keyFor: Record<AdminView, string> = { queue: "Q", submissions: "U", judging: "J", settings: "T" };
-      for (const item of adminViewsFor(currentEvent.eventType)) {
-        list.push({ id: `go-${item.view}`, group: "Current event", label: `${currentEvent.name}: ${item.label.toLowerCase()}`, keys: ["G", keyFor[item.view]], run: () => router.push(adminViewPath(currentEvent.slug, item.view)) });
+    if (liveEvent) {
+      for (const item of adminViewsFor(liveEvent.eventType)) {
+        list.push({ id: `go-${item.view}`, group: "Live now", label: `${liveEvent.name}: ${item.label.toLowerCase()}`, keys: ["G", ADMIN_VIEW_KEYS[item.view]], run: () => navigate(adminViewPath(liveEvent.slug, item.view)) });
       }
-      list.push({ id: "open-admin", group: "Current event", label: "Open event controls", run: () => router.push(adminPath(currentEvent.slug)) });
+      // The Judges page is part of Judging now; its key still opens the judges.
+      if (liveEvent.eventType === "hackathon") list.push({ id: "go-judges", group: "Live now", label: `${liveEvent.name}: judges`, keys: ["G", JUDGES_KEY], run: () => navigate(judgingPath(liveEvent.slug)) });
     }
     if (organizations.length > 1) for (const org of organizations) {
       if (org.id === activeOrganizationId) continue;
       list.push({ id: `org-${org.id}`, group: "Switch organization", label: `Switch to ${org.name}`, disabled: switching, run: () => void onSelectOrganization(org.id) });
     }
     return list;
-  }, [router, setSheetOpen, currentEvent, organizations, activeOrganizationId, switching, onSelectOrganization]);
+  }, [router, navigate, setSheetOpen, liveEvent, organizations, activeOrganizationId, switching, onSelectOrganization]);
   useCommands("global", commands);
   return null;
 }

@@ -1,0 +1,28 @@
+/**
+ * A timer as a Convex query returns it: the time left when the query ran,
+ * and that query's own clock (`serverNow`).
+ *
+ * Convex caches a query until the data it read changes, so `serverNow` is
+ * when the query last ran, not when the browser received it: it can be hours
+ * old. A running timer therefore ends at `serverNow + remainingMs` (or its
+ * stored `endsAt`), and the time left is that end minus the browser's clock.
+ * Every surface (Overview, Judging, the judge page and the stage) reads the
+ * time through here, so they all show the same clock.
+ */
+export type TimerReading = {
+  running: boolean;
+  remainingMs: number;
+  serverNow: number;
+  endsAt?: number | null;
+};
+
+/** When a running timer ends, in ms since the epoch. */
+export function timerEndsAt(timer: TimerReading) {
+  return typeof timer.endsAt === "number" ? timer.endsAt : timer.serverNow + timer.remainingMs;
+}
+
+/** Time left at `now`: negative once a running timer has run out. A paused or idle timer keeps its time. */
+export function timeLeftMs(timer: TimerReading | null | undefined, now: number) {
+  if (!timer) return 0;
+  return timer.running ? timerEndsAt(timer) - now : timer.remainingMs;
+}

@@ -178,8 +178,13 @@ export function DevDayPreview() {
             setNotice("Contact changes are held in this preview only.");
           }}
           withdraw={async () => {
-            setParticipant((current) => ({ ...current, submission: { ...current.submission, status: "withdrawn" } }));
+            setParticipant((current) => ({ ...current, submission: { ...current.submission, status: "withdrawn", canWithdraw: false, canSubmitAgain: true } }));
             setNotice("This sample submission was withdrawn in the preview only.");
+          }}
+          resubmit={async () => {
+            setParticipant((current) => ({ ...current, submission: { ...current.submission, status: "candidate", canWithdraw: true, canSubmitAgain: false } }));
+            setNotice("This sample submission came back in the preview only.");
+            return { restored: true as const };
           }}
         />
       ) : null}

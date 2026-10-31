@@ -5,7 +5,7 @@ import { Command as CommandRoot, CommandDialog, CommandEmpty, CommandGroup, Comm
 import { KeySequence, useCommandRegistry, type Command } from "./commands";
 
 // Page actions come first, then creation, navigation and help.
-const GROUP_ORDER = ["This page", "Create", "Current event", "Go to", "Switch organization", "Help"];
+const GROUP_ORDER = ["This page", "Create", "Live now", "Go to", "Switch organization", "Help"];
 
 /** ⌘K: every action registered by the shell and the page that is open. */
 export function CommandMenu() {

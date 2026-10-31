@@ -2,6 +2,12 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { eventThemeValidator } from "./eventTheme";
 import { visualStyleValidator } from "./visualStyle";
+import { changeDocValidator, undoKindValidator, undoLabelValidator } from "./changeLog";
+
+const phaseValidator = v.union(v.literal("submissions"), v.literal("judging"), v.literal("stage"), v.literal("finished"));
+const summarySectionValidator = v.object({ key: v.string(), label: v.string(), instruction: v.string() });
+// How a practice event writes AI summaries: "sample" (no model call, the default) or "model".
+export const practiceAiSummariesValidator = v.union(v.literal("sample"), v.literal("model"));
 
 /** Where each social came from: typed by the team, or imported from Luma. */
 const socialSource = v.union(v.literal("typed"), v.literal("luma"));
@@ -26,7 +32,7 @@ export default defineSchema({
   eventSlugAliases: defineTable({
     slug: v.string(),
     eventId: v.id("events"),
-  }).index("by_slug", ["slug"]),
+  }).index("by_slug", ["slug"]).index("by_event", ["eventId"]),
   organizationStyles: defineTable({
     organizationId: v.string(), name: v.string(), theme: eventThemeValidator,
     preset: v.optional(visualStyleValidator),
@@ -95,10 +101,33 @@ export default defineSchema({
     lumaEventId: v.optional(v.string()),
     lumaEventName: v.optional(v.string()),
     lumaEventUrl: v.optional(v.string()),
+    // Where the organiser has moved the event. Older events derive it (lib/event-phase.ts).
+    phase: v.optional(phaseValidator),
+    finishedAt: v.optional(v.number()),
+    // Set when moving back to submissions paused a running judging timer, so moving forward resumes it.
+    judgingTimerPausedByPhase: v.optional(v.boolean()),
+    // AI summary runs queued today (UTC day number), for the per-event daily budget.
+    aiSummaryBudget: v.optional(v.object({ day: v.number(), used: v.number() })),
+    // AI summary sections for this event; the defaults in lib/ai-summary.ts when unset.
+    aiSummarySections: v.optional(v.array(summarySectionValidator)),
+    // A practice event: a real event with only test people, listed apart from real events.
+    practice: v.optional(v.boolean()),
+    practiceOwnerActor: v.optional(v.string()),
+    // Test people get plus-addresses of this email, so their emails reach the owner.
+    practiceOwnerEmail: v.optional(v.string()),
+    practiceCopiedFromEventId: v.optional(v.id("events")),
+    practiceCopiedFromName: v.optional(v.string()),
+    // How many test people have been made, so each gets its own plus-address.
+    practiceTestPeopleCount: v.optional(v.number()),
+    // Practice events only: "sample" (the default when unset) writes sample summaries
+    // with no OpenAI or GitHub call; "model" uses the real path. Real events ignore it.
+    practiceAiSummaries: v.optional(practiceAiSummariesValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"])
-    .index("by_workosOrganizationId", ["workosOrganizationId"]),
+    .index("by_workosOrganizationId", ["workosOrganizationId"])
+    .index("by_workosOrganizationId_and_practice", ["workosOrganizationId", "practice"])
+    .index("by_practice_and_updatedAt", ["practice", "updatedAt"]),
 
   submissions: defineTable({
     eventId: v.id("events"),
@@ -123,18 +152,29 @@ export default defineSchema({
     trackIds: v.optional(v.array(v.id("eventTracks"))),
     teamName: v.optional(v.string()),
     githubUrl: v.optional(v.string()),
+    // When the next AI summary run is or was scheduled to start, for the per-submission throttle.
+    summaryQueuedFor: v.optional(v.number()),
+    // The last run for this description and repository ended without a summary
+    // (rejected, or out of retries): judges see "No summary", not "being written".
+    aiSummaryGaveUp: v.optional(v.object({ sourceKey: v.string(), reason: v.string(), at: v.number() })),
     // Three lines written by AI from the description and README, for judges and admins.
     // sourceKey says which description and repository it was written from.
     aiSummary: v.optional(
       v.object({
-        whatItDoes: v.string(),
-        howItWorks: v.string(),
-        demoFocus: v.string(),
+        // Older summaries hold only these three; newer ones hold sections too.
+        whatItDoes: v.optional(v.string()),
+        howItWorks: v.optional(v.string()),
+        demoFocus: v.optional(v.string()),
+        sections: v.optional(v.array(v.object({ key: v.string(), label: v.string(), text: v.string() }))),
         sourceKey: v.string(),
         model: v.string(),
         usedReadme: v.boolean(),
         // SHA-256 of the README text the summary was written from, when there was one.
         readmeHash: v.optional(v.string()),
+        // SUMMARY_PROMPT_VERSION it was written with; missing on the first version.
+        promptVersion: v.optional(v.number()),
+        // A practice sample summary, written without the model.
+        sample: v.optional(v.boolean()),
         generatedAt: v.number(),
       }),
     ),
@@ -159,6 +199,10 @@ export default defineSchema({
       v.literal("withdrawn"),
     ),
     queueOrder: v.optional(v.number()),
+    // Set while withdrawn: the status before, and who withdrew it. Submit again
+    // works only for an entry the team withdrew from candidate or queued.
+    withdrawnFromStatus: v.optional(v.union(v.literal("candidate"), v.literal("queued"))),
+    withdrawnBy: v.optional(v.union(v.literal("participant"), v.literal("organiser"))),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -206,6 +250,32 @@ export default defineSchema({
   }).index("by_event", ["eventId"])
     .index("by_event_and_action", ["eventId", "action"]),
 
+  // Organiser changes, for Recent changes and Undo (convex/changeLog.ts).
+  eventChanges: defineTable({
+    eventId: v.id("events"),
+    actor: v.string(),
+    actorUserId: v.optional(v.string()),
+    // "participant": the team did it from their status page (Submit again).
+    via: v.union(v.literal("app"), v.literal("assistant"), v.literal("participant")),
+    kind: v.string(),
+    // A short phrase after the person's name: "hid Bus Buddy II".
+    summary: v.string(),
+    subjectId: v.optional(v.string()),
+    undo: undoKindValidator,
+    undoLabel: undoLabelValidator,
+    fromPhase: v.optional(phaseValidator),
+    toPhase: v.optional(phaseValidator),
+    // The phase the event was in when a snapshot change was made.
+    phaseAtChange: v.optional(phaseValidator),
+    docs: v.array(changeDocValidator),
+    undoOf: v.optional(v.id("eventChanges")),
+    undoneAt: v.optional(v.number()),
+    undoneBy: v.optional(v.id("eventChanges")),
+    // Why undo is "none", when it is not the plain "This change can't be undone."
+    noUndoReason: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_event", ["eventId"]).index("by_createdAt", ["createdAt"]),
+
   // The Getting started guide's own choices, per person and organization.
   gettingStartedGuides: defineTable({
     ownerAccountKey: v.string(),
@@ -224,6 +294,9 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     deactivatedAt: v.optional(v.number()),
+    // When the judge confirmed their name on this link. Cleared when the link is replaced.
+    openedAt: v.optional(v.number()),
+    replacedAt: v.optional(v.number()),
   }).index("by_event", ["eventId"]).index("by_event_and_judge_key", ["eventId", "judgeKey"]).index("by_token", ["token"]),
 
   reviews: defineTable({
@@ -248,6 +321,13 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_event", ["eventId"]).index("by_event_and_judge", ["eventId", "judgeKey"]),
 
+  // The score basis, kept off the event so a saved score doesn't touch it (convex/scoreBasis.ts).
+  scoreBases: defineTable({
+    eventId: v.id("events"),
+    version: v.number(),
+    confirmedVersion: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_event", ["eventId"]),
   judgingDecisions: defineTable({
     eventId: v.id("events"),
     finalistIds: v.array(v.id("submissions")),

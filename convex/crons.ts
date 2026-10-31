@@ -17,4 +17,18 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "tidy away old practice events",
+  { hours: 24 },
+  internal.practice.tidyPracticeEvents,
+  {},
+);
+
+crons.interval(
+  "delete change log rows older than 30 days",
+  { hours: 24 },
+  internal.changes.deleteOldChanges,
+  {},
+);
+
 export default crons;

@@ -193,7 +193,7 @@ test("private normalization uses real judge reviews, persists decisions and pres
     { judgeKey: "alex", effectiveDecision: "apply" }, { judgeKey: "sam", decision: { decision: "raw", stale: false }, effectiveDecision: "raw" },
   ] });
   expect((await t.query(components.judgingDecisionHistory.lib.listHistory, historyArgs)).page).toEqual(beforeHistory.page);
-  expect(await t.run((ctx) => ctx.db.get(eventId))).toMatchObject({ confirmedScoreBasisVersion: 5 });
+  expect(await t.run((ctx) => ctx.db.query("scoreBases").withIndex("by_event", (q) => q.eq("eventId", eventId)).unique())).toMatchObject({ version: 5, confirmedVersion: 5 });
   await expect(t.mutation(internal.mcpAdmin.saveNormalizationDecision, { principal, input: { ...input, judgeKey: "missing", decision: "apply" } })).rejects.toThrow("no complete reviews");
 });
 
@@ -290,6 +290,6 @@ test("private judging rejects invalid lifecycle transitions and judge tokens can
   await expect(t.mutation(internal.mcpAdmin.startAssignmentPreparation, { principal, input })).rejects.toThrow("before judging starts");
   const foreignEventId = await t.run((ctx) => ctx.db.insert("events", { name: "Other", slug: "other", eventType: "hackathon", workosOrganizationId: "org_foreign", meetUrl: "https://meet.example", queuePublished: false, createdAt: 1, updatedAt: 1 }));
   const foreignSubmissionId = await submission(t, foreignEventId, 99, ["Alex", "Sam"]);
-  await expect(review(t, alex.capabilityToken, foreignSubmissionId, 10)).rejects.toThrow("not assigned to this judge");
+  await expect(review(t, alex.capabilityToken, foreignSubmissionId, 10)).rejects.toThrow("not in judging");
   expect(await review(t, alex.capabilityToken, first, 8)).toEqual({ completed: true });
 });

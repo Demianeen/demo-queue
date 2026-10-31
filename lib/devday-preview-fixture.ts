@@ -42,6 +42,8 @@ export function buildDevDayParticipantFixture(eventType: "demo" | "hackathon"): 
       videoDeleteAt: undefined,
       videoDeletedAt: undefined,
       createdAt: 0,
+      canWithdraw: true,
+      canSubmitAgain: false,
     },
     meetUrl: null,
   };

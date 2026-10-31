@@ -13,6 +13,7 @@ import { stageSubmissionPrompt } from "@/lib/event-state";
 import type { StagePresentationData, StageTimerData } from "@/lib/stage-presentation";
 import { cn } from "@/lib/utils";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
+import { timeLeftMs } from "@/lib/timer-clock";
 
 function formatTimer(ms: number) {
   const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
@@ -33,21 +34,25 @@ function timerUrgency(remainingMs: number, durationMs: number): TimerUrgency {
   return "normal";
 }
 
-function useStageTimer(timer: StageTimerData | undefined) {
+type ClockTimer = Pick<StageTimerData, "status" | "remainingMs" | "serverNow"> & {
+  durationMs: number | null;
+  endsAt?: number | null;
+};
+
+function useStageTimer(timer: ClockTimer | null | undefined) {
   const [clientNow, setClientNow] = useState(() => Date.now());
-  const [receivedAt, setReceivedAt] = useState(() => Date.now());
+  const running = timer?.status === "running";
 
   useEffect(() => {
-    setReceivedAt(Date.now());
     setClientNow(Date.now());
-  }, [timer?.serverNow, timer?.endsAt, timer?.remainingMs, timer?.status]);
+    if (!running) return;
 
-  useEffect(() => {
-    if (!timer || timer.status !== "running") return;
+    const interval = window.setInterval(() => {
+      setClientNow(Date.now());
+    }, 250);
 
-    const interval = window.setInterval(() => setClientNow(Date.now()), 250);
     return () => window.clearInterval(interval);
-  }, [timer]);
+  }, [running, timer?.serverNow, timer?.remainingMs, timer?.endsAt]);
 
   if (!timer) {
     return {
@@ -59,11 +64,8 @@ function useStageTimer(timer: StageTimerData | undefined) {
     };
   }
 
-  const estimatedServerNow = timer.serverNow + (clientNow - receivedAt);
-  const remainingMs =
-    timer.status === "running" && timer.endsAt !== undefined
-      ? timer.endsAt - estimatedServerNow
-      : timer.remainingMs;
+  // The same reading as every other clock: see lib/timer-clock.ts.
+  const remainingMs = timeLeftMs({ ...timer, running: timer.status === "running" }, clientNow);
   const label =
     timer.status === "running"
       ? remainingMs < 0
@@ -77,8 +79,20 @@ function useStageTimer(timer: StageTimerData | undefined) {
     status: timer.status,
     label,
     remainingMs,
-    durationMs: timer.durationMs,
+    durationMs: timer.durationMs ?? 0,
     display: formatTimer(remainingMs),
+  };
+}
+
+/** The judging clock: never below 0:00, and "Time's up" once it runs out, as on the organiser's and judges' pages. */
+function useJudgingStageClock(timer: ClockTimer | null | undefined) {
+  const clock = useStageTimer(timer);
+  if (!timer) return null;
+  const over = clock.remainingMs <= 0;
+  return {
+    ...clock,
+    label: over ? "Time's up" : clock.status === "paused" ? "Judging paused" : "Judging closes in",
+    display: formatTimer(Math.max(0, clock.remainingMs)),
   };
 }
 
@@ -115,7 +129,10 @@ export function StagePresentation({
   const lineupListRef = useRef<HTMLOListElement | null>(null);
   const previousCurrentId = useRef<string | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
-  const queueTimer = useStageTimer(stage.stageTimer);
+  const stageClock = useStageTimer(stage.stageTimer);
+  const judgingClock = useJudgingStageClock(stage.judgingTimer);
+  // During judging the shown clock is the judging clock, so the stage never disagrees with judges.
+  const queueTimer = judgingClock ?? stageClock;
   const demoTimer = useStageTimer(stage.demoTimer);
   const showQueueTimer = stage.event.showStageTimerOnStage;
   const showQrStage = stage.event.stageScreenMode === "qr";

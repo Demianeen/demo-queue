@@ -168,6 +168,39 @@ test("saving a roster deactivates omitted links and reactivates re-added links",
   expect(reactivatedAccess?.deactivatedAt).toBeUndefined();
 });
 
+test("the stage carries the judging clock only while judges score", async () => {
+  const { t, eventId } = await createHackathon(["Alex", "Sam"]);
+  for (const index of [1, 2]) await addSubmission(t, eventId, index);
+  expect(await t.query(api.events.getStage, { slug: "hack" })).toMatchObject({ phase: "submissions", judgingTimer: null });
+
+  await prepareAssignments(t);
+  await t.mutation(api.judging.setJudgingTimer, { slug: "hack", durationMs: 30 * 60 * 1000 });
+  await t.mutation(api.judging.startJudging, { slug: "hack" });
+  const stage = await t.query(api.events.getStage, { slug: "hack" });
+  expect(stage.phase).toBe("judging");
+  expect(stage.judgingTimer).toMatchObject({ status: "running", durationMs: 30 * 60 * 1000 });
+  expect(stage.judgingTimer?.endsAt).toBe((await t.run((ctx) => ctx.db.get(eventId)))?.judgingTimerEndsAt);
+
+  await t.mutation(api.judging.closeJudging, { slug: "hack" });
+  expect((await t.query(api.events.getStage, { slug: "hack" })).judgingTimer).toBeNull();
+});
+
+test("event details carry the tab counts: lineup and judging scores", async () => {
+  const { t, eventId } = await createHackathon(["Alex", "Sam"]);
+  for (const index of [1, 2, 3]) await addSubmission(t, eventId, index);
+  const before = await t.query(api.events.getOrganizationEventDetails, { slug: "hack" });
+  expect(before?.scores).toEqual({ complete: 0, target: 6 });
+  expect(before?.lineupCount).toBe((await t.run((ctx) => ctx.db.query("submissions").collect())).filter((row) => row.status === "queued").length);
+
+  const [first] = await t.run((ctx) => ctx.db.query("submissions").collect());
+  await t.run(async (ctx) => {
+    for (const judgeKey of ["alex", "sam", "helper"]) {
+      await ctx.db.insert("reviews", { eventId, submissionId: first._id, judgeKey, innovation: 7, execution: 7, demoClarity: 7, completed: true, createdAt: Date.now(), updatedAt: Date.now() });
+    }
+  });
+  expect((await t.query(api.events.getOrganizationEventDetails, { slug: "hack" }))?.scores).toEqual({ complete: 2, target: 6 });
+});
+
 test("visual style is available to stage and private participant pages", async () => {
   const root = convexTest(schema, modules);
   root.registerComponent("judgingDecisionHistory", tableHistorySchema, tableHistoryModules);
@@ -430,6 +463,7 @@ test("normalization decisions, finalist amendments, and placements stay independ
   expect(
     (await t.run(async (ctx) => await ctx.db.get(eventId)))?.scoreBasisVersion,
   ).toBeUndefined();
+  const eventBeforeScores = await t.run(async (ctx) => await ctx.db.get(eventId));
 
   for (const review of [
     { capabilityToken: "alex-secret", submissionId: firstId, score: 9 },
@@ -446,6 +480,15 @@ test("normalization decisions, finalist amendments, and placements stay independ
       demoClarity: review.score,
     });
   }
+  // Saving scores moves the score basis without touching the event, so the
+  // queries that read the event don't re-run on every save.
+  const afterScores = await t.run(async (ctx) => ({
+    event: await ctx.db.get(eventId),
+    basis: await ctx.db.query("scoreBases").withIndex("by_event", (q) => q.eq("eventId", eventId)).unique(),
+  }));
+  expect(afterScores.event).toEqual(eventBeforeScores);
+  expect(afterScores.basis?.version).toBe(4);
+  expect(afterScores.basis?.confirmedVersion).toBeUndefined();
   await t.mutation(api.judging.closeJudging, { slug: "hack", });
 
   const initialOverview = await t.query(api.judging.getNormalizationOverview, {
@@ -591,7 +634,7 @@ test("normalization decisions, finalist amendments, and placements stay independ
   expect(history.page).toHaveLength(3);
 });
 
-test("judges can read every submission in judging but score only their own", async () => {
+test("judges can read and score every submission in judging", async () => {
   const { t, eventId } = await createHackathon(["Alex", "Sam", "Taylor"]);
   const ids: Id<"submissions">[] = [];
   for (let index = 0; index < 6; index += 1) ids.push(await addSubmission(t, eventId, index));
@@ -630,15 +673,15 @@ test("judges can read every submission in judging but score only their own", asy
   const team = [...mine.assignments, ...others].find((item) => item.id === ids[0])!;
   expect(team).toMatchObject({ teamName: "Night Owls", memberCount: 3, demoTitle: "Demo 0", name: "Person 0" });
   for (const item of others) {
-    expect(Object.keys(item).sort()).toEqual(["aiSummary", "aiSummaryStatus", "demoTitle", "description", "githubUrl", "id", "memberCount", "name", "teamName", "tracks", "videoUrl"]);
+    expect(Object.keys(item).sort()).toEqual(["aiSummary", "aiSummaryStatus", "demoTitle", "description", "githubUrl", "id", "memberCount", "name", "teamName", "trackIds", "tracks", "videoUrl"]);
   }
   expect(JSON.stringify(others)).not.toMatch(/\+44|@example\.com|participant-/);
 
-  // Scoring someone else's submission is refused and writes nothing.
+  // Helping on someone else's submission is allowed and saved as Alex's own review.
   await expect(t.mutation(api.judging.saveReview, {
     slug: "hack", capabilityToken: "alex-secret", submissionId: otherIds[0], innovation: 8, execution: 8, demoClarity: 8,
-  })).rejects.toThrow("Submission is not assigned to this judge.");
-  expect(await t.run((ctx) => ctx.db.query("reviews").collect())).toEqual([]);
+  })).resolves.toEqual({ completed: true });
+  expect(await t.run((ctx) => ctx.db.query("reviews").collect())).toMatchObject([{ submissionId: otherIds[0], judgeKey: "alex", completed: true }]);
   await expect(t.mutation(api.judging.saveReview, {
     slug: "hack", capabilityToken: "alex-secret", submissionId: mineIds[0], innovation: 8, execution: 8, demoClarity: 8,
   })).resolves.toEqual({ completed: true });

@@ -70,14 +70,13 @@ export function TrackPicker({
   );
 }
 
-export function TrackPills({ tracks, empty }: { tracks: string[]; empty?: string }) {
-  if (tracks.length === 0) {
-    return empty ? <span className="track-pill-empty">{empty}</span> : null;
-  }
+/** 0 to many track chips, or muted "Main event" when a project entered none. */
+export function TrackPills({ tracks, empty = "Main event" }: { tracks: string[]; empty?: string }) {
+  if (tracks.length === 0) return <span className="dq-track-none">{empty}</span>;
   return (
-    <span className="track-pills">
+    <span className="dq-track-chips">
       {tracks.map((track) => (
-        <span className="track-pill" key={track}>
+        <span className="dq-track-chip" key={track}>
           {track}
         </span>
       ))}

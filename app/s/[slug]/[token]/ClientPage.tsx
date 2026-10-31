@@ -3,6 +3,7 @@
 import { eventRootProps } from "@/lib/event-theme-contract";
 import { FormEvent, ReactNode, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
@@ -23,6 +24,7 @@ import { AstraHero } from "@/components/AstraHero";
 import { DevDayHero } from "@/components/DevDayHero";
 import { OutpostHero } from "@/components/OutpostHero";
 import { cn } from "@/lib/utils";
+import { browserClientId } from "@/lib/client-id";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
 
 const statusLabels: Record<string, string> = {
@@ -106,13 +108,103 @@ function MemberSocialsForm({ slug, token, member }: { slug: string; token: strin
   );
 }
 
+type ResubmitResult = FunctionReturnType<typeof api.events.resubmitWithdrawnSubmission>;
+
 export type ParticipantPageProps = {
   slug: string;
   token: string;
   participant: FunctionReturnType<typeof api.events.getParticipant> | undefined;
   editContact: (args: FunctionArgs<typeof api.events.editParticipantContact>) => Promise<unknown>;
   withdraw: (args: FunctionArgs<typeof api.events.withdrawSubmission>) => Promise<unknown>;
+  resubmit: (args: FunctionArgs<typeof api.events.resubmitWithdrawnSubmission>) => Promise<ResubmitResult>;
 };
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof ConvexError && typeof error.data === "string") return error.data;
+  const message = error instanceof Error ? error.message : "";
+  return message.includes("ConvexError: ") ? message.split("ConvexError: ").pop()!.split("\n")[0] : fallback;
+}
+
+/**
+ * Withdraw, asked first inline, and Submit again (Proposed) while
+ * submissions are open: the same entry comes back with the same status link.
+ */
+function WithdrawPanel({ slug, token, participant, withdraw, resubmit }: Pick<ParticipantPageProps, "slug" | "token" | "withdraw" | "resubmit"> & { participant: NonNullable<ParticipantPageProps["participant"]> }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { demoTitle } = participant.submission;
+  const hackathon = participant.event.eventType === "hackathon";
+  const closed = participant.event.submissionsClosed;
+
+  async function confirmWithdraw() {
+    setBusy(true);
+    setError(null);
+    try {
+      await withdraw({ slug, participantToken: token });
+      setConfirming(false);
+    } catch (failure) {
+      setError(errorMessage(failure, "Could not withdraw. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitAgain() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await resubmit({ slug, participantToken: token, clientId: browserClientId() });
+      if (!result.restored && result.reason === "email_taken") setError(result.message);
+    } catch (failure) {
+      setError(errorMessage(failure, "Could not submit again. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const errorLine = error ? <p role="alert" className="withdraw-error">{error}</p> : null;
+
+  if (participant.submission.status === "withdrawn") {
+    if (closed) {
+      return <div className="copy-line withdraw-panel" role="status"><strong>Submissions have closed.</strong> {demoTitle} stays withdrawn.</div>;
+    }
+    if (!participant.submission.canSubmitAgain) {
+      return <div className="copy-line withdraw-panel" role="status"><strong>{demoTitle} was withdrawn.</strong> Ask the event team if it should come back.</div>;
+    }
+    return (
+      <div className="copy-line withdraw-panel" role="region" aria-label="Withdrawn">
+        <p><strong>You withdrew {demoTitle}.</strong> Submissions are still open, so you can submit it again with everything as it was, on this same status link.</p>
+        {errorLine}
+        <div className="actions">
+          <button className="button" type="button" disabled={busy} onClick={() => void submitAgain()}>{busy ? "Submitting again…" : "Submit again"}</button>
+        </div>
+      </div>
+    );
+  }
+  if (closed || !participant.submission.canWithdraw) return null;
+  if (!confirming) {
+    return (
+      <div className="actions">
+        <button className="button danger" type="button" onClick={() => { setError(null); setConfirming(true); }}>Withdraw</button>
+      </div>
+    );
+  }
+  return (
+    <div className="copy-line withdraw-panel" role="region" aria-label="Withdraw">
+      <p>
+        <strong>Withdraw {demoTitle}?</strong>{" "}
+        {hackathon ? "It leaves the lineup and judging, and judges stop seeing it." : "It leaves the lineup, and the event team stop seeing it in the queue."}{" "}
+        You can submit it again while submissions are open.
+      </p>
+      {errorLine}
+      <div className="actions">
+        <button className="button danger" type="button" disabled={busy} onClick={() => void confirmWithdraw()}>{busy ? "Withdrawing…" : `Withdraw ${demoTitle}`}</button>
+        <button className="button ghost" type="button" disabled={busy} autoFocus onClick={() => setConfirming(false)}>Keep it</button>
+      </div>
+    </div>
+  );
+}
 
 export default function ConnectedParticipantStatusPage() {
   const params = useParams<{ slug: string; token: string }>();
@@ -122,6 +214,7 @@ export default function ConnectedParticipantStatusPage() {
   });
   const editContact = useMutation(api.events.editParticipantContact);
   const withdraw = useMutation(api.events.withdrawSubmission);
+  const resubmit = useMutation(api.events.resubmitWithdrawnSubmission);
 
   return (
     <ParticipantPage
@@ -130,6 +223,7 @@ export default function ConnectedParticipantStatusPage() {
       participant={participant}
       editContact={editContact}
       withdraw={withdraw}
+      resubmit={resubmit}
     />
   );
 }
@@ -140,6 +234,7 @@ export function ParticipantPage({
   participant,
   editContact,
   withdraw,
+  resubmit,
 }: ParticipantPageProps) {
   const [message, setMessage] = useState("");
   const [phoneError, setPhoneError] = useState("");
@@ -233,11 +328,6 @@ export function ParticipantPage({
     setMessage("Contact info updated.");
   }
 
-  async function withdrawDemo() {
-    await withdraw({ slug, participantToken: token });
-    setMessage("Your submission has been withdrawn.");
-  }
-
   return (
     <main data-event-style={visualStyle} {...eventRootProps(visualStyle, participant.event.theme)} className={isDevDay ? "devday-public-page" : isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
       {isDevDay ? (
@@ -284,6 +374,10 @@ export function ParticipantPage({
         </div>
 
         <p className="lead">{participant.submission.description}</p>
+
+        {participant.submission.status === "withdrawn" ? (
+          <WithdrawPanel slug={slug} token={token} participant={participant} withdraw={withdraw} resubmit={resubmit} />
+        ) : null}
 
         {participant.submission.finalist ? (
           <div className="copy-line">Your team was selected as a finalist.</div>
@@ -407,15 +501,14 @@ export function ParticipantPage({
             <button className="button" type="submit">
               Save contact
             </button>
-            {!participant.event.submissionsClosed ? (
-              <button className="button danger" type="button" onClick={withdrawDemo}>
-                Withdraw
-              </button>
-            ) : null}
           </div>
         </form>
 
         {message ? <p className="muted" style={{ marginTop: 14 }}>{message}</p> : null}
+
+        {participant.submission.status !== "withdrawn" ? (
+          <WithdrawPanel slug={slug} token={token} participant={participant} withdraw={withdraw} resubmit={resubmit} />
+        ) : null}
 
         {participant.submission.teamMemberSocials.length > 0 ? (
           <>

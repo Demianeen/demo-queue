@@ -77,6 +77,7 @@ export function buildStagePreviewFixture({
   const resolvedMeetUrl = meetUrl.trim() || null;
 
   return {
+    phase: "stage",
     event: {
       name: eventName.trim() || "Frontier Hack",
       slug: "preview",
@@ -107,6 +108,7 @@ export function buildStagePreviewFixture({
       endsAt: undefined,
       serverNow: Date.now(),
     },
+    judgingTimer: null,
     current: SAMPLE_LINEUP[0],
     upNext: SAMPLE_LINEUP[1],
     lineup: SAMPLE_LINEUP,

@@ -1,8 +1,9 @@
 "use client";
 
-import { Component, useEffect, useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQueries } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { Check } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -38,29 +39,48 @@ export function GettingStartedSkeleton() {
 
 type GuideProps = { organizationName: string; events: EventSummary[]; styleCount: number; onCreateEvent: () => void; onOpenStyles: () => void };
 
-/** Keeps a failed guide from taking the events list down with it. */
-class GuideErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean; attempt: number }> {
-  state = { failed: false, attempt: 0 };
+function GuideUnavailable({ onRetry }: { onRetry: () => void }) {
+  return <Alert variant="destructive" className="flex flex-wrap items-center gap-3">
+    <AlertDescription className="flex flex-wrap items-center gap-3">
+      <span>Could not load the getting started guide. Your events are unaffected.</span>
+      <Button variant="outline" size="sm" onClick={onRetry}>Retry</Button>
+      <a className="text-sm underline underline-offset-4" href="/events/sign-in?returnTo=%2Fevents">Sign in again</a>
+    </AlertDescription>
+  </Alert>;
+}
+
+/** Keeps an unexpected render failure in the guide from taking the events list down with it. */
+class GuideErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { failed: boolean }> {
+  state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   render() {
-    if (!this.state.failed) return <div key={this.state.attempt}>{this.props.children}</div>;
-    return <Alert variant="destructive" className="flex flex-wrap items-center gap-3">
-      <AlertDescription className="flex flex-wrap items-center gap-3">
-        <span>Could not load the getting started guide. Your events are unaffected.</span>
-        <Button variant="outline" size="sm" onClick={() => this.setState(({ attempt }) => ({ failed: false, attempt: attempt + 1 }))}>Retry</Button>
-        <a className="text-sm underline underline-offset-4" href="/events/sign-in?returnTo=%2Fevents">Sign in again</a>
-      </AlertDescription>
-    </Alert>;
+    if (!this.state.failed) return this.props.children;
+    return <GuideUnavailable onRetry={() => { this.setState({ failed: false }); this.props.onRetry(); }} />;
   }
 }
 
 export function GettingStarted(props: GuideProps) {
-  return <GuideErrorBoundary><Guide {...props} /></GuideErrorBoundary>;
+  const [attempt, setAttempt] = useState(0);
+  const retry = () => setAttempt((value) => value + 1);
+  return <GuideErrorBoundary onRetry={retry}><Guide key={attempt} {...props} onRetry={retry} /></GuideErrorBoundary>;
 }
 
-function Guide({ organizationName, events, styleCount, onCreateEvent, onOpenStyles }: GuideProps) {
+type GuideStatus = FunctionReturnType<typeof api.gettingStarted.status>;
+
+function Guide({ organizationName, events, styleCount, onCreateEvent, onOpenStyles, onRetry }: GuideProps & { onRetry: () => void }) {
   const { isAuthenticated } = useConvexAuth();
-  const status = useQuery(api.gettingStarted.status, isAuthenticated ? {} : "skip");
+  // A failed query comes back as an Error instead of being thrown during render. A query error thrown
+  // from a hook leaves React with a half-rendered Guide, and the next navigation away from /events
+  // then crashed with "Rendered more hooks than during the previous render" (React error 310).
+  // The request must keep its identity between renders: useQueries resubscribes whenever it changes.
+  const request = useMemo(() => {
+    const queries: Parameters<typeof useQueries>[0] = {};
+    if (isAuthenticated) queries.status = { query: api.gettingStarted.status, args: {} };
+    return queries;
+  }, [isAuthenticated]);
+  const result = useQueries(request).status as GuideStatus | Error | undefined;
+  const failed = result instanceof Error;
+  const status = failed ? undefined : result;
   const setHidden = useMutation(api.gettingStarted.setHidden).withOptimisticUpdate((store, { hidden }) => {
     const current = store.getQuery(api.gettingStarted.status, {});
     if (current) store.setQuery(api.gettingStarted.status, {}, { ...current, hidden });
@@ -85,6 +105,7 @@ function Guide({ organizationName, events, styleCount, onCreateEvent, onOpenStyl
     return () => { current = false; };
   }, [isAuthenticated, loadTeam, attempt, loaded, hidden]);
 
+  if (failed) return <GuideUnavailable onRetry={onRetry} />;
   if (status === undefined) return <GettingStartedSkeleton />;
 
   async function change(kind: "hide" | "show" | "dry-run", run: () => Promise<unknown>) {

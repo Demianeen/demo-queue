@@ -3919,3 +3919,10 @@ h3 {
     grid-template-columns: 1fr;
   }
 }
+
+/* Withdraw, asked first, and Submit again on the status page. */
+.withdraw-panel { display: grid; gap: 10px; margin: 16px 0; }
+.withdraw-panel p { margin: 0; }
+.withdraw-panel .actions { margin-top: 0; }
+.withdraw-error { color: var(--app-bad); font-weight: 600; }
+.withdraw-error a { color: inherit; text-decoration: underline; }

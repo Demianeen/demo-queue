@@ -59,7 +59,7 @@ test("old and new slugs retain anonymous participant, judge, and presentation ac
     description: "Existing description", phone: "+440000000000", status: "candidate",
     roundOneAssignedJudges: ["Alex", "Sam"], createdAt: 1, updatedAt: 1,
   }));
-  await t.run((ctx) => ctx.db.patch(eventId, { roundOneJudges: ["Alex", "Sam"], judgingStatus: "open" }));
+  await t.run((ctx) => ctx.db.patch(eventId, { roundOneJudges: ["Alex", "Sam"], judgingStatus: "open", submissionsClosedAt: 1 }));
   await owner.mutation(api.judging.createJudgeAccess, { slug: oldSlug, judgeName: "Alex", capabilityToken: "judge-link" });
   const submissionBefore = await t.run((ctx) => ctx.db.get(submissionId));
   await t.mutation(internal.eventSlugs.rename, { ...args, dryRun: false });

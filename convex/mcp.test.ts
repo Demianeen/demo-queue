@@ -95,7 +95,7 @@ test("official SDK serves initialize, discovery, and safe calls as stateless JSO
   const discovered = await request(t, bearer, "tools/list", {});
   const discovery = await discovered.json();
   expect(JSON.stringify(discovery)).toContain('"result"');
-  expect(discovery.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["list_organizations","list_events","get_event","create_event","list_styles","create_style","set_default_style","get_event_overview","get_event_admin","get_submission_contacts","add_submission","add_test_submissions","save_judges","change_event_type","request_judging_sheet_sync","update_submission","publish_queue","set_stage_screen_mode","set_submission_count_visible","set_stage_meet_link_visible","set_stage_timer_visible","set_stage_timer_duration","start_stage_timer","set_demo_timer_visible","set_demo_timer_duration","start_demo_timer","pause_demo_timer","adjust_demo_timer","pause_stage_timer","reset_stage_timer","adjust_stage_timer","hide_submission","restore_submission","reorder_lineup","shuffle_lineup","move_to_pool","set_lineup_target","mark_no_show","advance_presenter","restore_previous_presenter","skip_current_presenter","clear_queue","list_judge_links","create_judge_link","close_submissions","start_assignment_preparation","prepare_assignment_batch","preview_redistribution","apply_redistribution","get_judging_progress","set_judging_timer","start_judging","add_judging_time","close_judging","reopen_judging","get_judging_timer","get_normalization_overview","save_normalization_decision","ai_shuffle","create_judging_sheet","preview_phase_change","set_phase","reopen_submissions","set_judging_time_left","pause_judging_timer","resume_judging_timer","set_stage_timer_remaining","list_recent_changes","undo_change","get_judges_overview","replace_judge_link","move_judge_scores","set_judge_link_active","get_live_event","create_practice_event","list_practice_events","add_practice_submissions","score_as_test_judges","skip_practice_timer","set_practice_ai_summaries","reset_practice_event"]);
+  expect(discovery.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["list_organizations","list_events","get_event","create_event","list_styles","create_style","set_default_style","create_style_brand","rename_style_brand","set_style_brand","get_event_overview","get_event_admin","get_submission_contacts","add_submission","add_test_submissions","save_judges","change_event_type","request_judging_sheet_sync","update_submission","publish_queue","set_stage_screen_mode","set_submission_count_visible","set_stage_meet_link_visible","set_stage_timer_visible","set_stage_timer_duration","start_stage_timer","set_demo_timer_visible","set_demo_timer_duration","start_demo_timer","pause_demo_timer","adjust_demo_timer","pause_stage_timer","reset_stage_timer","adjust_stage_timer","hide_submission","restore_submission","reorder_lineup","shuffle_lineup","move_to_pool","set_lineup_target","mark_no_show","advance_presenter","restore_previous_presenter","skip_current_presenter","clear_queue","list_judge_links","create_judge_link","close_submissions","start_assignment_preparation","prepare_assignment_batch","preview_redistribution","apply_redistribution","get_judging_progress","set_judging_timer","start_judging","add_judging_time","close_judging","reopen_judging","get_judging_timer","get_normalization_overview","save_normalization_decision","ai_shuffle","create_judging_sheet","preview_phase_change","set_phase","reopen_submissions","set_judging_time_left","pause_judging_timer","resume_judging_timer","set_stage_timer_remaining","list_recent_changes","undo_change","get_judges_overview","replace_judge_link","move_judge_scores","set_judge_link_active","get_live_event","create_practice_event","list_practice_events","add_practice_submissions","score_as_test_judges","skip_practice_timer","set_practice_ai_summaries","reset_practice_event"]);
   const called = await request(t, bearer, "tools/call", { name: "list_events", arguments: { organizationId: "org_one" } });
   expect(JSON.parse((await called.json()).result.content[0].text)).toEqual({ page: [], isDone: true, continueCursor: "_end_cursor" });
   const modern = await request(t, bearer, "tools/list", { _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} } }, { "MCP-Protocol-Version": "2026-07-28", "Mcp-Method": "tools/list" });
@@ -105,7 +105,7 @@ test("official SDK serves initialize, discovery, and safe calls as stateless JSO
   expect(modernBody.result.tools.map((tool: { name: string }) => tool.name)).toContain("create_style");
 });
 
-test("all 74 added tools deny foreign organization selection and revoked membership before domain effects", async () => {
+test("all 77 added tools deny foreign organization selection and revoked membership before domain effects", async () => {
   let active = true;
   provider(() => ({ data: active ? [membership] : [], list_metadata: { after: null } }));
   const t = convexTest(schema, modules);
@@ -113,7 +113,7 @@ test("all 74 added tools deny foreign organization selection and revoked members
   const discovery = await (await request(t, bearer, "tools/list", {})).json();
   const tools = z.array(z.object({ name: z.string(), inputSchema: z.unknown() })).parse(discovery.result.tools);
   const names = new Set(ADMIN_TOOLS.map((tool) => tool.name));
-  expect(names.size).toBe(74);
+  expect(names.size).toBe(77);
   for (const tool of tools.filter((tool) => names.has(tool.name))) {
     const example = z.record(z.string(), z.unknown()).parse(requiredExample(tool.inputSchema));
     const foreign = await (await request(t, bearer, "tools/call", { name: tool.name, arguments: { ...example, organizationId: "org_two" } })).json();
@@ -125,7 +125,8 @@ test("all 74 added tools deny foreign organization selection and revoked members
   }
   expect(await t.run((ctx) => ctx.db.query("events").collect())).toEqual([]);
   expect(await t.run((ctx) => ctx.db.query("submissions").collect())).toEqual([]);
-});
+  // Two calls per tool over HTTP: well past the default 5 seconds.
+}, 30000);
 
 test("signed HTTP tools persist a complete organizer workflow without exposing participant authority", async () => {
   provider();
@@ -358,7 +359,7 @@ test("MCP resolves renamed event aliases without changing organization authority
 test("style creation enforces structured tokens, limits, and leaves defaults unchanged", async () => {
   const t = convexTest(schema, modules);
   const initial = await t.query(internal.mcpData.listStyles, { organizationId: "org_one" });
-  expect(initial.presets.filter((preset) => preset.isDefault).map((preset) => preset.preset)).toEqual(["neutral"]);
+  expect(initial.presets.filter((preset) => preset.isDefault).map((preset) => preset.preset)).toEqual([]);
   const input = { organizationId: "org_one", name: "Safe", theme: DEFAULT_EVENT_THEME };
   await expect(t.mutation(internal.mcpData.createStyle, { ...input, theme: { ...DEFAULT_EVENT_THEME, background: "url(https://evil.example)" } })).rejects.toThrow("hex colors");
   await expect(t.mutation(internal.mcpData.createStyle, { ...input, theme: { ...DEFAULT_EVENT_THEME, radius: 25 } })).rejects.toThrow("radius");
@@ -368,6 +369,27 @@ test("style creation enforces structured tokens, limits, and leaves defaults unc
   const listed = await t.query(internal.mcpData.listStyles, { organizationId: "org_one" });
   expect(listed.presets.find((preset) => preset.isDefault)?.preset).toBe("outpost");
   expect(listed.styles).toHaveLength(100);
+  expect(await t.mutation(internal.mcpData.setDefaultStyle, { organizationId: "org_one", selection: { kind: "none" } })).toEqual({ organizationId: "org_one", styleId: null });
+  expect((await t.query(internal.mcpData.listStyles, { organizationId: "org_one" })).presets.filter((preset) => preset.isDefault)).toEqual([]);
+});
+
+test("style brand tools take string ids, check the organization, and list_styles shows each brand", async () => {
+  const t = convexTest(schema, modules);
+  const principal = { organizationId: "org_one", actor: "user_operator" };
+  const style = await t.mutation(internal.mcpData.createStyle, { organizationId: "org_one", name: "Night", theme: DEFAULT_EVENT_THEME });
+  const { brandId } = await t.mutation(internal.mcpAdmin.createStyleBrand, { principal, input: { name: "Sponsor", style: { kind: "saved", id: style.id } } });
+  await t.mutation(internal.mcpAdmin.setStyleBrand, { principal, input: { style: { kind: "preset", preset: "astra" }, brandId } });
+  await t.mutation(internal.mcpAdmin.renameStyleBrand, { principal, input: { brandId, name: "Sponsor night" } });
+  const listed = await t.query(internal.mcpData.listStyles, { organizationId: "org_one" });
+  expect(listed.brands).toMatchObject([{ id: brandId, name: "Sponsor night" }]);
+  expect(listed.styles).toMatchObject([{ id: style.id, brandId }]);
+  expect(listed.presets.find((preset) => preset.preset === "astra")).toMatchObject({ brandId, isDefault: false });
+  await t.mutation(internal.mcpAdmin.setStyleBrand, { principal, input: { style: { kind: "saved", id: style.id }, brandId: null } });
+  expect((await t.query(internal.mcpData.listStyles, { organizationId: "org_one" })).styles).toMatchObject([{ id: style.id, brandId: null }]);
+  const foreign = { organizationId: "org_two", actor: "user_other" };
+  await expect(t.mutation(internal.mcpAdmin.renameStyleBrand, { principal: foreign, input: { brandId, name: "Mine" } })).rejects.toThrow("Brand not found");
+  await expect(t.mutation(internal.mcpAdmin.setStyleBrand, { principal: foreign, input: { style: { kind: "saved", id: style.id }, brandId: null } })).rejects.toThrow("Style not found");
+  await expect(t.mutation(internal.mcpAdmin.renameStyleBrand, { principal, input: { brandId: "not-an-id", name: "X" } })).rejects.toThrow("Brand not found");
 });
 
 test("config derives only the built-in deployment resource and rejects insecure URLs", () => {

@@ -77,9 +77,25 @@ export const LEGACY_ADMIN_TOOL_MAPPINGS = [
   { name: "list_styles", browser: "organizationStyles.list" },
   { name: "set_default_style", browser: "organizationStyles.setPresetDefault" },
   { name: "set_default_style", browser: "organizationStyles.setSavedDefault" },
+  { name: "set_default_style", browser: "organizationStyles.clearDefault" },
 ];
 
 export const ADMIN_TOOLS: RegisteredAdminTool[] = [
+  defineAdminTool({
+    name: "create_style_brand", browser: "organizationStyles.createBrand", input: operations.createStyleBrandInput, effect: "write",
+    description: "Make a brand to group styles by, such as a sponsor, and optionally put one style in it. list_styles shows brands and each style's brandId.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.createStyleBrand, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "rename_style_brand", browser: "organizationStyles.renameBrand", input: operations.renameStyleBrandInput, effect: "write",
+    description: "Rename a style brand. Its styles stay in it.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.renameStyleBrand, { principal, input }),
+  }),
+  defineAdminTool({
+    name: "set_style_brand", browser: "organizationStyles.setStyleBrand", input: operations.setStyleBrandInput, effect: "write",
+    description: "Put a built-in or saved style in a brand, or in no brand with brandId null. Events are not changed.",
+    invoke: (ctx, principal, input) => ctx.runMutation(internal.mcpAdmin.setStyleBrand, { principal, input }),
+  }),
   defineAdminTool({
     name: "get_event_overview", browser: "events.getOrganizationEventDetails", input: operations.getEventOverviewInput, effect: "read",
     description: "Read the event summary, submission count, judging and confirmed results status.",

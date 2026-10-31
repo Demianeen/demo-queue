@@ -1,5 +1,5 @@
 import { requireApproval } from "./mcpConnectionPolicy";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { organizationPrincipalValidator, requireOwnedEvent } from "./organizationAuth";
 import * as events from "./events";
@@ -7,6 +7,8 @@ import * as judging from "./judging";
 import * as phases from "./phases";
 import * as changes from "./changes";
 import * as practice from "./practice";
+import * as organizationStyles from "./organizationStyles";
+import { visualStyleValidator } from "./visualStyle";
 
 type Admin = Awaited<ReturnType<typeof events.getAdminForOrganization>>;
 type Submission = Admin["lineup"][number];
@@ -549,5 +551,53 @@ export const resetPracticeEvent = internalMutation({
   handler: (ctx, { principal, input: { confirmation, ...input } }) => {
     if (confirmation.slug !== input.slug) throw new ConvexError("Confirmation must match the event.");
     return practice.resetPracticeEventForOrganization(ctx, input, principal);
+  },
+});
+
+// Style brands. MCP takes ids as strings; the operations check they belong to the organization.
+const styleRefInput = v.union(v.object({ kind: v.literal("preset"), preset: visualStyleValidator }), v.object({ kind: v.literal("saved"), id: v.string() }));
+
+function styleRef(ctx: Pick<QueryCtx, "db">, style: Infer<typeof styleRefInput>): Infer<typeof organizationStyles.styleRefValidator> {
+  if (style.kind === "preset") return style;
+  const id = ctx.db.normalizeId("organizationStyles", style.id);
+  if (!id) throw new ConvexError("Style not found.");
+  return { kind: "saved", id };
+}
+
+function brandId(ctx: Pick<QueryCtx, "db">, value: string) {
+  const id = ctx.db.normalizeId("styleBrands", value);
+  if (!id) throw new ConvexError("Brand not found.");
+  return id;
+}
+
+export const createStyleBrandInput = v.object({ name: v.string(), style: v.optional(styleRefInput) });
+export const createStyleBrand = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: createStyleBrandInput },
+  handler: async (ctx, { principal, input }) => {
+    if (principal.mcp) await requireApproval(ctx, principal.mcp.approvalId, principal.organizationId, "events:manage");
+    const style = input.style && styleRef(ctx, input.style);
+    const id = await organizationStyles.createStyleBrand(ctx, { expectedOrganizationId: principal.organizationId, name: input.name, style }, principal.organizationId);
+    return { brandId: id };
+  },
+});
+
+export const renameStyleBrandInput = v.object({ brandId: v.string(), name: v.string() });
+export const renameStyleBrand = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: renameStyleBrandInput },
+  handler: async (ctx, { principal, input }) => {
+    if (principal.mcp) await requireApproval(ctx, principal.mcp.approvalId, principal.organizationId, "events:manage");
+    const id = await organizationStyles.renameStyleBrand(ctx, { expectedOrganizationId: principal.organizationId, id: brandId(ctx, input.brandId), name: input.name }, principal.organizationId);
+    return { brandId: id };
+  },
+});
+
+export const setStyleBrandInput = v.object({ style: styleRefInput, brandId: v.union(v.string(), v.null()) });
+export const setStyleBrand = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: setStyleBrandInput },
+  handler: async (ctx, { principal, input }) => {
+    if (principal.mcp) await requireApproval(ctx, principal.mcp.approvalId, principal.organizationId, "events:manage");
+    const brand = input.brandId === null ? undefined : brandId(ctx, input.brandId);
+    const styleId = await organizationStyles.setOrganizationStyleBrand(ctx, { style: styleRef(ctx, input.style), brandId: brand }, principal.organizationId);
+    return { styleId, brandId: input.brandId };
   },
 });

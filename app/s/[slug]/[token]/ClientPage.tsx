@@ -58,8 +58,7 @@ type MemberSocials = {
 };
 
 /** One team member's socials as the team typed them, editable here. */
-function MemberSocialsForm({ slug, token, member }: { slug: string; token: string; member: MemberSocials }) {
-  const save = useMutation(api.events.editTeamMemberSocials);
+function MemberSocialsForm({ slug, token, member, save }: { slug: string; token: string; member: MemberSocials; save: ParticipantPageProps["editTeamMemberSocials"] }) {
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -117,6 +116,7 @@ export type ParticipantPageProps = {
   editContact: (args: FunctionArgs<typeof api.events.editParticipantContact>) => Promise<unknown>;
   withdraw: (args: FunctionArgs<typeof api.events.withdrawSubmission>) => Promise<unknown>;
   resubmit: (args: FunctionArgs<typeof api.events.resubmitWithdrawnSubmission>) => Promise<ResubmitResult>;
+  editTeamMemberSocials: (args: FunctionArgs<typeof api.events.editTeamMemberSocials>) => Promise<unknown>;
 };
 
 function errorMessage(error: unknown, fallback: string) {
@@ -223,6 +223,7 @@ export default function ConnectedParticipantStatusPage() {
   const editContact = useMutation(api.events.editParticipantContact);
   const withdraw = useMutation(api.events.withdrawSubmission);
   const resubmit = useMutation(api.events.resubmitWithdrawnSubmission);
+  const editTeamMemberSocials = useMutation(api.events.editTeamMemberSocials);
 
   return (
     <ParticipantPage
@@ -232,6 +233,7 @@ export default function ConnectedParticipantStatusPage() {
       editContact={editContact}
       withdraw={withdraw}
       resubmit={resubmit}
+      editTeamMemberSocials={editTeamMemberSocials}
     />
   );
 }
@@ -243,6 +245,7 @@ export function ParticipantPage({
   editContact,
   withdraw,
   resubmit,
+  editTeamMemberSocials,
 }: ParticipantPageProps) {
   const [message, setMessage] = useState("");
   const [phoneError, setPhoneError] = useState("");
@@ -551,7 +554,7 @@ export function ParticipantPage({
             <p className="muted form-help">Add or correct each team member&apos;s X, LinkedIn and GitHub.</p>
             <div className="member-socials-list">
               {participant.submission.teamMemberSocials.map((member) => (
-                <MemberSocialsForm key={member.id} member={member} slug={slug} token={token} />
+                <MemberSocialsForm key={member.id} member={member} slug={slug} token={token} save={editTeamMemberSocials} />
               ))}
             </div>
             {participant.event.lumaLinked ? (

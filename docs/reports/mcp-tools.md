@@ -10,9 +10,12 @@ member emails and private judge links require Manage. Organization access is che
 | `list_events` | Read | List safe event metadata in an approved organization. |
 | `get_event` | Read | Read safe event metadata. Capabilities, contacts, and judging records are excluded. |
 | `create_event` | Manage | Create an initially unpublished event using a saved style, built-in preset, or the organization default. |
-| `list_styles` | Read | List built-in presets and saved structured styles. |
+| `list_styles` | Read | List built-in presets and saved structured styles, the organization's style brands, and each style's brand. |
 | `create_style` | Manage | Create a new nondefault structured style. Existing styles are never updated. |
-| `set_default_style` | Manage | Explicitly change the organization default. Existing event snapshots remain unchanged. |
+| `set_default_style` | Manage | Explicitly change the organization default, or remove it with kind `none` (New event then asks for a style). Existing event snapshots remain unchanged. |
+| `create_style_brand` | Manage | Make a brand to group styles by, such as a sponsor, and optionally put one style in it. |
+| `rename_style_brand` | Manage | Rename a style brand. Its styles stay in it. |
+| `set_style_brand` | Manage | Put a built-in or saved style in a brand, or in no brand. |
 | `list_members` | Manage | List the organization's members with names, emails and join dates. |
 | `list_invitations` | Manage | List pending and expired invitations to the organization, newest first. |
 | `send_invitations` | Manage | Invite up to 20 people by email. WorkOS emails each a link that expires in 7 days. Members and pending invitations are skipped. Rate limited per organization. |

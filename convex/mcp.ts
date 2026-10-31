@@ -15,6 +15,8 @@ export { createToolServer, serveMcp, validResourceRequest } from "./mcpWorkos";
 
 const tool = createTool<Id<"mcpApprovals">>();
 const styleSelection = v.union(v.object({ kind: v.literal("preset"), preset: visualStyleValidator }), v.object({ kind: v.literal("saved"), id: v.string() }));
+// set_default_style also takes "none": no default, so New event asks for a style.
+const defaultSelection = v.union(v.object({ kind: v.literal("preset"), preset: visualStyleValidator }), v.object({ kind: v.literal("saved"), id: v.string() }), v.object({ kind: v.literal("none") }));
 const organizationId = z.string().regex(/^org_[A-Za-z0-9]+$/);
 const slug = z.string().min(1).max(200);
 
@@ -96,8 +98,8 @@ export const mcp: McpServer<Id<"mcpApprovals">> = new ApprovalMcpServer(componen
       }),
     }),
     set_default_style: tool({
-      description: "Explicitly change the organization default. Existing event snapshots remain unchanged.",
-      args: { organizationId: v.string(), selection: styleSelection }, scope: "events:manage", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      description: "Explicitly change the organization default, or remove it with kind \"none\" (New event then asks for a style; create_event without a style uses Base). Existing event snapshots remain unchanged.",
+      args: { organizationId: v.string(), selection: defaultSelection }, scope: "events:manage", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: (ctx, args, user) => componentToolCall(ctx, user, args.organizationId, "events:manage", (principal) => ctx.runMutation(internal.mcpData.setDefaultStyle, { ...args, principal })),
     }),
     list_members: tool({

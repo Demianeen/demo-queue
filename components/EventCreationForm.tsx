@@ -1,7 +1,7 @@
 "use client";
 
 import { useSiteOrigin } from "@/lib/use-site-origin";
-import { VISUAL_STYLES, VISUAL_STYLE_LABELS } from "@/lib/visual-style";
+import { groupStyles, styleEntries } from "@/lib/style-library";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ConvexError } from "convex/values";
@@ -17,7 +17,7 @@ import { DEFAULT_EVENT_THEME } from "@/lib/event-theme";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EventWelcome } from "./EventWelcome";
 import { EventTracksFields, type DraftTrack } from "./EventTracksFields";
@@ -27,15 +27,17 @@ import { EventSponsorsFields, type DraftSponsor } from "./EventSponsorsFields";
  * The new event form: one card, each control sized to what it holds, and the
  * presentation preview beside it. ⌘↵ creates the event.
  */
-export function EventCreationForm({ organizationId, organizationName, firstEvent, styles, onManageStyles, onCancel }: {
-  organizationId: string; organizationName: string; firstEvent: boolean; styles: Doc<"organizationStyles">[]; onManageStyles: () => void; onCancel?: () => void;
+export function EventCreationForm({ organizationId, organizationName, firstEvent, styles, brands, onManageStyles, onCancel }: {
+  organizationId: string; organizationName: string; firstEvent: boolean; styles: Doc<"organizationStyles">[]; brands: Doc<"styleBrands">[]; onManageStyles: () => void; onCancel?: () => void;
 }) {
   const origin = useSiteOrigin();
   const createEvent = useMutation(api.events.createEvent);
   const formRef = useRef<HTMLFormElement>(null);
+  const styleRef = useRef<HTMLButtonElement>(null);
   const [name, setName] = useState("");
   const [eventType, setEventType] = useState<"demo" | "hackathon">("demo");
-  const [styleChoice, setStyleChoice] = useState("default");
+  // The organizer's pick; until then the organization default, if it has one.
+  const [pickedStyle, setPickedStyle] = useState<string | null>(null);
   const [meetUrl, setMeetUrl] = useState("");
   const [tracks, setTracks] = useState<DraftTrack[]>([]);
   const [sponsors, setSponsors] = useState<DraftSponsor[]>([]);
@@ -45,18 +47,21 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
   // render, the server and the browser would show different links.
   const [slugSuffix, setSlugSuffix] = useState("");
   useEffect(() => setSlugSuffix(randomToken(3)), []);
-  const selectedStyle = styleChoice === "default" ? styles.find((style) => style.isDefault) : styles.find((style) => style._id === styleChoice);
-  const visualStyle = selectedStyle?.preset ?? VISUAL_STYLES.find((style) => style === styleChoice) ?? "neutral";
-  const defaultStyle = styles.find((style) => style.isDefault);
-  const defaultName = defaultStyle?.preset ? VISUAL_STYLE_LABELS[defaultStyle.preset] : defaultStyle?.name ?? VISUAL_STYLE_LABELS.neutral;
-  const presetItems = VISUAL_STYLES.map((style) => ({ value: style, label: VISUAL_STYLE_LABELS[style] }));
-  const items = [{ value: "default", label: `${defaultName} (organization default)` }, ...presetItems.filter((style) => style.value === "neutral"), ...styles.filter((style) => !style.preset).map((style) => ({ value: style._id, label: style.name })), ...presetItems.filter((style) => style.value !== "neutral")];
+  const entries = styleEntries(styles);
+  const groups = groupStyles(entries, brands);
+  const defaultEntry = entries.find((entry) => entry.isDefault);
+  const styleChoice = pickedStyle ?? defaultEntry?.key ?? null;
+  const selected = entries.find((entry) => entry.key === styleChoice);
+  const visualStyle = selected?.preset ?? "neutral";
+  const items = entries.map((entry) => ({ value: entry.key, label: entry.isDefault ? `${entry.name} (default)` : entry.name }));
   const slug = slugSuffix ? slugify(name, slugSuffix) : "";
   const hackathon = eventType === "hackathon";
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isCreating || !slug) return;
+    // With no organization default there is no preselected style: the organizer picks one.
+    if (!selected) { setError("Choose a style for this event."); styleRef.current?.focus(); return; }
     setIsCreating(true); setError("");
     try {
       // Tracks and sponsors are a hackathon's; a demo night is created without them.
@@ -66,7 +71,8 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
       const sponsorInputs = hackathon ? sponsors
         .filter((sponsor) => sponsor.name.trim())
         .map((sponsor) => ({ name: sponsor.name, usage: sponsor.usage.trim() || undefined })) : [];
-      await createEvent({ name, slug, eventType, visualStyle, styleId: selectedStyle?._id, meetUrl: meetUrl.trim() || undefined, expectedOrganizationId: organizationId, tracks: trackInputs, sponsors: sponsorInputs });
+      const style = selected.savedId ? { styleId: selected.savedId as Doc<"organizationStyles">["_id"] } : { visualStyle };
+      await createEvent({ name, slug, eventType, ...style, meetUrl: meetUrl.trim() || undefined, expectedOrganizationId: organizationId, tracks: trackInputs, sponsors: sponsorInputs });
       window.location.assign(adminPath(slug));
     } catch (error) {
       setError(error instanceof ConvexError && typeof error.data === "string" ? error.data : "Could not create the event. Please try again.");
@@ -104,12 +110,17 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
           <div className="new-event-field">
             <label htmlFor="event-style">Style</label>
             <div className="new-event-inline">
-              <Select items={items} value={styleChoice} onValueChange={(value) => { if (value) setStyleChoice(value); }}>
-                <SelectTrigger id="event-style" className="new-event-input" data-size="style"><span className="workspace-type-swatch" aria-hidden>Aa</span><SelectValue /></SelectTrigger>
-                <SelectContent className="workspace-popup">{items.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
+              <Select items={items} value={styleChoice} onValueChange={(value) => { if (value) { setPickedStyle(value); setError(""); } }}>
+                <SelectTrigger ref={styleRef} id="event-style" className="new-event-input" data-size="style" aria-describedby={defaultEntry ? undefined : "event-style-help"}><span className="workspace-type-swatch" aria-hidden>Aa</span><SelectValue placeholder="Choose a style" /></SelectTrigger>
+                <SelectContent className="workspace-popup">{groups.map((group) => <SelectGroup key={group.brand?._id ?? "none"}>
+                  {/* Grouped like the Styles page: each brand's styles together, then the rest. */}
+                  <SelectLabel>{group.brand?.name ?? (brands.length ? "No brand" : "Styles")}</SelectLabel>
+                  {group.styles.map((entry) => <SelectItem key={entry.key} value={entry.key}>{entry.isDefault ? `${entry.name} (default)` : entry.name}</SelectItem>)}
+                </SelectGroup>)}</SelectContent>
               </Select>
               <button type="button" className="workspace-text-link" onClick={onManageStyles}>Manage styles</button>
             </div>
+            {!defaultEntry && <p id="event-style-help" className="new-event-help">{organizationName} has no default style, so pick one for this event.</p>}
           </div>
 
           {/* Demoers join the call from the meet link; a hackathon may use one in Stage. */}
@@ -128,8 +139,10 @@ export function EventCreationForm({ organizationId, organizationName, firstEvent
 
         <aside className="new-event-card new-event-preview" aria-label="Event presentation preview">
           <h2 className="new-event-preview-title">Event presentation preview</h2>
-          <div className="workspace-preview-frame" inert>{visualStyle !== "neutral" ? <StagePresentationPreview stage={buildStagePreviewFixture({ eventName: name, eventType, visualStyle, meetUrl })} submissionUrl={`${origin}${submissionPath("preview")}`} /> : <EventWelcome name={name} eventType={eventType} submissionUrl={`${origin}${submissionPath("preview")}`} theme={selectedStyle?.theme ?? DEFAULT_EVENT_THEME} />}</div>
-          <p className="new-event-help">Updates as you type. {styleChoice === "default" ? `This is ${organizationName}'s default style. ` : ""}Judges, timers and what the room sees are set up after, on the event.</p>
+          <div className="workspace-preview-frame" inert>{!selected ? <p className="new-event-preview-empty">Choose a style to see the presentation.</p>
+            : visualStyle !== "neutral" ? <StagePresentationPreview stage={buildStagePreviewFixture({ eventName: name, eventType, visualStyle, meetUrl })} submissionUrl={`${origin}${submissionPath("preview")}`} />
+            : <EventWelcome name={name} eventType={eventType} submissionUrl={`${origin}${submissionPath("preview")}`} theme={selected.theme ?? DEFAULT_EVENT_THEME} />}</div>
+          <p className="new-event-help">Updates as you type. {selected?.isDefault ? `This is ${organizationName}'s default style. ` : ""}Judges, timers and what the room sees are set up after, on the event.</p>
         </aside>
       </fieldset>
     </form>

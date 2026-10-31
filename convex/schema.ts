@@ -33,10 +33,16 @@ export default defineSchema({
     slug: v.string(),
     eventId: v.id("events"),
   }).index("by_slug", ["slug"]).index("by_event", ["eventId"]),
+  // A built-in style has a row (with `preset`) only once it is the default or has a brand.
   organizationStyles: defineTable({
     organizationId: v.string(), name: v.string(), theme: eventThemeValidator,
     preset: v.optional(visualStyleValidator),
     isDefault: v.boolean(), updatedAt: v.number(),
+    brandId: v.optional(v.id("styleBrands")),
+  }).index("by_organization", ["organizationId"]),
+  // The brands an organization groups its styles by, such as a sponsor. Listed in creation order.
+  styleBrands: defineTable({
+    organizationId: v.string(), name: v.string(), updatedAt: v.number(),
   }).index("by_organization", ["organizationId"]),
   events: defineTable({
     name: v.string(),

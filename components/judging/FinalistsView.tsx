@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorText } from "@/components/live/changes";
 import { TimeAgo } from "@/components/live/TimeAgo";
-import { finalistOrder, moveItem, placeLabel, REVIEW_TARGET, WINNER_COUNT, type RankedRow } from "@/lib/judging-board";
+import { addFinalist, finalistOrder, moveItem, placeLabel, REVIEW_TARGET, WINNER_COUNT, type RankedRow } from "@/lib/judging-board";
 import { CriteriaChip, CriteriaHeader, formatScore, slots } from "./ProjectRows";
 import type { BoardRow } from "./JudgingPage";
 import styles from "./judging.module.css";
@@ -61,7 +61,7 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
 
   const finalists = ticked ?? serverFinalists;
   const finalistsSubmitted = decision?.finalistStatus === "submitted" && ticked === null;
-  const shownOrder = order ?? finalistOrder(finalists, finalistsSubmitted ? serverPlacements : [], scoreById);
+  const shownOrder = order ?? finalistOrder(finalists, finalistsSubmitted ? serverPlacements : []);
   const winners = shownOrder.slice(0, WINNER_COUNT);
   const winnersSubmitted = decision?.placementStatus === "submitted" && winners.join(",") === serverPlacements.join(",");
 
@@ -70,10 +70,15 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
     try { await action(); if (done) toast(done); } catch (error) { toast.error(errorText(error, failure)); setTicked(null); setOrder(null); } finally { setBusy(false); }
   }
   function toggle(id: string) {
-    const next = finalists.includes(id) ? finalists.filter((item) => item !== id) : [...finalists, id];
-    const sorted = finalistOrder(next, [], scoreById);
-    setTicked(sorted);
-    void act(() => saveFinalistDraft({ slug, finalistIds: sorted as Id<"submissions">[] }), "Could not save the finalists.");
+    const next = finalists.includes(id) ? shownOrder.filter((item) => item !== id) : addFinalist(shownOrder, id, scoreById);
+    setTicked(next);
+    setOrder(null);
+    void act(() => saveFinalistDraft({ slug, finalistIds: next as Id<"submissions">[] }), "Could not save the finalists.");
+  }
+  // Before finalists are submitted a drag orders the draft: submitting keeps that order, so the winners are picked too.
+  function reorderDraft(next: string[]) {
+    setTicked(next);
+    void act(() => saveFinalistDraft({ slug, finalistIds: next as Id<"submissions">[] }), "Could not save the order.");
   }
   function reorder(next: string[]) {
     setOrder(next);
@@ -133,18 +138,13 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
         {decision?.placementStatus === "needs_review" && <p className={styles.warning}>The finalists changed after the winners were picked. Check the order and submit the winners again.</p>}
         {loadingDecision ? <Skeleton className="h-24 w-full" />
           : finalists.length === 0 ? <p className={styles.help}>No finalists yet. Tick projects on the left.</p>
-          : finalistsSubmitted ? <WinnerOrder order={shownOrder} rowById={rowById} disabled={busy} onReorder={reorder} onRemove={toggle} />
-          : <ul className={styles.finalists}>{shownOrder.map((id) => <li key={id} className={styles.finalist}>
-            <span className={styles.finalistTitle}>{rowById.get(id)?.title ?? "A project"}</span>
-            <span className="dq-mono">{formatScore(rowById.get(id)?.final ?? null)}</span>
-            <Button variant="ghost" size="icon-xs" aria-label={`Remove ${rowById.get(id)?.title ?? "project"}`} disabled={busy} onClick={() => toggle(id)}><X aria-hidden /></Button>
-          </li>)}</ul>}
+          : <WinnerOrder order={shownOrder} rowById={rowById} disabled={busy} onReorder={finalistsSubmitted ? reorder : reorderDraft} onRemove={toggle} />}
         <div className={styles.cardFoot}>
           {finalistsSubmitted
-            ? <><p className={styles.help}>Starts in score order. Drag, or Alt and an arrow key, to reorder. The top three are the winners.</p>
+            ? <><p className={styles.help}>Starts in the order you submitted. Drag, or Alt and an arrow key, to reorder. The top three are the winners.</p>
               <Button size="sm" disabled={busy || winnersSubmitted || finalists.length === 0} onClick={() => void act(() => submitPlacements({ slug, placementIds: winners as Id<"submissions">[] }), "Could not submit the winners.", "Winners submitted.")}>{winnersSubmitted ? "Winners submitted" : "Submit winners"}</Button></>
-            : <><p className={styles.help}>Submitting the finalists lets you order them into winners after the final presentations.</p>
-              <Button size="sm" disabled={busy || finalists.length === 0} onClick={() => void act(() => submitFinalists({ slug, finalistIds: finalistOrder(finalists, [], scoreById) as Id<"submissions">[] }), "Could not submit the finalists.", "Finalists submitted.")}>Submit finalists</Button></>}
+            : <><p className={styles.help}>In score order. Order them into winners after the final presentations, or drag now to pick both at once: this order is also the pitch order.</p>
+              <Button size="sm" disabled={busy || finalists.length === 0} onClick={() => void act(() => submitFinalists({ slug, finalistIds: shownOrder as Id<"submissions">[] }), "Could not submit the finalists.", "Finalists submitted.")}>Submit finalists</Button></>}
         </div>
         {winnersSubmitted && <p className={styles.help}>Winners submitted {decision?.updatedAt ? clockTime(decision.updatedAt) : ""} · version {decision?.placementVersion}. Reordering saves a new draft until you submit again.</p>}
       </section>

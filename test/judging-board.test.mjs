@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { evenOutNote, finalistOrder, finalScore, initials, judgeInitials, moveItem, placeLabel, rankRows, reviewGroup, scoreAverage } from "../lib/judging-board.ts";
+import { addFinalist, evenOutNote, finalistOrder, finalScore, initials, judgeInitials, moveItem, placeLabel, rankRows, reviewGroup, scoreAverage } from "../lib/judging-board.ts";
 
 const chip = (judgeName, scores, evenedOut = null, completed = true) => ({ judgeKey: judgeName.toLowerCase(), judgeName, scores, evenedOut, completed });
 
@@ -47,13 +47,18 @@ test("ranking puts unscored projects last and keeps ranks across a sort", () => 
   assert.deepEqual(rankRows(rows, false, "execution").map((row) => row.id), ["b", "a", "c"]);
 });
 
-test("finalists: winners order first, the rest by score, and moves stay in range", () => {
+test("finalists: ticked in score order, a dragged order kept, winners first, and moves stay in range", () => {
   const scores = new Map([["grader", 8.42], ["radar", 7.95], ["guardrail", 7.61], ["notes", 7.1], ["cat", 4.8]]);
-  const finalists = ["cat", "notes", "guardrail", "radar", "grader"];
-  assert.deepEqual(finalistOrder(finalists, [], scores), ["grader", "radar", "guardrail", "notes", "cat"]);
-  assert.deepEqual(finalistOrder(finalists, ["grader", "guardrail", "radar"], scores), ["grader", "guardrail", "radar", "notes", "cat"]);
+  const ticked = ["cat", "notes", "guardrail", "radar", "grader"].reduce((order, id) => addFinalist(order, id, scores), []);
+  assert.deepEqual(ticked, ["grader", "radar", "guardrail", "notes", "cat"]);
+  // After a drag, a new tick goes above the first lower score and the rest stays put.
+  assert.deepEqual(addFinalist(["cat", "grader", "notes"], "radar", scores), ["radar", "cat", "grader", "notes"]);
+  assert.deepEqual(addFinalist(["grader", "notes"], "cat", scores), ["grader", "notes", "cat"]);
+  assert.deepEqual(addFinalist(["grader"], "grader", scores), ["grader"]);
+  assert.deepEqual(finalistOrder(["notes", "radar", "grader"], []), ["notes", "radar", "grader"]);
+  assert.deepEqual(finalistOrder(ticked, ["grader", "guardrail", "radar"]), ["grader", "guardrail", "radar", "notes", "cat"]);
   // A winner who is no longer a finalist drops out of the order.
-  assert.deepEqual(finalistOrder(["radar", "cat"], ["grader", "cat"], scores), ["cat", "radar"]);
+  assert.deepEqual(finalistOrder(["radar", "cat"], ["grader", "cat"]), ["cat", "radar"]);
   assert.deepEqual(moveItem(["a", "b", "c"], 2, 0), ["c", "a", "b"]);
   assert.deepEqual(moveItem(["a", "b", "c"], 0, -1), ["a", "b", "c"]);
   assert.equal(placeLabel(1), "2nd");

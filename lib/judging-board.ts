@@ -121,18 +121,24 @@ export function rankRows<T extends { id: string; title: string; chips: JudgeChip
 }
 
 /**
- * The finalists card's order. Before finalists are submitted: the ticked
- * projects by score. After: the saved winner order first, then the other
- * finalists by score.
+ * The finalists card's order: the saved winner order first, then the other
+ * finalists in their saved order. Ticking keeps that order by score
+ * (addFinalist), and a drag changes it, so it is score order until the
+ * organiser drags.
  */
-export function finalistOrder(finalistIds: string[], placementIds: string[], scoreById: ReadonlyMap<string, number | null>) {
+export function finalistOrder(finalistIds: string[], placementIds: string[]) {
   const finalists = new Set(finalistIds);
   const placed = placementIds.filter((id) => finalists.has(id));
   const placedSet = new Set(placed);
-  const byScore = finalistIds
-    .filter((id) => !placedSet.has(id))
-    .sort((left, right) => (scoreById.get(right) ?? -Infinity) - (scoreById.get(left) ?? -Infinity));
-  return [...placed, ...byScore];
+  return [...placed, ...finalistIds.filter((id) => !placedSet.has(id))];
+}
+
+/** A newly ticked finalist goes above the first one with a lower score, so a dragged order stays as it was. */
+export function addFinalist(order: readonly string[], id: string, scoreById: ReadonlyMap<string, number | null>) {
+  if (order.includes(id)) return [...order];
+  const score = scoreById.get(id) ?? -Infinity;
+  const at = order.findIndex((other) => (scoreById.get(other) ?? -Infinity) < score);
+  return at === -1 ? [...order, id] : [...order.slice(0, at), id, ...order.slice(at)];
 }
 
 /** Moves one item, as a drag or Alt+arrow does. Out-of-range moves leave the list as it is. */

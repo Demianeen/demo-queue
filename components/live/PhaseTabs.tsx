@@ -51,14 +51,14 @@ export function SubmissionsClock({ slug, admin, onShare }: { slug: string; admin
 
 type Decision = FunctionReturnType<typeof api.judging.getFinalistDecision> | undefined;
 
-/** The finalists in their order: the winners first once submitted, then the rest by score. */
+/** The finalists in their order: the winners first once submitted, then the rest as submitted (the pitch order). */
 export function useFinalists(slug: string, admin: AdminData) {
   const decision = useQuery(api.judging.getFinalistDecision, admin.event.eventType === "hackathon" ? { slug } : "skip");
   return useMemo(() => {
     if (!decision) return null;
     const scored = new Map(decision.submissions.map((row) => [String(row.submissionId), row]));
     const placements = decision.placementStatus === "submitted" ? decision.placementIds.map(String) : [];
-    const order = finalistOrder(decision.finalistIds.map(String), placements, new Map([...scored].map(([id, row]) => [id, row.score])));
+    const order = finalistOrder(decision.finalistIds.map(String), placements);
     const items = new Map([...admin.pool, ...admin.lineup, ...admin.completed, ...admin.noShows, ...admin.withdrawn, ...admin.hidden].map((item) => [String(item.id), item]));
     const rows = order.map((id) => {
       const item = items.get(id);

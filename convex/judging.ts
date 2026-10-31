@@ -266,8 +266,11 @@ async function addJudgesOperation(ctx: MutationCtx, args: Infer<typeof addJudges
 }
 
 export const addJudgesForOrganization = withChange<Infer<typeof addJudgesArgs>, Awaited<ReturnType<typeof addJudgesOperation>>>(
-  (_ctx, args) => {
-    const names = args.names.map(normalizeJudgeName).filter(Boolean);
+  async (ctx, args, event) => {
+    // Names a judge on the roster already has are skipped, so they are left out of the summary.
+    const directory = await loadJudgeDirectory(ctx, event);
+    let names: string[] = [];
+    try { names = parseJudgeNames(args.names).filter((name) => !directory.byName(name)?.onRoster); } catch { /* the operation reports it */ }
     return { kind: "judges_added", summary: `added ${names.length === 1 ? names[0] : `${names.length} judges`}`, watch: { judgeAccess: "all" } };
   },
   addJudgesOperation,

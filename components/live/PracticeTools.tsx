@@ -124,7 +124,7 @@ export function PracticeBar({ slug }: { slug: string }) {
   return <>
     <div className={styles.practiceBar} role="note">
       <span className="dq-practice-badge">Practice</span>
-      <span>Same code as a real event. Only test people, and their emails come to you.</span>
+      <span>Same code as a real event. Only test people, and they send no emails.</span>
       <button type="button" className={styles.linkButton} style={{ color: "inherit", textDecoration: "underline" }} onClick={() => setOpen(true)}>Reset to the start</button>
     </div>
     <Dialog open={open} onOpenChange={setOpen}>

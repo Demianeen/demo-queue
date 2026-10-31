@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
-import { addProject, createEvent, judgeLink, openJudging, score, setupTest } from "./behaviour.testing";
+import { addProject, createEvent, judgeKeys, judgeLink, openJudging, score, setupTest } from "./behaviour.testing";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -185,28 +185,29 @@ test("a project that arrives after reopening is never given a judge whose link i
   await addProject(t, eventId, 0);
   for (const judge of ["Alex", "Sam", "Taylor"]) await judgeLink(t, judge);
   await openJudging(t);
-  await t.mutation(api.judging.deactivateJudgeAccess, { slug: "hack", judgeKey: "taylor", active: false });
+  const keys = await judgeKeys(t);
+  await t.mutation(api.judging.deactivateJudgeAccess, { slug: "hack", judgeKey: keys.taylor, active: false });
   await t.mutation(api.phases.reopenSubmissions, { slug: "hack" });
   const late = await addProject(t, eventId, 1);
   await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
   const assigned = await t.run(async (ctx) => (await ctx.db.get(late))!.roundOneAssignedJudges);
-  expect(assigned?.slice().sort()).toEqual(["Alex", "Sam"]);
+  expect(assigned?.slice().sort()).toEqual([keys.alex, keys.sam].sort());
 });
 
 test("saving the judges keeps a link that was turned off deliberately, and turns on a new judge's", async () => {
   const { t } = setupTest();
   await createEvent(t, { judges: ["Alex", "Sam", "Taylor"] });
   for (const judge of ["Alex", "Sam", "Taylor"]) await judgeLink(t, judge);
-  await t.mutation(api.judging.deactivateJudgeAccess, { slug: "hack", judgeKey: "taylor", active: false });
+  await t.mutation(api.judging.deactivateJudgeAccess, { slug: "hack", judgeKey: (await judgeKeys(t)).taylor, active: false });
   // Removed and added back: the link comes back on.
   await t.mutation(api.events.saveRoundOneJudges, { slug: "hack", judges: ["Alex", "Taylor"] });
   await t.mutation(api.events.saveRoundOneJudges, { slug: "hack", judges: ["Alex", "Sam", "Taylor"] });
   const links = await t.run((ctx) => ctx.db.query("judgeAccess").collect());
-  expect(Object.fromEntries(links.map((link) => [link.judgeKey, link.active]))).toEqual({ alex: true, sam: true, taylor: false });
+  expect(Object.fromEntries(links.map((link) => [link.judgeName, link.active]))).toEqual({ Alex: true, Sam: true, Taylor: false });
   // The roster save is one change that undo can reverse, links included.
   const [saved] = (await t.query(api.changes.listRecentChanges, { slug: "hack" })).changes;
   expect(saved).toMatchObject({ summary: "updated the judges", canUndo: true });
   await t.mutation(api.changes.undoChange, { slug: "hack", changeId: saved.id });
   const after = await t.run((ctx) => ctx.db.query("judgeAccess").collect());
-  expect(Object.fromEntries(after.map((link) => [link.judgeKey, link.active]))).toEqual({ alex: true, sam: false, taylor: false });
+  expect(Object.fromEntries(after.map((link) => [link.judgeName, link.active]))).toEqual({ Alex: true, Sam: false, Taylor: false });
 });

@@ -36,7 +36,7 @@ export const UI_EXCLUSIONS = [
  * caller; an entry that already has a caller is reported as stale.
  */
 export const UI_PENDING = [
-  // Empty: the new-behaviour UI landed with every caller.
+  "judging.addJudges", "judging.removeJudge", "judging.renameJudge",
 ].map((browser) => ({ browser, reason: "Proposed: the new-behaviour backend lands before its admin UI." }));
 
 /**

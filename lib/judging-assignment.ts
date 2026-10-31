@@ -2,15 +2,32 @@ export const MIN_ROUND_ONE_JUDGES = 2;
 export const MAX_ROUND_ONE_JUDGES = 50;
 export const MAX_JUDGE_NAME_LENGTH = 100;
 
-function normalizeJudgeName(value: string) {
+/** A judge's name as shown: NFKC, trimmed, single spaces. */
+export function normalizeJudgeName(value: string) {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ");
 }
 
-function judgeKey(value: string) {
-  return normalizeJudgeName(value).toLocaleLowerCase("en");
+/**
+ * The judge key a stored judge reference stands for. A roster or assignment
+ * entry is a judge key, or, on events set up before judges had ids, the
+ * judge's name then, whose normalized form is the key it was given. Keys are
+ * already normalized, so both shapes resolve to the same key.
+ *
+ * Never call this on a judge's current name to find the judge: names can
+ * change and keys don't. To spot two judges with the same name, compare
+ * judgeNameKey of both names.
+ */
+export function judgeKeyOf(reference: string) {
+  return normalizeJudgeName(reference).toLocaleLowerCase("en");
 }
 
-export function parseRoundOneJudges(raw: string | string[]) {
+/** What two names are compared by, to spot a duplicate. Same as judgeKeyOf, used on names. */
+export function judgeNameKey(name: string) {
+  return judgeKeyOf(name);
+}
+
+/** Names typed or pasted one per line: normalized, blanks and repeats dropped. */
+export function parseJudgeNames(raw: string | string[]) {
   const values = Array.isArray(raw) ? raw : raw.split(/\r?\n/);
   const judges: string[] = [];
   const seen = new Set<string>();
@@ -21,12 +38,16 @@ export function parseRoundOneJudges(raw: string | string[]) {
     if (judge.length > MAX_JUDGE_NAME_LENGTH) {
       throw new Error(`Judge names must be ${MAX_JUDGE_NAME_LENGTH} characters or fewer.`);
     }
-    const key = judgeKey(judge);
+    const key = judgeNameKey(judge);
     if (seen.has(key)) continue;
     seen.add(key);
     judges.push(judge);
   }
+  return judges;
+}
 
+export function parseRoundOneJudges(raw: string | string[]) {
+  const judges = parseJudgeNames(raw);
   if (judges.length < MIN_ROUND_ONE_JUDGES) {
     throw new Error("Add at least 2 distinct judges.");
   }
@@ -36,8 +57,9 @@ export function parseRoundOneJudges(raw: string | string[]) {
   return judges;
 }
 
+/** Whether two stored judge references (keys, or names from before ids) are the same judge. */
 export function sameJudge(a: string, b: string) {
-  return judgeKey(a) === judgeKey(b);
+  return judgeKeyOf(a) === judgeKeyOf(b);
 }
 
 export function isValidRoundOneAssignment(assignment: string[] | undefined) {
@@ -50,7 +72,7 @@ export function isValidRoundOneAssignment(assignment: string[] | undefined) {
 }
 
 function pairKey(a: string, b: string) {
-  return [judgeKey(a), judgeKey(b)].sort().join("\u0000");
+  return [judgeKeyOf(a), judgeKeyOf(b)].sort().join("\u0000");
 }
 
 export type JudgeAssignmentCounts = {
@@ -64,7 +86,7 @@ export function buildJudgeAssignmentCounts(assignments: (string[] | undefined)[]
     if (!isValidRoundOneAssignment(assignment)) continue;
     const [first, second] = assignment!;
     for (const judge of [first, second]) {
-      const key = judgeKey(judge);
+      const key = judgeKeyOf(judge);
       counts.individual.set(key, (counts.individual.get(key) ?? 0) + 1);
     }
     const key = pairKey(first, second);
@@ -86,8 +108,8 @@ export function assignRoundOneJudgePair(
     for (let secondIndex = firstIndex + 1; secondIndex < roster.length; secondIndex += 1) {
       const first = roster[firstIndex];
       const second = roster[secondIndex];
-      const firstCount = counts.individual.get(judgeKey(first)) ?? 0;
-      const secondCount = counts.individual.get(judgeKey(second)) ?? 0;
+      const firstCount = counts.individual.get(judgeKeyOf(first)) ?? 0;
+      const secondCount = counts.individual.get(judgeKeyOf(second)) ?? 0;
       const rank = [
         firstCount + secondCount,
         Math.max(firstCount, secondCount),
@@ -103,7 +125,7 @@ export function assignRoundOneJudgePair(
 
   const pair = best!.pair;
   for (const judge of pair) {
-    const key = judgeKey(judge);
+    const key = judgeKeyOf(judge);
     counts.individual.set(key, (counts.individual.get(key) ?? 0) + 1);
   }
   const key = pairKey(pair[0], pair[1]);

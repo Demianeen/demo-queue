@@ -89,6 +89,7 @@ async function stored(f: Fixture) {
     submissions: (await ctx.db.query("submissions").collect()).filter((row) => row.eventId === f.eventId || row.eventId === f.foreignEventId),
     members: (await ctx.db.query("teamMembers").collect()).filter((row) => row.eventId === f.eventId),
     audit: (await ctx.db.query("auditLog").collect()).filter((row) => row.eventId === f.eventId),
+    judges: (await ctx.db.query("judgeAccess").collect()).filter((row) => row.eventId === f.eventId).map(({ judgeKey, judgeName, active }) => ({ judgeKey, judgeName, active })),
   }));
 }
 
@@ -101,6 +102,8 @@ async function normalized(f: Fixture, value: unknown) {
     [f.pool, "submission:Pool"], [f.hidden, "submission:Hidden"],
     [f.done, "submission:Done"], [f.absent, "submission:Absent"], [f.withdrawn, "submission:Withdrawn"],
     ...state.submissions.map((row): [string, string] => [row._id, `submission:${row.demoTitle}`]),
+    // Judge keys are random, so each side's keys read as their judge's name.
+    ...state.judges.map((row): [string, string] => [row.judgeKey, `judge:${row.judgeName}`]),
   ]);
   function visit(value: unknown): unknown {
     if (typeof value === "string") return ids.get(value) ?? value;
@@ -299,7 +302,7 @@ test("private admin reads preserve all six groups and explicitly separate contac
 test("judge roster and asynchronous sheet requests preserve event state and reject unavailable sync", async () => {
   const p = await pair("hackathon");
   await apply(p, api.events.saveRoundOneJudges, internal.mcpAdmin.saveRoundOneJudges, () => ({ slug, judges: ["Alex", "Sam"] }));
-  expect(await p.mcp.t.run((ctx) => ctx.db.get(p.mcp.eventId))).toMatchObject({ roundOneJudges: ["Alex", "Sam"] });
+  expect(await normalized(p.mcp, await p.mcp.t.run((ctx) => ctx.db.get(p.mcp.eventId)))).toMatchObject({ roundOneJudges: ["judge:Alex", "judge:Sam"] });
   for (const f of [p.browser, p.mcp]) {
     await expect(f === p.browser ? f.browser.mutation(api.events.requestJudgingSheetSync, { slug: f.slug }) : f.t.mutation(internal.mcpAdmin.requestJudgingSheetSync, { principal, input: { slug: f.slug } })).rejects.toThrow("Create the judging sheet");
     await f.t.run((ctx) => ctx.db.patch(f.eventId, { judgingSheetId: "isolated-sheet", judgingSheetSyncRevision: 3, judgingSheetSyncError: "old error" }));

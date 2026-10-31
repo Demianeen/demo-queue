@@ -57,8 +57,9 @@ test("a copy of the live event brings its setup, test judges and test submission
     practice: true, practiceOwnerEmail: "demian@example.com", practiceCopiedFromEventId: liveId, practiceCopiedFromName: "DevDay Exchange",
     eventType: "hackathon", judgingTimerDurationMs: 30 * 60_000, stageTimerDurationMs: 4 * 60_000, lineupTarget: 12, phase: "submissions",
     aiSummarySections: [{ key: "pitch", label: "Pitch", instruction: "One line pitch." }],
-    roundOneJudges: ["Test judge A", "Test judge B", "Test judge C"],
   });
+  // The roster holds the judges' keys; their names are on their links.
+  expect(event.roundOneJudges).toHaveLength(3);
   const [tracks, submissions, links, members, audit] = await t.run(async (ctx) => [
     await ctx.db.query("eventTracks").withIndex("by_event_and_order", (q) => q.eq("eventId", created.eventId)).collect(),
     await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", created.eventId)).collect(),
@@ -67,7 +68,7 @@ test("a copy of the live event brings its setup, test judges and test submission
     await ctx.db.query("auditLog").withIndex("by_event_and_action", (q) => q.eq("eventId", created.eventId).eq("action", "test_submission_admin_added")).collect(),
   ] as const);
   expect(tracks.map((track) => track.name)).toEqual(["Developer tools", "AI agents"]);
-  expect(links).toHaveLength(3);
+  expect(links.map((link) => [link.judgeKey, link.judgeName])).toEqual(event.roundOneJudges!.map((key, index) => [key, `Test judge ${"ABC"[index]}`]));
   expect(submissions).toHaveLength(6);
   expect(audit).toHaveLength(6);
   // Every test person's email arrives in the creator's inbox.

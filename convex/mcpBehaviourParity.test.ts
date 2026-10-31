@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
-import { ACTOR_SUBJECT, ORG, addProject, createEvent, judgeLink, openJudging, score, setupTest, type TestClient } from "./behaviour.testing";
+import { ACTOR_SUBJECT, ORG, addProject, createEvent, judgeKeys, judgeLink, openJudging, score, setupTest, type TestClient } from "./behaviour.testing";
 
 const actor = `https://api.workos.com/user_management/client_test|${ACTOR_SUBJECT}`;
 
@@ -58,17 +58,18 @@ test("judge tools make their own token, take string ids, and match the app's Jud
   await judgeLink(t, "Sam");
   await openJudging(t);
   await score(t, alex, project, 6);
+  const keys = await judgeKeys(t);
 
   expect(await t.query(internal.mcpAdmin.getJudgesOverview, { principal, input: { slug: "hack" } })).toEqual(await t.query(api.judging.getJudgesOverview, { slug: "hack" }));
-  const replaced = await t.mutation(internal.mcpAdmin.replaceJudgeLink, { principal, input: { slug: "hack", judgeKey: "alex" } });
+  const replaced = await t.mutation(internal.mcpAdmin.replaceJudgeLink, { principal, input: { slug: "hack", judgeKey: keys.alex } });
   expect(replaced.path).toMatch(/^\/judge\/hack\/[0-9a-f-]{36}$/);
   await expect(t.query(api.judging.getJudgeWorkspace, { slug: "hack", capabilityToken: alex })).rejects.toThrow("Unauthorized");
 
-  await expect(t.mutation(internal.mcpAdmin.moveJudgeScores, { principal, input: { slug: "hack", fromJudgeKey: "alex", toJudgeKey: "taylor", submissionIds: ["not-an-id"] } })).rejects.toThrow("Submission not found");
-  expect(await t.mutation(internal.mcpAdmin.moveJudgeScores, { principal, input: { slug: "hack", fromJudgeKey: "alex", toJudgeKey: "taylor", submissionIds: [project] } })).toEqual({ moved: 1 });
-  await t.mutation(internal.mcpAdmin.setJudgeLinkActive, { principal, input: { slug: "hack", judgeKey: "sam", active: false } });
+  await expect(t.mutation(internal.mcpAdmin.moveJudgeScores, { principal, input: { slug: "hack", fromJudgeKey: keys.alex, toJudgeKey: keys.taylor, submissionIds: ["not-an-id"] } })).rejects.toThrow("Submission not found");
+  expect(await t.mutation(internal.mcpAdmin.moveJudgeScores, { principal, input: { slug: "hack", fromJudgeKey: keys.alex, toJudgeKey: keys.taylor, submissionIds: [project] } })).toEqual({ moved: 1 });
+  await t.mutation(internal.mcpAdmin.setJudgeLinkActive, { principal, input: { slug: "hack", judgeKey: keys.sam, active: false } });
   const overview = await t.query(api.judging.getJudgesOverview, { slug: "hack" });
-  expect(overview.judges.find((row) => row.judgeKey === "sam")).toMatchObject({ active: false });
+  expect(overview.judges.find((row) => row.judgeKey === keys.sam)).toMatchObject({ active: false });
 });
 
 test("practice tools work through MCP, and reset needs a matching confirmation", async () => {

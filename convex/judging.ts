@@ -3,7 +3,10 @@ import { ConvexError, v, type Infer } from "convex/values";
 import { findEventBySlug } from "./eventSlugs";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
-import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment, sameJudge } from "../lib/judging-assignment";
+import { buildJudgeAssignmentCounts, isValidRoundOneAssignment, judgeKeyOf, judgeNameKey, MAX_JUDGE_NAME_LENGTH, MAX_ROUND_ONE_JUDGES, normalizeJudgeName, parseJudgeNames, assignRoundOneJudgePair } from "../lib/judging-assignment";
+import { loadJudgeDirectory, newJudgeKey } from "./judgeDirectory";
+import { queueJudgingSheetSync } from "./judgingSheetSync";
+import { randomToken } from "../lib/tokens";
 import { isCompleteReview, isJudgingScore } from "../lib/judging-rubric";
 import { TableHistory } from "@convex-dev/table-history";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
@@ -40,9 +43,8 @@ export function formatDuration(ms: number) {
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
 }
 
-export function normalizeJudgeKey(value: string) {
-  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
-}
+/** The key a stored judge reference stands for. See judgeKeyOf. */
+export const normalizeJudgeKey = judgeKeyOf;
 
 /** In judging: waiting, in the stage lineup, or already pitched. See isJudgedStatus. */
 function isJudgingSubmission(submission: Doc<"submissions">) {
@@ -77,13 +79,16 @@ export async function createJudgeAccessForOrganization(
   principal: OrganizationPrincipal,
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
-  const judgeName = args.judgeName.normalize("NFKC").trim().replace(/\s+/g, " ");
-  if (!judgeName || !args.capabilityToken) throw new ConvexError("Judge name and capability token are required.");
-  const judgeKey = normalizeJudgeKey(judgeName);
-  if (!(event.roundOneJudges ?? []).some((judge) => sameJudge(judge, judgeName))) {
+  const typedName = normalizeJudgeName(args.judgeName);
+  if (!typedName || !args.capabilityToken) throw new ConvexError("Judge name and capability token are required.");
+  // The caller only has the judge's name, so the judge is found by the name they have now.
+  const judge = (await loadJudgeDirectory(ctx, event)).byName(typedName);
+  if (!judge?.onRoster) {
     throw new ConvexError("Add this judge to the event before creating their link.");
   }
-  const existing = await ctx.db.query("judgeAccess").withIndex("by_event_and_judge_key", (q) => q.eq("eventId", event._id).eq("judgeKey", judgeKey)).unique();
+  const judgeKey = judge.key;
+  const judgeName = judge.name;
+  const existing = judge.access;
   const tokenOwner = await ctx.db.query("judgeAccess").withIndex("by_token", (q) => q.eq("token", args.capabilityToken)).unique();
   if (tokenOwner && tokenOwner._id !== existing?._id) {
     throw new ConvexError("This private link token is already in use.");
@@ -153,6 +158,179 @@ export const deactivateJudgeAccess = mutation({
     setJudgeLinkActiveForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
+/** Judges added later get a private link at once: their name is kept on it. */
+async function insertJudgeLink(ctx: MutationCtx, event: Doc<"events">, judgeKey: string, judgeName: string) {
+  const now = Date.now();
+  await ctx.db.insert("judgeAccess", { eventId: event._id, judgeKey, judgeName, token: randomToken(), active: true, createdAt: now, updatedAt: now });
+}
+
+function judgeNameError(name: string) {
+  if (!name) return "Enter the judge's name.";
+  if (name.length > MAX_JUDGE_NAME_LENGTH) return `Judge names must be ${MAX_JUDGE_NAME_LENGTH} characters or fewer.`;
+  return null;
+}
+
+/**
+ * Adds judges by name, each with a new key and their own link. A name a
+ * judge on the roster already has is skipped. A judge who was removed comes
+ * back as themselves, with their link. Judges added during judging get no
+ * projects until assignments change, as before.
+ */
+export async function addJudgesToEvent(ctx: MutationCtx, event: Doc<"events">, names: string[], { syncSheet = true } = {}) {
+  let parsed: string[];
+  try {
+    parsed = parseJudgeNames(names);
+  } catch (error) {
+    throw new ConvexError(error instanceof Error ? error.message : "Invalid judge names.");
+  }
+  const directory = await loadJudgeDirectory(ctx, event);
+  const roster = [...(event.roundOneJudges ?? [])];
+  const taken = new Set(directory.judges.map((judge) => judge.key));
+  const added: { judgeKey: string; judgeName: string }[] = [];
+  const skipped: string[] = [];
+  const now = Date.now();
+  for (const name of parsed) {
+    const existing = directory.byName(name);
+    if (existing?.onRoster) {
+      skipped.push(existing.name);
+      continue;
+    }
+    if (roster.length >= MAX_ROUND_ONE_JUDGES) throw new ConvexError(`Add no more than ${MAX_ROUND_ONE_JUDGES} judges.`);
+    if (existing?.access) {
+      roster.push(existing.key);
+      await ctx.db.patch(existing.access._id, { active: true, deactivatedAt: undefined, updatedAt: now });
+      added.push({ judgeKey: existing.key, judgeName: existing.name });
+      continue;
+    }
+    const judgeKey = newJudgeKey(taken);
+    taken.add(judgeKey);
+    roster.push(judgeKey);
+    await insertJudgeLink(ctx, event, judgeKey, name);
+    added.push({ judgeKey, judgeName: name });
+  }
+  if (added.length > 0) {
+    await ctx.db.patch(event._id, { roundOneJudges: roster, updatedAt: now });
+    if (syncSheet) await queueJudgingSheetSync(ctx, event, 0);
+  }
+  return { added, skipped };
+}
+
+/**
+ * Takes a judge off the roster. Refused once they have a score: turn them
+ * off instead, so the scores stay. Projects they were given go to the least
+ * busy judge who is on, beside the judge already there. Their link stops
+ * working and is kept, so adding them again brings it back.
+ */
+export async function removeJudgeFromEvent(ctx: MutationCtx, event: Doc<"events">, judgeKey: string, { syncSheet = true, leaving = [] as string[] } = {}) {
+  const directory = await loadJudgeDirectory(ctx, event);
+  const judge = directory.get(judgeKey);
+  if (!judge?.onRoster) throw new ConvexError("Judge not found.");
+  const scored = await ctx.db.query("reviews").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", judge.key)).first();
+  if (scored) throw new ConvexError(`${judge.name} has scores, so they can't be removed. Turn them off instead: their scores stay.`);
+  const roster = (event.roundOneJudges ?? []).filter((reference) => judgeKeyOf(reference) !== judge.key);
+  const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
+  const affected = submissions.filter((submission) =>
+    isValidRoundOneAssignment(submission.roundOneAssignedJudges) &&
+    submission.roundOneAssignedJudges!.some((reference) => judgeKeyOf(reference) === judge.key));
+  const now = Date.now();
+  if (affected.length > 0) {
+    // Judges who are off, or leaving in the same save, take nothing new.
+    const candidates = directory.roster.filter((other) => other.key !== judge.key && !leaving.includes(other.key) && other.access?.active !== false).map((other) => other.key);
+    const counts = buildJudgeAssignmentCounts(submissions.map((submission) => submission.roundOneAssignedJudges));
+    for (const submission of affected) {
+      const current = submission.roundOneAssignedJudges!;
+      const kept = current.map(judgeKeyOf).find((key) => key !== judge.key)!;
+      let replacement: string;
+      try {
+        replacement = replacementJudge(candidates, [judge.key, kept], counts);
+      } catch {
+        throw new ConvexError(`Add another judge before removing ${judge.name}: their projects need someone.`);
+      }
+      await ctx.db.patch(submission._id, {
+        roundOneAssignedJudges: current.map((reference) => (judgeKeyOf(reference) === judge.key ? rosterReference(event, replacement) : reference)),
+        updatedAt: now,
+      });
+    }
+  }
+  if (judge.access?.active) await ctx.db.patch(judge.access._id, { active: false, deactivatedAt: now, updatedAt: now });
+  await ctx.db.patch(event._id, { roundOneJudges: roster, updatedAt: now });
+  if (syncSheet) await queueJudgingSheetSync(ctx, event, 0);
+  return { judgeKey: judge.key, reassignedSubmissionIds: affected.map((submission) => submission._id) };
+}
+
+export const addJudgesArgs = v.object({ slug: v.string(), names: v.array(v.string()) });
+
+async function addJudgesOperation(ctx: MutationCtx, args: Infer<typeof addJudgesArgs>, principal: OrganizationPrincipal) {
+  return addJudgesToEvent(ctx, await ownedAdminEvent(ctx, args.slug, principal), args.names);
+}
+
+export const addJudgesForOrganization = withChange<Infer<typeof addJudgesArgs>, Awaited<ReturnType<typeof addJudgesOperation>>>(
+  (_ctx, args) => {
+    const names = args.names.map(normalizeJudgeName).filter(Boolean);
+    return { kind: "judges_added", summary: `added ${names.length === 1 ? names[0] : `${names.length} judges`}`, watch: { judgeAccess: "all" } };
+  },
+  addJudgesOperation,
+);
+
+export const addJudges = mutation({
+  args: addJudgesArgs,
+  handler: async (ctx, args) =>
+    addJudgesForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const removeJudgeArgs = v.object({ slug: v.string(), judgeKey: v.string() });
+
+async function removeJudgeOperation(ctx: MutationCtx, args: Infer<typeof removeJudgeArgs>, principal: OrganizationPrincipal) {
+  return removeJudgeFromEvent(ctx, await ownedAdminEvent(ctx, args.slug, principal), args.judgeKey);
+}
+
+export const removeJudgeForOrganization = withChange<Infer<typeof removeJudgeArgs>, Awaited<ReturnType<typeof removeJudgeOperation>>>(
+  async (ctx, args, event) => ({ kind: "judge_removed", summary: `removed ${await judgeNameFor(ctx, event, args.judgeKey)}`, watch: { submissions: "all", judgeAccess: "all" } }),
+  removeJudgeOperation,
+);
+
+export const removeJudge = mutation({
+  args: removeJudgeArgs,
+  handler: async (ctx, args) =>
+    removeJudgeForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const renameJudgeArgs = v.object({ slug: v.string(), judgeKey: v.string(), name: v.string() });
+
+/**
+ * Changes only the name a judge is shown by. Their key, link, assignments,
+ * scores and evening-out choice stay, since all of them hold the key.
+ */
+async function renameJudgeOperation(ctx: MutationCtx, args: Infer<typeof renameJudgeArgs>, principal: OrganizationPrincipal) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  const name = normalizeJudgeName(args.name);
+  const invalid = judgeNameError(name);
+  if (invalid) throw new ConvexError(invalid);
+  const directory = await loadJudgeDirectory(ctx, event);
+  const judge = directory.get(args.judgeKey);
+  if (!judge) throw new ConvexError("Judge not found.");
+  const clash = directory.judges.find((other) => other.key !== judge.key && judgeNameKey(other.name) === judgeNameKey(name));
+  if (clash) throw new ConvexError(`Another judge is already called ${clash.name}.`);
+  if (judge.name !== name) {
+    // A judge from before ids with no link yet keeps their name on the roster; their link holds the new one.
+    if (judge.access) await ctx.db.patch(judge.access._id, { judgeName: name, updatedAt: Date.now() });
+    else await insertJudgeLink(ctx, event, judge.key, name);
+    await queueJudgingSheetSync(ctx, event);
+  }
+  return { judgeKey: judge.key, judgeName: name };
+}
+
+export const renameJudgeForOrganization = withChange<Infer<typeof renameJudgeArgs>, Awaited<ReturnType<typeof renameJudgeOperation>>>(
+  async (ctx, args, event) => ({ kind: "judge_renamed", summary: `renamed ${await judgeNameFor(ctx, event, args.judgeKey)} to ${normalizeJudgeName(args.name)}`, watch: { judgeAccess: "all" } }),
+  renameJudgeOperation,
+);
+
+export const renameJudge = mutation({
+  args: renameJudgeArgs,
+  handler: async (ctx, args) =>
+    renameJudgeForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
 /** The private path a judge opens: /judge/<slug>/<token>. */
 export function judgeLinkPath(event: Pick<Doc<"events">, "slug">, token: string) {
   return `/judge/${event.slug}/${token}`;
@@ -173,16 +351,16 @@ export async function getJudgesOverviewForOrganization(
   principal: OrganizationPrincipal,
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
-  const [links, submissions, reviews] = await Promise.all([
-    ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(200),
+  const [directory, submissions, reviews] = await Promise.all([
+    loadJudgeDirectory(ctx, event),
     ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
     ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(4000),
   ]);
   const judging = submissions.filter(isJudgingSubmission);
   const judgingIds = new Set(judging.map((submission) => String(submission._id)));
-  const roster = event.roundOneJudges ?? [];
-  const linkByKey = new Map(links.map((link) => [link.judgeKey, link]));
-  const keys = [...roster.map(normalizeJudgeKey), ...links.map((link) => link.judgeKey).filter((key) => !roster.some((judge) => normalizeJudgeKey(judge) === key))];
+  const reviewedKeys = new Set(reviews.map((review) => review.judgeKey));
+  // A judge removed from the roster stays listed only while they have scores.
+  const judges = directory.judges.filter((judge) => judge.onRoster || reviewedKeys.has(judge.key));
   const titleById = new Map(submissions.map((submission) => [String(submission._id), submission.demoTitle || submission.teamName || submission.name]));
   const completeBySubmission = new Map<string, number>();
   for (const review of reviews) {
@@ -190,17 +368,15 @@ export async function getJudgesOverviewForOrganization(
       completeBySubmission.set(String(review.submissionId), (completeBySubmission.get(String(review.submissionId)) ?? 0) + 1);
     }
   }
-  const rows = keys.map((judgeKey) => {
-    const link = linkByKey.get(judgeKey);
-    const judgeName = roster.find((judge) => normalizeJudgeKey(judge) === judgeKey) ?? link?.judgeName ?? judgeKey;
-    const assigned = judging.filter((submission) => isAssignedTo(submission, judgeName));
+  const rows = judges.map(({ key: judgeKey, name: judgeName, onRoster, access: link }) => {
+    const assigned = judging.filter((submission) => isAssignedTo(submission, judgeKey));
     const assignedIds = new Set(assigned.map((submission) => String(submission._id)));
     const complete = reviews.filter((review) => review.judgeKey === judgeKey && review.completed && judgingIds.has(String(review.submissionId)));
     const started = reviews.filter((review) => review.judgeKey === judgeKey && judgingIds.has(String(review.submissionId)));
     return {
       judgeKey,
       judgeName,
-      onRoster: roster.some((judge) => normalizeJudgeKey(judge) === judgeKey),
+      onRoster,
       hasLink: Boolean(link),
       active: link?.active ?? false,
       path: link ? judgeLinkPath(event, link.token) : null,
@@ -296,11 +472,9 @@ export async function moveJudgeScoresForOrganization(
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
   if (args.fromJudgeKey === args.toJudgeKey) throw new ConvexError("Choose another judge to move the scores to.");
-  const roster = event.roundOneJudges ?? [];
-  const links = await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(200);
-  const nameOf = (key: string) => roster.find((judge) => normalizeJudgeKey(judge) === key) ?? links.find((link) => link.judgeKey === key)?.judgeName;
-  const fromName = nameOf(args.fromJudgeKey);
-  const toName = nameOf(args.toJudgeKey);
+  const directory = await loadJudgeDirectory(ctx, event);
+  const fromName = directory.get(args.fromJudgeKey)?.name;
+  const toName = directory.get(args.toJudgeKey)?.name;
   if (!fromName || !toName) throw new ConvexError("Judge not found.");
   const only = args.submissionIds ? new Set(args.submissionIds.map(String)) : null;
   const fromReviews = (await ctx.db.query("reviews").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", args.fromJudgeKey)).take(1000))
@@ -413,28 +587,20 @@ export const prepareAssignmentBatch = mutation({
 
 const overrideValidator = v.object({ submissionId: v.id("submissions"), judges: v.array(v.string()) });
 
+/** The least loaded of these judge keys, leaving out `excluded`. */
 function replacementJudge(
-  roster: string[],
+  candidateKeys: string[],
   excluded: string[],
   counts: ReturnType<typeof buildJudgeAssignmentCounts>,
 ) {
-  const candidates = roster.filter(
-    (judge) => !excluded.some((excludedJudge) => sameJudge(judge, excludedJudge)),
-  );
-  const replacement = candidates
-    .map((judge, index) => ({
-      judge,
-      index,
-      load: counts.individual.get(normalizeJudgeKey(judge)) ?? 0,
-    }))
-    .sort((a, b) => a.load - b.load || a.index - b.index)[0]?.judge;
+  const replacement = candidateKeys
+    .filter((key) => !excluded.includes(key))
+    .map((key, index) => ({ key, index, load: counts.individual.get(key) ?? 0 }))
+    .sort((a, b) => a.load - b.load || a.index - b.index)[0]?.key;
   if (!replacement) {
     throw new ConvexError("Add another available judge before redistributing reviews.");
   }
-  counts.individual.set(
-    normalizeJudgeKey(replacement),
-    (counts.individual.get(normalizeJudgeKey(replacement)) ?? 0) + 1,
-  );
+  counts.individual.set(replacement, (counts.individual.get(replacement) ?? 0) + 1);
   return replacement;
 }
 
@@ -450,48 +616,44 @@ export async function previewRedistributionForOrganization(
   principal: OrganizationPrincipal,
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
-  const unavailable = await ctx.db
-    .query("judgeAccess")
-    .withIndex("by_event_and_judge_key", (q) =>
-      q.eq("eventId", event._id).eq("judgeKey", args.unavailableJudgeKey),
-    )
-    .unique();
+  const directory = await loadJudgeDirectory(ctx, event);
+  const unavailable = directory.get(args.unavailableJudgeKey)?.access;
   if (!unavailable) throw new ConvexError("Judge not found.");
+  const unavailableKey = unavailable.judgeKey;
   const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
   const reviews = await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000);
   const counts = buildJudgeAssignmentCounts(submissions.map((s) => s.roundOneAssignedJudges));
-  const overrides = new Map((args.overrides ?? []).map((item) => [String(item.submissionId), item.judges]));
+  const overrides = new Map((args.overrides ?? []).map((item) => [String(item.submissionId), item.judges.map(judgeKeyOf)]));
   const completedBySubmission = new Map<string, string[]>();
   for (const review of reviews.filter((review) => review.completed)) {
     const key = String(review.submissionId);
     completedBySubmission.set(key, [...(completedBySubmission.get(key) ?? []), review.judgeKey]);
   }
+  // Judges who are turned off take nothing new.
+  const candidates = directory.roster.filter((judge) => judge.access?.active !== false).map((judge) => judge.key);
 
   const changes = [];
   for (const submission of submissions) {
     if (!isJudgingSubmission(submission)) continue;
     const current = submission.roundOneAssignedJudges;
-    if (
-      !isValidRoundOneAssignment(current) ||
-      !current!.some((judge) => sameJudge(judge, unavailable.judgeName))
-    ) {
-      continue;
-    }
+    if (!isValidRoundOneAssignment(current)) continue;
+    const currentKeys = current!.map(judgeKeyOf);
+    if (!currentKeys.includes(unavailableKey)) continue;
     const completedJudges = completedBySubmission.get(String(submission._id)) ?? [];
-    if (completedJudges.some((judge) => sameJudge(judge, unavailable.judgeName))) {
-      continue;
-    }
-    const keptJudge = current!.find((judge) => !sameJudge(judge, unavailable.judgeName))!;
-    const automatic = current!.map((judge) =>
-      sameJudge(judge, unavailable.judgeName)
-        ? replacementJudge(event.roundOneJudges ?? [], [unavailable.judgeName, keptJudge], counts)
-        : judge,
+    if (completedJudges.includes(unavailableKey)) continue;
+    const keptJudge = currentKeys.find((key) => key !== unavailableKey)!;
+    const automatic = currentKeys.map((key) =>
+      key === unavailableKey ? replacementJudge(candidates, [unavailableKey, keptJudge], counts) : key,
     );
+    const judges = overrides.get(String(submission._id)) ?? automatic;
     changes.push({
       submissionId: submission._id,
-      previousJudges: current!,
-      judges: overrides.get(String(submission._id)) ?? automatic,
-      preservedCompletedJudge: completedJudges.find((judge) => sameJudge(judge, keptJudge)) ?? null,
+      // Judge keys, with the names to show beside them.
+      previousJudges: currentKeys,
+      previousJudgeNames: currentKeys.map(directory.nameOf),
+      judges,
+      judgeNames: judges.map(directory.nameOf),
+      preservedCompletedJudge: completedJudges.find((key) => key === keptJudge) ?? null,
     });
   }
   return changes;
@@ -515,16 +677,11 @@ async function applyRedistributionOperation(
   principal: OrganizationPrincipal,
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
-  const unavailable = await ctx.db
-    .query("judgeAccess")
-    .withIndex("by_event_and_judge_key", (q) =>
-      q.eq("eventId", event._id).eq("judgeKey", args.unavailableJudgeKey),
-    )
-    .unique();
+  const directory = await loadJudgeDirectory(ctx, event);
+  const unavailable = directory.get(args.unavailableJudgeKey)?.access;
   if (!unavailable) throw new ConvexError("Judge not found.");
-  const allowed = (event.roundOneJudges ?? []).filter(
-    (judge) => !sameJudge(judge, unavailable.judgeName),
-  );
+  const unavailableKey = unavailable.judgeKey;
+  const allowed = new Set(directory.roster.map((judge) => judge.key).filter((key) => key !== unavailableKey));
   const submissions = await ctx.db
     .query("submissions")
     .withIndex("by_event", (q) => q.eq("eventId", event._id))
@@ -538,21 +695,15 @@ async function applyRedistributionOperation(
     .take(2000);
   const completedUnavailable = new Set(
     eventReviews
-      .filter(
-        (review) => review.completed && sameJudge(review.judgeKey, unavailable.judgeName),
-      )
+      .filter((review) => review.completed && review.judgeKey === unavailableKey)
       .map((review) => String(review.submissionId)),
   );
+  const assignedToUnavailable = (assignment: string[] | undefined) =>
+    isValidRoundOneAssignment(assignment) && assignment!.some((reference) => judgeKeyOf(reference) === unavailableKey);
   const requiredIds: string[] = [];
   for (const submission of submissions) {
     if (!isJudgingSubmission(submission)) continue;
-    const current = submission.roundOneAssignedJudges;
-    if (
-      !isValidRoundOneAssignment(current) ||
-      !current!.some((judge) => sameJudge(judge, unavailable.judgeName))
-    ) {
-      continue;
-    }
+    if (!assignedToUnavailable(submission.roundOneAssignedJudges)) continue;
     if (!completedUnavailable.has(String(submission._id))) {
       requiredIds.push(String(submission._id));
     }
@@ -565,33 +716,24 @@ async function applyRedistributionOperation(
     throw new ConvexError("Redistribution must include every unfinished assignment in the preview.");
   }
   for (const item of args.assignments) {
+    const judges = item.judges.map(judgeKeyOf);
     if (
-      item.judges.length !== 2 ||
-      sameJudge(item.judges[0], item.judges[1]) ||
-      item.judges.some((judge) => !allowed.some((candidate) => sameJudge(candidate, judge)))
+      judges.length !== 2 ||
+      judges[0] === judges[1] ||
+      judges.some((key) => !allowed.has(key))
     ) {
       throw new ConvexError("Invalid judge assignment.");
     }
     const submission = await ctx.db.get(item.submissionId);
     if (!submission || submission.eventId !== event._id) throw new ConvexError("Submission does not belong to this event.");
     const current = submission.roundOneAssignedJudges;
-    if (
-      !isValidRoundOneAssignment(current) ||
-      !current!.some((judge) => sameJudge(judge, unavailable.judgeName))
-    ) {
-      continue;
-    }
-    const submissionReviews = eventReviews.filter(
-      (review) => review.submissionId === item.submissionId,
-    );
-    if (submissionReviews.some((review) => review.completed && sameJudge(review.judgeKey, unavailable.judgeName))) {
-      continue;
-    }
-    const keptJudge = current!.find((judge) => !sameJudge(judge, unavailable.judgeName))!;
-    if (!item.judges.some((judge) => sameJudge(judge, keptJudge))) {
+    if (!assignedToUnavailable(current)) continue;
+    if (completedUnavailable.has(String(item.submissionId))) continue;
+    const keptJudge = current!.map(judgeKeyOf).find((key) => key !== unavailableKey)!;
+    if (!judges.includes(keptJudge)) {
       throw new ConvexError("Redistribution must keep the other assigned judge.");
     }
-    await ctx.db.patch(item.submissionId, { roundOneAssignedJudges: item.judges, updatedAt: Date.now() });
+    await ctx.db.patch(item.submissionId, { roundOneAssignedJudges: judges.map((key) => rosterReference(event, key)), updatedAt: Date.now() });
   }
   await ctx.db.patch(unavailable._id, {
     active: false,
@@ -606,14 +748,23 @@ export const applyRedistribution = mutation({
     applyRedistributionForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
+/**
+ * How the roster stores this judge: their key, or on an event set up before
+ * judges had ids, their name then. Assignments store the same, so an old
+ * event keeps one shape throughout.
+ */
+export function rosterReference(event: Pick<Doc<"events">, "roundOneJudges">, key: string) {
+  return (event.roundOneJudges ?? []).find((reference) => judgeKeyOf(reference) === key) ?? key;
+}
+
 /** Judges see submissions only once judging is open, and keep read access after it closes. */
 function judgingVisible(event: Doc<"events">) {
   const judgingStatus = event.judgingStatus ?? "setup";
   return judgingStatus === "open" || judgingStatus === "closed";
 }
 
-function isAssignedTo(submission: Doc<"submissions">, judgeName: string) {
-  return (submission.roundOneAssignedJudges ?? []).some((judge) => sameJudge(judge, judgeName));
+function isAssignedTo(submission: Doc<"submissions">, judgeKey: string) {
+  return (submission.roundOneAssignedJudges ?? []).some((reference) => judgeKeyOf(reference) === judgeKey);
 }
 
 /**
@@ -682,7 +833,7 @@ export const getMyAssignments = query({
     const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
     const assigned = submissions.filter(
       (submission: Doc<"submissions">) =>
-        isJudgingSubmission(submission) && isAssignedTo(submission, access.judgeName),
+        isJudgingSubmission(submission) && isAssignedTo(submission, access.judgeKey),
     );
     const reviews = await ctx.db.query("reviews").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", access.judgeKey)).take(1000);
     const reviewBySubmission = new Map(reviews.map((r: Doc<"reviews">) => [r.submissionId, r]));
@@ -720,7 +871,7 @@ export const getOtherSubmissions = query({
     if (!judgingVisible(event)) return [];
     const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
     const others = submissions.filter(
-      (submission) => isJudgingSubmission(submission) && !isAssignedTo(submission, access.judgeName),
+      (submission) => isJudgingSubmission(submission) && !isAssignedTo(submission, access.judgeKey),
     );
     return await judgeSubmissionViews(ctx, event, others);
   },
@@ -791,7 +942,7 @@ export const getJudgeWorkspace = query({
     let yoursScored = 0;
     const projects = views.map((view, index) => {
       const submission = judging[index];
-      const assignedToMe = isAssignedTo(submission, access.judgeName);
+      const assignedToMe = isAssignedTo(submission, access.judgeKey);
       const review = mine.get(String(view.id)) ?? null;
       const scoredByMe = review?.completed === true;
       const completeReviewCount = completeBySubmission.get(String(view.id)) ?? 0;
@@ -922,8 +1073,7 @@ export async function getAdminProgressForOrganization(
   const event = await ownedAdminEvent(ctx, args.slug, principal);
   const submissions = (await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000)).filter(isJudgingSubmission);
   const reviews = await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000);
-  const access = await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(100);
-  const nameByJudgeKey = new Map(access.map((judge) => [judge.judgeKey, judge.judgeName]));
+  const directory = await loadJudgeDirectory(ctx, event);
   const eventTracks = await listEventTracks(ctx, event._id);
   const trackById = tracksById(eventTracks);
   const submissionById = new Map(submissions.map((submission) => [String(submission._id), submission]));
@@ -940,13 +1090,15 @@ export async function getAdminProgressForOrganization(
         teamName: submission.teamName ?? null,
         tracks: trackNamesFor(submission, trackById),
         trackIds: (submission.trackIds ?? []).filter((id) => trackById.has(id)),
-        assignedJudges: submission.roundOneAssignedJudges ?? [],
+        // Names to show; assignedJudgeKeys says who they are.
+        assignedJudges: (submission.roundOneAssignedJudges ?? []).map(directory.nameOf),
+        assignedJudgeKeys: (submission.roundOneAssignedJudges ?? []).map(judgeKeyOf),
       };
     }),
     reviews: reviews.map((review) => ({
       submissionId: review.submissionId,
       judgeKey: review.judgeKey,
-      judgeName: nameByJudgeKey.get(review.judgeKey) ?? review.judgeKey,
+      judgeName: directory.nameOf(review.judgeKey),
       innovation: review.innovation,
       execution: review.execution,
       demoClarity: review.demoClarity,
@@ -1307,10 +1459,9 @@ export const previewNormalization = query({
   args: { slug: v.string(), judgeKey: v.string() },
   handler: async (ctx, args) => {
     const event = await adminEvent(ctx, args.slug);
-    const judgeName = (event.roundOneJudges ?? []).find(
-      (judge) => normalizeJudgeKey(judge) === args.judgeKey,
-    );
-    if (!judgeName) throw new ConvexError("Judge not found.");
+    const judge = (await loadJudgeDirectory(ctx, event)).get(args.judgeKey);
+    if (!judge?.onRoster) throw new ConvexError("Judge not found.");
+    const judgeName = judge.name;
     const [submissions, reviews, decisions] = await Promise.all([
       ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
       ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000),
@@ -1333,10 +1484,11 @@ export async function getNormalizationOverviewForOrganization(
   principal: OrganizationPrincipal,
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
-  const [submissions, reviews, decisions] = await Promise.all([
+  const [submissions, reviews, decisions, directory] = await Promise.all([
     ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
     ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000),
     ctx.db.query("normalizationDecisions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(100),
+    loadJudgeDirectory(ctx, event),
   ]);
   const state = normalizationState(submissions, reviews, decisions);
   const basis = await readScoreBasis(ctx, event);
@@ -1344,14 +1496,7 @@ export async function getNormalizationOverviewForOrganization(
     judgingStatus: event.judgingStatus ?? "setup",
     scoreBasisReady: state.ready,
     scoreBasisVersion: basis.version,
-    judges: (event.roundOneJudges ?? []).map((judgeName) =>
-      normalizationPreviewForJudge(
-        normalizeJudgeKey(judgeName),
-        judgeName,
-        submissions,
-        state,
-      ),
-    ),
+    judges: directory.roster.map((judge) => normalizationPreviewForJudge(judge.key, judge.name, submissions, state)),
   };
 }
 
@@ -1674,8 +1819,7 @@ export const submitPlacements = mutation({
 });
 
 async function judgeNameFor(ctx: MutationCtx, event: Doc<"events">, judgeKey: string) {
-  const access = await ctx.db.query("judgeAccess").withIndex("by_event_and_judge_key", (q) => q.eq("eventId", event._id).eq("judgeKey", judgeKey)).unique();
-  return access?.judgeName ?? (event.roundOneJudges ?? []).find((judge) => normalizeJudgeKey(judge) === judgeKey) ?? judgeKey;
+  return (await loadJudgeDirectory(ctx, event)).nameOf(judgeKey);
 }
 
 /** Turn off: the judge's unscored projects go to others, and their link stops working. Undoable. */

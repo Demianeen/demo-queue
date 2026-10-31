@@ -40,8 +40,14 @@ test("hackathon owners can close submissions and create judge access", async () 
   await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
   await t.mutation(api.judging.createJudgeAccess, { slug: "hack", judgeName: "Alex", capabilityToken: "hack-judge" });
   expect(await t.run((ctx) => ctx.db.get(eventId))).toMatchObject({ submissionsClosedAt: expect.any(Number) });
-  expect(await t.query(api.judging.listJudgeAccess, { slug: "hack" })).toMatchObject([{ judgeName: "Alex", token: "hack-judge", active: true }]);
+  // Every judge got a link when added; creating one for Alex gives it this token.
+  expect((await t.query(api.judging.listJudgeAccess, { slug: "hack" })).find((link) => link.judgeName === "Alex")).toMatchObject({ token: "hack-judge", active: true });
 });
+
+/** A judge's key, made when they were added. */
+async function keyOf(t: Pick<ReturnType<typeof convexTest>, "run">, judgeName: string) {
+  return await t.run(async (ctx) => (await ctx.db.query("judgeAccess").collect()).find((link) => link.judgeName === judgeName)!.judgeKey);
+}
 
 
 async function seedLegacyEvent(t: Pick<ReturnType<typeof convexTest>, "run" | "query" | "mutation">, input: {
@@ -125,11 +131,10 @@ test("replacing judges before reviews start redistributes existing assignments",
       .withIndex("by_event", (q) => q.eq("eventId", eventId))
       .collect(),
   );
+  const newKeys = [await keyOf(t, "David"), await keyOf(t, "Michael"), await keyOf(t, "Nikodem")];
   expect(
     submissions.every((submission) =>
-      submission.roundOneAssignedJudges?.every((judge) =>
-        ["David", "Michael", "Nikodem"].includes(judge),
-      ),
+      submission.roundOneAssignedJudges?.every((judge) => newKeys.includes(judge)),
     ),
   ).toBe(true);
 });
@@ -352,8 +357,8 @@ test("redistribution moves only an unavailable judge's unfinished slot", async (
   const access = await t.query(api.judging.listJudgeAccess, {
     slug: "hack",
     });
-  const unavailableAccess = access.find((item) => item.judgeName === unavailable)!;
-  const keptAccess = access.find((item) => item.judgeName === kept)!;
+  const unavailableAccess = access.find((item) => item.judgeKey === unavailable)!;
+  const keptAccess = access.find((item) => item.judgeKey === kept)!;
 
   await t.mutation(api.judging.saveReview, {
     slug: "hack",
@@ -514,14 +519,14 @@ test("normalization decisions, finalist amendments, and placements stay independ
   expect(
     await t.mutation(api.judging.saveNormalizationDecision, {
       slug: "hack",
-      judgeKey: "alex",
+      judgeKey: await keyOf(t, "Alex"),
       decision: "apply",
     }),
   ).toEqual({ scoreBasisReady: true });
   expect(
     await t.mutation(api.judging.saveNormalizationDecision, {
       slug: "hack",
-      judgeKey: "sam",
+      judgeKey: await keyOf(t, "Sam"),
       decision: "raw",
     }),
   ).toEqual({ scoreBasisReady: true });
@@ -560,18 +565,18 @@ test("normalization decisions, finalist amendments, and placements stay independ
     slug: "hack",
     });
   expect(staleOverview.scoreBasisReady).toBe(true);
-  expect(staleOverview.judges.find((judge) => judge.judgeKey === "alex")?.decision).toEqual({
+  expect(staleOverview.judges.find((judge) => judge.judgeName === "Alex")?.decision).toEqual({
     decision: "apply",
     stale: true,
   });
-  expect(staleOverview.judges.find((judge) => judge.judgeKey === "sam")?.decision).toEqual({
+  expect(staleOverview.judges.find((judge) => judge.judgeName === "Sam")?.decision).toEqual({
     decision: "raw",
     stale: false,
   });
   expect(
     await t.mutation(api.judging.saveNormalizationDecision, {
       slug: "hack",
-      judgeKey: "alex",
+      judgeKey: await keyOf(t, "Alex"),
       decision: "apply",
     }),
   ).toEqual({ scoreBasisReady: true });
@@ -745,7 +750,7 @@ test("judges can read and score every submission in judging", async () => {
   expect(otherIds).not.toContain(withdrawnId);
   const submissions = await t.run((ctx) => ctx.db.query("submissions").collect());
   for (const id of otherIds) {
-    expect(submissions.find((s) => s._id === id)?.roundOneAssignedJudges).not.toContain("Alex");
+    expect(submissions.find((s) => s._id === id)?.roundOneAssignedJudges).not.toContain(await keyOf(t, "Alex"));
   }
 
   // Team details without anyone's contact details.
@@ -760,7 +765,7 @@ test("judges can read and score every submission in judging", async () => {
   await expect(t.mutation(api.judging.saveReview, {
     slug: "hack", capabilityToken: "alex-secret", submissionId: otherIds[0], innovation: 8, execution: 8, demoClarity: 8,
   })).resolves.toEqual({ completed: true });
-  expect(await t.run((ctx) => ctx.db.query("reviews").collect())).toMatchObject([{ submissionId: otherIds[0], judgeKey: "alex", completed: true }]);
+  expect(await t.run((ctx) => ctx.db.query("reviews").collect())).toMatchObject([{ submissionId: otherIds[0], judgeKey: await keyOf(t, "Alex"), completed: true }]);
   await expect(t.mutation(api.judging.saveReview, {
     slug: "hack", capabilityToken: "alex-secret", submissionId: mineIds[0], innovation: 8, execution: 8, demoClarity: 8,
   })).resolves.toEqual({ completed: true });
@@ -789,6 +794,6 @@ test("other submissions need an active judge link for that event", async () => {
   await expect(t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "wrong" })).rejects.toThrow("Unauthorized");
   await expect(t.query(api.judging.getOtherSubmissions, { slug: "other-hack", capabilityToken: "alex-secret" })).rejects.toThrow("Unauthorized");
   await expect(t.query(api.judging.getOtherSubmissions, { slug: "missing", capabilityToken: "alex-secret" })).rejects.toThrow("Event not found.");
-  await t.mutation(api.judging.deactivateJudgeAccess, { slug: "hack", judgeKey: "alex", active: false });
+  await t.mutation(api.judging.deactivateJudgeAccess, { slug: "hack", judgeKey: await keyOf(t, "Alex"), active: false });
   await expect(t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "alex-secret" })).rejects.toThrow("Unauthorized");
 });

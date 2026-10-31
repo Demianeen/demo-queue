@@ -34,7 +34,10 @@ import {
   hasBlankStageFinalistJudgingSheetHeaders,
   hasPreStageFinalistJudgingSheetHeaders,
   isCompatibleJudgingSheetHeaders,
+  judgeCellNote,
+  planJudgeCell,
   type JudgingSheetSubmission,
+  type SheetJudge,
 } from "../lib/judging-sheet";
 
 const GOOGLE_SHEETS_MIME_TYPE = "application/vnd.google-apps.spreadsheet";
@@ -483,12 +486,14 @@ async function syncExistingJudgingSheet({
   eventName,
   meetUrl,
   submissions,
+  judges,
 }: {
   sheets: sheets_v4.Sheets;
   spreadsheetId: string;
   eventName: string;
   meetUrl: string;
   submissions: JudgingSheetSubmission[];
+  judges: SheetJudge[];
 }) {
   const spreadsheet = await sheets.spreadsheets.get({
     spreadsheetId,
@@ -557,22 +562,28 @@ async function syncExistingJudgingSheet({
     range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!A${JUDGING_DATA_START_ROW}:S`,
   });
   const existingIdRows = existingIdsResponse.data.values ?? [];
+  // The judge cells' notes hold the judges' keys.
+  const notesResponse = await sheets.spreadsheets.get({
+    spreadsheetId,
+    ranges: [`${quoteSheetTitle(JUDGING_SHEET_NAME)}!O${JUDGING_DATA_START_ROW}:O`, `${quoteSheetTitle(JUDGING_SHEET_NAME)}!S${JUDGING_DATA_START_ROW}:S`],
+    fields: "sheets(data(rowData(values(note))))",
+  });
+  const noteColumns = (notesResponse.data.sheets?.[0]?.data ?? []).map((grid) => (grid.rowData ?? []).map((row) => row.values?.[0]?.note ?? null));
   const rowBySubmissionId = new Map<string, number>();
-  const existingJudgeSlots = new Map<number, [string, string]>();
-  const sheetJudges = new Set<string>();
+  const existingJudgeSlots = new Map<number, [{ text: string; note: string | null }, { text: string; note: string | null }]>();
   existingIdRows.forEach((values, index) => {
     const submissionId = String(values[0] ?? "").trim();
     if (submissionId && !rowBySubmissionId.has(submissionId)) {
       const row = JUDGING_DATA_START_ROW + index;
       rowBySubmissionId.set(submissionId, row);
-      const judgeSlots: [string, string] = [
-        String(values[14] ?? "").trim(),
-        String(values[18] ?? "").trim(),
-      ];
-      existingJudgeSlots.set(row, judgeSlots);
-      judgeSlots.filter(Boolean).forEach((judge) => sheetJudges.add(judge));
+      existingJudgeSlots.set(row, [
+        { text: String(values[14] ?? "").trim(), note: noteColumns[0]?.[index] ?? null },
+        { text: String(values[18] ?? "").trim(), note: noteColumns[1]?.[index] ?? null },
+      ]);
     }
   });
+  const sheetJudges = new Set<string>();
+  const judgeCellRequests: sheets_v4.Schema$Request[] = [];
 
   let nextRow = JUDGING_DATA_START_ROW + existingIdRows.length;
   const sourceUpdates: sheets_v4.Schema$ValueRange[] = [
@@ -605,11 +616,27 @@ async function syncExistingJudgingSheet({
 
   for (const submission of submissions) {
     const row = rowBySubmissionId.get(submission.id) ?? nextRow++;
-    const [existingJudgeOne, existingJudgeTwo] = existingJudgeSlots.get(row) ?? ["", ""];
-    const assignedJudges = submission.roundOneAssignedJudges ?? [];
-    const assignmentDrift =
-      (existingJudgeOne !== "" && assignedJudges[0] !== undefined && existingJudgeOne !== assignedJudges[0]) ||
-      (existingJudgeTwo !== "" && assignedJudges[1] !== undefined && existingJudgeTwo !== assignedJudges[1]);
+    const cells = existingJudgeSlots.get(row) ?? [{ text: "", note: null }, { text: "", note: null }];
+    const names = submission.roundOneAssignedJudges ?? [];
+    const keys = submission.roundOneAssignedJudgeKeys ?? [];
+    // Cells are written only once the project has both its judges, as before.
+    const complete = names.length === 2 && keys.length === 2;
+    const plans = cells.map((cell, slot) => {
+      const plan = planJudgeCell(cell, keys[slot] !== undefined ? { key: keys[slot], name: names[slot] } : undefined, judges);
+      return complete || !plan.write ? plan : { ...plan, write: null, shown: cell.text };
+    });
+    const assignmentDrift = plans.some((plan) => plan.drift);
+    plans.forEach((plan, slot) => {
+      if (plan.shown) sheetJudges.add(plan.shown);
+      if (!plan.write) return;
+      judgeCellRequests.push({
+        updateCells: {
+          start: { sheetId, rowIndex: row - 1, columnIndex: slot === 0 ? 14 : 18 },
+          rows: [{ values: [{ userEnteredValue: { stringValue: plan.write.name }, note: judgeCellNote(plan.write.key) }] }],
+          fields: "userEnteredValue,note",
+        },
+      });
+    });
     rowBySubmissionId.set(submission.id, row);
     const sourceRow = buildJudgingSubmissionRow(submission);
     if (assignmentDrift) sourceRow[13] = "assignment drift";
@@ -621,22 +648,6 @@ async function syncExistingJudgingSheet({
       range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!AA${row}`,
       values: [[submission.githubUrl ?? ""]],
     });
-    if (assignedJudges.length === 2) {
-      if (!existingJudgeOne) {
-        sheetJudges.add(assignedJudges[0]);
-        sourceUpdates.push({
-          range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!O${row}`,
-          values: [[assignedJudges[0]]],
-        });
-      }
-      if (!existingJudgeTwo) {
-        sheetJudges.add(assignedJudges[1]);
-        sourceUpdates.push({
-          range: `${quoteSheetTitle(JUDGING_SHEET_NAME)}!S${row}`,
-          values: [[assignedJudges[1]]],
-        });
-      }
-    }
   }
   for (const [submissionId, row] of rowBySubmissionId) {
     if (!currentSubmissionIds.has(submissionId)) {
@@ -672,6 +683,9 @@ async function syncExistingJudgingSheet({
     spreadsheetId,
     requestBody: { valueInputOption: "RAW", data: sourceUpdates },
   });
+  if (judgeCellRequests.length > 0) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: judgeCellRequests } });
+  }
 
   const formulaColumns = buildJudgingFormulaColumns(
     finalDataRow - JUDGING_DATA_START_ROW + 1,

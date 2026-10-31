@@ -195,8 +195,10 @@ export async function queueAiSummaryIfStale(
     if (last !== undefined && last > now) return true;
     if (last !== undefined && now - last < SUMMARY_DEBOUNCE_MS) runAt = Math.max(runAt, last + SUMMARY_DEBOUNCE_MS);
   }
-  // A close re-reads the README of a written summary; the model only runs when it changed, so it spends no budget.
-  const readmeCheck = source === "close" && Boolean(submission.aiSummary);
+  // A close re-reads the README of a summary that is otherwise current; the model only runs when the
+  // README changed, so the check spends no budget. Anything else that changed is charged as usual.
+  const readmeCheck = source === "close" && !options.contextChanged && !needsSummary(event, submission)
+    && submission.aiSummary?.promptVersion === SUMMARY_PROMPT_VERSION;
   const count = options.submissionCount ?? (await eventSubmissionCount(ctx, event._id));
   if (!readmeCheck && !(await takeSummaryBudget(ctx, event._id, now, count))) return false;
   await ctx.scheduler.runAfter(runAt - now, internal.aiSummaryAction.generateSubmissionSummary, {

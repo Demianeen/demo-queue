@@ -90,6 +90,20 @@ test("one or two winners are enough", async () => {
   expect(await placement(t, 3)).toBe(1);
 });
 
+test("a finalist marked No-show, withdrawn or hidden is not listed among the finalists", async () => {
+  const { t } = setupTest();
+  const { ids } = await finalNight(t, { placementIds: [2] });
+  await t.run(async (ctx) => {
+    await ctx.db.patch(ids[3], { status: "no_show" });
+    await ctx.db.patch(ids[0], { status: "withdrawn" });
+    await ctx.db.patch(ids[1], { status: "hidden" });
+  });
+  await finish(t);
+  const results = (await t.query(api.events.getStage, { slug: "hack" })).results;
+  expect(results?.winners.map((winner) => winner.demoTitle)).toEqual(["Project 2"]);
+  expect(results?.finalists.map((finalist) => finalist.demoTitle)).toEqual(["Project 4"]);
+});
+
 test("a demo night never has results", async () => {
   const { t } = setupTest();
   const { eventId } = await createEvent(t, { eventType: "demo", extra: { phase: "finished", finishedAt: 1, queuePublished: true } });

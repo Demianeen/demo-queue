@@ -54,7 +54,9 @@ test("a finalist is celebrated, and a place only once the event is finished", ()
   assert.equal(celebrate("done", "finished", true, 2).sentence, "Volley Bot came second. Congratulations to the whole team.");
   assert.equal(celebrate("done", "finished", true, 3).headline, "3rd place");
   assert.equal(celebrate("done", "finished", true).sentence, "Volley Bot made the final and pitched on stage.");
-  assert.equal(celebrate("no_show", "finished", true).sentence, "Volley Bot made the final.");
+  assert.equal(celebrate("no_show", "finished", true), null, "a no-show did not pitch, so is not shown as a finalist");
+  assert.equal(celebrate("no_show", "stage", true), null);
+  assert.equal(celebrate("hidden", "finished", true), null);
   assert.equal(celebrate("withdrawn", "finished", true, 1), null);
   assert.equal(participantCelebration({ eventType: "demo", status: "done", phase: "finished", finalist: true, placement: null, demoTitle: "Demo" }), null);
 });

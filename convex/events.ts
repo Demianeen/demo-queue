@@ -725,6 +725,9 @@ export const getLiveEvent = query({
   handler: async (ctx, args) => getLiveEventForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
+/** Finalists who did not pitch in the final, so the stage leaves them out of the finalists list. */
+const NOT_PITCHED: ReadonlySet<string> = new Set(["no_show", "withdrawn", "hidden"]);
+
 type SubmittedResults = {
   winners: { place: 1 | 2 | 3; submissionId: Id<"submissions">; demoTitle: string; teamName: string }[];
   finalists: { submissionId: Id<"submissions">; demoTitle: string; teamName: string }[];
@@ -734,7 +737,9 @@ type SubmittedResults = {
  * A hackathon's winners and its other finalists, once judging is closed and
  * both are submitted. "needs_review" when the submitted winners no longer
  * hold (a project removed or no longer a finalist); null before they are
- * submitted. The finalists left over keep their pitch order.
+ * submitted. The finalists left over keep their pitch order, leaving out a
+ * no-show and a withdrawn or hidden project: the stage lists everyone else
+ * who pitched in the final.
  */
 async function submittedResults(ctx: QueryCtx, event: Doc<"events">, decision: Doc<"judgingDecisions"> | null): Promise<SubmittedResults | "needs_review" | null> {
   if (eventType(event) !== "hackathon" || event.judgingStatus !== "closed") return null;
@@ -748,7 +753,7 @@ async function submittedResults(ctx: QueryCtx, event: Doc<"events">, decision: D
   const named = (submission: Doc<"submissions">) => ({ submissionId: submission._id, demoTitle: submission.demoTitle, teamName: submission.teamName || submission.name });
   return {
     winners: placed.map((submission, index) => ({ place: (index + 1) as 1 | 2 | 3, ...named(submission!) })),
-    finalists: others.filter((submission): submission is Doc<"submissions"> => submission !== null && submission.eventId === event._id).map(named),
+    finalists: others.filter((submission): submission is Doc<"submissions"> => submission !== null && submission.eventId === event._id && !NOT_PITCHED.has(submission.status)).map(named),
   };
 }
 

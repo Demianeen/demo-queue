@@ -79,7 +79,8 @@ const PLACE_LABELS: Record<Placement, string> = { 1: "1st place", 2: "2nd place"
 /**
  * The status page's celebration for a hackathon finalist or winner. A place
  * comes only once the event is finished; a finalist who was not placed keeps
- * the finalist block, in the past tense. Nothing for a withdrawn team.
+ * the finalist block, in the past tense. Nothing for a withdrawn team, and
+ * no finalist block for a no-show or a hidden project: they did not pitch.
  */
 export function participantCelebration(input: { eventType: "demo" | "hackathon"; status: string; finalist: boolean; placement: Placement | null; phase: EventPhase; demoTitle: string }): Celebration | null {
   if (input.eventType !== "hackathon" || input.status === "withdrawn") return null;
@@ -87,14 +88,14 @@ export function participantCelebration(input: { eventType: "demo" | "hackathon";
   if (input.placement && input.phase === "finished") {
     return { place: input.placement, kicker: "Winners", headline: PLACE_LABELS[input.placement], sentence: `${project} came ${PLACE_WORDS[input.placement]}. Congratulations to the whole team.` };
   }
-  if (!input.finalist) return null;
+  if (!input.finalist || input.status === "no_show" || input.status === "hidden") return null;
   return {
     place: null,
     kicker: "Finalist",
     headline: "You're a finalist",
     sentence: input.phase !== "finished"
       ? `${project} made the final. Your team pitches on stage, and the winners are picked after the last pitch.`
-      : input.status === "no_show" ? `${project} made the final.` : `${project} made the final and pitched on stage.`,
+      : `${project} made the final and pitched on stage.`,
   };
 }
 

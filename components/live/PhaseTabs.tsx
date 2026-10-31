@@ -91,6 +91,9 @@ export function ResultsTab({ slug, admin }: { slug: string; admin: AdminData }) 
   const finalists = useFinalists(slug, admin);
   const overview = useQuery(api.judging.getJudgesOverview, hackathon ? { slug } : "skip");
   const finished = event.phase === "finished";
+  // The other finalists who pitched: a no-show, a withdrawn or a hidden project is left out, as on the stage.
+  const notPitched = new Set([...admin.noShows, ...admin.withdrawn, ...admin.hidden].map((item) => String(item.id)));
+  const alsoFinalists = finalists ? finalists.rows.slice(WINNER_COUNT).filter((row) => !notPitched.has(row.id)) : [];
   return <div className={styles.phasePage}>
     <div className={styles.sectionHead}>
       <h2><span className="dq-dot" data-tone={finished ? undefined : "success"} aria-hidden />{finished ? "Finished" : "Not finished yet"}</h2>
@@ -109,7 +112,7 @@ export function ResultsTab({ slug, admin }: { slug: string; admin: AdminData }) 
             <span className={styles.listTeam}>{row.team}</span>
             <span className={`dq-mono ${styles.listScore}`}>{row.score === null ? "–" : row.score.toFixed(2)}</span>
           </li>)}</ol>
-          {finalists.rows.length > WINNER_COUNT && <p className={styles.listFoot}>Also finalists: {finalists.rows.slice(WINNER_COUNT).map((row) => row.title).join(", ")}</p>}
+          {alsoFinalists.length > 0 && <p className={styles.listFoot}>Also finalists: {alsoFinalists.map((row) => row.title).join(", ")}</p>}
         </section>
         : event.judgingStatus === "setup" && finished ? <div className={styles.emptyCard}><strong>Judging was skipped</strong><span>No scores were entered, so there are no winners to show. The counts still are.</span></div>
         : <div className={styles.emptyCard}><strong>No winners yet</strong><span>The numbers so far, and the winners once you submit them on Judging, Finalists.</span><Button variant="outline" size="sm" render={<InPageLink href={judgingPath(slug, { judging: "finalists" })} />} nativeButton={false}>Open finalists</Button></div>}

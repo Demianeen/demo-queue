@@ -39,6 +39,8 @@ export function StageTab({ slug, admin }: { slug: string; admin: AdminData }) {
   const startDemoTimer = useMutation(api.events.startDemoTimer);
   const pauseDemoTimer = useMutation(api.events.pauseDemoTimer);
   const adjustDemoTimer = useMutation(api.events.adjustDemoTimer);
+  // Submitting the same finalists again lines them up: for an event that reached Stage before finalists became the lineup.
+  const submitFinalists = useMutation(api.judging.submitFinalists);
   const onStage = event.phase === "stage" || event.phase === "finished";
   const scores = useMemo(() => new Map(finalists?.rows.map((row) => [row.id, row.score]) ?? []), [finalists]);
 
@@ -92,7 +94,8 @@ export function StageTab({ slug, admin }: { slug: string; admin: AdminData }) {
         <InPageLink href={judgingPath(slug, { judging: "finalists" })} className={styles.linkButton}>Pick finalists and winners on Judging →</InPageLink>
       </div>
       {onStage ? (lineup.length === 0
-        ? <NoFinalists slug={slug} pitched={admin.completed.length} />
+        ? <NoFinalists slug={slug} pitched={admin.completed.length} notLinedUp={admin.completed.length === 0 ? finalists?.rows.length ?? 0 : 0}
+          onLineUp={() => act(() => submitFinalists({ slug, finalistIds: finalists?.rows.map((row) => row.id as Id<"submissions">) ?? [] }), "Could not line up the finalists.")} />
         : <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={lineup.map((row) => row.id)} strategy={verticalListSortingStrategy}>
             <ol className={styles.list}>{lineup.map((row, index) => <PitchRow key={row.id} row={row} label={!live ? String(index + 1) : index === 0 ? "Now" : index === 1 ? "Next" : String(index + 1)} current={live && index === 0} />)}</ol>
@@ -121,7 +124,13 @@ export function StageTab({ slug, admin }: { slug: string; admin: AdminData }) {
   </div>;
 }
 
-function NoFinalists({ slug, pitched }: { slug: string; pitched: number }) {
+function NoFinalists({ slug, pitched, notLinedUp = 0, onLineUp }: { slug: string; pitched: number; notLinedUp?: number; onLineUp?: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  if (notLinedUp > 0 && onLineUp) return <div className={styles.emptyCard}>
+    <strong>The finalists are not lined up yet</strong>
+    <span>This event reached Stage before finalists became the lineup. Line them up in their pitch order; nothing else changes.</span>
+    <Button size="sm" disabled={busy} onClick={() => { setBusy(true); void onLineUp().finally(() => setBusy(false)); }}>Line up {notLinedUp} finalist{notLinedUp === 1 ? "" : "s"}</Button>
+  </div>;
   return <div className={styles.emptyCard}>
     <strong>{pitched > 0 ? "Every finalist has pitched" : "No finalists yet"}</strong>
     <span>{pitched > 0 ? "Previous brings the last one back." : "Submit finalists on Judging; they become the lineup here."}</span>

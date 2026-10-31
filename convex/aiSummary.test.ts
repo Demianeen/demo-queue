@@ -509,6 +509,25 @@ test("a second change within ten minutes waits for the end of the window, and re
   });
 });
 
+test("closing again spends budget only on projects that changed, not on README checks", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReturns();
+  const { t, add, eventId } = await setup();
+  await add(0);
+  const changed = await add(1);
+  const used = async () => (await t.run((ctx) => ctx.db.get(eventId)))!.aiSummaryBudget?.used;
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  expect(await used()).toBe(2);
+
+  await t.mutation(api.phases.reopenSubmissions, { slug: "hack" });
+  await t.run((ctx) => ctx.db.patch(changed, { description: "Changed since its summary" }));
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  // The README check of the unchanged project is free; the changed project is charged.
+  expect(await used()).toBe(3);
+});
+
 test("an event that has spent its daily summary budget queues no more runs", async () => {
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
   modelReturns();

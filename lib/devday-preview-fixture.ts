@@ -37,6 +37,7 @@ export function buildDevDayParticipantFixture(eventType: "demo" | "hackathon"): 
       githubUrl: "https://github.com/example/signal-relay",
       rulesAcceptedAt: undefined,
       finalist: false,
+      placement: null,
       teamMembers: eventType === "hackathon" ? ["Noah Williams"] : [],
       teamMemberSocials: [],
       videoUrl: "https://example.com/demo",

@@ -81,6 +81,8 @@ export default defineSchema({
     stageTimerRemainingMs: v.optional(v.number()),
     stageTimerEndsAt: v.optional(v.number()),
     showDemoTimerOnStage: v.optional(v.boolean()),
+    // When the event finishes, the stage shows the winners and the other finalists (true, the default) or the winners only.
+    stageResultsShowFinalists: v.optional(v.boolean()),
     demoTimerStatus: v.optional(
       v.union(v.literal("idle"), v.literal("running"), v.literal("paused")),
     ),

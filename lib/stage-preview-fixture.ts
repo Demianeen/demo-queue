@@ -115,5 +115,6 @@ export function buildStagePreviewFixture({
     remainingCount: SAMPLE_LINEUP.length,
     waitingCount: 12,
     meetUrl: resolvedMeetUrl,
+    results: null,
   };
 }

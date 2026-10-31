@@ -208,6 +208,9 @@ test("advance, restore, skip and no-show operate on the published positional lin
   expect(await p.mcp.t.run((ctx) => ctx.db.get(p.mcp.eventId))).toMatchObject({ demoTimerStatus: "paused", demoTimerRemainingMs: 105_000 });
   await apply(p, api.events.skipCurrent, internal.mcpAdmin.skipCurrent, () => ({ slug }));
   expect(await p.mcp.t.run((ctx) => ctx.db.get(p.mcp.first))).toMatchObject({ queueOrder: 3 });
+  const skipped = await p.mcp.t.run((ctx) => ctx.db.get(p.mcp.eventId));
+  expect(skipped).toMatchObject({ demoTimerStatus: "idle", demoTimerRemainingMs: skipped?.demoTimerDurationMs });
+  expect(skipped?.lastAdvanceSnapshot).toBeUndefined();
   await apply(p, api.events.markNoShow, internal.mcpAdmin.markNoShow, () => ({ slug }));
   expect(await p.mcp.t.run((ctx) => ctx.db.get(p.mcp.second))).toMatchObject({ status: "no_show" });
   await apply(p, api.events.restorePreviousPresenter, internal.mcpAdmin.restorePreviousPresenter, () => ({ slug }));

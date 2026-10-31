@@ -3422,7 +3422,16 @@ async function skipCurrentOperation(
       queueOrder: lastQueueOrder + 1,
       updatedAt: now,
     });
-    await clearAdvanceSnapshot(ctx, event, now);
+    // The next presenter starts on a fresh demo timer, as after Advance and No-show.
+    const demoDurationMs = demoTimerDuration(event);
+    await ctx.db.patch(event._id, {
+      lastAdvanceSnapshot: undefined,
+      demoTimerStatus: "idle",
+      demoTimerDurationMs: demoDurationMs,
+      demoTimerRemainingMs: demoDurationMs,
+      demoTimerEndsAt: undefined,
+      updatedAt: now,
+    });
 
     await logAction(ctx, event._id, "current_skipped", actor, current._id);
     await queueJudgingSheetSync(ctx, event);

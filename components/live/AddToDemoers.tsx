@@ -46,7 +46,7 @@ export function AddToDemoers({ pool, onAdd }: { pool: PoolPerson[]; onAdd: (id: 
   }
 
   return <Popover open={open} onOpenChange={(next) => { setOpen(next); if (!next) { setSearch(""); setActive(0); } }}>
-    <ShortcutTooltip label="Add to demoers" keys={["A"]}>
+    <ShortcutTooltip label="Add to demoers" keys={["D"]}>
       <PopoverTrigger render={<Button variant="outline" size="sm" disabled={pool.length === 0} />}>
         <Plus aria-hidden />Add to demoers
       </PopoverTrigger>

@@ -127,24 +127,7 @@ export function JudgesCard({ slug, eventName, overview, openKey, onOpen, onManag
   const judges = useMemo(() => overview?.judges ?? [], [overview]);
   const judgeLabels = useMemo(() => judgeInitials(judges.map((judge) => judge.judgeName)), [judges]);
   const [moving, setMoving] = useState(false);
-  const [making, setMaking] = useState(false);
-  const createJudgeAccess = useMutation(api.judging.createJudgeAccess);
-  const linkless = judges.filter((judge) => judge.onRoster && !judge.hasLink);
-  async function makeAllLinks() {
-    setMaking(true);
-    let made = 0;
-    try {
-      for (const judge of linkless) {
-        await createJudgeAccess({ slug, judgeName: judge.judgeName, capabilityToken: randomToken() });
-        made += 1;
-      }
-      toast(`Made ${made} link${made === 1 ? "" : "s"}`);
-    } catch (error) {
-      toast.error(errorText(error, `Made ${made} of ${linkless.length} links. Try again for the rest.`));
-    } finally {
-      setMaking(false);
-    }
-  }
+  const { linkless, making, makeAllLinks } = useMakeLinks(slug, judges);
   const open = judges.find((judge) => judge.judgeKey === openKey) ?? null;
   const index = open ? judges.indexOf(open) : -1;
   const commands = useMemo<Command[]>(() => [
@@ -175,7 +158,30 @@ export function JudgesCard({ slug, eventName, overview, openKey, onOpen, onManag
   </section>;
 }
 
-export function CopyAllLinks({ eventName, judges, disabled }: { eventName: string; judges: JudgeRow[]; disabled: boolean }) {
+/** Makes a link for every judge on the roster who has none. */
+export function useMakeLinks(slug: string, judges: JudgeRow[]) {
+  const [making, setMaking] = useState(false);
+  const createJudgeAccess = useMutation(api.judging.createJudgeAccess);
+  const linkless = judges.filter((judge) => judge.onRoster && !judge.hasLink);
+  async function makeAllLinks() {
+    setMaking(true);
+    let made = 0;
+    try {
+      for (const judge of linkless) {
+        await createJudgeAccess({ slug, judgeName: judge.judgeName, capabilityToken: randomToken() });
+        made += 1;
+      }
+      toast(`Made ${made} link${made === 1 ? "" : "s"}`);
+    } catch (error) {
+      toast.error(errorText(error, `Made ${made} of ${linkless.length} links. Try again for the rest.`));
+    } finally {
+      setMaking(false);
+    }
+  }
+  return { linkless, making, makeAllLinks };
+}
+
+export function CopyAllLinks({ eventName, judges, disabled, primary = false, commands: withCommands = true }: { eventName: string; judges: JudgeRow[]; disabled: boolean; primary?: boolean; commands?: boolean }) {
   const [format, setFormat] = useState<Format>("text");
   const [open, setOpen] = useState(false);
   const rows = judges.filter((judge) => judge.active && judge.path);
@@ -193,9 +199,10 @@ export function CopyAllLinks({ eventName, judges, disabled }: { eventName: strin
     { id: "judges-copy-text", group: "This page", label: "Copy all judge links for WhatsApp or Slack", disabled: rows.length === 0, run: () => { setFormat("text"); void copyText(judgeLinksText(eventName, judges, "text")).then(() => toast(`Copied ${rows.length} links`)); } },
     { id: "judges-copy-notion", group: "This page", label: "Copy all judge links as a Notion table", disabled: rows.length === 0, run: () => { void copyText(judgeLinksText(eventName, judges, "notion"), notionHtml(judges)).then(() => toast(`Copied ${rows.length} links`)); } },
   ], [eventName, judges, rows.length]);
-  useCommands("judges-copy", commands);
+  // Shown twice on Judging (the clock's next step and the Judges card), the shortcuts come from one.
+  useCommands(withCommands ? "judges-copy" : "judges-copy-next-step", withCommands ? commands : []);
   return <Popover open={open} onOpenChange={setOpen}>
-    <PopoverTrigger render={<Button variant="outline" size="sm" disabled={disabled} />}>Copy all links<ChevronDown aria-hidden /></PopoverTrigger>
+    <PopoverTrigger render={<Button variant={primary ? "default" : "outline"} size="sm" disabled={disabled} />}>Copy all links<ChevronDown aria-hidden /></PopoverTrigger>
     <PopoverContent align="end" sideOffset={6} className={styles.copyPopover}>
       <div role="tablist" aria-label="Format" className="dq-segmented w-full">
         <button type="button" role="tab" aria-selected={format === "text"} onClick={() => setFormat("text")}>WhatsApp or Slack</button>

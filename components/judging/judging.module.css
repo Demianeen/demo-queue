@@ -78,6 +78,8 @@ section + section .groupHead { border-top: 1px solid var(--dq-divider); }
 .help { font-size: 12px; line-height: 18px; color: var(--dq-fg-2); }
 .warning { font-size: 12px; line-height: 18px; color: var(--dq-warning-fg); background: var(--dq-warning-bg); border: 1px solid var(--dq-warning-line); border-radius: 8px; padding: 8px 10px; }
 .warningText { font-size: 12px; color: var(--dq-warning-fg); }
+.nextStep { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 18px; color: var(--dq-fg-2); background: var(--dq-accent-soft); border: 1px solid color-mix(in srgb, var(--dq-accent) 30%, transparent); border-radius: 8px; padding: 10px 12px; }
+.nextStep strong { font-size: 13px; color: var(--dq-fg); font-weight: 600; }
 .clockRow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .clockValue { font-size: 32px; line-height: 40px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--dq-fg); background: transparent; border: 0; padding: 0; border-radius: 6px; cursor: text; }
 .clockValue:hover:not(:disabled) { background: var(--dq-hover); }

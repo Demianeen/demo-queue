@@ -74,7 +74,7 @@ Not yet agreed:
   across up to 100 practice events. A replaced summary or a tidied practice
   event no longer counts.
 - Days and months are UTC.
-- The G then A shortcut and the header placement of the month picker and
+- The G then I shortcut (G then A opens a live event's Stage) and the header placement of the month picker and
   Download CSV.
 - A month reads at most 8,000 calls; past that the page says the figures are
   partial.

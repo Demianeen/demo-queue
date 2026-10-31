@@ -115,7 +115,7 @@ function ShellSidebar({ organizations, activeOrganizationId, email, displayName,
           <NavItem href="/styles" label="Styles" keys={["G", "S"]} icon={<Palette aria-hidden />} active={pathname === "/styles"} />
           <NavItem href="/members" label="Members" keys={["G", "M"]} icon={<Users aria-hidden />} active={pathname === "/members"} />
           <NavItem href="/events/connections" label="Connections" keys={["G", "C"]} icon={<Plug aria-hidden />} active={pathname === "/events/connections"} />
-          <NavItem href="/ai-usage" label="AI usage" keys={["G", "A"]} icon={<Gauge aria-hidden />} active={pathname === "/ai-usage"} />
+          <NavItem href="/ai-usage" label="AI usage" keys={["G", "I"]} icon={<Gauge aria-hidden />} active={pathname === "/ai-usage"} />
         </SidebarMenu>
       </SidebarGroup>
     </SidebarContent>
@@ -163,7 +163,7 @@ function GlobalCommands({ liveEvent, organizations, activeOrganizationId, switch
       { id: "go-styles", group: "Go to", label: "Styles", keys: ["G", "S"], run: () => router.push("/styles") },
       { id: "go-members", group: "Go to", label: "Members", keys: ["G", "M"], run: () => router.push("/members") },
       { id: "go-connections", group: "Go to", label: "Connections", keys: ["G", "C"], run: () => router.push("/events/connections") },
-      { id: "go-ai-usage", group: "Go to", label: "AI usage", keys: ["G", "A"], run: () => router.push("/ai-usage") },
+      { id: "go-ai-usage", group: "Go to", label: "AI usage", keys: ["G", "I"], run: () => router.push("/ai-usage") },
       { id: "go-guide", group: "Go to", label: "Getting started", keys: ["G", "G"], run: () => router.push("/events/getting-started") },
       { id: "shortcuts", group: "Help", label: "Keyboard shortcuts", keys: ["?"], run: () => setSheetOpen(true) },
     ];

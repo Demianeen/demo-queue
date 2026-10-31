@@ -75,7 +75,7 @@ function NewPracticeDialog({ open, onOpenChange, organizationId, takenNames }: {
   const createPracticeEvent = useAction(api.practice.createPracticeEvent);
   const router = useRouter();
   const [start, setStart] = useState<Start>("copy");
-  // null until the organiser types: the field then shows the name the event really gets.
+  // null until the organiser types: until then the field shows, and sends, the suggested name.
   const [name, setName] = useState<string | null>(null);
   const [submissions, setSubmissions] = useState(20);
   const [judges, setJudges] = useState(3);
@@ -85,7 +85,7 @@ function NewPracticeDialog({ open, onOpenChange, organizationId, takenNames }: {
   const [error, setError] = useState("");
   const startFrom: Start = start === "copy" && live === null ? "hackathon" : start;
   const judged = startFrom === "hackathon" || (startFrom === "copy" && live?.eventType === "hackathon");
-  const suggestedName = practiceEventName(startFrom === "copy" && live ? { sourceName: live.name, eventType: live.eventType ?? "demo" } : { eventType: startFrom === "copy" ? "hackathon" : startFrom }, takenNames);
+  const suggestedName = practiceEventName(startFrom === "copy" && live ? { sourceName: live.name, eventType: live.eventType ?? "demo" } : { eventType: startFrom === "copy" ? "hackathon" : startFrom }, takenNames, new Date());
   useEffect(() => { if (open) { setError(""); setName(null); } }, [open]);
 
   async function create() {
@@ -95,7 +95,8 @@ function NewPracticeDialog({ open, onOpenChange, organizationId, takenNames }: {
       const result = await createPracticeEvent({
         expectedOrganizationId: organizationId,
         start: startFrom === "copy" ? { kind: "copy", slug: live!.slug } : { kind: "blank", eventType: startFrom },
-        name: name?.trim() || undefined,
+        // The name shown, sent as is: dated with the organiser's own day, not the server's.
+        name: name?.trim() || suggestedName,
         testSubmissions: submissions,
         testJudges: judged ? judges : 0,
         practiceAiSummaries: judged && realModel ? "model" : "sample",

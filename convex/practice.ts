@@ -228,7 +228,7 @@ export const createPracticeEventForOwner = internalMutation({
     const taken = typed ? [] : (await ctx.db.query("events")
       .withIndex("by_workosOrganizationId_and_practice", (q) => q.eq("workosOrganizationId", principal.organizationId).eq("practice", true))
       .take(PRACTICE_LIST_LIMIT)).map((event) => event.name);
-    const name = (typed || practiceEventName({ sourceName: source?.name, eventType }, taken)).slice(0, 160);
+    const name = (typed || practiceEventName({ sourceName: source?.name, eventType }, taken, new Date(), true)).slice(0, 160);
     const slug = practiceSlug(name, random);
     const hackathon = eventType === "hackathon";
     const tracks = source

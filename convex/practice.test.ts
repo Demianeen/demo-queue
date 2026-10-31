@@ -50,7 +50,7 @@ test("a copy of the live event brings its setup, test judges and test submission
   const liveId = await liveHackathon(t);
   const created = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "copy", slug: "devday" }, testSubmissions: 6, testJudges: 3 });
   expect(created).toMatchObject({ judges: ["Test judge A", "Test judge B", "Test judge C"], submissionCount: 6 });
-  expect(created.slug).toMatch(/^practice-dry-run-for-devday-exchange-[a-z0-9]{5}$/);
+  expect(created.slug).toMatch(/^practice-dry-run-for-devday-exchange-30-oct-[a-z0-9]{5}$/);
 
   const event = (await t.run((ctx) => ctx.db.get(created.eventId)))!;
   expect(event).toMatchObject({
@@ -96,14 +96,14 @@ test("a blank demo night or hackathon starts empty, and bad counts are refused",
   const { t } = setupTest();
   const demo = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "demo" }, testSubmissions: 2, testJudges: 0 });
   expect(demo).toMatchObject({ judges: [], submissionCount: 2 });
-  expect(await t.run((ctx) => ctx.db.get(demo.eventId))).toMatchObject({ name: "Practice demo night", eventType: "demo", practice: true });
+  expect(await t.run((ctx) => ctx.db.get(demo.eventId))).toMatchObject({ name: "Practice demo night, 30 Oct", eventType: "demo", practice: true });
   await expect(t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "demo" }, testSubmissions: 0, testJudges: 2 })).rejects.toThrow("no judges");
   await expect(t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "hackathon" }, testSubmissions: 51, testJudges: 0 })).rejects.toThrow("0 to 50");
   await expect(t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "hackathon" }, testSubmissions: 1.5, testJudges: 0 })).rejects.toThrow("whole number");
   await expect(t.action(api.practice.createPracticeEvent, { expectedOrganizationId: "org_other", start: { kind: "blank", eventType: "hackathon" }, testSubmissions: 0, testJudges: 0 })).rejects.toThrow("organization changed");
   // A practice event cannot be copied.
   await expect(t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "copy", slug: demo.slug }, testSubmissions: 0, testJudges: 0 })).rejects.toThrow("Copy a real event");
-  expect((await practiceRows(t)).map((row) => row.name)).toEqual(["Practice demo night"]);
+  expect((await practiceRows(t)).map((row) => row.name)).toEqual(["Practice demo night, 30 Oct"]);
 });
 
 test("the practice tools add submissions, score as test judges and skip the timer", async () => {
@@ -263,7 +263,7 @@ test("test people send no email, so practice never spends the sending allowance"
   expect(await emails()).toBe(0);
 });
 
-test("a practice event made without a name gets the one the form showed, numbered past names already taken", async () => {
+test("a practice event made without a name is dated, and numbered past names already taken", async () => {
   const { t } = setupTest();
   const blank = { expectedOrganizationId: ORG, start: { kind: "blank" as const, eventType: "hackathon" as const }, testSubmissions: 0, testJudges: 0 };
   // A second apart: the slug's random part is seeded from the clock, which this file holds still.
@@ -271,7 +271,7 @@ test("a practice event made without a name gets the one the form showed, numbere
   vi.setSystemTime(Date.now() + 1000);
   const second = await t.action(api.practice.createPracticeEvent, blank);
   vi.setSystemTime(Date.now() + 1000);
-  const typed = await t.action(api.practice.createPracticeEvent, { ...blank, name: "Practice hackathon" });
+  const typed = await t.action(api.practice.createPracticeEvent, { ...blank, name: "Practice hackathon, 30 Oct" });
   const names = await t.run(async (ctx) => Promise.all([first, second, typed].map(async (made) => (await ctx.db.get(made.eventId))!.name)));
-  expect(names).toEqual(["Practice hackathon", "Practice hackathon 2", "Practice hackathon"]);
+  expect(names).toEqual(["Practice hackathon, 30 Oct", "Practice hackathon, 30 Oct 2", "Practice hackathon, 30 Oct"]);
 });

@@ -16,7 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { groupStyles, styleDate, styleEntries, type StyleEntry } from "@/lib/style-library";
-import { PREVIEW_PAGES, PREVIEW_PAGE_LABELS, parsePreviewPage, stylePreviewPath, type PreviewPage, type PreviewStyle } from "@/lib/style-preview";
+import { PREVIEW_TABS, parsePreviewPage, previewPageLabel, previewTab, stylePreviewPath, type PreviewPage, type PreviewStyle } from "@/lib/style-preview";
 import { buildStylePreviewStage } from "@/lib/style-preview-fixture";
 import { useSiteOrigin } from "@/lib/use-site-origin";
 
@@ -272,12 +272,17 @@ function StylePreview({ entry, page, device, active, onPage, onDevice }: {
   const origin = useSiteOrigin();
   const path = stylePreviewPath(previewStyle(entry), page);
   const url = `${origin}${path}`;
+  const tab = previewTab(page);
   return <section className="style-preview" aria-label={`${entry.name} preview`}>
     <div className="style-preview-bar">
       <h2 className="ws-card-title">{entry.name}</h2>
       <div className="ws-segment" role="tablist" aria-label="Page">
-        {PREVIEW_PAGES.map((item) => <button key={item} type="button" role="tab" aria-selected={item === page} onClick={() => onPage(item)}>{PREVIEW_PAGE_LABELS[item]}</button>)}
+        {/* A tab opens on its first state: Submitted, or the winners with finalists. */}
+        {PREVIEW_TABS.map((item) => <button key={item.label} type="button" role="tab" aria-selected={item === tab} onClick={() => { if (item !== tab) onPage(item.pages[0].page); }}>{item.label}</button>)}
       </div>
+      {tab.pages.length > 1 && <div className="ws-segment" role="radiogroup" aria-label={tab.stateLabel}>
+        {tab.pages.map((item) => <button key={item.page} type="button" role="radio" aria-checked={item.page === page} onClick={() => onPage(item.page)}>{item.label}</button>)}
+      </div>}
       <span className="flex-1" />
       <div className="ws-segment" role="radiogroup" aria-label="Device">
         {(Object.keys(DEVICES) as Device[]).map((item) => <button key={item} type="button" role="radio" aria-checked={item === device} onClick={() => onDevice(item)}>{DEVICES[item].label}</button>)}
@@ -285,13 +290,13 @@ function StylePreview({ entry, page, device, active, onPage, onDevice }: {
       <Popover>
         <PopoverTrigger render={<Button variant="outline" size="sm" />}><Smartphone aria-hidden />On your phone</PopoverTrigger>
         <PopoverContent align="end" sideOffset={6} className="style-preview-qr">
-          {origin ? <QRCodeSVG value={url} size={168} marginSize={1} role="img" aria-label={`QR code for the ${PREVIEW_PAGE_LABELS[page].toLowerCase()} sample`} /> : <Skeleton className="size-[168px]" />}
+          {origin ? <QRCodeSVG value={url} size={168} marginSize={1} role="img" aria-label={`QR code for the ${previewPageLabel(page).toLowerCase()} sample`} /> : <Skeleton className="size-[168px]" />}
           <p className="ws-help">Scan to open this page on your phone. Sample data, no sign-in.</p>
         </PopoverContent>
       </Popover>
       <Button variant="outline" size="sm" render={<a href={path} target="_blank" rel="noopener" />} nativeButton={false}>Open<ExternalLink aria-hidden /></Button>
     </div>
-    <PreviewFrame url={path} title={`${entry.name}, ${PREVIEW_PAGE_LABELS[page].toLowerCase()} sample`} device={device} active={active} />
+    <PreviewFrame url={path} title={`${entry.name}: ${previewPageLabel(page).toLowerCase()} sample`} device={device} active={active} />
   </section>;
 }
 

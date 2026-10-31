@@ -8,14 +8,38 @@ import type { EventTheme } from "./event-theme.ts";
  * no sign-in. The address holds only the style: a built-in preset by name, or
  * a saved style's five theme values, "theme-<background>-<foreground>-<accent>-<font>-<radius>".
  */
-export const PREVIEW_PAGES = ["stage", "welcome", "submit"] as const;
+export const PREVIEW_PAGES = [
+  "stage", "welcome", "submit",
+  "status-submitted", "status-finalist", "status-1st", "status-2nd", "status-3rd",
+  "winners", "winners-only",
+] as const;
 export type PreviewPage = (typeof PREVIEW_PAGES)[number];
 
-export const PREVIEW_PAGE_LABELS: Record<PreviewPage, string> = {
-  stage: "Stage",
-  welcome: "Welcome",
-  submit: "Submit form",
-};
+/**
+ * The preview's tabs. A tab with more than one page shows them as states:
+ * the status page as each team sees it, and the winners with or without the finalists.
+ */
+export const PREVIEW_TABS: { label: string; stateLabel?: string; pages: { page: PreviewPage; label: string }[] }[] = [
+  { label: "Stage", pages: [{ page: "stage", label: "Stage" }] },
+  { label: "Welcome", pages: [{ page: "welcome", label: "Welcome" }] },
+  { label: "Submit form", pages: [{ page: "submit", label: "Submit form" }] },
+  { label: "Status page", stateLabel: "Status", pages: [
+    { page: "status-submitted", label: "Submitted" }, { page: "status-finalist", label: "Finalist" },
+    { page: "status-1st", label: "1st" }, { page: "status-2nd", label: "2nd" }, { page: "status-3rd", label: "3rd" },
+  ] },
+  { label: "Winners", stateLabel: "Show", pages: [{ page: "winners", label: "With finalists" }, { page: "winners-only", label: "Winners only" }] },
+];
+
+export function previewTab(page: PreviewPage) {
+  return PREVIEW_TABS.find((tab) => tab.pages.some((item) => item.page === page)) ?? PREVIEW_TABS[0];
+}
+
+/** "Status page, 1st" or "Stage": what a page is, for titles and labels. */
+export function previewPageLabel(page: PreviewPage) {
+  const tab = previewTab(page);
+  const state = tab.pages.length > 1 ? tab.pages.find((item) => item.page === page)?.label : undefined;
+  return state ? `${tab.label}, ${state}` : tab.label;
+}
 
 export type PreviewStyle = { visualStyle: VisualStyle; theme?: EventTheme };
 

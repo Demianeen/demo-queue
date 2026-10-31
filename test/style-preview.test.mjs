@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parsePreviewPage, parsePreviewStyle, previewStyleSegment, stylePreviewPath } from "../lib/style-preview.ts";
+import { PREVIEW_PAGES, PREVIEW_TABS, parsePreviewPage, parsePreviewStyle, previewPageLabel, previewStyleSegment, previewTab, stylePreviewPath } from "../lib/style-preview.ts";
 
 const theme = { background: "#0D0F10", foreground: "#f3eee3", accent: "#4f46e5", font: "serif", radius: 12 };
 
@@ -33,4 +33,18 @@ test("anything else in the address is refused", () => {
   assert.equal(parsePreviewPage("stage"), "stage");
   assert.equal(parsePreviewPage("submit"), "submit");
   assert.equal(parsePreviewPage("admin"), null);
+});
+
+test("every page belongs to exactly one tab, and each state names its tab", () => {
+  const pages = PREVIEW_TABS.flatMap((tab) => tab.pages.map((item) => item.page));
+  assert.deepEqual([...pages].sort(), [...PREVIEW_PAGES].sort());
+  for (const page of PREVIEW_PAGES) assert.equal(parsePreviewPage(page), page);
+  assert.equal(previewTab("status-2nd").label, "Status page");
+  assert.equal(previewTab("winners-only").label, "Winners");
+  assert.equal(previewPageLabel("stage"), "Stage");
+  assert.equal(previewPageLabel("status-1st"), "Status page, 1st");
+  assert.equal(previewPageLabel("winners-only"), "Winners, Winners only");
+  assert.equal(stylePreviewPath({ visualStyle: "codex" }, "status-finalist"), "/preview/codex/status-finalist");
+  assert.equal(parsePreviewPage("status"), null);
+  assert.equal(parsePreviewPage("status-4th"), null);
 });

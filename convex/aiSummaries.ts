@@ -11,12 +11,10 @@ import {
   normalizeSummarySections,
   normalizeSummaryText,
   SUMMARY_PROMPT_VERSION,
-  sectionsWithTracks,
   stripSectionPrefix,
   summaryOutputSchemaFor,
   summarySourceKey,
   summaryTracksKey,
-  TRACK_FIT_SECTION,
   type PracticeAiSummaries,
   type SummarySection,
   type SummaryTrack,
@@ -42,7 +40,7 @@ export function summarySections(event: Pick<Doc<"events">, "aiSummarySections">)
 /**
  * The tracks the model is given: the organiser's tracks the team picked, with
  * their descriptions, or the team's free-text category for older entries.
- * Only the organiser's tracks get the track line and count for its key.
+ * Only the organiser's tracks count for its key.
  */
 function summaryTracks(submission: Doc<"submissions">, byId: ReadonlyMap<Id<"eventTracks">, Doc<"eventTracks">>) {
   const picked = (submission.trackIds ?? []).flatMap((id) => byId.get(id) ?? []);
@@ -221,7 +219,7 @@ export const summaryInput = internalQuery({
     // Sample summaries are written without the model, so a run queued before a switch does nothing.
     if (!event || summaryMode(event) === "sample") return null;
     const byId = tracksById(await listEventTracks(ctx, event._id));
-    const { tracks, names, tracksKey } = summaryTracks(submission, byId);
+    const { tracks, tracksKey } = summaryTracks(submission, byId);
     // A track description edit rewrites only summaries written from other descriptions.
     const tracksStale = args.tracksChanged === true && inJudging(event, submission) && Boolean(submission.aiSummary) && submission.aiSummary?.tracksKey !== tracksKey;
     if (!tracksStale && !needsSummary(event, submission, args.refreshReadme)) return null;
@@ -233,7 +231,7 @@ export const summaryInput = internalQuery({
       tracks,
       tracksKey,
       sourceKey,
-      sections: sectionsWithTracks(summarySections(event), names.length),
+      sections: summarySections(event),
       // Only the README can have changed: skip the model when its hash is the same.
       readmeCheckOnly: !tracksStale && submission.aiSummary?.sourceKey === sourceKey && submission.aiSummary?.promptVersion === SUMMARY_PROMPT_VERSION && submission.aiSummary?.sample !== true,
       readmeHash: submission.aiSummary?.readmeHash ?? null,
@@ -273,14 +271,12 @@ export const saveSummary = internalMutation({
     const byId = tracksById(await listEventTracks(ctx, submission.eventId));
     const { names: adminTracks, tracksKey } = summaryTracks(submission, byId);
     if (args.tracksKey !== undefined && args.tracksKey !== tracksKey) return { saved: false, reason: "source_changed" };
-    const sections = sectionsWithTracks(summarySections(event), adminTracks.length);
+    const sections = summarySections(event);
     const given: Record<string, string> = {};
     for (const line of args.lines ?? []) given[line.key] = line.text;
     for (const key of ["whatItDoes", "howItWorks", "demoFocus"] as const) {
       if (args[key] !== undefined && given[key] === undefined) given[key] = args[key]!;
     }
-    // Callers from before the track line send none: it is saved empty.
-    if (sections.some((section) => section.key === TRACK_FIT_SECTION.key)) given[TRACK_FIT_SECTION.key] ??= "";
     // The model sometimes repeats the field name first ("whatItDoes: ..."): drop it.
     const sectionFor = (key: string) => sections.find((section) => section.key === key) ?? { key, label: key };
     const cleaned = Object.fromEntries(Object.entries(given).map(([key, text]) => [key, cleanSummaryLine(stripSectionPrefix(normalizeSummaryText(text), sectionFor(key)))]));

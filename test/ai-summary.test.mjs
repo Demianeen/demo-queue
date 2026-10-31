@@ -11,8 +11,6 @@ import {
   stripSectionPrefix,
   summarySourceKey,
   summaryTracksKey,
-  sectionsWithTracks,
-  DEFAULT_SUMMARY_SECTIONS,
 } from "../lib/ai-summary.ts";
 
 test("the source key changes only with the description or the repository", () => {
@@ -148,24 +146,15 @@ test("the prompt asks for the description alone without a README, no remarks on 
   assert.doesNotMatch(system, /say so briefly/);
 });
 
-test("the TRACKS block carries each track's description, and the track line describes rather than grades", () => {
+test("the TRACKS block carries each track's description", () => {
   const tracks = [{ name: "AI agents", description: "Agents that do real work end to end" }, { name: "Best use of Daytona" }];
-  const sections = sectionsWithTracks(DEFAULT_SUMMARY_SECTIONS, tracks.length);
-  const { system, prompt } = buildSummaryPrompt({ demoTitle: "Guardrail", description: "Checks tool calls.", tracks, readme: null }, sections);
+  const { system, prompt } = buildSummaryPrompt({ demoTitle: "Guardrail", description: "Checks tool calls.", tracks, readme: null });
   assert.match(prompt, /<<<BEGIN TRACKS>>>\n- AI agents: Agents that do real work end to end\n- Best use of Daytona\n<<<END TRACKS>>>/);
-  assert.match(system, /Fill exactly four fields/);
-  assert.match(system, /"trackFit" field, shown to judges as "Tracks"/);
-  assert.match(system, /never how well it fits/);
-  // A team with no tracks gets no track line.
-  assert.equal(sectionsWithTracks(DEFAULT_SUMMARY_SECTIONS, 0), DEFAULT_SUMMARY_SECTIONS);
+  assert.match(system, /each with the organiser's description of the track/);
+  // The sections are unchanged: no track line yet.
+  assert.match(system, /Fill exactly three fields/);
   // Older callers still pass plain names.
   assert.match(buildSummaryPrompt({ demoTitle: "A", description: "B", tracks: ["Main"], readme: null }).prompt, /<<<BEGIN TRACKS>>>\n- Main\n<<<END TRACKS>>>/);
-});
-
-test("a neutral track line passes the language check, even naming a track called Best use", () => {
-  const names = ["AI agents", "Best use of Daytona"];
-  assert.equal(findEvaluativeLanguage(["Uses tool calls to book meetings on its own (AI agents); runs each agent in a sandbox (Best use of Daytona)."], names), null);
-  assert.equal(findEvaluativeLanguage(["The best fit for AI agents."], names), "superlative");
 });
 
 test("the tracks key changes with a picked track's description, not with a rename", () => {

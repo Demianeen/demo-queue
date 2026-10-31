@@ -728,18 +728,25 @@ test("the model reads the picked tracks' descriptions, and a summary is rewritte
   expect((await summaryOf(t, other))!.tracksKey).toBe(otherKey);
 });
 
-test("summaries written before track descriptions went in are left alone until a description changes", async () => {
+/** A summary from before the AI read: no read and no tracksKey. */
+const oldSummary = (description: string, githubUrl?: string) => ({
+  whatItDoes: "Old.", howItWorks: "Old.", demoFocus: "Old.", sourceKey: summarySourceKey({ description, githubUrl }),
+  model: "m", usedReadme: false, promptVersion: SUMMARY_PROMPT_VERSION, generatedAt: 1,
+});
+
+test("closing submissions rewrites a summary written before the AI read, and leaves one with nothing to read for", async () => {
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
   modelReturns();
   const { t, eventId, add } = await setup();
   const agents = await t.run((ctx) => ctx.db.insert("eventTracks", { eventId, name: "AI agents", description: "Agents that do real work", order: 0, createdAt: 1, updatedAt: 1 }));
-  const id = await add(1, { trackIds: [agents] });
-  const key = summarySourceKey({ description: "Description 1", githubUrl: undefined });
-  await t.run((ctx) => ctx.db.patch(id, { aiSummary: { whatItDoes: "Old.", howItWorks: "Old.", demoFocus: "Old.", sourceKey: key, model: "m", usedReadme: false, promptVersion: SUMMARY_PROMPT_VERSION, generatedAt: 1 } }));
+  const id = await add(1, { trackIds: [agents], aiSummary: oldSummary("Description 1") });
+  // No tracks picked and no sponsors: there is no read to write.
+  const plain = await add(2, { aiSummary: oldSummary("Description 2") });
   await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
   await runAll(t);
-  expect(generateText).not.toHaveBeenCalled();
-  expect((await summaryOf(t, id))!.whatItDoes).toBe("Old.");
+  expect(generateText).toHaveBeenCalledTimes(1);
+  expect((await summaryOf(t, id))!.tracksKey).toMatch(/^t1:/);
+  expect((await summaryOf(t, plain))!.whatItDoes).toBe("Old.");
 });
 
 const readOf = (t: Awaited<ReturnType<typeof setup>>["t"], id: Id<"submissions">) =>
@@ -847,4 +854,65 @@ test("adding or changing a sponsor reads every written summary again, and judges
   await t.mutation(api.sponsors.updateSponsor, { slug: "hack", sponsorId: openai._id, name: "OpenAI", usage: "Calls the OpenAI API" });
   await runAll(t);
   expect(generateText).toHaveBeenCalledTimes(2);
+});
+
+test("a stale read shows nothing until a run is queued, then Checking, then the new read", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReads({ overall: "An AI agents entry.", trackFit: [{ track: "AI agents", level: "strong", reason: "An agent with tools." }], sponsorUse: [{ sponsor: "Daytona", level: "none", reason: "No sign of it." }] });
+  const { t, eventId, id } = await readSetup();
+  await t.run(async (ctx) => {
+    await ctx.db.patch(eventId, { phase: "judging", submissionsClosedAt: 1 });
+    await ctx.db.patch(id, { aiSummary: oldSummary("Description 0", "https://github.com/example/guardrail") });
+  });
+  // Nothing is queued: no chips and no Checking, however long judges wait.
+  expect(await readOf(t, id)).toBeNull();
+
+  await t.mutation(internal.aiSummaries.queueEventSummaries, { eventId, refreshReadme: true });
+  expect((await readOf(t, id))?.status).toBe("checking");
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(1);
+  expect(await readOf(t, id)).toMatchObject({ status: "ready", overall: "An AI agents entry." });
+  expect(await t.run(async (ctx) => (await ctx.db.get(id))!.summaryRunPending ?? "cleared")).toBe("cleared");
+});
+
+test("a run that ends without a read stops the Checking state", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  generateText.mockRejectedValue(new Error("boom"));
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const { t, eventId, id } = await readSetup();
+  await t.run((ctx) => ctx.db.patch(id, { aiSummary: oldSummary("Description 0", "https://github.com/example/guardrail") }));
+  await t.mutation(internal.aiSummaries.queueEventSummaries, { eventId, refreshReadme: true });
+  expect((await readOf(t, id))?.status).toBe("checking");
+  await runAll(t);
+  expect(generateText).toHaveBeenCalled();
+  expect(await readOf(t, id)).toBeNull();
+  log.mockRestore();
+});
+
+test("events already in judging pick up stale reads with one run of the close pass; other events are left alone", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReads({ overall: "An AI agents entry.", trackFit: [{ track: "AI agents", level: "strong", reason: "An agent with tools." }], sponsorUse: [] });
+  const { t, eventId, agents, id } = await readSetup();
+  await t.run(async (ctx) => {
+    await ctx.db.patch(eventId, { phase: "judging", submissionsClosedAt: 1 });
+    await ctx.db.patch(id, { aiSummary: oldSummary("Description 0", "https://github.com/example/guardrail") });
+  });
+  // Another hackathon, still taking submissions, with the same kind of summary.
+  const open = await t.run(async (ctx) => {
+    const otherEvent = await ctx.db.insert("events", {
+      name: "Open", slug: "open", eventType: "hackathon", workosOrganizationId: "org_ai",
+      meetUrl: "https://meet.example", queuePublished: false, createdAt: 1, updatedAt: 1,
+    });
+    const track = await ctx.db.insert("eventTracks", { eventId: otherEvent, name: "AI agents", description: "Agents", order: 0, createdAt: 1, updatedAt: 1 });
+    return ctx.db.insert("submissions", {
+      eventId: otherEvent, participantToken: "open-0", name: "Open", email: "open@example.com", phone: "+440000000000",
+      demoTitle: "Open demo", description: "Open description", status: "candidate", trackIds: [track], createdAt: 1, updatedAt: 1,
+      aiSummary: oldSummary("Open description"),
+    });
+  });
+  expect(await t.mutation(internal.aiSummaries.queueJudgingEventSummaries, {})).toEqual({ events: 1 });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(1);
+  expect((await summaryOf(t, id))!.read?.tracks).toEqual([{ trackId: agents, level: "strong", reason: "An agent with tools." }]);
+  expect((await summaryOf(t, open))!.whatItDoes).toBe("Old.");
 });

@@ -5,6 +5,7 @@ import { env, internalMutation, internalQuery, type MutationCtx } from "./_gener
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { listEventSponsors } from "./sponsors";
 import { trackKey } from "../lib/tracks";
+import { eventPhase } from "../lib/event-phase";
 import {
   DEFAULT_SUMMARY_SECTIONS,
   buildSampleSummary,
@@ -75,6 +76,16 @@ export function summaryMode(event: Pick<Doc<"events">, "practice" | "practiceAiS
 
 function inJudging(event: Doc<"events">, submission: Doc<"submissions">) {
   return event.eventType === "hackathon" && (submission.status === "candidate" || submission.status === "queued");
+}
+
+/**
+ * True when a written summary's read is from other tracks or sponsors than the
+ * team's now (or from before the read existed), and there is something to read
+ * for. A sample summary has no read.
+ */
+function readIsStale(event: Doc<"events">, submission: Doc<"submissions">, tracksKey: string, hasContext: boolean) {
+  const summary = submission.aiSummary;
+  return hasContext && inJudging(event, submission) && summaryMode(event) === "model" && summary !== undefined && summary.sample !== true && summary.tracksKey !== tracksKey;
 }
 
 /**
@@ -189,24 +200,42 @@ export async function queueAiSummaryIfStale(
     submissionId: submission._id,
     ...(options.refreshReadme ? { refreshReadme: true } : {}),
     ...(options.contextChanged ? { contextChanged: true } : {}),
+    queuedFor: runAt,
   });
-  await ctx.db.patch(submission._id, { summaryQueuedFor: runAt });
+  await ctx.db.patch(submission._id, { summaryQueuedFor: runAt, summaryRunPending: runAt });
   return true;
 }
+
+/** A run ended (saved, skipped or gave up): the read is no longer being checked, unless a newer run is queued. */
+export const endSummaryRun = internalMutation({
+  args: { submissionId: v.id("submissions"), queuedFor: v.number() },
+  handler: async (ctx, args) => {
+    const submission = await ctx.db.get(args.submissionId);
+    if (!submission || submission.summaryRunPending !== args.queuedFor) return false;
+    await ctx.db.patch(submission._id, { summaryRunPending: undefined });
+    return true;
+  },
+});
 
 /**
  * Queues summaries for every submission in judging that needs one. Runs when
  * submissions close; with refreshReadme it also rechecks each repository's
- * README and rewrites the summary when the README changed.
+ * README and rewrites the summary when the README changed. A summary whose
+ * read is from older tracks or sponsors, or from before the read, is
+ * rewritten too.
  */
 export async function queueSummariesForEvent(ctx: MutationCtx, event: Doc<"events">, refreshReadme?: boolean) {
   const submissions = await ctx.db
     .query("submissions")
     .withIndex("by_event", (q) => q.eq("eventId", event._id))
     .take(1000);
+  const byId = tracksById(await listEventTracks(ctx, event._id));
+  const sponsors = event.eventType === "hackathon" ? await listEventSponsors(ctx, event._id) : [];
   let queued = 0;
   for (const submission of submissions) {
-    if (await queueAiSummaryIfStale(ctx, event, submission, queued * SUMMARY_STAGGER_MS, { refreshReadme, source: "close", submissionCount: submissions.length })) queued += 1;
+    const { picked, tracksKey } = summaryTracks(submission, byId, sponsors);
+    const contextChanged = readIsStale(event, submission, tracksKey, picked.length > 0 || sponsors.length > 0);
+    if (await queueAiSummaryIfStale(ctx, event, submission, queued * SUMMARY_STAGGER_MS, { refreshReadme, contextChanged, source: "close", submissionCount: submissions.length })) queued += 1;
   }
   return { queued };
 }
@@ -217,6 +246,25 @@ export const queueEventSummaries = internalMutation({
     const event = await ctx.db.get(args.eventId);
     if (!event) return { queued: 0 };
     return queueSummariesForEvent(ctx, event, args.refreshReadme);
+  },
+});
+
+/**
+ * Runs the pass closing submissions runs, for every hackathon in judging now.
+ * For events that were already in judging when the AI read shipped: run it
+ * once after a deploy (`npx convex run aiSummaries:queueJudgingEventSummaries`).
+ * Each event's pass is its own transaction, with the event's daily budget and
+ * staggered runs.
+ */
+export const queueJudgingEventSummaries = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const events = await ctx.db.query("events").take(1000);
+    const judging = events.filter((event) => event.eventType === "hackathon" && eventPhase(event) === "judging");
+    for (const event of judging) {
+      await ctx.scheduler.runAfter(0, internal.aiSummaries.queueEventSummaries, { eventId: event._id, refreshReadme: true });
+    }
+    return { events: judging.length };
   },
 });
 
@@ -370,7 +418,7 @@ export function cleanRead(
 }
 
 export type AiRead = {
-  /** Checking: a new read is on its way (written from older tracks or sponsors, or not written yet). */
+  /** Checking: a run is queued or running for a read that is not written yet, or written from older tracks or sponsors. */
   status: "ready" | "checking";
   overall: string | null;
   tracks: { id: Id<"eventTracks">; name: string; level: TrackFitLevel | null; reason: string | null; described: boolean }[];
@@ -381,8 +429,9 @@ export type AiRead = {
  * What judges and organisers see of the read: every track the team picked
  * (with no level when it has no description) and every sponsor, with the
  * stored level and reason when there is one. Null when there is nothing to
- * read for: no picked tracks and no sponsors, a practice sample summary, or
- * no summary on its way.
+ * read for (no picked tracks and no sponsors, a practice sample summary), or
+ * no read is written and no run is queued for one. A read written from older
+ * tracks or sponsors is shown until a run for a new one is queued.
  */
 export function publicAiRead(
   event: Doc<"events">,
@@ -396,7 +445,8 @@ export function publicAiRead(
   const summary = submission.aiSummary;
   const written = summary?.read;
   const fresh = Boolean(summary) && summary?.tracksKey === tracksKey && summary?.sourceKey === summarySourceKey(submission);
-  const coming = aiSummaryStatus(event, submission) === "writing" || (summary !== undefined && !fresh && aiSummariesConfigured() && inJudging(event, submission));
+  // Only a run that is really queued or running counts; a stale read alone is not one.
+  const coming = !fresh && submission.summaryRunPending !== undefined && inJudging(event, submission);
   if (!written && !coming) return null;
   const trackLevel = new Map((written?.tracks ?? []).map((entry) => [entry.trackId, entry]));
   const sponsorLevel = new Map((written?.sponsors ?? []).map((entry) => [entry.sponsorId, entry]));

@@ -154,6 +154,9 @@ export default defineSchema({
     githubUrl: v.optional(v.string()),
     // When the next AI summary run is or was scheduled to start, for the per-submission throttle.
     summaryQueuedFor: v.optional(v.number()),
+    // When the newest queued summary run is set to start, until that run ends.
+    // While set, judges see the AI read as being checked; nothing else shows it.
+    summaryRunPending: v.optional(v.number()),
     // The last run for this description and repository ended without a summary
     // (rejected, or out of retries): judges see "No summary", not "being written".
     aiSummaryGaveUp: v.optional(v.object({ sourceKey: v.string(), reason: v.string(), at: v.number() })),

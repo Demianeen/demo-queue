@@ -1,11 +1,11 @@
 "use node";
 
-import { v } from "convex/values";
+import { v, type ObjectType } from "convex/values";
 import { generateText, Output } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createHash } from "node:crypto";
 import { internal } from "./_generated/api";
-import { env, internalAction } from "./_generated/server";
+import { env, internalAction, type ActionCtx } from "./_generated/server";
 import {
   buildSummaryPrompt,
   githubReadmeApiUrl,
@@ -96,93 +96,117 @@ function log(status: string, reason: string) {
   console.log(JSON.stringify({ event: "ai-summary", status, reason }));
 }
 
+const summaryRunArgs = {
+  submissionId: v.id("submissions"),
+  refreshReadme: v.optional(v.boolean()),
+  contextChanged: v.optional(v.boolean()),
+  readmeAttempt: v.optional(v.number()),
+  // When this run was queued to start; it clears the submission's pending marker when it ends.
+  queuedFor: v.optional(v.number()),
+};
+
 /**
  * Writes the summary, one line per section, for one submission with the deployment's
  * existing OpenAI setup (OPENAI_API_KEY, OPENAI_MODEL). Without a key, it is
  * skipped and logged. A failure is logged and leaves any older summary alone.
  */
 export const generateSubmissionSummary = internalAction({
-  args: { submissionId: v.id("submissions"), refreshReadme: v.optional(v.boolean()), contextChanged: v.optional(v.boolean()), readmeAttempt: v.optional(v.number()) },
+  args: summaryRunArgs,
   handler: async (ctx, args): Promise<{ saved: boolean }> => {
-    const input = await ctx.runQuery(internal.aiSummaries.summaryInput, { submissionId: args.submissionId, refreshReadme: args.refreshReadme, contextChanged: args.contextChanged });
-    if (!input) {
-      log("skipped", "not_needed");
-      return { saved: false };
-    }
-    const apiKey = env.OPENAI_API_KEY?.trim();
-    if (!apiKey) {
-      log("skipped", "not_configured");
-      return { saved: false };
-    }
-    const fetched = await fetchReadme(input.githubUrl);
-    if (fetched.kind === "limited") {
-      const attempt = (args.readmeAttempt ?? 0) + 1;
-      if (attempt > README_RETRY_LIMIT) {
-        log("skipped", "readme_rate_limited");
-        await ctx.runMutation(internal.aiSummaries.markSummaryGaveUp, { submissionId: args.submissionId, sourceKey: input.sourceKey, reason: "readme_rate_limited" });
-        return { saved: false };
+    let retriesLater = false;
+    try {
+      const result = await writeSummary(ctx, args);
+      retriesLater = result.retriesLater === true;
+      return { saved: result.saved };
+    } finally {
+      // However the run ends, except when it retries later, judges stop seeing the read as being checked.
+      if (!retriesLater && args.queuedFor !== undefined) {
+        await ctx.runMutation(internal.aiSummaries.endSummaryRun, { submissionId: args.submissionId, queuedFor: args.queuedFor });
       }
-      await ctx.scheduler.runAfter(fetched.retryAfterMs, internal.aiSummaryAction.generateSubmissionSummary, {
-        submissionId: args.submissionId,
-        ...(args.refreshReadme ? { refreshReadme: true } : {}),
-        ...(args.contextChanged ? { contextChanged: true } : {}),
-        readmeAttempt: attempt,
-      });
-      log("deferred", "readme_rate_limited");
-      return { saved: false };
     }
-    const readme = fetched.text;
-    const manifests = fetched.manifests;
-    const read = summaryReadInput(input.tracks, input.sponsors);
-    const readmeHash = readme === null ? undefined : createHash("sha256").update(readme).digest("hex");
-    // The description and repository are unchanged: write again only when the README changed.
-    if (input.readmeCheckOnly && (readmeHash ?? null) === input.readmeHash) {
-      log("skipped", "readme_unchanged");
-      return { saved: false };
-    }
-    const model = env.OPENAI_MODEL ?? "gpt-5.4";
-    const giveUp = (reason: string) =>
-      ctx.runMutation(internal.aiSummaries.markSummaryGaveUp, { submissionId: args.submissionId, sourceKey: input.sourceKey, reason });
-    // Proposed: when the language check rejects a summary, try once more with a stricter instruction.
-    for (const stricter of [false, true]) {
-      const { system, prompt } = buildSummaryPrompt({ ...input, readme, manifests }, input.sections, { stricter });
-      let result: { saved: boolean; reason: string };
-      try {
-        // Exactly one capped string per section; anything else fails here and is logged.
-        const { output } = await generateText({
-          model: createOpenAI({ apiKey })(model),
-          output: Output.object({ schema: summaryOutputSchemaFor(input.sections, read) }),
-          system,
-          prompt,
-        });
-        result = await ctx.runMutation(internal.aiSummaries.saveSummary, {
-          submissionId: args.submissionId,
-          sourceKey: input.sourceKey,
-          lines: input.sections.map((section) => ({ key: section.key, text: String((output as Record<string, unknown>)[section.key] ?? "") })),
-          tracksKey: input.tracksKey,
-          read: readFrom(output as ReadOutput),
-          model,
-          usedReadme: readme !== null,
-          readmeHash,
-        });
-      } catch (error) {
-        log("failed", error instanceof Error ? error.name : "unknown");
-        await giveUp("model_failed");
-        return { saved: false };
-      }
-      if (result.saved) {
-        log("saved", result.reason);
-        return { saved: true };
-      }
-      if (!stricter && result.reason.startsWith("evaluative_language")) {
-        log("retrying", result.reason);
-        continue;
-      }
-      log("rejected", result.reason);
-      // A newer run covers changed fields; anything else is final for these fields.
-      if (result.reason !== "source_changed" && result.reason !== "sample_mode") await giveUp(result.reason);
-      return { saved: false };
-    }
-    return { saved: false };
   },
 });
+
+async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunArgs>): Promise<{ saved: boolean; retriesLater?: boolean }> {
+  const input = await ctx.runQuery(internal.aiSummaries.summaryInput, { submissionId: args.submissionId, refreshReadme: args.refreshReadme, contextChanged: args.contextChanged });
+  if (!input) {
+    log("skipped", "not_needed");
+    return { saved: false };
+  }
+  const apiKey = env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    log("skipped", "not_configured");
+    return { saved: false };
+  }
+  const fetched = await fetchReadme(input.githubUrl);
+  if (fetched.kind === "limited") {
+    const attempt = (args.readmeAttempt ?? 0) + 1;
+    if (attempt > README_RETRY_LIMIT) {
+      log("skipped", "readme_rate_limited");
+      await ctx.runMutation(internal.aiSummaries.markSummaryGaveUp, { submissionId: args.submissionId, sourceKey: input.sourceKey, reason: "readme_rate_limited" });
+      return { saved: false };
+    }
+    await ctx.scheduler.runAfter(fetched.retryAfterMs, internal.aiSummaryAction.generateSubmissionSummary, {
+      submissionId: args.submissionId,
+      ...(args.refreshReadme ? { refreshReadme: true } : {}),
+      ...(args.contextChanged ? { contextChanged: true } : {}),
+      ...(args.queuedFor !== undefined ? { queuedFor: args.queuedFor } : {}),
+      readmeAttempt: attempt,
+    });
+    log("deferred", "readme_rate_limited");
+    return { saved: false, retriesLater: true };
+  }
+  const readme = fetched.text;
+  const manifests = fetched.manifests;
+  const read = summaryReadInput(input.tracks, input.sponsors);
+  const readmeHash = readme === null ? undefined : createHash("sha256").update(readme).digest("hex");
+  // The description and repository are unchanged: write again only when the README changed.
+  if (input.readmeCheckOnly && (readmeHash ?? null) === input.readmeHash) {
+    log("skipped", "readme_unchanged");
+    return { saved: false };
+  }
+  const model = env.OPENAI_MODEL ?? "gpt-5.4";
+  const giveUp = (reason: string) =>
+    ctx.runMutation(internal.aiSummaries.markSummaryGaveUp, { submissionId: args.submissionId, sourceKey: input.sourceKey, reason });
+  // Proposed: when the language check rejects a summary, try once more with a stricter instruction.
+  for (const stricter of [false, true]) {
+    const { system, prompt } = buildSummaryPrompt({ ...input, readme, manifests }, input.sections, { stricter });
+    let result: { saved: boolean; reason: string };
+    try {
+      // Exactly one capped string per section; anything else fails here and is logged.
+      const { output } = await generateText({
+        model: createOpenAI({ apiKey })(model),
+        output: Output.object({ schema: summaryOutputSchemaFor(input.sections, read) }),
+        system,
+        prompt,
+      });
+      result = await ctx.runMutation(internal.aiSummaries.saveSummary, {
+        submissionId: args.submissionId,
+        sourceKey: input.sourceKey,
+        lines: input.sections.map((section) => ({ key: section.key, text: String((output as Record<string, unknown>)[section.key] ?? "") })),
+        tracksKey: input.tracksKey,
+        read: readFrom(output as ReadOutput),
+        model,
+        usedReadme: readme !== null,
+        readmeHash,
+      });
+    } catch (error) {
+      log("failed", error instanceof Error ? error.name : "unknown");
+      await giveUp("model_failed");
+      return { saved: false };
+    }
+    if (result.saved) {
+      log("saved", result.reason);
+      return { saved: true };
+    }
+    if (!stricter && result.reason.startsWith("evaluative_language")) {
+      log("retrying", result.reason);
+      continue;
+    }
+    log("rejected", result.reason);
+    // A newer run covers changed fields; anything else is final for these fields.
+    if (result.reason !== "source_changed" && result.reason !== "sample_mode") await giveUp(result.reason);
+    return { saved: false };
+  }
+  return { saved: false };
+}

@@ -112,6 +112,7 @@ type AdminSubmission = {
   githubUrl?: string;
   roundOneAssignedJudges?: string[];
   aiSummary?: SubmissionPreview["aiSummary"];
+  aiRead?: SubmissionPreview["aiRead"];
   status: string;
   queueOrder?: number;
 };
@@ -126,6 +127,7 @@ function previewFor(item: AdminSubmission): SubmissionPreview & { tracks: string
     videoUrl: item.videoUrl,
     tracks: item.tracks,
     aiSummary: item.aiSummary ?? null,
+    aiRead: item.aiRead ?? null,
     people: [
       { name: item.name, presenter: true, twitter: item.twitter, linkedin: item.linkedin, githubProfile: item.githubProfile },
       ...item.teamMemberContacts.map((member) => ({

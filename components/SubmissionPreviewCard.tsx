@@ -6,6 +6,8 @@ import { ExternalLinkIcon, SparklesIcon } from "lucide-react";
 import { socialUrl, type SocialKind } from "@/lib/social";
 import { youtubeEmbedUrl } from "@/lib/video-embed";
 import { cn } from "@/lib/utils";
+import type { AiReadView } from "@/lib/ai-read";
+import { AiReadBlock } from "@/components/AiRead";
 
 export type PreviewPerson = {
   name: string;
@@ -30,6 +32,8 @@ export type SubmissionPreview = {
     sample?: boolean;
     stale: boolean;
   } | null;
+  /** The AI read: track fit and sponsor use. Organisers only see previews, so it says how to get a missing level. */
+  aiRead?: AiReadView | null;
 };
 
 /** "Sam Lee +2": the presenter and how many others are on the team. */
@@ -142,7 +146,10 @@ export function SubmissionPreviewBody({ preview }: { preview: SubmissionPreview 
             {preview.aiSummary.sample ? "Sample summary (practice). The real model is off for this practice event." : `Written by AI from the team's description${preview.aiSummary.usedReadme ? " and README" : ""}. Check it against the demo.`}
             {preview.aiSummary.stale ? " The project changed since; a new summary is on its way." : null}
           </small>
+          {preview.aiRead ? <AiReadBlock read={preview.aiRead} organiser /> : null}
         </div>
+      ) : preview.aiRead ? (
+        <div className="submission-preview-summary"><AiReadBlock read={preview.aiRead} organiser /></div>
       ) : null}
       <div className="submission-preview-people">
         {preview.teamName ? <span className="submission-preview-team">{preview.teamName}</span> : null}

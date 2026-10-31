@@ -1,0 +1,34 @@
+.block { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--dq-divider-soft); }
+.heading { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--dq-accent); }
+.heading svg { width: 13px; height: 13px; }
+.overall, .line { font-size: 12px; line-height: 17px; color: var(--dq-fg); }
+.overall strong { font-weight: 600; }
+.line { display: block; }
+.line strong { font-weight: 600; }
+.pending { display: grid; gap: 6px; }
+.note { font-size: 11px; color: var(--dq-fg-3); }
+.hint { font-size: 12px; color: var(--dq-fg-2); }
+
+/* Level pills: green for a fit or a real use, amber for partial or light, grey for weak or no sign. */
+.level { display: inline-block; margin-right: 6px; }
+.level, .chipLevel { font-size: 11px; line-height: 16px; border: 1px solid var(--dq-line); background: var(--dq-card); color: var(--dq-fg-3); border-radius: 10px; padding: 0 7px; white-space: nowrap; }
+.level[data-tone="good"], .chipLevel[data-tone="good"] { color: var(--dq-success-fg); border-color: var(--dq-success-line); background: var(--dq-success-bg); }
+.level[data-tone="some"], .chipLevel[data-tone="some"] { color: var(--dq-warning-fg); border-color: var(--dq-warning-line); background: var(--dq-warning-bg); }
+
+/*
+ * Rows: the chips sit after the team name, which gives way first. Past that
+ * they keep their width up to the space left, and a chip that no longer fits
+ * wraps onto a hidden second line, so no chip is ever cut in half.
+ */
+/* A chip alone on its line shrinks its name instead. */
+.chips { box-sizing: border-box; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; margin-left: auto; padding-left: 8px; flex: 0 0 auto; max-width: 100%; height: 18px; overflow: hidden; }
+.chip { display: inline-flex; flex: 0 1 auto; min-width: 0; border-radius: 10px; }
+.chip:focus-visible, .more:focus-visible { outline: 2px solid var(--dq-accent); outline-offset: 1px; }
+.chipLevel { display: inline-flex; min-width: 0; }
+.chipName { overflow: hidden; text-overflow: ellipsis; max-width: 14ch; min-width: 0; }
+.chipSuffix { flex: none; }
+/* Too narrow for even one level: no chips rather than a cut one. */
+@container (max-width: 100px) { .chips { display: none; } }
+.more { flex: none; font-size: 11px; line-height: 16px; color: var(--dq-fg-2); border: 1px solid var(--dq-line); border-radius: 10px; padding: 0 7px; white-space: nowrap; }
+.tip { max-width: 320px; white-space: normal; }
+.tipList { display: grid; gap: 4px; }

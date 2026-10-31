@@ -1,6 +1,8 @@
 import { z } from "zod";
 // @ts-expect-error Node's strip-types test runner resolves the source extension directly.
 import { normalizeGithubRepositoryUrl } from "./hackathon.ts";
+// @ts-expect-error Node's strip-types test runner resolves the source extension directly.
+import { SPONSOR_USE_LABELS, SPONSOR_USE_LEVELS, TRACK_FIT_LABELS, TRACK_FIT_LEVELS, type SponsorUseLevel, type TrackFitLevel } from "./ai-read.ts";
 
 /** How much README text is sent to the model. */
 export const SUMMARY_README_LIMIT = 12_000;
@@ -79,15 +81,7 @@ export function summaryOutputSchemaFor(sections: SummarySection[], read: Summary
 /** The default three lines, each capped; a line may be empty when the data says nothing about it. */
 export const summaryOutputSchema = summaryOutputSchemaFor(DEFAULT_SUMMARY_SECTIONS);
 
-/** How well a project fits a track's description. */
-export const TRACK_FIT_LEVELS = ["strong", "partial", "weak"] as const;
-export type TrackFitLevel = (typeof TRACK_FIT_LEVELS)[number];
-/** How a project uses a sponsor: the product depends on it, a real part of the build, small or incidental, or no sign. */
-export const SPONSOR_USE_LEVELS = ["core", "used", "light", "none"] as const;
-export type SponsorUseLevel = (typeof SPONSOR_USE_LEVELS)[number];
-
-export const TRACK_FIT_LABELS: Record<TrackFitLevel, string> = { strong: "Strong", partial: "Partial", weak: "Weak" };
-export const SPONSOR_USE_LABELS: Record<SponsorUseLevel, string> = { core: "Core", used: "Used", light: "Light", none: "No sign" };
+export { SPONSOR_USE_LABELS, SPONSOR_USE_LEVELS, TRACK_FIT_LABELS, TRACK_FIT_LEVELS, type SponsorUseLevel, type TrackFitLevel };
 
 /** What the read is asked about: the picked tracks that have a description, and the event's sponsors. */
 export type SummaryReadInput = { tracks: { name: string; description: string }[]; sponsors: SummarySponsor[] };

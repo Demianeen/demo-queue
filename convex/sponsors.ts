@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireEventOrganization } from "./organizationAuth";
+import { queueReadsForEvent } from "./aiSummaries";
 import { MAX_EVENT_SPONSORS, normalizeSponsorInput, normalizeSponsorList, sponsorKey, type SponsorInput } from "../lib/sponsors";
 
 export const sponsorInputValidator = v.object({
@@ -80,6 +81,8 @@ export const addSponsor = mutation({
     const order = sponsors.reduce((max, sponsor) => Math.max(max, sponsor.order), -1) + 1;
     const sponsorId = await ctx.db.insert("eventSponsors", { eventId: event._id, ...input, order, createdAt: now, updatedAt: now });
     await logSponsorAction(ctx, event._id, "sponsor_added", actor, input.name);
+    // Every project gets a level for the new sponsor: summaries already written are read again.
+    await queueReadsForEvent(ctx, event);
     return { sponsorId };
   },
 });
@@ -97,6 +100,7 @@ export const updateSponsor = mutation({
     assertUniqueName(await listEventSponsors(ctx, event._id), input.name, sponsor._id);
     await ctx.db.patch(sponsor._id, { name: input.name, usage: input.usage, updatedAt: Date.now() });
     await logSponsorAction(ctx, event._id, "sponsor_updated", actor, `${sponsor.name} -> ${input.name}`);
+    if (input.name !== sponsor.name || (input.usage ?? "") !== (sponsor.usage ?? "")) await queueReadsForEvent(ctx, event);
   },
 });
 
@@ -106,5 +110,6 @@ export const removeSponsor = mutation({
     const { event, actor, sponsor } = await adminSponsor(ctx, args.slug, args.sponsorId);
     await ctx.db.delete(sponsor._id);
     await logSponsorAction(ctx, event._id, "sponsor_removed", actor, sponsor.name);
+    await queueReadsForEvent(ctx, event);
   },
 });

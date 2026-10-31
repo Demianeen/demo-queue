@@ -4,8 +4,10 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import tableHistorySchema from "../node_modules/@convex-dev/table-history/src/component/schema";
-import { STRICTER_SUMMARY_INSTRUCTION, summarySourceKey } from "../lib/ai-summary";
-import { aiSummaryStatus } from "./aiSummaries";
+import { STRICTER_SUMMARY_INSTRUCTION, SUMMARY_PROMPT_VERSION, summarySourceKey } from "../lib/ai-summary";
+import { aiSummaryStatus, publicAiRead } from "./aiSummaries";
+import { listEventSponsors } from "./sponsors";
+import { listEventTracks, tracksById } from "./tracks";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 
 // The model is never called for real: generateText is replaced, the rest of the SDK stays.
@@ -28,6 +30,7 @@ const modules = {
   "./emails.ts": () => import("./emails"),
   "./judging.ts": () => import("./judging"),
   "./tracks.ts": () => import("./tracks"),
+  "./sponsors.ts": () => import("./sponsors"),
   "./aiSummaries.ts": () => import("./aiSummaries"),
   "./aiSummaryAction.ts": () => import("./aiSummaryAction"),
   "./phases.ts": () => import("./phases"),
@@ -137,9 +140,15 @@ test("closing submissions writes one summary per submission in judging, from pro
   for (const [options] of generateText.mock.calls) {
     expect(`${options.system}\n${options.prompt}`).not.toMatch(/Person \d|Team \d|@example\.com|\+44|participant-/);
   }
-  // Only the README of a GitHub repository is fetched, from the GitHub API.
-  // The repository is checked first, so a private README is never read.
-  expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["https://api.github.com/repos/example/guardrail", "https://api.github.com/repos/example/guardrail/readme"]);
+  // Only the README and dependency files of a GitHub repository are fetched, from the GitHub API.
+  // The repository is checked first, so nothing private is ever read.
+  expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+    "https://api.github.com/repos/example/guardrail",
+    "https://api.github.com/repos/example/guardrail/readme",
+    "https://api.github.com/repos/example/guardrail/contents/package.json",
+    "https://api.github.com/repos/example/guardrail/contents/requirements.txt",
+    "https://api.github.com/repos/example/guardrail/contents/pyproject.toml",
+  ]);
 
   expect(await summaryOf(t, first)).toMatchObject({
     whatItDoes: "Checks agent tool calls against a policy before they run.",
@@ -442,7 +451,7 @@ test("an event's own summary sections shape the prompt and the saved summary", a
   await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
   await runAll(t);
   const { system } = generateText.mock.calls[0][0];
-  expect(system).toContain("Fill exactly two fields");
+  expect(system).toContain("Fill exactly two description fields");
   expect(system).toContain('- The "problem" field, shown to judges as "Problem": the problem the project solves.');
   expect(await summaryOf(t, id)).toMatchObject({
     sections: [
@@ -519,8 +528,8 @@ test("a rate-limited README read is retried later, never saved without the READM
   const id = await add(0);
   await t.mutation(api.events.updateSubmission, { slug: "hack", submissionId: id, name: "Person 0", demoTitle: "Guardrail", description: "Policy checks", phone: "+440000000000" });
   await runAll(t);
-  // Three runs each check the repository first; each also tries the README.
-  expect(fetchMock).toHaveBeenCalledTimes(6);
+  // Three runs each check the repository first and try the README; the last also reads the three dependency files.
+  expect(fetchMock).toHaveBeenCalledTimes(9);
   expect(generateText).toHaveBeenCalledTimes(1);
   expect(await summaryOf(t, id)).toMatchObject({ usedReadme: true });
 });
@@ -674,7 +683,7 @@ test("an explicit refresh rewrites a summary written with an older prompt, even 
   await t.mutation(internal.aiSummaries.queueEventSummaries, { eventId, refreshReadme: true });
   await runAll(t);
   expect(generateText).toHaveBeenCalledTimes(1);
-  expect(await summaryOf(t, id)).toMatchObject({ howItWorks: "A TypeScript proxy between the agent and its tools.", promptVersion: 2 });
+  expect(await summaryOf(t, id)).toMatchObject({ howItWorks: "A TypeScript proxy between the agent and its tools.", promptVersion: SUMMARY_PROMPT_VERSION });
   // Written with this prompt: the next refresh leaves it alone.
   await t.mutation(internal.aiSummaries.queueEventSummaries, { eventId, refreshReadme: true });
   await runAll(t);
@@ -726,9 +735,116 @@ test("summaries written before track descriptions went in are left alone until a
   const agents = await t.run((ctx) => ctx.db.insert("eventTracks", { eventId, name: "AI agents", description: "Agents that do real work", order: 0, createdAt: 1, updatedAt: 1 }));
   const id = await add(1, { trackIds: [agents] });
   const key = summarySourceKey({ description: "Description 1", githubUrl: undefined });
-  await t.run((ctx) => ctx.db.patch(id, { aiSummary: { whatItDoes: "Old.", howItWorks: "Old.", demoFocus: "Old.", sourceKey: key, model: "m", usedReadme: false, promptVersion: 2, generatedAt: 1 } }));
+  await t.run((ctx) => ctx.db.patch(id, { aiSummary: { whatItDoes: "Old.", howItWorks: "Old.", demoFocus: "Old.", sourceKey: key, model: "m", usedReadme: false, promptVersion: SUMMARY_PROMPT_VERSION, generatedAt: 1 } }));
   await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
   await runAll(t);
   expect(generateText).not.toHaveBeenCalled();
   expect((await summaryOf(t, id))!.whatItDoes).toBe("Old.");
+});
+
+const readOf = (t: Awaited<ReturnType<typeof setup>>["t"], id: Id<"submissions">) =>
+  t.run(async (ctx) => {
+    const submission = (await ctx.db.get(id))!;
+    const event = (await ctx.db.get(submission.eventId))!;
+    return publicAiRead(event, submission, tracksById(await listEventTracks(ctx, event._id)), await listEventSponsors(ctx, event._id));
+  });
+
+function modelReads(read: Record<string, unknown>) {
+  generateText.mockImplementation(async () => ({
+    output: {
+      whatItDoes: "Books meetings from a chat request.",
+      howItWorks: "An agent reads calendars through tool calls and runs the plan in a sandbox.",
+      demoFocus: "A clash handled without asking.",
+      ...read,
+    },
+  }));
+}
+
+async function readSetup() {
+  const setupResult = await setup();
+  const { t, eventId, add } = setupResult;
+  const agents = await t.run((ctx) => ctx.db.insert("eventTracks", { eventId, name: "AI agents", description: "Agents that act with tools", order: 0, createdAt: 1, updatedAt: 1 }));
+  const market = await t.run((ctx) => ctx.db.insert("eventTracks", { eventId, name: "Go-to-market", order: 1, createdAt: 1, updatedAt: 1 }));
+  const daytona = await t.run((ctx) => ctx.db.insert("eventSponsors", { eventId, name: "Daytona", usage: "Runs code in Daytona sandboxes (daytona SDK)", order: 0, createdAt: 1, updatedAt: 1 }));
+  const id = await add(0, { trackIds: [agents, market] });
+  return { ...setupResult, agents, market, daytona, id };
+}
+
+test("the AI read gives each described track and each sponsor a level, with the dependency files in the prompt", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  fetchMock.mockImplementation(async (url: string) => {
+    if (String(url).endsWith("/repos/example/guardrail")) return publicRepository();
+    if (String(url).endsWith("/readme")) return new Response("# Calendar Pilot", { status: 200 });
+    if (String(url).endsWith("/contents/package.json")) return new Response('{"dependencies":{"@daytonaio/sdk":"1.0.0"}}', { status: 200 });
+    return new Response("Not found", { status: 404 });
+  });
+  modelReads({
+    overall: "A strong AI agents entry built on Daytona.",
+    trackFit: [{ track: "ai agents", level: "strong", reason: "Books meetings on its own through calendar tool calls." }, { track: "Made up", level: "weak", reason: "Not a track." }],
+    sponsorUse: [{ sponsor: "Daytona", level: "used", reason: "Runs each plan in a Daytona sandbox (daytona SDK in package.json)." }],
+  });
+  const { t, id, agents, market, daytona } = await readSetup();
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  const call = generateText.mock.calls[0][0];
+  expect(call.prompt).toContain("<<<BEGIN SPONSORS>>>\n- Daytona: Runs code in Daytona sandboxes (daytona SDK)\n<<<END SPONSORS>>>");
+  expect(call.prompt).toContain('<<<BEGIN DEPENDENCIES package.json>>>\n{"dependencies":{"@daytonaio/sdk":"1.0.0"}}\n<<<END DEPENDENCIES package.json>>>');
+  expect(call.prompt).not.toContain("DEPENDENCIES requirements.txt");
+  // Only the described track is asked about.
+  expect(call.system).toContain('"trackFit": for each track in the TRACKS block that has a description ("AI agents")');
+  expect((await summaryOf(t, id))!.read).toEqual({
+    overall: "A strong AI agents entry built on Daytona.",
+    tracks: [{ trackId: agents, level: "strong", reason: "Books meetings on its own through calendar tool calls." }],
+    sponsors: [{ sponsorId: daytona, level: "used", reason: "Runs each plan in a Daytona sandbox (daytona SDK in package.json)." }],
+  });
+  expect(await readOf(t, id)).toEqual({
+    status: "ready",
+    overall: "A strong AI agents entry built on Daytona.",
+    tracks: [
+      { id: agents, name: "AI agents", level: "strong", reason: "Books meetings on its own through calendar tool calls.", described: true },
+      // No description, so no fit level.
+      { id: market, name: "Go-to-market", level: null, reason: null, described: false },
+    ],
+    sponsors: [{ id: daytona, name: "Daytona", level: "used", reason: "Runs each plan in a Daytona sandbox (daytona SDK in package.json)." }],
+  });
+});
+
+test("the read may say strong or weak, the summary lines still may not, and a read that awards is left out", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReads({ overall: "The strongest entry and a likely winner.", trackFit: [{ track: "AI agents", level: "strong", reason: "An agent with tools." }], sponsorUse: [] });
+  const { t, id } = await readSetup();
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  const summary = (await summaryOf(t, id))!;
+  expect(summary.sections?.[0].text).toBe("Books meetings from a chat request.");
+  expect(summary.read).toBeUndefined();
+
+  generateText.mockReset();
+  modelReads({ overall: "A strong fit for AI agents; Daytona is light.", trackFit: [{ track: "AI agents", level: "strong", reason: "A strong match for agents that act with tools." }], sponsorUse: [{ sponsor: "Daytona", level: "light", reason: "Mentioned in the README only." }] });
+  await t.run((ctx) => ctx.db.patch(id, { description: "Books meetings for a team." }));
+  await t.mutation(internal.aiSummaries.queueEventSummaries, { eventId: (await t.run((ctx) => ctx.db.get(id)))!.eventId });
+  await runAll(t);
+  expect((await summaryOf(t, id))!.read?.overall).toBe("A strong fit for AI agents; Daytona is light.");
+});
+
+test("adding or changing a sponsor reads every written summary again, and judges see Checking meanwhile", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-test");
+  modelReads({ overall: "An AI agents entry.", trackFit: [{ track: "AI agents", level: "strong", reason: "An agent with tools." }], sponsorUse: [{ sponsor: "Daytona", level: "none", reason: "Nothing in the description; no README to check." }] });
+  const { t, id } = await readSetup();
+  await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(1);
+
+  await t.mutation(api.sponsors.addSponsor, { slug: "hack", name: "OpenAI", usage: "Calls the OpenAI API" });
+  expect((await readOf(t, id))?.status).toBe("checking");
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(2);
+  expect(String(generateText.mock.calls[1][0].prompt)).toContain("- OpenAI: Calls the OpenAI API");
+  expect((await readOf(t, id))?.status).toBe("ready");
+
+  // Saving the same text again changes nothing.
+  const [, openai] = await t.run((ctx) => ctx.db.query("eventSponsors").collect());
+  await t.mutation(api.sponsors.updateSponsor, { slug: "hack", sponsorId: openai._id, name: "OpenAI", usage: "Calls the OpenAI API" });
+  await runAll(t);
+  expect(generateText).toHaveBeenCalledTimes(2);
 });

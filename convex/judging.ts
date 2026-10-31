@@ -8,7 +8,8 @@ import { isCompleteReview, isJudgingScore } from "../lib/judging-rubric";
 import { TableHistory } from "@convex-dev/table-history";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { components } from "./_generated/api";
-import { aiSummaryStatus, publicAiSummary } from "./aiSummaries";
+import { aiSummaryStatus, publicAiRead, publicAiSummary } from "./aiSummaries";
+import { listEventSponsors } from "./sponsors";
 import { recordChange } from "./changeLog";
 import { withChange } from "./changeWrap";
 import { closeJudgingForEvent, closeSubmissionsForEvent, judgingRemaining, reopenJudgingForEvent, syncFinalistLineup } from "./phases";
@@ -623,6 +624,7 @@ async function judgeSubmissionViews(
   submissions: Doc<"submissions">[],
 ) {
   const byId = tracksById(await listEventTracks(ctx, event._id));
+  const sponsors = await listEventSponsors(ctx, event._id);
   const members = await ctx.db
     .query("teamMembers")
     .withIndex("by_event", (q) => q.eq("eventId", event._id))
@@ -646,6 +648,7 @@ async function judgeSubmissionViews(
     videoUrl: submission.videoUrl ?? null,
     aiSummary: publicAiSummary(submission),
     aiSummaryStatus: aiSummaryStatus(event, submission),
+    aiRead: publicAiRead(event, submission, byId, sponsors),
   }));
 }
 

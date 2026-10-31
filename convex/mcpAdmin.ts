@@ -33,7 +33,7 @@ function submissionDto(s: Submission) {
     status: s.status, queueOrder: s.queueOrder, teamMembers: s.teamMembers,
     videoUrl: s.videoUrl, videoDeleteAt: s.videoDeleteAt, videoDeletedAt: s.videoDeletedAt,
     rulesAcceptedAt: s.rulesAcceptedAt, roundOneAssignedJudges: s.roundOneAssignedJudges,
-    aiSummary: s.aiSummary, createdAt: s.createdAt, updatedAt: s.updatedAt,
+    aiSummary: s.aiSummary, aiRead: s.aiRead, createdAt: s.createdAt, updatedAt: s.updatedAt,
   };
 }
 

@@ -67,7 +67,7 @@ import {
 } from "./tracks";
 import { insertEventSponsors, listEventSponsors, publicSponsor, sponsorInputValidator } from "./sponsors";
 import { emailConfig } from "./emails";
-import { publicAiSummary, queueAiSummaryIfStale } from "./aiSummaries";
+import { publicAiRead, publicAiSummary, queueAiSummaryIfStale } from "./aiSummaries";
 import { lumaOrganizationAllowed, queueLumaImport, participantSocialEditPatch, participantSocials, socialEditPatch, typedSocialSources } from "./luma";
 import { ZodError } from "zod";
 import { amountOfTime, submissionTitle, withChange } from "./changeWrap";
@@ -943,14 +943,15 @@ export async function getAdminForOrganization(
       for (const id of ids) trackCounts.set(id, (trackCounts.get(id) ?? 0) + 1);
     }
     const adminSubmissions = await Promise.all(
-      submissions.map(async (submission) =>
-        adminSubmissionFields(
+      submissions.map(async (submission) => ({
+        ...adminSubmissionFields(
           submission,
           byId,
           membersBySubmission.get(submission._id) ?? [],
           await resolveSubmissionVideoUrl(ctx, submission),
         ),
-      ),
+        aiRead: publicAiRead(event, submission, byId, sponsors),
+      })),
     );
     const submissionById = new Map(adminSubmissions.map((submission) => [submission.id, submission]));
     const mapAdminSubmission = (submission: Doc<"submissions">) =>

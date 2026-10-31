@@ -3,11 +3,14 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { env, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
+import { listEventSponsors } from "./sponsors";
+import { trackKey } from "../lib/tracks";
 import {
   DEFAULT_SUMMARY_SECTIONS,
   buildSampleSummary,
   cleanSummaryLine,
   findEvaluativeLanguage,
+  findReadEvaluativeLanguage,
   normalizeSummarySections,
   normalizeSummaryText,
   SUMMARY_PROMPT_VERSION,
@@ -15,7 +18,11 @@ import {
   summaryOutputSchemaFor,
   summarySourceKey,
   summaryTracksKey,
+  SPONSOR_USE_LEVELS,
+  TRACK_FIT_LEVELS,
   type PracticeAiSummaries,
+  type SponsorUseLevel,
+  type TrackFitLevel,
   type SummarySection,
   type SummaryTrack,
 } from "../lib/ai-summary";
@@ -42,7 +49,7 @@ export function summarySections(event: Pick<Doc<"events">, "aiSummarySections">)
  * their descriptions, or the team's free-text category for older entries.
  * Only the organiser's tracks count for its key.
  */
-function summaryTracks(submission: Doc<"submissions">, byId: ReadonlyMap<Id<"eventTracks">, Doc<"eventTracks">>) {
+function summaryTracks(submission: Doc<"submissions">, byId: ReadonlyMap<Id<"eventTracks">, Doc<"eventTracks">>, sponsors: Doc<"eventSponsors">[] = []) {
   const picked = (submission.trackIds ?? []).flatMap((id) => byId.get(id) ?? []);
   const tracks: SummaryTrack[] = picked.length > 0
     ? picked.map((track) => ({ name: track.name, description: track.description }))
@@ -50,7 +57,11 @@ function summaryTracks(submission: Doc<"submissions">, byId: ReadonlyMap<Id<"eve
   return {
     tracks,
     names: picked.map((track) => track.name),
-    tracksKey: summaryTracksKey(picked.map((track) => ({ id: String(track._id), description: track.description }))),
+    picked,
+    tracksKey: summaryTracksKey(
+      picked.map((track) => ({ id: String(track._id), description: track.description })),
+      sponsors.map((sponsor) => ({ id: String(sponsor._id), name: sponsor.name, usage: sponsor.usage })),
+    ),
   };
 }
 
@@ -149,11 +160,11 @@ export async function queueAiSummaryIfStale(
   event: Doc<"events">,
   submission: Doc<"submissions">,
   delayMs = 0,
-  options: { refreshReadme?: boolean; tracksChanged?: boolean; source?: SummaryQueueSource; submissionCount?: number } = {},
+  options: { refreshReadme?: boolean; contextChanged?: boolean; source?: SummaryQueueSource; submissionCount?: number } = {},
 ) {
   const needed = needsSummary(event, submission, options.refreshReadme);
   // A changed track description rewrites a written summary; the run checks the key first.
-  const tracksOnly = !needed && options.tracksChanged === true && inJudging(event, submission) && Boolean(submission.aiSummary);
+  const tracksOnly = !needed && options.contextChanged === true && inJudging(event, submission) && Boolean(submission.aiSummary);
   if (!needed && !tracksOnly) return false;
   // A practice event on sample summaries never calls the model; its samples do not use tracks.
   if (summaryMode(event) === "sample") {
@@ -177,7 +188,7 @@ export async function queueAiSummaryIfStale(
   await ctx.scheduler.runAfter(runAt - now, internal.aiSummaryAction.generateSubmissionSummary, {
     submissionId: submission._id,
     ...(options.refreshReadme ? { refreshReadme: true } : {}),
-    ...(options.tracksChanged ? { tracksChanged: true } : {}),
+    ...(options.contextChanged ? { contextChanged: true } : {}),
   });
   await ctx.db.patch(submission._id, { summaryQueuedFor: runAt });
   return true;
@@ -211,7 +222,7 @@ export const queueEventSummaries = internalMutation({
 
 /** What the model is given: project fields only, never names or contact details. */
 export const summaryInput = internalQuery({
-  args: { submissionId: v.id("submissions"), refreshReadme: v.optional(v.boolean()), tracksChanged: v.optional(v.boolean()) },
+  args: { submissionId: v.id("submissions"), refreshReadme: v.optional(v.boolean()), contextChanged: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const submission = await ctx.db.get(args.submissionId);
     if (!submission) return null;
@@ -219,9 +230,10 @@ export const summaryInput = internalQuery({
     // Sample summaries are written without the model, so a run queued before a switch does nothing.
     if (!event || summaryMode(event) === "sample") return null;
     const byId = tracksById(await listEventTracks(ctx, event._id));
-    const { tracks, tracksKey } = summaryTracks(submission, byId);
-    // A track description edit rewrites only summaries written from other descriptions.
-    const tracksStale = args.tracksChanged === true && inJudging(event, submission) && Boolean(submission.aiSummary) && submission.aiSummary?.tracksKey !== tracksKey;
+    const sponsors = event.eventType === "hackathon" ? await listEventSponsors(ctx, event._id) : [];
+    const { tracks, tracksKey } = summaryTracks(submission, byId, sponsors);
+    // A track description or sponsor edit rewrites only summaries written from something else.
+    const tracksStale = args.contextChanged === true && inJudging(event, submission) && Boolean(submission.aiSummary) && submission.aiSummary?.tracksKey !== tracksKey;
     if (!tracksStale && !needsSummary(event, submission, args.refreshReadme)) return null;
     const sourceKey = summarySourceKey(submission);
     return {
@@ -229,6 +241,7 @@ export const summaryInput = internalQuery({
       description: submission.description,
       githubUrl: submission.githubUrl ?? null,
       tracks,
+      sponsors: sponsors.map((sponsor) => ({ name: sponsor.name, usage: sponsor.usage })),
       tracksKey,
       sourceKey,
       sections: summarySections(event),
@@ -255,8 +268,14 @@ export const saveSummary = internalMutation({
     demoFocus: v.optional(v.string()),
     // Or one line per section key.
     lines: v.optional(v.array(v.object({ key: v.string(), text: v.string() }))),
-    // The track descriptions it was written from; a run started before an edit is not saved.
+    // The track descriptions and sponsors it was written from; a run started before an edit is not saved.
     tracksKey: v.optional(v.string()),
+    // The AI read as the model wrote it, by track and sponsor name.
+    read: v.optional(v.object({
+      overall: v.string(),
+      tracks: v.array(v.object({ track: v.string(), level: v.string(), reason: v.string() })),
+      sponsors: v.array(v.object({ sponsor: v.string(), level: v.string(), reason: v.string() })),
+    })),
     model: v.string(),
     usedReadme: v.boolean(),
     readmeHash: v.optional(v.string()),
@@ -269,7 +288,8 @@ export const saveSummary = internalMutation({
     if (summaryMode(event) === "sample") return { saved: false, reason: "sample_mode" };
     // Only tracks the organizer defined may be named; never the team's free-text category.
     const byId = tracksById(await listEventTracks(ctx, submission.eventId));
-    const { names: adminTracks, tracksKey } = summaryTracks(submission, byId);
+    const sponsors = event.eventType === "hackathon" ? await listEventSponsors(ctx, event._id) : [];
+    const { names: adminTracks, picked, tracksKey } = summaryTracks(submission, byId, sponsors);
     if (args.tracksKey !== undefined && args.tracksKey !== tracksKey) return { saved: false, reason: "source_changed" };
     const sections = summarySections(event);
     const given: Record<string, string> = {};
@@ -287,6 +307,8 @@ export const saveSummary = internalMutation({
     if (sections.every((section) => !lines[section.key])) return { saved: false, reason: "invalid_output" };
     const evaluative = findEvaluativeLanguage(sections.map((section) => lines[section.key]), adminTracks);
     if (evaluative) return { saved: false, reason: `evaluative_language:${evaluative}` };
+    // A read that scores or awards is left out; the description lines are still saved.
+    const read = args.read ? cleanRead(args.read, picked, sponsors) : undefined;
     await ctx.db.patch(submission._id, {
       aiSummary: {
         ...(lines.whatItDoes !== undefined ? { whatItDoes: lines.whatItDoes } : {}),
@@ -295,6 +317,7 @@ export const saveSummary = internalMutation({
         sections: sections.map((section) => ({ key: section.key, label: section.label, text: lines[section.key] })),
         sourceKey: args.sourceKey,
         ...(args.tracksKey !== undefined ? { tracksKey: args.tracksKey } : {}),
+        ...(read ? { read } : {}),
         model: args.model,
         usedReadme: args.usedReadme,
         readmeHash: args.readmeHash,
@@ -303,9 +326,108 @@ export const saveSummary = internalMutation({
       },
       aiSummaryGaveUp: undefined,
     });
-    return { saved: true, reason: "ok" };
+    return { saved: true, reason: args.read && !read ? "ok_without_read" : "ok" };
   },
 });
+
+type StoredRead = NonNullable<NonNullable<Doc<"submissions">["aiSummary"]>["read"]>;
+
+/**
+ * The model's read, matched to the event's tracks and sponsors by name. Lines
+ * are cleaned and capped, unknown names and levels are dropped, and a read that
+ * scores, ranks or awards is dropped whole (null).
+ */
+export function cleanRead(
+  read: { overall: string; tracks: { track: string; level: string; reason: string }[]; sponsors: { sponsor: string; level: string; reason: string }[] },
+  picked: Doc<"eventTracks">[],
+  sponsors: Doc<"eventSponsors">[],
+): StoredRead | null {
+  const described = picked.filter((track) => track.description?.trim());
+  const trackByName = new Map(described.map((track) => [trackKey(track.name), track]));
+  const sponsorByName = new Map(sponsors.map((sponsor) => [trackKey(sponsor.name), sponsor]));
+  const clean = (value: string) => cleanSummaryLine(normalizeSummaryText(value));
+  const tracks = new Map<Id<"eventTracks">, StoredRead["tracks"][number]>();
+  for (const entry of read.tracks) {
+    const track = trackByName.get(trackKey(normalizeSummaryText(entry.track)));
+    const level = (TRACK_FIT_LEVELS as readonly string[]).includes(entry.level) ? entry.level as TrackFitLevel : null;
+    if (track && level && !tracks.has(track._id)) tracks.set(track._id, { trackId: track._id, level, reason: clean(entry.reason) });
+  }
+  const used = new Map<Id<"eventSponsors">, StoredRead["sponsors"][number]>();
+  for (const entry of read.sponsors) {
+    const sponsor = sponsorByName.get(trackKey(normalizeSummaryText(entry.sponsor)));
+    const level = (SPONSOR_USE_LEVELS as readonly string[]).includes(entry.level) ? entry.level as SponsorUseLevel : null;
+    if (sponsor && level && !used.has(sponsor._id)) used.set(sponsor._id, { sponsorId: sponsor._id, level, reason: clean(entry.reason) });
+  }
+  const stored: StoredRead = {
+    overall: clean(read.overall),
+    // In the event's order, whatever order the model wrote them in.
+    tracks: described.flatMap((track) => tracks.get(track._id) ?? []),
+    sponsors: sponsors.flatMap((sponsor) => used.get(sponsor._id) ?? []),
+  };
+  const names = [...picked.map((track) => track.name), ...sponsors.map((sponsor) => sponsor.name)];
+  if (findReadEvaluativeLanguage([stored.overall, ...stored.tracks.map((entry) => entry.reason), ...stored.sponsors.map((entry) => entry.reason)], names)) return null;
+  return stored;
+}
+
+export type AiRead = {
+  /** Checking: a new read is on its way (written from older tracks or sponsors, or not written yet). */
+  status: "ready" | "checking";
+  overall: string | null;
+  tracks: { id: Id<"eventTracks">; name: string; level: TrackFitLevel | null; reason: string | null; described: boolean }[];
+  sponsors: { id: Id<"eventSponsors">; name: string; level: SponsorUseLevel | null; reason: string | null }[];
+};
+
+/**
+ * What judges and organisers see of the read: every track the team picked
+ * (with no level when it has no description) and every sponsor, with the
+ * stored level and reason when there is one. Null when there is nothing to
+ * read for: no picked tracks and no sponsors, a practice sample summary, or
+ * no summary on its way.
+ */
+export function publicAiRead(
+  event: Doc<"events">,
+  submission: Doc<"submissions">,
+  byId: ReadonlyMap<Id<"eventTracks">, Doc<"eventTracks">>,
+  sponsors: Doc<"eventSponsors">[],
+): AiRead | null {
+  if (event.eventType !== "hackathon" || summaryMode(event) === "sample") return null;
+  const { picked, tracksKey } = summaryTracks(submission, byId, sponsors);
+  if (picked.length === 0 && sponsors.length === 0) return null;
+  const summary = submission.aiSummary;
+  const written = summary?.read;
+  const fresh = Boolean(summary) && summary?.tracksKey === tracksKey && summary?.sourceKey === summarySourceKey(submission);
+  const coming = aiSummaryStatus(event, submission) === "writing" || (summary !== undefined && !fresh && aiSummariesConfigured() && inJudging(event, submission));
+  if (!written && !coming) return null;
+  const trackLevel = new Map((written?.tracks ?? []).map((entry) => [entry.trackId, entry]));
+  const sponsorLevel = new Map((written?.sponsors ?? []).map((entry) => [entry.sponsorId, entry]));
+  const shown = fresh || !coming;
+  return {
+    status: shown && written ? "ready" : "checking",
+    overall: shown ? written?.overall || null : null,
+    tracks: picked.map((track) => {
+      const entry = shown ? trackLevel.get(track._id) : undefined;
+      return { id: track._id, name: track.name, level: entry?.level ?? null, reason: entry?.reason ?? null, described: Boolean(track.description?.trim()) };
+    }),
+    sponsors: sponsors.map((sponsor) => {
+      const entry = shown ? sponsorLevel.get(sponsor._id) : undefined;
+      return { id: sponsor._id, name: sponsor.name, level: entry?.level ?? null, reason: entry?.reason ?? null };
+    }),
+  };
+}
+
+/**
+ * Queues a new read for every submission in judging that has a summary, after
+ * the event's sponsors changed. Each run checks the key first, so a summary
+ * already written from these sponsors is left alone.
+ */
+export async function queueReadsForEvent(ctx: MutationCtx, event: Doc<"events">) {
+  const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
+  let queued = 0;
+  for (const submission of submissions) {
+    if (await queueAiSummaryIfStale(ctx, event, submission, queued * SUMMARY_STAGGER_MS, { contextChanged: true, submissionCount: submissions.length })) queued += 1;
+  }
+  return queued;
+}
 
 /**
  * What a judge sees in the summary slot: the summary, one being written

@@ -674,7 +674,7 @@ test("judges can read and score every submission in judging", async () => {
   const team = [...mine.assignments, ...others].find((item) => item.id === ids[0])!;
   expect(team).toMatchObject({ teamName: "Night Owls", memberCount: 3, demoTitle: "Demo 0", name: "Person 0" });
   for (const item of others) {
-    expect(Object.keys(item).sort()).toEqual(["aiSummary", "aiSummaryStatus", "demoTitle", "description", "githubUrl", "id", "memberCount", "name", "teamName", "trackIds", "tracks", "videoUrl"]);
+    expect(Object.keys(item).sort()).toEqual(["aiRead", "aiSummary", "aiSummaryStatus", "demoTitle", "description", "githubUrl", "id", "memberCount", "name", "teamName", "trackIds", "tracks", "videoUrl"]);
   }
   expect(JSON.stringify(others)).not.toMatch(/\+44|@example\.com|participant-/);
 

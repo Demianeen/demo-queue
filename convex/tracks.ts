@@ -156,13 +156,13 @@ export const updateTrack = mutation({
     await ctx.db.patch(track._id, { name: input.name, description: input.description, updatedAt: Date.now() });
     await logTrackAction(ctx, event._id, "track_updated", actor, `${track.name} -> ${input.name}`);
     await queueJudgingSheetSync(ctx, event);
-    // Summaries say what relates to each track from its description: rewrite those of the teams that picked it.
+    // The AI read gives each picked track a fit level from its description: rewrite those of the teams that picked it.
     if ((input.description ?? "").trim() !== (track.description ?? "").trim()) {
       const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
       let queued = 0;
       for (const submission of submissions) {
         if (!(submission.trackIds ?? []).includes(track._id)) continue;
-        if (await queueAiSummaryIfStale(ctx, event, submission, queued * SUMMARY_STAGGER_MS, { tracksChanged: true, submissionCount: submissions.length })) queued += 1;
+        if (await queueAiSummaryIfStale(ctx, event, submission, queued * SUMMARY_STAGGER_MS, { contextChanged: true, submissionCount: submissions.length })) queued += 1;
       }
     }
   },

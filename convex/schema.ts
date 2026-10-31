@@ -171,8 +171,14 @@ export default defineSchema({
         usedReadme: v.boolean(),
         // SHA-256 of the README text the summary was written from, when there was one.
         readmeHash: v.optional(v.string()),
-        // summaryTracksKey of the track descriptions it was written from; missing before track descriptions went in.
+        // summaryTracksKey of the track descriptions and sponsors it was written from; missing before track descriptions went in.
         tracksKey: v.optional(v.string()),
+        // The AI read: a sentence overall, then a level and a reason for each described track and each sponsor.
+        read: v.optional(v.object({
+          overall: v.string(),
+          tracks: v.array(v.object({ trackId: v.id("eventTracks"), level: v.union(v.literal("strong"), v.literal("partial"), v.literal("weak")), reason: v.string() })),
+          sponsors: v.array(v.object({ sponsorId: v.id("eventSponsors"), level: v.union(v.literal("core"), v.literal("used"), v.literal("light"), v.literal("none")), reason: v.string() })),
+        })),
         // SUMMARY_PROMPT_VERSION it was written with; missing on the first version.
         promptVersion: v.optional(v.number()),
         // A practice sample summary, written without the model.

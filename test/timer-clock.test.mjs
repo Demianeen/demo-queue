@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { submissionsClockLabel, timeLeftMs, timerEndsAt } from "../lib/timer-clock.ts";
+import { formatSignedClock, submissionsClockLabel, timeLeftMs, timerEndsAt } from "../lib/timer-clock.ts";
 
 const minute = 60_000;
 
@@ -45,6 +45,16 @@ test("the submissions clock says the deadline passed once it is below zero", () 
   assert.equal(submissionsClockLabel(0, "Submissions close in"), "Submissions close in");
   assert.equal(submissionsClockLabel(-1_000, "Submissions close in"), "Deadline passed");
   assert.equal(submissionsClockLabel(-2 * minute, "On clock"), "Deadline passed");
+  // Below zero both read the same: a minus, then minutes and seconds.
+  assert.equal(formatSignedClock(65_000), "1:05");
+  assert.equal(formatSignedClock(500), "0:01");
+  assert.equal(formatSignedClock(0), "0:00");
+  assert.equal(formatSignedClock(-500), "-0:01");
+  assert.equal(formatSignedClock(-65_000), "-1:05");
+  assert.equal(formatSignedClock(-125 * 60_000), "-125:00");
+  const tabs = readFileSync(new URL("../components/live/PhaseTabs.tsx", import.meta.url), "utf8");
+  assert.match(tabs, /label="Submissions close in"[^\n]*countsBelowZero/, "the Submissions tab clock counts below zero");
+  assert.match(readFileSync(new URL("../components/StagePresentation.tsx", import.meta.url), "utf8"), /formatSignedClock/, "the projector uses the same reading");
   // The projector and the organiser's Submissions tab both label it this way.
   for (const file of ["components/StagePresentation.tsx", "components/live/PhaseTabs.tsx"]) {
     const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");

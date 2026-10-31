@@ -27,6 +27,15 @@ export function timeLeftMs(timer: TimerReading | null | undefined, now: number) 
   return timer.running ? timerEndsAt(timer) - now : timer.remainingMs;
 }
 
+/** m:ss, with a minus once the time is below zero ("-1:05"): the projector's and the submissions clock's reading. */
+export function formatSignedClock(ms: number) {
+  const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
+  const absoluteSeconds = Math.abs(totalSeconds);
+  const minutes = Math.floor(absoluteSeconds / 60);
+  const seconds = absoluteSeconds % 60;
+  return `${totalSeconds < 0 ? "-" : ""}${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 /** The submissions clock keeps counting below zero; once it does, its label says the deadline passed. */
 export function submissionsClockLabel(remainingMs: number, label: string) {
   return remainingMs < 0 ? "Deadline passed" : label;

@@ -13,15 +13,7 @@ import { stageSubmissionPrompt } from "@/lib/event-state";
 import type { StagePresentationData, StageTimerData } from "@/lib/stage-presentation";
 import { cn } from "@/lib/utils";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
-import { submissionsClockLabel, timeLeftMs } from "@/lib/timer-clock";
-
-function formatTimer(ms: number) {
-  const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
-  const absoluteSeconds = Math.abs(totalSeconds);
-  const minutes = Math.floor(absoluteSeconds / 60);
-  const seconds = absoluteSeconds % 60;
-  return `${totalSeconds < 0 ? "-" : ""}${minutes}:${String(seconds).padStart(2, "0")}`;
-}
+import { formatSignedClock as formatTimer, submissionsClockLabel, timeLeftMs } from "@/lib/timer-clock";
 
 type TimerUrgency = "normal" | "warning" | "danger";
 

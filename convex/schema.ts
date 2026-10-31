@@ -192,4 +192,8 @@ export default defineSchema({
     placementStatus: v.union(v.literal("draft"), v.literal("submitted"), v.literal("needs_review")),
     updatedAt: v.number(),
   }).index("by_event", ["eventId"]),
+}, {
+  // Rollback only: data written by the newer app has fields this schema does
+  // not list, so stored documents are not checked against it.
+  schemaValidation: false,
 });

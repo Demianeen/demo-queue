@@ -254,8 +254,9 @@ Two traps:
   `error.data`: read it with `convexErrorText` from `lib/convex-error.ts`,
   never from `error.message` (that works on dev and fails on prod). Find the
   real error by its request id in `convex logs`.
-- In a production build, Next.js's `onRequestError` (`instrumentation.ts`)
-  receives only a stand-in, "An error occurred in the Server Components
-  render…", plus a `digest`. Find the real error by that digest in PostHog
-  Logs (`demo-queue-web`) or the Vercel logs, or in the `where` report the same
-  request sent.
+- In a production build, an error thrown in `generateMetadata` reaches
+  `onRequestError` (`instrumentation.ts`) only as a stand-in, "An error
+  occurred in the Server Components render…", plus a `digest`, and Next.js logs
+  nothing else about it. Only the `where` report the same request sent has the
+  real error. An error in the page body reaches the hook with its real message.
+  The browser always gets the stand-in, by design.

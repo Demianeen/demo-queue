@@ -44,7 +44,10 @@ import {
 import {
   TEAM_CONTACT_FIELD_LIMITS,
   formatInternationalPhone,
+  formatWhatsAppAsYouType,
+  formatWhatsAppPhone,
   teamContactSchema,
+  whatsAppCountryName,
   type TeamContact,
   type TeamContactInput,
 } from "@/lib/team-contacts";
@@ -61,9 +64,20 @@ const PERSON_FIELD_BY_INPUT: Record<string, PersonField> = {
   name: "name", email: "email", whatsapp: "whatsappPhone", twitter: "socials", linkedin: "socials", githubProfile: "socials",
 };
 
+// WhatsApp numbers are read with or without a +; the demo night's phone keeps its own rules.
 function formatPhoneInput(input: EventTarget | null) {
   if (!(input instanceof HTMLInputElement) || input.type !== "tel") return;
-  const formatted = formatInternationalPhone(input.value);
+  const formatted = input.name.startsWith("whatsapp-") ? formatWhatsAppPhone(input.value) : formatInternationalPhone(input.value);
+  if (formatted !== input.value) input.value = formatted;
+}
+
+// Spaces a WhatsApp number as it is typed, only at the end of the field: deleting
+// or editing in the middle is left alone, so the caret never jumps.
+function formatWhatsAppTyping(event: FormEvent<HTMLInputElement>) {
+  const input = event.currentTarget;
+  const inputType = (event.nativeEvent as InputEvent).inputType ?? "";
+  if (inputType.startsWith("delete") || input.selectionStart !== input.value.length) return;
+  const formatted = formatWhatsAppAsYouType(input.value);
   if (formatted !== input.value) input.value = formatted;
 }
 
@@ -177,6 +191,8 @@ export function SubmissionPage({
   const [phoneError, setPhoneError] = useState("");
   const [teamNameError, setTeamNameError] = useState("");
   const [personErrors, setPersonErrors] = useState<PersonErrors>({});
+  // The country each row's WhatsApp number is read as, shown under it so a wrong guess is seen.
+  const [whatsAppCountries, setWhatsAppCountries] = useState<Record<number, string | null>>({});
   const [personRowIds, setPersonRowIds] = useState([0]);
   const nextPersonRowId = useRef(1);
   const [emails, setEmails] = useState<Record<number, string>>({});
@@ -730,10 +746,16 @@ export function SubmissionPage({
                             autoComplete={isPresenter ? "tel" : "off"}
                             maxLength={TEAM_CONTACT_FIELD_LIMITS.whatsappPhone}
                             required
+                            onInput={(inputEvent: FormEvent<HTMLInputElement>) => {
+                              formatWhatsAppTyping(inputEvent);
+                              const country = whatsAppCountryName(inputEvent.currentTarget.value);
+                              setWhatsAppCountries((current) => (current[rowId] === country ? current : { ...current, [rowId]: country }));
+                            }}
                             aria-invalid={Boolean(errors.whatsappPhone) || undefined}
-                            aria-describedby={errors.whatsappPhone ? `whatsapp-${rowId}-error` : undefined}
+                            aria-describedby={errors.whatsappPhone ? `whatsapp-${rowId}-error` : whatsAppCountries[rowId] ? `whatsapp-${rowId}-country` : undefined}
                           />
-                          {errors.whatsappPhone ? <span id={`whatsapp-${rowId}-error`} className="form-error">{errors.whatsappPhone}</span> : null}
+                          {errors.whatsappPhone ? <span id={`whatsapp-${rowId}-error`} className="form-error">{errors.whatsappPhone}</span>
+                            : whatsAppCountries[rowId] ? <span id={`whatsapp-${rowId}-country`} className="muted form-help">{whatsAppCountries[rowId]} number</span> : null}
                         </div>
                       </div>
                       <SocialFields error={errors.socials} label={label} lumaLinked={stage.event.lumaLinked} rowId={rowId} />

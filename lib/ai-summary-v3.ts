@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 // @ts-expect-error Node's strip-types test runner resolves the source extension directly.
-import { entryRank, keepTreePath, type TreeEntry } from "./ai-summary-inputs.ts";
+import { entryRank, isSourcePath, keepTreePath, type TreeEntry } from "./ai-summary-inputs.ts";
 // @ts-expect-error Node's strip-types test runner resolves the source extension directly.
 import { SPONSOR_USE_LEVELS, TRACK_FIT_LEVELS } from "./ai-read.ts";
 // @ts-expect-error Node's strip-types test runner resolves the source extension directly.
@@ -31,7 +31,6 @@ const CODE_FILE_MAX_BYTES = 200_000;
 /** Dependency files read anywhere in the tree, shallowest first. */
 const MANIFESTS = /(^|\/)(package\.json|requirements\.txt|pyproject\.toml|cargo\.toml|go\.mod|docker-compose\.ya?ml|vercel\.json)$/i;
 const MANIFEST_COUNT = 5;
-const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|swift|kt|java|vue|svelte|rb|php|cs|dart)$/i;
 /** Commit messages the model sees, oldest first, each cut to one line. */
 const COMMIT_MESSAGE_COUNT = 60;
 const COMMIT_MESSAGE_LIMIT = 120;
@@ -143,18 +142,23 @@ export function buildFactsText(facts: BuildFacts) {
   ].filter(Boolean).join(" ");
 }
 
-/** Relative imports in a JS/TS or Python file, as repository paths without an extension. */
+/** Relative imports in a JS/TS, Python or C/C++ file, as repository paths without an extension. */
 export function importsOf(path: string, text: string) {
   const dir = path.split("/").slice(0, -1);
   const found: string[] = [];
-  for (const match of text.matchAll(/(?:from|import|require\()\s*["'](\.{1,2}\/[^"']+)["']/g)) {
+  const resolve = (relative: string) => {
     const parts = [...dir];
-    for (const part of match[1].split("/")) {
+    for (const part of relative.split("/")) {
       if (part === "..") parts.pop();
       else if (part !== ".") parts.push(part);
     }
-    found.push(parts.join("/").replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, ""));
+    return parts.join("/");
+  };
+  for (const match of text.matchAll(/(?:from|import|require\()\s*["'](\.{1,2}\/[^"']+)["']/g)) {
+    found.push(resolve(match[1]).replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, ""));
   }
+  // A quoted include is a file of the project, next to this one; <...> is a system header.
+  for (const match of text.matchAll(/^\s*#\s*include\s+"([^"]+)"/gm)) found.push(resolve(match[1]).replace(/\.(h|hh|hpp|hxx)$/, ""));
   for (const match of text.matchAll(/^from\s+\.([\w.]*)\s+import/gm)) found.push([...dir, ...match[1].split(".").filter(Boolean)].join("/"));
   return found;
 }
@@ -162,7 +166,7 @@ export function importsOf(path: string, text: string) {
 /** Source files that may be read, and the order to start from: entry points first. */
 export function planDeadlineRead(tree: TreeEntry[]) {
   const kept = tree.filter((entry) => entry.type === "blob" && typeof entry.path === "string" && keepTreePath(entry.path));
-  const sources = kept.filter((entry) => SOURCE.test(entry.path) && !/\.d\.ts$|\.config\.[cm]?[jt]s$/i.test(entry.path) && (entry.size ?? 0) <= CODE_FILE_MAX_BYTES);
+  const sources = kept.filter((entry) => isSourcePath(entry.path) && !/\.d\.ts$|\.config\.[cm]?[jt]s$/i.test(entry.path) && (entry.size ?? 0) <= CODE_FILE_MAX_BYTES);
   const entries = sources
     .flatMap((entry) => {
       const rank = entryRank(entry.path);
@@ -235,7 +239,7 @@ export async function fetchDeadlineRead(
       if (response.ok) {
         const body = (await response.json()) as { files?: { filename?: unknown; additions?: unknown }[] };
         // Only code counts: a sample model or dataset in the first commit says nothing about what was built.
-        const code = (body.files ?? []).filter((file) => typeof file.filename === "string" && keepTreePath(file.filename) && SOURCE.test(file.filename));
+        const code = (body.files ?? []).filter((file) => typeof file.filename === "string" && keepTreePath(file.filename) && isSourcePath(file.filename));
         firstCommit = { lines: code.reduce((sum, file) => sum + (typeof file.additions === "number" ? file.additions : 0), 0), files: code.length };
       }
     }

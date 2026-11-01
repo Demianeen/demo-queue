@@ -61,6 +61,8 @@ const ENTRY_NAMES = ["main", "app", "server", "index", "__main__", "cli"];
 const SOURCE_ROOTS = new Set(["src", "app", "apps", "packages", "backend", "frontend", "server", "web", "client", "api", "cmd"]);
 
 const extension = (path: string) => /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? "";
+/** A file in a language the summaries read as code, from its extension. */
+export const isSourcePath = (path: string) => SOURCE.has(extension(path));
 const depth = (path: string) => path.split("/").length - 1;
 const byDepth = (a: string, b: string) => depth(a) - depth(b) || (a < b ? -1 : a > b ? 1 : 0);
 

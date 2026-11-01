@@ -53,6 +53,22 @@ test("imports are followed relative to the file, for JS, TS and Python", () => {
   assert.deepEqual(importsOf("pkg/server.py", "from .models import User\nfrom .db.session import get\nimport os"), ["pkg/models", "pkg/db/session"]);
 });
 
+test("C and C++ quoted includes are followed; system headers are not", () => {
+  assert.deepEqual(importsOf("src/main.c", '#include "jv.h"\n#include <stdio.h>\n# include "../lib/util.hpp"'), ["src/jv", "lib/util"]);
+});
+
+test("the plan reads C and C++ files as code", () => {
+  const plan = planDeadlineRead([
+    { path: "src/main.c", type: "blob", size: 100 },
+    { path: "src/execute.c", type: "blob", size: 9000 },
+    { path: "src/jv.h", type: "blob", size: 500 },
+    { path: "src/render.cpp", type: "blob", size: 700 },
+  ]);
+  assert.deepEqual(plan.entries, ["src/main.c"]);
+  assert.deepEqual(plan.largest, ["src/execute.c", "src/render.cpp", "src/jv.h", "src/main.c"]);
+  assert.equal(plan.byStem.get("src/jv"), "src/jv.h");
+});
+
 test("the plan starts at entry points and skips vendored, test and generated files", () => {
   const plan = planDeadlineRead([
     { path: "src/index.ts", type: "blob", size: 100 },

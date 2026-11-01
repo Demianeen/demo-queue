@@ -62,7 +62,11 @@ export async function normalizeTrackSelection(
   const allowed = new Set(tracks.map((track) => track._id));
   const chosen = new Set<Id<"eventTracks">>();
   for (const id of trackIds) {
-    if (!allowed.has(id)) throw new ConvexError("Choose tracks from this event.");
+    if (!allowed.has(id)) {
+      // A track removed while the form was open: drop it, as removing it did for saved submissions.
+      if ((await ctx.db.get(id)) === null) continue;
+      throw new ConvexError("Choose tracks from this event.");
+    }
     chosen.add(id);
   }
   return tracks.filter((track) => chosen.has(track._id)).map((track) => track._id);

@@ -98,9 +98,13 @@ export function SubmissionPreviewTrigger({ preview, className }: { preview: Subm
       </PreviewCard.Trigger>
       <span ref={setContainer} />
       <PreviewCard.Portal container={container}>
-        <PreviewCard.Positioner align="start" collisionPadding={16} side="right" sideOffset={10}>
-          <PreviewCard.Popup aria-label={`${preview.demoTitle} details`} className="submission-preview" role="dialog">
-            <SubmissionPreviewBody preview={preview} />
+        {/* Fixed, so the list's overflow does not clip the card it is rendered inside; z-50 keeps it over the sticky header. */}
+        <PreviewCard.Positioner align="start" className="isolate z-50" collisionPadding={16} positionMethod="fixed" side="right" sideOffset={10}>
+          <PreviewCard.Popup aria-label={`${preview.demoTitle} details`} className="submission-preview submission-preview-card" role="dialog">
+            <SubmissionPreviewHead preview={preview} />
+            <div className="submission-preview-scroll">
+              <SubmissionPreviewDetails preview={preview} />
+            </div>
           </PreviewCard.Popup>
         </PreviewCard.Positioner>
       </PreviewCard.Portal>
@@ -110,32 +114,48 @@ export function SubmissionPreviewTrigger({ preview, className }: { preview: Subm
 
 /** The card's content: video, links, AI summary and team. Also shown inline in the Judging detail panel. */
 export function SubmissionPreviewBody({ preview }: { preview: SubmissionPreview }) {
-  const embed = youtubeEmbedUrl(preview.videoUrl);
   return (
     <>
-      <div className="submission-preview-top">
-        {embed ? (
-          <div className="submission-preview-video">
-            <iframe
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
-              src={embed}
-              title={`${preview.demoTitle} demo video`}
-            />
-          </div>
-        ) : (
-          <div className="submission-preview-video is-empty">{preview.videoUrl ? "Video opens in a new tab" : "No demo video"}</div>
-        )}
-        <div className="submission-preview-intro">
-          <strong>{preview.demoTitle}</strong>
-          {preview.description ? <span className="submission-preview-description">{preview.description}</span> : null}
-          <span className="submission-preview-links">
-            {preview.githubUrl ? <a href={preview.githubUrl} rel="noreferrer" target="_blank">GitHub <ExternalLinkIcon aria-hidden="true" /></a> : null}
-            {preview.videoUrl ? <a href={preview.videoUrl} rel="noreferrer" target="_blank">Video <ExternalLinkIcon aria-hidden="true" /></a> : null}
-          </span>
+      <SubmissionPreviewHead preview={preview} />
+      <SubmissionPreviewDetails preview={preview} />
+    </>
+  );
+}
+
+/** Video, title, description and links: the hover card keeps these in view while the rest scrolls. */
+function SubmissionPreviewHead({ preview }: { preview: SubmissionPreview }) {
+  const embed = youtubeEmbedUrl(preview.videoUrl);
+  return (
+    <div className="submission-preview-top">
+      {embed ? (
+        <div className="submission-preview-video">
+          <iframe
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin"
+            src={embed}
+            title={`${preview.demoTitle} demo video`}
+          />
         </div>
+      ) : (
+        <div className="submission-preview-video is-empty">{preview.videoUrl ? "Video opens in a new tab" : "No demo video"}</div>
+      )}
+      <div className="submission-preview-intro">
+        <strong>{preview.demoTitle}</strong>
+        {preview.description ? <span className="submission-preview-description">{preview.description}</span> : null}
+        <span className="submission-preview-links">
+          {preview.githubUrl ? <a href={preview.githubUrl} rel="noreferrer" target="_blank">GitHub <ExternalLinkIcon aria-hidden="true" /></a> : null}
+          {preview.videoUrl ? <a href={preview.videoUrl} rel="noreferrer" target="_blank">Video <ExternalLinkIcon aria-hidden="true" /></a> : null}
+        </span>
       </div>
+    </div>
+  );
+}
+
+/** The AI summary and the team. */
+function SubmissionPreviewDetails({ preview }: { preview: SubmissionPreview }) {
+  return (
+    <>
       {preview.aiSummary ? (
         <AiPanel caveat={aiSummaryCaveat(preview.aiSummary)} read={preview.aiRead} organiser rows={[
           { label: "What it does", text: preview.aiSummary.whatItDoes },

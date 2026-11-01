@@ -4,6 +4,7 @@ import { api, components } from "./_generated/api.js";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import tableHistorySchema from "../node_modules/@convex-dev/table-history/src/component/schema";
+import { judgeTotal, sortByScore } from "../lib/judge-sort";
 
 const tableHistoryComponentRoot =
   "../node_modules/@convex-dev/table-history/src/component";
@@ -796,4 +797,22 @@ test("other submissions need an active judge link for that event", async () => {
   await expect(t.query(api.judging.getOtherSubmissions, { slug: "missing", capabilityToken: "alex-secret" })).rejects.toThrow("Event not found.");
   await t.mutation(api.judging.deactivateJudgeAccess, { slug: "hack", judgeKey: await keyOf(t, "Alex"), active: false });
   await expect(t.query(api.judging.getOtherSubmissions, { slug: "hack", capabilityToken: "alex-secret" })).rejects.toThrow("Unauthorized");
+});
+
+test("a judge's total on their page is the score Results shows for their review", async () => {
+  const { t, eventId } = await createHackathon(["Alex", "Sam"]);
+  const ids = [await addSubmission(t, eventId, 1), await addSubmission(t, eventId, 2), await addSubmission(t, eventId, 3)];
+  await t.mutation(api.judging.createJudgeAccess, { slug: "hack", judgeName: "Alex", capabilityToken: "alex-secret" });
+  await prepareAssignments(t);
+  await t.mutation(api.judging.startJudging, { slug: "hack" });
+  // Only Alex scores, so evening out moves nothing and Results is Alex's own total.
+  for (const [submissionId, innovation, execution, demoClarity] of [[ids[0], 6, 7, 9], [ids[1], 9, 7, 6], [ids[2], 4, 5, 5]] as const) {
+    await t.mutation(api.judging.saveReview, { slug: "hack", capabilityToken: "alex-secret", submissionId, innovation, execution, demoClarity });
+  }
+  const workspace = await t.query(api.judging.getJudgeWorkspace, { slug: "hack", capabilityToken: "alex-secret" });
+  const results = await t.query(api.judging.getFinalistDecision, { slug: "hack" });
+  const resultScore = new Map(results.submissions.map((row) => [String(row.submissionId), row.score]));
+  for (const project of workspace.projects) expect(judgeTotal(project.review)).toBeCloseTo(resultScore.get(String(project.id))!, 10);
+  // The judge's sort matches Results' order.
+  expect(sortByScore(workspace.projects, (project) => judgeTotal(project.review)).map((project) => project.id)).toEqual(results.submissions.map((row) => row.submissionId));
 });

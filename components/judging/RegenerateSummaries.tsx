@@ -50,7 +50,7 @@ export function RegenerateSummaries({ slug }: { slug: string }) {
 
   return <>
     {status && <span className={styles.sheetStatus} role="status" title={status}>{status}</span>}
-    <Button variant="ghost" size="sm" onClick={() => { setError(""); setOpen(true); }} disabled={progress?.running || state.projects === 0}>
+    <Button variant="ghost" size="sm" title="Rewrites every project's AI summary with the current tracks, sponsors and prompt." onClick={() => { setError(""); setOpen(true); }} disabled={progress?.running || state.projects === 0}>
       <Sparkles aria-hidden />{progress?.running ? "Regenerating…" : "Regenerate AI summaries"}
     </Button>
     <Dialog open={open} onOpenChange={(next) => { if (!busy) setOpen(next); }}>
@@ -58,7 +58,7 @@ export function RegenerateSummaries({ slug }: { slug: string }) {
         <DialogHeader>
           <DialogTitle>Regenerate AI summaries?</DialogTitle>
           <DialogDescription>
-            Rewrites the AI summary of all {state.projects} project{state.projects === 1 ? "" : "s"} in judging with the current prompt, a few at a time (about {minutes} minute{minutes === 1 ? "" : "s"}).
+            Rewrites the AI summary of all {state.projects} project{state.projects === 1 ? "" : "s"} in judging with the current tracks, sponsors and prompt, a few at a time (about {minutes} minute{minutes === 1 ? "" : "s"}).
             {state.sample ? " This practice event uses sample summaries, so it costs nothing." : ` Estimated cost: about ${usd(state.estimateUsd)} (about $0.17 a project).`}
             {" "}Judges keep seeing the current summary until its new one is saved. A project whose new summary fails keeps its old one.
           </DialogDescription>

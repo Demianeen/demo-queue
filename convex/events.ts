@@ -70,6 +70,7 @@ import { judgingRemaining, phaseFields } from "./phases";
 import { addJudgesToEvent, removeJudgeFromEvent, REVIEW_TARGET } from "./judging";
 import { loadJudgeDirectory } from "./judgeDirectory";
 import { isJudgedStatus } from "../lib/judged-status";
+import { eventProperties, organiser, track, trackException, type Actor } from "./analytics";
 
 const STAGE_LINEUP_LIMIT = 10;
 const DEFAULT_STAGE_TIMER_MS = 5 * 60 * 1000;
@@ -183,6 +184,13 @@ function sortQueue(a: Doc<"submissions">, b: Doc<"submissions">) {
 
 // The lineup is the ordered running order: every "queued" submission, sorted by
 // queueOrder. Position 0 is "now demoing" (current), position 1 is "up next".
+/** The presenter's slot in the night's running order, counting from 1: everyone already done or a no-show, plus one. */
+function showPosition(submissions: Doc<"submissions">[]) {
+  return submissions.filter((submission) => submission.status === "done" || submission.status === "no_show").length + 1;
+}
+
+const TEAM: Actor = { kind: "anonymous", surface: "team" };
+
 function lineupSorted(submissions: Doc<"submissions">[]) {
   return submissions.filter((submission) => submission.status === "queued").sort(sortQueue);
 }
@@ -617,10 +625,13 @@ export const createEvent = mutation({
 export async function createOrganizationEvent(
   ctx: MutationCtx,
   args: CreateEventInput,
-  { organizationId, actor }: { organizationId: string; actor: string },
+  principal: Pick<OrganizationPrincipal, "organizationId" | "actor" | "mcp">,
   tracks: Infer<typeof trackInputValidator>[] = [],
   sponsors: Infer<typeof sponsorInputValidator>[] = [],
+  // A practice event sends event_created itself, once it is marked practice.
+  { trackCreated = true } = {},
 ) {
+    const { organizationId, actor } = principal;
     const name = args.name.trim();
     if (!name || name.length > 160) throw new ConvexError("Enter an event name of 1–160 characters.");
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(args.slug) || args.slug.length > 200) {
@@ -671,7 +682,13 @@ export async function createOrganizationEvent(
     if (args.eventType === "hackathon") await insertEventSponsors(ctx, eventId, sponsors);
     else if (sponsors.some((sponsor) => sponsor.name.trim())) throw new ConvexError("Sponsors are for hackathons.");
     await logAction(ctx, eventId, "event_created", actor);
+    if (trackCreated) await trackEventCreated(ctx, eventId, principal);
     return { eventId };
+}
+
+export async function trackEventCreated(ctx: MutationCtx, eventId: Id<"events">, principal: Pick<OrganizationPrincipal, "organizationId" | "actor" | "mcp">) {
+  const event = await ctx.db.get(eventId);
+  if (event) await track(ctx, "event_created", organiser(principal), { ...eventProperties(event), from_luma: event.lumaEventId !== undefined });
 }
 
 export const listOrganizationEvents = query({
@@ -1328,6 +1345,7 @@ export const requestStatusLinkEmail = mutation({
     const event = await eventBySlug(ctx, args.slug);
     const [owner] = await emailOwners(ctx, event._id, key);
     if (owner) await emailStatusLinkToOwner(ctx, owner);
+    await track(ctx, "status_link_requested", TEAM, eventProperties(event));
     return { ok: true };
   },
 });
@@ -1394,6 +1412,11 @@ export async function submitDemoForEvent(ctx: MutationCtx, event: Doc<"events">,
     // Test people send no email: it would only spend the daily allowance real participants need.
     if (!options.practiceTest) await queueSubmittedEmail(ctx, submissionId, now);
     if (!options.practiceTest) await queueLumaImport(ctx, event, submissionId);
+    if (!options.practiceTest) {
+      await track(ctx, "submission_submitted", TEAM, {
+        ...eventProperties(event), tracks: tracks.trackIds?.length ?? 0, has_video: false, has_repository: false, team_size: 1,
+      });
+    }
     return { submissionId };
 }
 
@@ -1534,6 +1557,11 @@ export async function submitHackathonForEvent(ctx: MutationCtx, event: Doc<"even
     // Participants cannot edit after submitting, so the summary can be written now.
     const submitted = await ctx.db.get(submissionId);
     if (submitted) await queueAiSummaryIfStale(ctx, event, submitted, 0, { source: "participant" });
+    if (!options.practiceTest) {
+      await track(ctx, "submission_submitted", TEAM, {
+        ...eventProperties(event), tracks: tracks.trackIds?.length ?? 0, has_video: Boolean(videoUrl), has_repository: Boolean(githubUrl), team_size: 1 + teamMembers.length,
+      });
+    }
     return { submissionId };
 }
 
@@ -1800,6 +1828,7 @@ export const withdrawSubmission = mutation({
     await ctx.db.patch(submission._id, { withdrawnFromStatus: submission.status, withdrawnBy: "participant" });
     await logAction(ctx, event._id, "submission_withdrawn", "participant", submission._id);
     await queueJudgingSheetSync(ctx, event);
+    await track(ctx, "submission_withdrawn", TEAM, eventProperties(event));
   },
 });
 
@@ -2320,6 +2349,19 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
   },
 });
 
+/** A fixed code for a judging sheet sync failure, from the messages googleApiFailure and the sync give. */
+function judgingSheetFailureReason(message: string) {
+  if (message.startsWith("Google authorization is no longer valid")) return "unauthorized";
+  if (message.startsWith("Google rejected the judging sheet update")) return "bad_request";
+  if (message.startsWith("The connected Google account does not have permission")) return "forbidden";
+  if (message.startsWith("Google could not find")) return "not_found";
+  if (message.startsWith("Google temporarily rate-limited")) return "rate_limited";
+  if (message.startsWith("Google API request failed")) return "google_error";
+  if (message.endsWith("is not configured for this Convex deployment.")) return "not_configured";
+  if (message.includes("Judging tab")) return "tab_missing_or_changed";
+  return "other";
+}
+
 export const completeJudgingSheetSync = internalMutation({
   args: {
     eventId: v.id("events"),
@@ -2341,6 +2383,9 @@ export const completeJudgingSheetSync = internalMutation({
 
     if (args.error) {
       await ctx.db.patch(event._id, { judgingSheetSyncError: args.error });
+      // The message is Google's failure, so PostHog gets a fixed code; the exception's text is redacted.
+      await track(ctx, "judging_sheet_sync_failed", { kind: "system" }, { ...eventProperties(event), reason: judgingSheetFailureReason(args.error) });
+      await trackException(ctx, new Error(args.error), { kind: "system" }, "googleSheets.syncJudgingSheet", eventProperties(event));
       return;
     }
 
@@ -2453,6 +2498,7 @@ async function setStageScreenModeOperation(
       updatedAt: Date.now(),
     });
     await logAction(ctx, event._id, `stage_screen_${args.mode}`, actor);
+    await track(ctx, "stage_mode_changed", organiser(principal), { ...eventProperties(event), mode: args.mode });
 }
 
 export const setStageScreenMode = mutation({
@@ -2691,6 +2737,7 @@ async function startStageTimerOperation(
       updatedAt: now,
     });
     await logAction(ctx, event._id, "stage_timer_started", actor, String(remainingMs));
+    await track(ctx, "timer_started", organiser(principal), { ...eventProperties(event), timer: "stage", seconds: Math.round(remainingMs / 1000) });
 }
 
 export const startStageTimer = mutation({
@@ -2799,6 +2846,7 @@ async function startDemoTimerOperation(
       updatedAt: now,
     });
     await logAction(ctx, event._id, "demo_timer_started", actor, String(remainingMs));
+    await track(ctx, "timer_started", organiser(principal), { ...eventProperties(event), timer: "demo", seconds: Math.round(remainingMs / 1000) });
 }
 
 export const startDemoTimer = mutation({
@@ -3068,6 +3116,7 @@ async function reorderLineupOperation(
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_reordered", actor);
     await queueJudgingSheetSync(ctx, event);
+    await track(ctx, "lineup_shuffled", organiser(principal), { ...eventProperties(event), method: "manual" });
 }
 
 export const reorderLineup = mutation({
@@ -3120,6 +3169,7 @@ async function shuffleLineupOperation(
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "lineup_shuffled", actor);
     await queueJudgingSheetSync(ctx, event);
+    await track(ctx, "lineup_shuffled", organiser(principal), { ...eventProperties(event), method: "random" });
 }
 
 export const shuffleLineup = mutation({
@@ -3270,6 +3320,7 @@ async function markNoShowOperation(
     await clearAdvanceSnapshot(ctx, event, now);
     await logAction(ctx, event._id, "submission_no_show", actor, current._id);
     await queueJudgingSheetSync(ctx, event);
+    await track(ctx, "no_show_marked", organiser(principal), { ...eventProperties(event), position: showPosition(submissions) });
 }
 
 export const markNoShow = mutation({
@@ -3335,6 +3386,7 @@ async function pickNextOperation(
 
     await logAction(ctx, event._id, "pick_next", actor);
     await queueJudgingSheetSync(ctx, event);
+    await track(ctx, "presenter_picked", organiser(principal), { ...eventProperties(event), position: showPosition(submissions) });
 }
 
 export const pickNext = mutation({
@@ -3440,6 +3492,7 @@ async function skipCurrentOperation(
 
     await logAction(ctx, event._id, "current_skipped", actor, current._id);
     await queueJudgingSheetSync(ctx, event);
+    await track(ctx, "presenter_skipped", organiser(principal), { ...eventProperties(event), position: showPosition(submissions) });
 }
 
 export const skipCurrent = mutation({

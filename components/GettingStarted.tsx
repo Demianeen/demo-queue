@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useAction, useConvexAuth, useMutation, useQueries } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { guideProgress, teamSummary, type TeamCounts } from "@/lib/getting-started";
+import { captureEvent } from "@/lib/posthog-browser";
 import { cn } from "@/lib/utils";
 
 type EventSummary = { name: string; slug: string };
@@ -24,6 +25,31 @@ function StepRow({ title, done, detail, action }: { title: string; done: boolean
     </div>
     {action && <div className="flex flex-wrap items-center gap-1.5 max-sm:pl-[30px]">{action}</div>}
   </li>;
+}
+
+const GUIDE_STEPS = ["first_event", "team", "mcp_connected", "style", "dry_run"];
+
+/**
+ * Reports each step that turns done while the guide is open, once per visit.
+ * Steps already done on arrival are not counted, and a reload of the team
+ * status starts the comparison again, so a team that was done all along is not
+ * reported when its status finally loads.
+ */
+function StepCompletions({ steps, settled }: { steps: boolean[]; settled: boolean }) {
+  const seen = useRef<boolean[] | null>(null);
+  const reported = useRef(new Set<number>());
+  const key = steps.map(Number).join("");
+  useEffect(() => {
+    if (!settled) { seen.current = null; return; }
+    const now = [...key].map((done) => done === "1");
+    seen.current?.forEach((done, index) => {
+      if (done || !now[index] || reported.current.has(index)) return;
+      reported.current.add(index);
+      captureEvent("getting_started_step_completed", { step: GUIDE_STEPS[index] });
+    });
+    seen.current = now;
+  }, [key, settled]);
+  return null;
 }
 
 /** Skeleton shaped like the guide: header, progress bar and five rows. */
@@ -148,6 +174,7 @@ function Guide({ organizationName, events, styleCount, onCreateEvent, onOpenStyl
           : <Button variant="ghost" size="sm" className="font-normal text-muted-foreground" disabled={pending !== null} onClick={() => void change("hide", () => setHidden({ hidden: true }))}>{pending === "hide" ? "Hiding…" : alwaysOpen ? "Hide on Events" : "Hide guide"}</Button>}
       </div>
       {error && <div className="px-4 pb-2.5"><p role="alert" className="ws-error">{error}</p></div>}
+      <StepCompletions steps={steps} settled={team.kind !== "loading"} />
       <ol className="ws-list">
         <StepRow title="Create your first event" done={steps[0]} detail={firstEvent ? firstEvent.name : "Name it, pick demo night or hackathon, and share the submit link."}
           action={!steps[0] && <Button size="sm" variant={variant(0)} onClick={onCreateEvent}>Create event</Button>} />

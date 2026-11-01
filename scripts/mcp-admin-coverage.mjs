@@ -220,7 +220,9 @@ export function scanToolMappings(text, legacyText = "") {
     }
     if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && serverClasses.has(node.expression.text)) {
       const options = unwrapped(node.arguments?.[1]);
-      const tools = options && ts.isObjectLiteralExpression(options) ? unwrapped(property(options, "tools")) : undefined;
+      let tools = options && ts.isObjectLiteralExpression(options) ? unwrapped(property(options, "tools")) : undefined;
+      // The analytics wrapper returns the same tools, so its literal argument is the registration.
+      if (tools && ts.isCallExpression(tools) && ts.isIdentifier(tools.expression) && tools.expression.text === "reportedComponentTools") tools = unwrapped(tools.arguments[0]);
       if (!tools || !ts.isObjectLiteralExpression(tools)) errors.push("Component server tools must use an object literal.");
       else for (const entry of tools.properties) {
         if (ts.isSpreadAssignment(entry)) continue;

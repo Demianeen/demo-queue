@@ -6,6 +6,7 @@ import { activeMemberships, listActiveMemberships, membershipCursor, mcpConfig, 
 import { VISUAL_STYLES } from "../lib/visual-style";
 import { registerAdminTools } from "./mcpTools";
 import { ConvexError } from "convex/values";
+import { failed, failureOf, reportingRegistrar } from "./mcpAnalytics";
 
 const MAX_BODY = 262144;
 const organizationId = z.string().regex(/^org_[A-Za-z0-9]+$/);
@@ -46,36 +47,36 @@ async function toolCall(user: ConnectUser, config: McpConfig, expectedOrganizati
     await activeMemberships(user, config);
     return result(await operation());
   } catch (error) {
+    let value: { error: string; message?: string } = { error: error instanceof McpFailure ? error.code : "operation_failed" };
     if (adminOperation && error instanceof ConvexError) {
       const matches = (message: string) => error.data === message || error.data === JSON.stringify(message);
-      if (matches("Unauthorized")) return { ...result({ error: "access_denied" }), isError: true };
       const message = [...adminMessages].find(matches);
-      if (message) {
-        return { ...result({ error: "invalid_operation", message }), isError: true };
-      }
+      if (matches("Unauthorized")) value = { error: "access_denied" };
+      else if (message) value = { error: "invalid_operation", message };
     }
-    return { ...result({ error: error instanceof McpFailure ? error.code : "operation_failed" }), isError: true };
+    return failed({ ...result(value), isError: true }, failureOf(error, value.message));
   }
 }
 
-export function createToolServer(ctx: Pick<ActionCtx, "runQuery" | "runMutation" | "runAction">, user: ConnectUser, config: McpConfig) {
+export function createToolServer(ctx: Pick<ActionCtx, "runQuery" | "runMutation" | "runAction" | "scheduler">, user: ConnectUser, config: McpConfig) {
   const server = new McpServer({ name: "demo-queue", version: "1.0.0" });
-  server.registerTool("list_organizations", {
+  const registerTool = reportingRegistrar(server, ctx, { kind: "organiser", userId: user.userId, organizationId: user.organizationId, surface: "mcp" });
+  registerTool("list_organizations", {
     description: "List active memberships. Acting in another organization requires OAuth reauthorization.",
     inputSchema: z.object({ cursor: membershipCursor.nullable().default(null) }).strict(), annotations: { readOnlyHint: true },
   }, async ({ cursor }) => {
     try { return result(await listActiveMemberships({ user, config, cursor })); }
-    catch (error) { return { ...result({ error: error instanceof McpFailure ? error.code : "provider_unavailable" }), isError: true }; }
+    catch (error) { return failed({ ...result({ error: error instanceof McpFailure ? error.code : "provider_unavailable" }), isError: true }, failureOf(error)); }
   });
-  server.registerTool("list_events", {
+  registerTool("list_events", {
     description: "List safe event metadata in the OAuth-selected organization.",
     inputSchema: z.object({ organizationId, limit: z.number().int().min(1).max(50).default(20), cursor: z.string().max(4096).nullable().default(null) }).strict(), annotations: { readOnlyHint: true },
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runQuery(internal.mcpData.listEvents, { organizationId: args.organizationId, paginationOpts: { numItems: args.limit, cursor: args.cursor } })));
-  server.registerTool("get_event", {
+  registerTool("get_event", {
     description: "Read safe event metadata. Capabilities, contacts, and judging records are excluded.",
     inputSchema: z.object({ organizationId, slug: z.string().min(1).max(200) }).strict(), annotations: { readOnlyHint: true },
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runQuery(internal.mcpData.getEvent, args)));
-  server.registerTool("create_event", {
+  registerTool("create_event", {
     description: "Create an initially unpublished event using a saved style, built-in preset, or the organization default.",
     inputSchema: z.object({ organizationId, name: z.string().trim().min(1).max(160), slug: z.string().max(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), eventType: z.enum(["demo", "hackathon"]), meetUrl: z.url().max(2048).refine((url) => ["https:", "http:"].includes(new URL(url).protocol)).optional().describe("Google Meet link. Required for a demo night; optional for a hackathon."), style: styleSelection.optional() }).strict(),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
@@ -83,18 +84,18 @@ export function createToolServer(ctx: Pick<ActionCtx, "runQuery" | "runMutation"
     expectedOrganizationId: args.organizationId, actor: user.actor, name: args.name, slug: args.slug, eventType: args.eventType, meetUrl: args.meetUrl,
     ...(args.style?.kind === "saved" ? { styleId: args.style.id } : args.style?.kind === "preset" ? { visualStyle: args.style.preset } : {}),
   })));
-  server.registerTool("list_styles", {
+  registerTool("list_styles", {
     description: "List built-in presets and saved structured styles.", inputSchema: z.object({ organizationId }).strict(), annotations: { readOnlyHint: true },
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runQuery(internal.mcpData.listStyles, args)));
-  server.registerTool("create_style", {
+  registerTool("create_style", {
     description: "Create a new nondefault structured style. Existing styles are never updated.",
     inputSchema: z.object({ organizationId, name: z.string().trim().min(1).max(80), theme }).strict(), annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runMutation(internal.mcpData.createStyle, args)));
-  server.registerTool("set_default_style", {
+  registerTool("set_default_style", {
     description: "Explicitly change the organization default, or remove it with kind \"none\" (New event then asks for a style; create_event without a style uses Base). Existing event snapshots remain unchanged.",
     inputSchema: z.object({ organizationId, selection: defaultSelection }).strict(), annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runMutation(internal.mcpData.setDefaultStyle, args)));
-  registerAdminTools(server, ctx, user, (organizationId, operation) => toolCall(user, config, organizationId, operation, true));
+  registerAdminTools(registerTool, ctx, user, (organizationId, operation) => toolCall(user, config, organizationId, operation, true));
   return server;
 }
 

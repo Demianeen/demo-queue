@@ -8,6 +8,7 @@ import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { emailKey } from "../lib/validation";
 import { participantPath } from "../lib/routes";
 import { buildSubmissionEmail, emailSender } from "../lib/submission-email";
+import { eventProperties, track, trackException } from "./analytics";
 
 /**
  * Submitting needs no sign-in, so emails are capped: a few per address per
@@ -65,12 +66,15 @@ export const sendStatusLinkEmail = internalMutation({
   },
   handler: async (ctx, args) => {
     const base = { submissionId: args.submissionId, reason: args.reason };
+    const kind = args.reason === "submitted" ? "status_link_submitted" : "status_link_resend";
     const submission = await ctx.db.get(args.submissionId);
     const event = submission ? await ctx.db.get(submission.eventId) : null;
     if (!submission || !event || submission.status === "withdrawn") {
       logEmail({ ...base, status: "skipped", why: "submission_unavailable" });
       return { sent: 0 };
     }
+    const properties = { ...eventProperties(event), submission_id: submission._id, kind };
+    const failed = (reason: string) => track(ctx, "email_failed", { kind: "system" }, { ...properties, reason });
 
     const members = await ctx.db
       .query("teamMembers")
@@ -79,23 +83,27 @@ export const sendStatusLinkEmail = internalMutation({
     const recipient = emailRecipient(submission, members, args.reason === "resend" ? args.to : undefined);
     if (!recipient) {
       logEmail({ ...base, status: "skipped", why: "no_recipient" });
+      await failed("no_recipient");
       return { sent: 0 };
     }
 
     const config = emailConfig();
     if (!config.ok) {
       logEmail({ ...base, status: "skipped", why: "not_configured", missing: config.missing });
+      await failed("not_configured");
       return { sent: 0 };
     }
 
     const perAddress = await emailRateLimiter.limit(ctx, "statusEmailPerAddress", { key: emailKey(recipient.email) });
     if (!perAddress.ok) {
       logEmail({ ...base, status: "skipped", why: "rate_limited", limit: "per_address" });
+      await failed("rate_limited_address");
       return { sent: 0 };
     }
     const perEvent = await emailRateLimiter.limit(ctx, "statusEmailPerEvent", { key: event._id });
     if (!perEvent.ok) {
       logEmail({ ...base, status: "skipped", why: "rate_limited", limit: "per_event" });
+      await failed("rate_limited_event");
       return { sent: 0 };
     }
 
@@ -113,8 +121,17 @@ export const sendStatusLinkEmail = internalMutation({
       statusUrl,
     });
     const resend = new Resend(components.resend, { apiKey: config.apiKey, testMode: false });
-    await resend.sendEmail(ctx, { from: emailSender(event.name, config.from), to: recipient.email, ...message });
+    try {
+      await resend.sendEmail(ctx, { from: emailSender(event.name, config.from), to: recipient.email, ...message });
+    } catch (error) {
+      // Resend refused to queue it (a bad sender or address): the submission stands, the email is reported.
+      logEmail({ ...base, status: "failed", why: "send_error" });
+      await failed("send_error");
+      await trackException(ctx, error, { kind: "system" }, "emails.sendStatusLinkEmail", properties, { withMessage: false });
+      return { sent: 0 };
+    }
     logEmail({ ...base, status: "queued" });
+    await track(ctx, "email_sent", { kind: "system" }, properties);
     return { sent: 1 };
   },
 });

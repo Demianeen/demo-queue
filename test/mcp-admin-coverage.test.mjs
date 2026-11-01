@@ -92,6 +92,15 @@ test("component server tool properties register actual names and deleted tools f
   assert.match(missing.errors.join("\n"), /unregistered tool fixture_read/);
 });
 
+test("component tools wrapped for analytics still register their names", () => {
+  const catalog = 'const LEGACY_ADMIN_TOOL_MAPPINGS = [{ name: "fixture_read", browser: "events.fixtureRead" }];';
+  const report = scanToolMappings(catalog, `import { McpServer, createTool } from "@convex-dev/mcp";
+    const tool = createTool();
+    new McpServer(component, { tools: reportedComponentTools({ fixture_read: tool({}) }) });`);
+  assert.deepEqual(report.errors, []);
+  assert.deepEqual(report.legacyNames, ["fixture_read"]);
+});
+
 test("component registrations reject dynamic names and unrecognized factories", () => {
   const report = scanToolMappings("", `import { McpServer, createTool } from "@convex-dev/mcp";
     const tool = createTool();

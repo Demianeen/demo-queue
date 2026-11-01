@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { env, internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { listEventSponsors } from "./sponsors";
+import { eventProperties } from "./analytics";
 import { trackKey } from "../lib/tracks";
 import { eventPhase } from "../lib/event-phase";
 import { isJudgedStatus } from "../lib/judged-status";
@@ -299,8 +300,9 @@ async function summaryInputFor(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, 
   if (!tracksStale && !needsSummary(event, submission, args.refreshReadme)) return null;
   const sourceKey = summarySourceKey(submission);
   return {
-    // For the usage log only; the prompt takes the project fields below.
+    // For the usage log and analytics only; the prompt takes the project fields below.
     eventId: event._id,
+    analytics: eventProperties(event),
     demoTitle: submission.demoTitle,
     description: submission.description,
     githubUrl: submission.githubUrl ?? null,

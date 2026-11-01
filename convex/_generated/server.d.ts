@@ -40,6 +40,9 @@ type Env = {
   readonly LUMA_ORGANIZATION_IDS: string | undefined;
   readonly OPENAI_API_KEY: string | undefined;
   readonly OPENAI_MODEL: string | undefined;
+  readonly POSTHOG_ENVIRONMENT: string | undefined;
+  readonly POSTHOG_HOST: string | undefined;
+  readonly POSTHOG_PROJECT_TOKEN: string | undefined;
   readonly PREVIEW_SEED_ORGANIZATION_ID: string | undefined;
   readonly RESEND_API_KEY: string | undefined;
   readonly RESEND_FROM_EMAIL: string | undefined;

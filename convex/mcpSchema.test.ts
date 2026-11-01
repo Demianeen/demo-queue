@@ -1,6 +1,19 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { v } from "convex/values";
-import { adminToolSchema, convexMcpSchema } from "./mcpSchema";
+import { adminToolSchema, CONTEXT_SCHEMA, convexMcpSchema, withContext } from "./mcpSchema";
+
+test("context is advertised as optional and taken out before the tool's own strict validation", async () => {
+  const onInvalid = vi.fn(async () => {});
+  const schema = withContext(adminToolSchema(v.object({ slug: v.string() })), onInvalid);
+  expect(schema["~standard"].jsonSchema.input({ target: "draft-2020-12" })).toMatchObject({ properties: { context: CONTEXT_SCHEMA }, required: ["organizationId", "slug"], additionalProperties: false });
+  expect(await schema["~standard"].validate({ organizationId: "org_one", slug: "night", context: "checking the lineup" })).toEqual({ value: { args: { organizationId: "org_one", input: { slug: "night" } }, context: "checking the lineup" } });
+  expect(await schema["~standard"].validate({ organizationId: "org_one", slug: "night" })).toEqual({ value: { args: { organizationId: "org_one", input: { slug: "night" } }, context: undefined } });
+  expect(onInvalid).not.toHaveBeenCalled();
+  for (const input of [{ organizationId: "org_one", slug: "night", context: 3 }, { organizationId: "org_one", slug: "night", context: "x", actor: "forged" }, { organizationId: "org_one", context: "x" }, "not an object"]) {
+    expect((await schema["~standard"].validate(input)).issues, JSON.stringify(input)).toBeDefined();
+  }
+  expect(onInvalid.mock.calls).toEqual([[undefined], ["x"], ["x"], [undefined]]);
+});
 
 test("the transport interpreter validates nested Convex shapes and advertises required versus optional fields", async () => {
   const validator = v.object({

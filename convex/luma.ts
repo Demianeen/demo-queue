@@ -15,6 +15,7 @@ import {
   type LumaSocials,
 } from "../lib/luma";
 import { emailKey, isValidEmail } from "../lib/validation";
+import { trackException } from "./analytics";
 
 /*
  * Luma import. Nothing here is reachable by an unauthenticated client: after a
@@ -339,6 +340,7 @@ export const importSubmissionSocials = internalAction({
       logLuma("luma-import", { status: "ok", ...counts });
     } catch (error) {
       logLuma("luma-import", { status: "failed", reason: error instanceof Error ? error.name : "unknown" });
+      await trackException(ctx, error, { kind: "system" }, "luma.importSubmissionSocials", { submission_id: submissionId }, { withMessage: false });
     }
   },
 });

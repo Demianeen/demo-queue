@@ -35,6 +35,7 @@ export const modules = {
   "./practice.ts": () => import("./practice"),
   "./previewSeed.ts": () => import("./previewSeed"),
   "./members.ts": () => import("./members"),
+  "./analytics.ts": () => import("./analytics"),
 };
 
 export const ORG = "org_live";

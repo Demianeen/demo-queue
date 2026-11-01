@@ -2,18 +2,21 @@
 
 import { useParams } from "next/navigation";
 import { submissionPath } from "@/lib/routes";
+import { useReportedError } from "@/lib/posthog-browser";
 
 // Route-level error boundary for the participant status page. The getParticipant
 // query throws when the submission/token can't be found (e.g. the event team ran
 // "Clear all", or the link is stale). Instead of the white-screen "Application
 // error", explain what happened and point them at a fresh submission form.
 export default function ParticipantError({
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
   const params = useParams<{ slug: string }>();
+  useReportedError(error, "status");
 
   return (
     <main className="narrow-page">

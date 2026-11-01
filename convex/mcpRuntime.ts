@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import type { OrganizationPrincipal } from "./organizationAuth";
 import { currentMemberships, type McpScope } from "./mcpConnectionPolicy";
 import { MEMBER_MESSAGES } from "./members";
+import { failed, failureOf } from "./mcpAnalytics";
 
 const adminMessages = new Set([
   "Submissions are closed.", "Judging is only available for hackathon events.",
@@ -37,7 +38,7 @@ export function toolFailure(error: unknown) {
       if (message) value = { error: "invalid_operation", message };
     }
   }
-  return callToolResult({ content: [{ type: "text", text: JSON.stringify(value) }], isError: true });
+  return failed(callToolResult({ content: [{ type: "text", text: JSON.stringify(value) }], isError: true }), failureOf(error, value.message));
 }
 
 export async function componentToolCall(ctx: ToolCtx, user: McpUser<Id<"mcpApprovals">>, organizationId: string, scope: McpScope, operation: (principal: OrganizationPrincipal) => Promise<unknown>) {

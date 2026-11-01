@@ -44,6 +44,7 @@ const TIDY_BATCH = 400;
 const TIDY_CHANGE_ROWS = 20;
 const DEFAULT_MEET_URL = "https://meet.google.com/";
 // A blank practice hackathon starts with these, so track picks, the AI read and judging by track can be tried. Edit them after.
+// Test projects pick tracks by these names.
 const SAMPLE_TRACKS = [
   { name: "AI agents", description: "Software that plans and acts on its own: calls tools, browses or writes code." },
   { name: "Developer tools", description: "Makes building, testing or shipping software faster." },
@@ -95,26 +96,48 @@ function seeded(seed: number) {
   };
 }
 
-const PROJECT_WORDS = ["Guardrail", "Bus Buddy", "SearchLight", "Hanzi Dungeon", "Wild GTMs", "TrySDK", "Inbox Zero", "QuickABTest", "Outpost Radar", "Policy Pilot", "Delay Repay", "Volley Bot"];
 /**
- * Test projects point at small, well-known public repositories, with a
- * description of what each one does, so README reads and AI summaries work.
+ * Test projects are real hackathon projects from Devpost (checked 1 Nov 2026),
+ * each with its own public repository and a demo video under five minutes, so
+ * README reads, AI summaries and video embeds behave as they do on the night.
+ * `tracks` names the sample tracks each one fits.
  */
 export const PRACTICE_PROJECTS = [
-  { description: "A command-line tool that filters and reshapes JSON, for scripts and quick checks.", githubUrl: "https://github.com/jqlang/jq" },
-  { description: "A fast and simple alternative to find for searching files by name in the terminal.", githubUrl: "https://github.com/sharkdp/fd" },
-  { description: "A cat replacement that adds syntax highlighting and Git changes in the terminal.", githubUrl: "https://github.com/sharkdp/bat" },
-  { description: "A smarter cd command that remembers the folders you use most.", githubUrl: "https://github.com/ajeetdsouza/zoxide" },
-  { description: "Short, community-written examples for common command-line tools.", githubUrl: "https://github.com/tldr-pages/tldr" },
-  { description: "A friendly command-line HTTP client for testing and debugging APIs.", githubUrl: "https://github.com/httpie/cli" },
+  { title: "Synthesis", description: "A news app whose agents scrape and group thousands of articles by topic, to show readers several sides of a story.", githubUrl: "https://github.com/ronnachum11/synthesis", videoUrl: "https://www.youtube.com/watch?v=n6hA0DIRNjw", tracks: ["AI agents", "Open"] },
+  { title: "Bob: The Agent Builder", description: "You type one prompt and it builds and runs a multi-agent workflow from it.", githubUrl: "https://github.com/pringlesinghal/bob-the-builder", videoUrl: "https://www.youtube.com/watch?v=wkK4DVwOGac", tracks: ["AI agents"] },
+  { title: "Chronos Calendar", description: "A calendar you talk to: agents work out what you want, then create, move or delete events.", githubUrl: "https://github.com/sfkunal/Chronos", videoUrl: "https://www.youtube.com/watch?v=r8Gvx9pHg90", tracks: ["AI agents"] },
+  { title: "Agents >> school", description: "An agent that fetches a course assignment, reads it and writes the answers.", githubUrl: "https://github.com/kj3moraes/fschool-agents", videoUrl: "https://www.youtube.com/watch?v=pBZ_MQ_3wm0", tracks: ["AI agents"] },
+  { title: "PizzaGPT", description: "Tell it what you want and it phones a local pizzeria and orders by voice with the staff.", githubUrl: "https://github.com/freeman-jiang/PizzaGPT", videoUrl: "https://www.youtube.com/watch?v=1xD6bVu4fQ8", tracks: ["AI agents"] },
+  { title: "Underflow", description: "A command-line tool that reads a GitHub repo and suggests a cheaper tech stack, with cost estimates.", githubUrl: "https://github.com/stevensusas/Underflow", videoUrl: "https://www.youtube.com/watch?v=lGFKiZR0MNk", tracks: ["Developer tools"] },
+  { title: "wayback", description: "A Figma plugin that turns a design into React code, plus a demo site built from its output.", githubUrl: "https://github.com/anyuan-chen/uofthacks-2023", videoUrl: "https://www.youtube.com/watch?v=3uJDHD89jj8", tracks: ["Developer tools"] },
+  { title: "kepler", description: "An iPhone and Vision Pro app that shows a repo's branches and commits in 3D, with AI notes on its history.", githubUrl: "https://github.com/joyliu-q/hackprinceton", videoUrl: "https://www.youtube.com/watch?v=vk2hsskgS_o", tracks: ["Developer tools"] },
+  { title: "Aros", description: "An iPhone camera app that signs each photo in the phone's secure chip, so anyone can check the image is real and not AI-made.", githubUrl: "https://github.com/siddhantsharma301/aros", videoUrl: "https://www.youtube.com/watch?v=1IcaMLEzCd0", tracks: ["Open"] },
+  { title: "LooLooLoo", description: "Detects when you visit a water fountain and texts you a map to the nearest toilet; also tracks how much you drink.", githubUrl: "https://github.com/qiz-li/loolooloo", videoUrl: "https://www.youtube.com/watch?v=z4kfvKR1sek", tracks: ["Open"] },
+  { title: "Recollect", description: "A $150 robot arm that turns book pages while a camera scans them; a website stitches the scans into a PDF and summarizes it.", githubUrl: "https://github.com/Scott-Hickmann/Book-Scanner", videoUrl: "https://www.youtube.com/watch?v=r6JPr8ceKi0", tracks: ["Open"] },
 ];
 
-/** Stable, embeddable open movies from the Blender Foundation, as stand-in demo videos. */
-export const PRACTICE_VIDEOS = [
-  "https://www.youtube.com/watch?v=aqz-KE-bpKQ", // Big Buck Bunny
-  "https://www.youtube.com/watch?v=eRsGyueVLvQ", // Sintel
-  "https://www.youtube.com/watch?v=R6MlUcmOul8", // Tears of Steel
-];
+/**
+ * Hands out whole projects: each one once, in an order of this event's own,
+ * before any repeats. A repeat is numbered past the event's titles, so the
+ * second PizzaGPT is "PizzaGPT 2".
+ */
+function practiceProjectPicker(event: Doc<"events">, takenTitles: string[]) {
+  const random = seeded(event._creationTime);
+  const order = [...PRACTICE_PROJECTS];
+  for (let index = order.length - 1; index > 0; index -= 1) {
+    const other = Math.floor(random() * (index + 1));
+    [order[index], order[other]] = [order[other], order[index]];
+  }
+  // The highest number each project's title has here: 1 for the plain title.
+  const highest = new Map(order.map((project) => [project, Math.max(0, ...takenTitles.map((title) =>
+    title === project.title ? 1 : title.startsWith(`${project.title} `) && /^\d+$/.test(title.slice(project.title.length + 1)) ? Number(title.slice(project.title.length + 1)) : 0))]));
+  return () => {
+    const project = order.reduce((least, next) => highest.get(next)! < highest.get(least)! ? next : least);
+    const number = highest.get(project)! + 1;
+    highest.set(project, number);
+    return { ...project, title: number === 1 ? project.title : `${project.title} ${number}` };
+  };
+}
 
 function practiceSlug(name: string, random: () => number) {
   const base = name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "event";
@@ -128,8 +151,10 @@ function requirePractice(event: Doc<"events">) {
 
 /**
  * Adds test submissions through the real submit code (with its checks, its
- * confirmation email and, for hackathons, its AI summary), with random
- * tracks (about a third with none) and, for hackathons, random team members.
+ * confirmation email and, for hackathons, its AI summary), each a whole
+ * project from PRACTICE_PROJECTS. Tracks follow the project where the event
+ * has tracks of those names, and are random otherwise (about a third with
+ * none). Hackathon teams get random team members.
  */
 export async function addPracticeSubmissionsForEvent(ctx: MutationCtx, event: Doc<"events">, count: number) {
   requirePractice(event);
@@ -139,6 +164,8 @@ export async function addPracticeSubmissionsForEvent(ctx: MutationCtx, event: Do
   const ownerEmail = event.practiceOwnerEmail;
   if (!ownerEmail || !isValidEmail(ownerEmail)) throw new ConvexError("This practice event has no owner email for test people.");
   const tracks = await listEventTracks(ctx, event._id);
+  const existing = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
+  const nextProject = practiceProjectPicker(event, existing.map((submission) => submission.demoTitle));
   const start = event.practiceTestPeopleCount ?? 0;
   const submissionIds: Id<"submissions">[] = [];
   let people = start;
@@ -146,23 +173,27 @@ export async function addPracticeSubmissionsForEvent(ctx: MutationCtx, event: Do
     const number = start + index + 1;
     const random = seeded(event._creationTime + number);
     const pick = <T,>(items: T[]) => items[Math.floor(random() * items.length)];
-    const trackIds = random() < 1 / 3 || tracks.length === 0
-      ? []
-      : tracks.filter(() => random() < 0.5).slice(0, 3).map((track) => track._id);
-    const chosenTracks = trackIds.length === 0 && tracks.length > 0 && random() < 0.5 ? [pick(tracks)._id] : trackIds;
+    const project = nextProject();
+    const fitting = tracks.filter((track) => project.tracks.some((name) => name.toLowerCase() === track.name.trim().toLowerCase())).map((track) => track._id);
+    const randomTracks = () => {
+      const trackIds = random() < 1 / 3 || tracks.length === 0
+        ? []
+        : tracks.filter(() => random() < 0.5).slice(0, 3).map((track) => track._id);
+      return trackIds.length === 0 && tracks.length > 0 && random() < 0.5 ? [pick(tracks)._id] : trackIds;
+    };
+    const chosenTracks = fitting.length > 0 ? fitting : randomTracks();
     people += 1;
     const person = {
       name: `Test person ${number}`,
       email: plusAddress(ownerEmail, `dq-test-${people}`),
       phone: `${TEST_PHONE_PREFIX}${String(people % 1000).padStart(3, "0")}`,
     };
-    const project = pick(PRACTICE_PROJECTS);
     const common = {
       slug: event.slug,
       participantToken: crypto.randomUUID(),
       clientId: "practice-tools-0000",
       name: person.name,
-      demoTitle: `${pick(PROJECT_WORDS)} ${number}`,
+      demoTitle: project.title,
       description: project.description,
       phone: person.phone,
       email: person.email,
@@ -186,7 +217,7 @@ export async function addPracticeSubmissionsForEvent(ctx: MutationCtx, event: Do
         teamMemberContacts: members,
         githubUrl: project.githubUrl,
         rulesAccepted: true,
-        videoUrl: PRACTICE_VIDEOS[number % PRACTICE_VIDEOS.length],
+        videoUrl: project.videoUrl,
       }, { practiceTest: true });
     } else {
       result = await submitDemoForEvent(ctx, event, { ...common, queueOrder: 0 }, { practiceTest: true });

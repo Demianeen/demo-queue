@@ -3,10 +3,12 @@
 import { Component, type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { reportClientError } from "@/lib/posthog-browser";
 
 export class WorkspaceErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error: Error) { reportClientError(error, { boundary: "workspace_shell" }); }
   render() {
     if (!this.state.failed) return this.props.children;
     return <main className="dq-app dq-message-page"><section className="dq-card dq-message">

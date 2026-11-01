@@ -27,6 +27,7 @@ import { PracticeBar } from "@/components/live/PracticeTools";
 import { EventTabs } from "@/components/live/EventTabs";
 import { AiUsageHeaderActions } from "@/components/usage/AiUsage";
 import { selectOrganization } from "./actions";
+import { useAnalyticsOrganization } from "@/lib/posthog-browser";
 
 type Organization = { id: string; name: string };
 type View = "events" | "create" | "styles" | "members" | "details" | "admin" | "connections" | "guide" | "practice" | "usage";
@@ -61,6 +62,7 @@ export function EventsWorkspace({ organizations, activeOrganizationId, email, di
 }) {
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState("");
+  useAnalyticsOrganization(activeOrganizationId);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const signInFailed = searchParams.has("error");

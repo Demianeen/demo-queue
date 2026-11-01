@@ -2,12 +2,14 @@
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { useReportedError } from "@/lib/posthog-browser";
 
 /**
  * A link that was replaced, turned off or mistyped makes the judge queries
  * throw. Judges see what to do instead of the browser's crash page.
  */
-export default function JudgeError({ reset }: { reset: () => void }) {
+export default function JudgeError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  useReportedError(error, "judge");
   return <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 px-4">
     <Alert variant="destructive">
       <AlertTitle>This judging link isn&apos;t working</AlertTitle>

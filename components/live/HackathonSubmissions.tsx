@@ -90,7 +90,9 @@ export function HackathonSubmissions({ slug, admin, items, tracks, previewFor, c
     return () => window.clearTimeout(timer);
   }, [search, setParams]);
   const status = (searchParams.get("status") ?? "all") as Group | "all";
-  const track = searchParams.get("track") ?? "all";
+  const trackParam = searchParams.get("track") ?? "all";
+  // A track removed since the link was made filters nothing, rather than hiding every project.
+  const track = trackParam === "none" || tracks.some((option) => String(option.id) === trackParam) ? trackParam : "all";
   const openId = searchParams.get("project");
   const [expanded, setExpanded] = useState<Set<Group>>(new Set());
 

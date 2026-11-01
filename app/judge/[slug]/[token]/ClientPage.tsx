@@ -251,7 +251,9 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   const [search, setSearch] = useState("");
   const [show, setShow] = useState<Show>(() => (data.counts.yours > 0 ? "yours" : data.counts.helpOut > 0 ? "helpOut" : "all"));
   const [showOpen, setShowOpen] = useState(false);
-  const [tracks, setTracks] = useState<string[]>([]);
+  const [pickedTracks, setTracks] = useState<string[]>([]);
+  // A track removed while the page is open drops out of the filter, rather than emptying the list.
+  const tracks = useMemo(() => pickedTracks.filter((id) => id === MAIN_EVENT || data.tracks.some((track) => String(track.id) === id)), [pickedTracks, data.tracks]);
   // Sort lives in the address, so a reload keeps it. Queue order leaves `?sort=` out.
   const searchParams = useSearchParams();
   const sort = parseJudgeSort(searchParams.get("sort"));

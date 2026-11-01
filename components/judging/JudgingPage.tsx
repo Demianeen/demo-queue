@@ -76,7 +76,9 @@ function JudgingPageInner({ slug, admin, previews, onHide, onManageJudges, sheet
   const search = useSearchParams();
   const view = parseJudgingView(search.get("judging"));
   const projectId = search.get("project");
-  const track = search.get("track");
+  const trackParam = search.get("track");
+  // A track renamed or removed since the link was made filters nothing, rather than hiding every row.
+  const track = trackParam === MAIN_EVENT || admin.tracks.some((item) => item.name === trackParam) ? trackParam : null;
   const group = parseReviewGroup(search.get("group"));
   const judgeKey = search.get("judge");
   const sort = (["final", ...CRITERIA] as RankSort[]).find((item) => item === search.get("sort")) ?? "final";

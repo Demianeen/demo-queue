@@ -203,3 +203,55 @@ reference to the helper.
 7. Do not ask clarifying questions when the user's wording is specific enough to infer the deployment and ranking count, for example "check prod queue and give me the best 5 demos". State the assumptions used in the answer instead.
 
 8. If the sandbox blocks Convex network access with DNS or fetch errors, rerun the same read-only Convex data command with escalated network permission instead of falling back to stale local assumptions.
+
+## Investigating production errors
+
+Production is hack.outpostcrew.co (Vercel) on Convex `giant-egret-456`.
+Everything below is read-only. Never write to production, and never print
+personal data (names, emails, phone numbers, tokens) into chat, reports or
+commits. To reproduce a fix locally, use the `verify-demo-queue` skill.
+
+1. **PostHog first**, through the PostHog MCP, EU Cloud project "Demo queue"
+   ("Demo queue dev" is local and Preview). Filter on `environment` =
+   `production`.
+   - Error tracking (`$exception`) carries `surface` (`team`, `judge`,
+     `stage`, `organiser`, or `server`), `route_path` and `digest` for errors
+     Next.js reported, and `where` plus `convex_request_id` for errors server
+     code caught itself. `where` names the place: `event-title`, `event-look`,
+     `status-title`, `event-admin`, `event-overview`, `workspace-load`.
+     Errors from Convex actions carry `function` instead.
+   - Browser events from the submit page carry `form_id`, and Convex's
+     `submission_submitted` carries the same `form_id`, so a failed attempt
+     (`submission_failed`, `$exception`) joins to the submission that followed.
+   - Once PR #77 is merged, PostHog Logs also holds the Next.js server logs and
+     the Convex function logs.
+2. **Then Vercel logs**, from a checkout linked to the Vercel project (has
+   `.vercel/project.json`, as the main checkout does):
+
+   ```bash
+   vercel logs --no-branch --environment production --since <ISO> --until <ISO> --level error -n 100 -j --non-interactive
+   ```
+
+   Pipe it through `jq` to the fields you need. If `--level error` returns
+   nothing, try `--status-code 5xx` or `--request-id <id>`.
+3. **Then the Convex CLI on prod**, read-only commands only:
+
+   ```bash
+   timeout 30 pnpm exec convex logs --prod --history 200 --jsonl | jq -c 'select(.error != null) | {timestamp, identifier, requestId, error}'
+   pnpm exec convex data <table> --prod --limit 50 --format jsonl | jq -c '{_id, <only the fields you need>}'
+   ```
+
+   `convex logs` keeps streaming, so bound it with `timeout`. Its `requestId`
+   is the `convex_request_id` in PostHog.
+
+Two traps:
+
+- Production Convex redacts a thrown error's message to
+  `[Request ID: <id>] Server Error`. A `ConvexError`'s text survives only in
+  `error.data`: read it with `convexErrorText` from `lib/convex-error.ts`,
+  never from `error.message` (that works on dev and fails on prod). Find the
+  real error by its request id in `convex logs`.
+- In a production build, Next.js's `onRequestError` (`instrumentation.ts`)
+  receives only a stand-in, "An error occurred in the Server Components
+  render…", plus a `digest`. Find the real error by that digest in the Vercel
+  logs, or in the `where` report the same request sent.

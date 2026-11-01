@@ -4,6 +4,7 @@ import { unstable_rethrow } from "next/navigation";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { reportCaughtServerError } from "@/lib/posthog-server";
 import ClientPage from "./ClientPage";
 
 export const metadata: Metadata = { title: "Admin", robots: { index: false, follow: false } };
@@ -21,6 +22,7 @@ export default async function AdminPage({ params }: { params: Promise<{ slug: st
     if (event && event.organizationId === auth.organizationId) return <ClientPage />;
   } catch (error) {
     unstable_rethrow(error);
+    await reportCaughtServerError(error, "event-admin");
   }
   return <section className="workspace-heading">
     <title>Event unavailable | Demo Queue</title>

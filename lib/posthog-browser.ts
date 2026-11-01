@@ -3,6 +3,7 @@ import posthog, { type CaptureResult, type PostHogConfig } from "posthog-js";
 import { useEffect } from "react";
 import { analyticsSurface, scrubSecretPaths, scrubUrl } from "./analytics-url";
 import { redactExceptionList, redactText } from "./analytics-redact";
+import { formId } from "./form-id";
 
 /** Properties that hold a URL or a path, wherever they appear in an event. */
 const URL_PROPERTY = /url|href|pathname|referrer/i;
@@ -103,7 +104,24 @@ export type ClientEvents = {
   readme_opened: None;
   judge_link_failed: None;
   getting_started_step_completed: { step: string };
+  /** An error page showed a server error, which the server reported itself under this `digest`. */
+  server_error_shown: { boundary: string; digest: string };
 };
+
+/**
+ * Adds the submit form's `form_id` to every event the page sends from now
+ * on, errors included. Returns the cleanup that takes it off again.
+ */
+export function registerFormId(clientId: string) {
+  let active = true;
+  void formId(clientId).then((id) => {
+    if (active && posthog.__loaded) posthog.register({ form_id: id });
+  });
+  return () => {
+    active = false;
+    if (posthog.__loaded) posthog.unregister("form_id");
+  };
+}
 
 /** Sends a product event; a no-op when PostHog is not configured. */
 export function captureEvent<Name extends keyof ClientEvents>(name: Name, properties: ClientEvents[Name] & { event_slug?: string }) {
@@ -114,9 +132,15 @@ export function captureEvent<Name extends keyof ClientEvents>(name: Name, proper
  * Sends an error a boundary caught; a no-op when PostHog is not configured.
  * A `ConvexError` is an expected state the backend reported on purpose, such
  * as a stale judge link, so it is product analytics rather than a bug.
+ * An error with a `digest` happened on the server, which already reported it
+ * with its real message; the browser only gets Next.js's stand-in, so it
+ * records the digest it showed instead of a second, emptier exception.
  */
 export function reportClientError(error: unknown, properties: Record<string, string> = {}) {
-  if (posthog.__loaded && !(error instanceof ConvexError)) posthog.captureException(error, properties);
+  if (!posthog.__loaded || error instanceof ConvexError) return;
+  const digest = error && typeof error === "object" ? (error as { digest?: unknown }).digest : undefined;
+  if (typeof digest === "string") posthog.capture("server_error_shown", { boundary: properties.boundary ?? "unknown", ...properties, digest });
+  else posthog.captureException(error, properties);
 }
 
 /**

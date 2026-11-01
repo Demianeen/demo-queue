@@ -33,7 +33,8 @@ export type ServerEvents = {
   stage_mode_changed: { mode: "qr" | "demo" };
   timer_started: { timer: "stage" | "demo" | "judging"; seconds: number };
   members_invited: { count: number };
-  submission_submitted: { tracks: number; has_video: boolean; has_repository: boolean; team_size: number };
+  /** `form_id` matches the browser's events from the same submit page load. */
+  submission_submitted: { tracks: number; has_video: boolean; has_repository: boolean; team_size: number; form_id: string };
   status_link_requested: None;
   submission_withdrawn: None;
   ai_summary: {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Demo Queue"
+  short_description: "Launch and drive the app locally to prove a change"
+  default_prompt: "Use $verify-demo-queue to launch demo-queue locally and prove the change in the real app."

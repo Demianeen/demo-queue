@@ -16,7 +16,8 @@ import { aiSummaryStatus, publicAiRead, publicAiSummary } from "./aiSummaries";
 import { listEventSponsors } from "./sponsors";
 import { recordChange } from "./changeLog";
 import { withChange } from "./changeWrap";
-import { closeJudgingForEvent, closeSubmissionsForEvent, judgingRemaining, reopenJudgingForEvent, syncFinalistLineup } from "./phases";
+import { closeJudgingForEvent, closeSubmissionsForEvent, judgingCounts, judgingRemaining, reopenJudgingForEvent, syncFinalistLineup, trackPhaseChange } from "./phases";
+import { eventProperties, organiser, track } from "./analytics";
 import { eventPhase } from "../lib/event-phase";
 import { isJudgedStatus } from "../lib/judged-status";
 import type { DataModel } from "./_generated/dataModel";
@@ -263,7 +264,10 @@ export async function removeJudgeFromEvent(ctx: MutationCtx, event: Doc<"events"
 export const addJudgesArgs = v.object({ slug: v.string(), names: v.array(v.string()) });
 
 async function addJudgesOperation(ctx: MutationCtx, args: Infer<typeof addJudgesArgs>, principal: OrganizationPrincipal) {
-  return addJudgesToEvent(ctx, await ownedAdminEvent(ctx, args.slug, principal), args.names);
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  const result = await addJudgesToEvent(ctx, event, args.names);
+  if (result.added.length > 0) await track(ctx, "judges_added", organiser(principal), { ...eventProperties(event), count: result.added.length });
+  return result;
 }
 
 export const addJudgesForOrganization = withChange<Infer<typeof addJudgesArgs>, Awaited<ReturnType<typeof addJudgesOperation>>>(
@@ -453,6 +457,7 @@ export async function replaceJudgeLinkForOrganization(
   }, async () => {
     await ctx.db.patch(access._id, { token: args.capabilityToken, openedAt: undefined, replacedAt: now, updatedAt: now });
   });
+  await track(ctx, "judge_link_replaced", organiser(principal), eventProperties(event));
   return { judgeKey: access.judgeKey, path: judgeLinkPath(event, args.capabilityToken) };
 }
 
@@ -529,6 +534,7 @@ export async function closeSubmissionsForOrganization(
     event, principal, kind: "phase_changed", summary: "closed submissions", undoLabel: "Reopen",
     undo: "phase", fromPhase: eventPhase(event), toPhase: "judging", watch: { submissions: "all" },
   }, () => closeSubmissionsForEvent(ctx, event));
+  await trackPhaseChange(ctx, event._id, eventPhase(event), "judging", principal);
   return { judgingStatus };
 }
 
@@ -1295,6 +1301,7 @@ export async function resumeJudgingTimerForOrganization(
       updatedAt: now,
     });
   });
+  await track(ctx, "timer_started", organiser(principal), { ...eventProperties(event), timer: "judging", seconds: Math.round(remaining / 1000) });
 }
 
 export const resumeJudgingTimer = mutation({
@@ -1318,6 +1325,9 @@ export async function startJudgingForOrganization(
   await recordChange(ctx, { event, principal, kind: "judging_started", summary: "started judging" }, async () => {
     await ctx.db.patch(event._id, { judgingStatus: "open", phase: "judging", judgingTimerStatus: "running", judgingTimerEndsAt: now + remaining, judgingTimerRemainingMs: remaining, updatedAt: now });
   });
+  const started = (await ctx.db.get(event._id)) ?? event;
+  await track(ctx, "judging_started", organiser(principal), { ...eventProperties(started), ...(await judgingCounts(ctx, started)) });
+  await track(ctx, "timer_started", organiser(principal), { ...eventProperties(started), timer: "judging", seconds: Math.round(remaining / 1000) });
 }
 
 export const startJudging = mutation({
@@ -1363,6 +1373,7 @@ export async function closeJudgingForOrganization(
     event, principal, kind: "phase_changed", summary: "closed judging", undoLabel: "Reopen",
     undo: "phase", fromPhase: eventPhase(event), toPhase: "stage",
   }, () => closeJudgingForEvent(ctx, event));
+  await trackPhaseChange(ctx, event._id, eventPhase(event), "stage", principal, { judgingClosed: true });
 }
 
 export const closeJudging = mutation({
@@ -1384,6 +1395,7 @@ export async function reopenJudgingForOrganization(
     event, principal, kind: "phase_changed", summary: "reopened judging",
     undo: "phase", fromPhase: eventPhase(event), toPhase: "judging",
   }, () => reopenJudgingForEvent(ctx, event));
+  await trackPhaseChange(ctx, event._id, eventPhase(event), "judging", principal);
 }
 
 export const reopenJudging = mutation({
@@ -1804,7 +1816,8 @@ export const saveFinalistDraft = mutation({
 export const submitFinalists = mutation({
   args: { slug: v.string(), finalistIds: idList },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug);
+    const principal = await requireOrganization(ctx);
+    const event = await ownedAdminEvent(ctx, args.slug, principal);
     await requireClosedScoreBasis(ctx, event);
     await validateIds(ctx, event, args.finalistIds, true);
     const all = await ctx.db
@@ -1836,6 +1849,7 @@ export const submitFinalists = mutation({
     await ctx.db.patch(event._id, { updatedAt: now });
     // During Stage the lineup follows the finalists; before it, moving to Stage does this.
     if (eventPhase(event) === "stage") await syncFinalistLineup(ctx, event);
+    await track(ctx, "finalists_submitted", organiser(principal), { ...eventProperties(event), count: args.finalistIds.length });
   },
 });
 
@@ -1866,7 +1880,8 @@ export const savePlacementDraft = mutation({
 export const submitPlacements = mutation({
   args: { slug: v.string(), placementIds: idList },
   handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug);
+    const principal = await requireOrganization(ctx);
+    const event = await ownedAdminEvent(ctx, args.slug, principal);
     await requireClosedScoreBasis(ctx, event);
     const current = await currentDecision(ctx, event._id);
     if (
@@ -1887,6 +1902,7 @@ export const submitPlacements = mutation({
       incrementPlacement: true,
       recordHistory: true,
     });
+    await track(ctx, "placements_submitted", organiser(principal), { ...eventProperties(event), count: args.placementIds.length });
   },
 });
 

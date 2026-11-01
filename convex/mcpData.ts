@@ -50,7 +50,7 @@ export const createEvent = internalMutation({
     if (args.principal?.mcp) await requireApproval(ctx, args.principal.mcp.approvalId, args.expectedOrganizationId, "events:manage");
     const styleId = args.styleId ? ctx.db.normalizeId("organizationStyles", args.styleId) : undefined;
     if (styleId === null) throw new ConvexError("Style not found.");
-    const { eventId } = await createOrganizationEvent(ctx, { ...args, styleId }, { organizationId: args.expectedOrganizationId, actor: args.actor });
+    const { eventId } = await createOrganizationEvent(ctx, { ...args, styleId }, { organizationId: args.expectedOrganizationId, actor: args.actor, mcp: args.principal?.mcp });
     const event = await ctx.db.get(eventId);
     if (!event) throw new Error("operation_failed");
     return eventDto(event);

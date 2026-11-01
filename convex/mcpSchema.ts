@@ -82,3 +82,37 @@ export function adminToolSchema<V extends GenericValidator>(validator: V): Stand
     },
   };
 }
+
+/** The optional agent intent argument every MCP tool accepts, in PostHog's recommended wording. */
+export const CONTEXT_SCHEMA = {
+  type: "string", maxLength: 300,
+  description: "Why are you calling this tool? Describe the goal in general terms, and refer to people by role (\"an organiser\", \"a judge\", \"a team\") rather than by name. Leave out names, emails and other personal and identifying details.",
+};
+
+/**
+ * Adds `context` to a tool's schema. It is taken out before the tool's own
+ * validation, so no tool sees it; `onInvalid` runs when validation fails.
+ */
+export function withContext<Output>(schema: StandardSchemaWithJSON<unknown, Output>, onInvalid?: (context: string | undefined) => Promise<void>): StandardSchemaWithJSON<unknown, { args: Output; context?: string }> {
+  const json: typeof schema["~standard"]["jsonSchema"]["input"] = (options) => {
+    const fields = schema["~standard"].jsonSchema.input(options);
+    return { ...fields, properties: { ...z.record(z.string(), z.unknown()).optional().parse(fields.properties), context: CONTEXT_SCHEMA } };
+  };
+  return {
+    "~standard": {
+      version: 1,
+      vendor: "demo-queue-context",
+      jsonSchema: { input: json, output: json },
+      async validate(value) {
+        const fields = z.record(z.string(), z.unknown()).safeParse(value);
+        const { context, ...args } = fields.success ? fields.data : {};
+        const intent = typeof context === "string" ? context : undefined;
+        const parsed = context === undefined || intent !== undefined
+          ? await schema["~standard"].validate(fields.success ? args : value)
+          : { issues: [{ message: "context must be a string", path: ["context"] }] };
+        if (parsed.issues) { await onInvalid?.(intent); return { issues: parsed.issues }; }
+        return { value: { args: parsed.value, context: intent } };
+      },
+    },
+  };
+}

@@ -5,6 +5,7 @@ import { components } from "./_generated/api";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { requireOrganization } from "./organizationAuth";
 import { requireApproval } from "./mcpConnectionPolicy";
+import { organiser, track } from "./analytics";
 import {
   INVITATION_EXPIRES_IN_DAYS, INVITE_PROBLEM_MESSAGES, MAX_INVITES_PER_REQUEST,
   checkInviteEmails, displayName, normalizeEmail, openInvitations, type InvitationRecord,
@@ -39,8 +40,9 @@ async function reserve(ctx: MutationCtx, organizationId: string, count: number) 
 export const reserveInvitations = mutation({
   args: { count: v.number() },
   handler: async (ctx, { count }) => {
-    const { organizationId } = await requireOrganization(ctx);
-    await reserve(ctx, organizationId, count);
+    const principal = await requireOrganization(ctx);
+    await reserve(ctx, principal.organizationId, count);
+    await track(ctx, "members_invited", organiser(principal), { count });
     return null;
   },
 });
@@ -50,6 +52,8 @@ export const reserveInvitationsForMcp = internalMutation({
   handler: async (ctx, { approvalId, organizationId, count }) => {
     await requireApproval(ctx, approvalId, organizationId, "events:manage");
     await reserve(ctx, organizationId, count);
+    const approval = await ctx.db.get(approvalId);
+    if (approval) await track(ctx, "members_invited", { kind: "organiser", userId: approval.workosUserId, organizationId, surface: "mcp" }, { count });
     return null;
   },
 });

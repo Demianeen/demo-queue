@@ -479,9 +479,14 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
                   </div>
                 </PopoverContent>
               </Popover>
-              <button type="button" className={styles.sortButton} aria-pressed={sort === "score"} aria-label={sort === "score" ? "Back to queue order" : "Sort by your score"} title={sort === "score" ? "Back to queue order" : "Sort by your score"} onClick={() => setSort(sort === "score" ? "queue" : "score")}>
-                {sort === "score" ? <ArrowDownWideNarrowIcon aria-hidden /> : <ListOrderedIcon aria-hidden />}
-              </button>
+              <TooltipProvider delay={250}>
+                <Tooltip>
+                  <TooltipTrigger render={<button type="button" className={styles.sortButton} aria-pressed={sort === "score"} aria-label={sort === "score" ? "Back to queue order" : "Sort by your score"} onClick={() => setSort(sort === "score" ? "queue" : "score")} />}>
+                    {sort === "score" ? <ArrowDownWideNarrowIcon aria-hidden /> : <ListOrderedIcon aria-hidden />}
+                  </TooltipTrigger>
+                  <TooltipContent className={styles.scoreTip}><strong>{sort === "score" ? "Your score, high to low" : "Queue order"}</strong><span className={styles.scoreTipKey}>{sort === "score" ? "Click for queue order" : "Click to sort by your score"}</span></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           </div>
           <nav className={styles.assignmentList} aria-label="Projects">

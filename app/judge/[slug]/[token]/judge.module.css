@@ -197,11 +197,16 @@ div.videoFallback { font-weight: 400; color: var(--dq-fg-3); text-decoration: no
 .scoringAs button:hover { color: var(--dq-fg); }
 .searchField input { padding-right: 32px; }
 .searchKey { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); min-width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid var(--dq-line); border-radius: 4px; font-size: 11px; color: var(--dq-fg-3); background: var(--dq-card); }
-.filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.filters { display: grid; grid-template-columns: auto minmax(0, 1fr) 30px; gap: 6px; }
 .filterButton { height: 30px; min-width: 0; display: flex; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid var(--dq-input); border-radius: 7px; background: var(--dq-card); font: inherit; font-size: 12px; color: var(--dq-fg-3); cursor: pointer; }
 .filterButton strong { color: var(--dq-fg); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .filterButton svg { width: 13px; height: 13px; margin-left: auto; flex: none; }
 .filterButton[data-popup-open] { border-color: var(--dq-accent); box-shadow: 0 0 0 3px var(--dq-focus); }
+.sortButton { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 1px solid var(--dq-input); border-radius: 7px; background: var(--dq-card); color: var(--dq-fg-3); cursor: pointer; }
+.sortButton svg { width: 15px; height: 15px; }
+.sortButton:hover { color: var(--dq-fg); }
+.sortButton:focus-visible { outline: none; border-color: var(--dq-accent); box-shadow: 0 0 0 3px var(--dq-focus); }
+.sortButton[aria-pressed="true"] { border-color: var(--dq-accent); background: var(--dq-accent-soft); color: var(--dq-accent); }
 .filterCount { color: var(--dq-fg-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .menu { width: 300px; padding: 4px; gap: 0; }
 .menuItem { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; font: inherit; text-align: left; cursor: pointer; color: var(--dq-fg); }
@@ -215,6 +220,9 @@ div.videoFallback { font-weight: 400; color: var(--dq-fg-3); text-decoration: no
 .rowNote { font-size: 11px; color: var(--dq-warning-fg); font-variant-numeric: tabular-nums; }
 .moreLink { margin: 6px 12px 12px; padding: 0; border: 0; background: transparent; font: inherit; font-size: 12px; color: var(--dq-fg-2); cursor: pointer; text-align: left; }
 .moreLink:hover { color: var(--dq-fg); text-decoration: underline; }
+.inlineLink { padding: 0; border: 0; background: transparent; font: inherit; color: var(--dq-fg-2); text-decoration: underline; cursor: pointer; }
+.inlineLink:hover { color: var(--dq-fg); }
+.rowTotal { font-size: 12px; color: var(--dq-fg); font-variant-numeric: tabular-nums; }
 .mineHeading { color: var(--dq-fg-3); line-height: 16px; }
 .projectTitle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px; }
 .projectTeam { color: var(--dq-fg-2); font-size: 13px; }

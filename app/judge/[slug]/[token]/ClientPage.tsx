@@ -3,15 +3,17 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
+  ArrowDownWideNarrowIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CircleIcon,
   ExternalLinkIcon,
+  ListOrderedIcon,
   LockKeyholeIcon,
   SearchIcon,
   SparklesIcon,
@@ -28,6 +30,7 @@ import { ShortcutTooltip } from "@/components/shell/commands";
 import { AiPanel, aiSummaryCaveat } from "@/components/AiRead";
 import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
 import { helpOutSections, joinNames, scoringNow, startedAgo, yoursSections, type Scorer } from "@/lib/judging-help";
+import { judgeTotal, parseJudgeSort, sortByScore, type JudgeSort } from "@/lib/judge-sort";
 import { timeLeftMs, type TimerReading } from "@/lib/timer-clock";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { videoEmbedUrl, youtubeEmbedUrl } from "@/lib/video-embed";
@@ -249,6 +252,15 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   const [show, setShow] = useState<Show>(() => (data.counts.yours > 0 ? "yours" : data.counts.helpOut > 0 ? "helpOut" : "all"));
   const [showOpen, setShowOpen] = useState(false);
   const [tracks, setTracks] = useState<string[]>([]);
+  // Sort lives in the address, so a reload keeps it. Queue order leaves `?sort=` out.
+  const searchParams = useSearchParams();
+  const sort = parseJudgeSort(searchParams.get("sort"));
+  const setSort = useCallback((next: JudgeSort) => {
+    const params = new URLSearchParams(window.location.search);
+    if (next === "queue") params.delete("sort"); else params.set("sort", next);
+    const query = params.toString();
+    window.history.replaceState(null, "", query ? `${window.location.pathname}?${query}` : window.location.pathname);
+  }, []);
   const [activeCriterion, setActiveCriterion] = useState<Criterion>("innovation");
   const pendingOne = useRef<{ at: number; criterion: Criterion; submissionId: string } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -276,7 +288,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   // J and the first pick pass over these: others covered it, or someone is on it now.
   const skippable = useCallback((project: Project) => project.group === "covered" || takenBy(project) !== null, [takenBy]);
   // Rows never change group when scored: yours are the ones assigned to you, help out the others you can still help with or helped with.
-  const sections = useMemo<Section[]>(() => {
+  const queueSections = useMemo<Section[]>(() => {
     if (show === "all") return [{ key: "all", title: "Every project", note: String(filtered.length), projects: [...filtered].sort((a, b) => Number(b.assignedToMe) - Number(a.assignedToMe)) }];
     if (show === "yours") {
       const { mine, beingScored, covered } = yoursSections(filtered.filter((project) => project.assignedToMe), (project) => project.group === "covered", (project) => takenBy(project) !== null);
@@ -301,6 +313,10 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
     }));
     return beingScored.length ? [...judgeSections, { key: "scoring", title: "Being scored right now", note: "", tone: "quiet", projects: beingScored }] : judgeSections;
   }, [filtered, show, takenBy, isScored, data.judges]);
+  // The judge's total from the scores on this page, so a changed score moves its row at once.
+  const totalOf = useCallback((project: Project) => judgeTotal(scores[String(project.id)] ?? project.review), [scores]);
+  // Sorted by score, each section orders on its own; the sections stay as they are.
+  const sections = useMemo<Section[]>(() => (sort === "score" ? queueSections.map((section) => ({ ...section, projects: sortByScore(section.projects, totalOf) })) : queueSections), [queueSections, sort, totalOf]);
   const visible = useMemo(() => sections.flatMap((section) => section.projects), [sections]);
   const hiddenInAll = filtered.length - visible.length;
 
@@ -322,7 +338,8 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
     for (const project of covered) if (!before.has(String(project.id))) toast(`${joinNames(project.coveredBy)} covered ${project.demoTitle}`);
   }, [data.projects]);
 
-  useEffect(() => { if (selectedId) document.getElementById(`judge-row-${selectedId}`)?.scrollIntoView({ block: "nearest" }); }, [selectedId]);
+  // A new sort keeps the open project in view.
+  useEffect(() => { if (selectedId) document.getElementById(`judge-row-${selectedId}`)?.scrollIntoView({ block: "nearest" }); }, [selectedId, sort]);
 
   const selected = data.projects.find((project) => String(project.id) === selectedId) ?? null;
   const selectedIndex = visible.findIndex((project) => String(project.id) === selectedId);
@@ -460,19 +477,22 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
                   </div>
                 </PopoverContent>
               </Popover>
+              <button type="button" className={styles.sortButton} aria-pressed={sort === "score"} aria-label={sort === "score" ? "Back to queue order" : "Sort by your score"} title={sort === "score" ? "Back to queue order" : "Sort by your score"} onClick={() => setSort(sort === "score" ? "queue" : "score")}>
+                {sort === "score" ? <ArrowDownWideNarrowIcon aria-hidden /> : <ListOrderedIcon aria-hidden />}
+              </button>
             </div>
           </div>
           <nav className={styles.assignmentList} aria-label="Projects">
             {sections.map((section) => <div key={section.key} role="group" aria-label={section.title}>
               <h2 className={styles.mineHeading} data-tone={section.tone}><span>{section.title}</span><span>{section.note}</span></h2>
-              {section.key === "yours" && visible.length > 0 && visibleLeft === 0 && !sections.some((other) => other.key === "scoring") && !search && tracks.length === 0 && <p className={styles.railEmpty}>All yours are scored. Help out with projects still waiting for a second review.</p>}
+              {section.key === "yours" && visible.length > 0 && visibleLeft === 0 && !sections.some((other) => other.key === "scoring") && !search && tracks.length === 0 && <p className={styles.railEmpty}>All yours are scored. Help out with projects still waiting for a second review.{sort === "queue" && <> <button type="button" className={styles.inlineLink} onClick={() => setSort("score")}>Sort by your score</button></>}</p>}
               {section.projects.map((project) => {
                 const taken = takenBy(project);
                 const covered = project.group === "covered";
                 const detail = covered ? `Covered by ${joinNames(project.coveredBy)} · ${project.completeReviewCount} reviews done`
                   : taken ? (project.assignedToMe ? `${taken.judgeName} is scoring it now` : `${taken.judgeName} started it ${startedAgo(taken.updatedAt, now)}`)
                   : null;
-                return <ProjectRow key={String(project.id)} project={project} active={String(project.id) === selectedId} scores={scores[String(project.id)]} reviewTarget={data.reviewTarget} onSelect={setSelectedId}
+                return <ProjectRow key={String(project.id)} project={project} active={String(project.id) === selectedId} scores={scores[String(project.id)]} reviewTarget={data.reviewTarget} onSelect={setSelectedId} total={sort === "score" ? totalOf(project) : null}
                   detail={detail} detailTone={covered ? "done" : taken ? "warning" : undefined} dim={covered || taken !== null} />;
               })}
             </div>)}
@@ -565,10 +585,13 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   );
 }
 
-/** `detail` replaces the team line: who covered it, or who is scoring it now. `dim` greys a row that is not this judge's to score. */
-const ProjectRow = memo(function ProjectRow({ project, active, scores, reviewTarget, onSelect, detail, detailTone, dim }: {
+/**
+ * `detail` replaces the team line: who covered it, or who is scoring it now. `dim` greys a row that is not this judge's to score.
+ * `total` is the judge's own total, shown when sorted by score, as Results shows it.
+ */
+const ProjectRow = memo(function ProjectRow({ project, active, scores, reviewTarget, onSelect, total, detail, detailTone, dim }: {
   project: Project; active: boolean; scores: ScoreState | undefined; reviewTarget: number; onSelect: (id: string) => void;
-  detail: string | null; detailTone: "done" | "warning" | undefined; dim: boolean;
+  total: number | null; detail: string | null; detailTone: "done" | "warning" | undefined; dim: boolean;
 }) {
   const id = String(project.id);
   const complete = scores ? scoreIsComplete(scores) : Boolean(project.review?.completed);
@@ -577,7 +600,7 @@ const ProjectRow = memo(function ProjectRow({ project, active, scores, reviewTar
     <button aria-current={active ? "true" : undefined} className={active ? styles.assignmentActive : styles.assignmentButton} data-dim={dim ? "" : undefined} id={`judge-row-${id}`} onClick={() => onSelect(id)} type="button">
       {complete ? <CheckCircle2Icon aria-label="Scored" className={styles.completeIcon} /> : <CircleIcon aria-label="Not scored" className={styles.incompleteIcon} />}
       <span className={styles.assignmentText}><strong>{project.demoTitle}</strong>{detail ? <small data-tone={detailTone}>{detail}</small> : <small>{project.teamName ?? project.name} · {project.tracks.join(", ") || "Main event"}</small>}</span>
-      {note ? <span className={styles.rowNote}>{note}</span> : <span />}
+      {total !== null ? <span className={styles.rowTotal} title="Your score">{total.toFixed(2)}</span> : note ? <span className={styles.rowNote}>{note}</span> : <span />}
     </button>
   );
 });

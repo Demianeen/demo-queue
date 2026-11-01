@@ -219,7 +219,9 @@ commits. To reproduce a fix locally, use the `verify-demo-queue` skill.
      Next.js reported, and `where` plus `convex_request_id` for errors server
      code caught itself. `where` names the place: `event-title`, `event-look`,
      `status-title`, `event-admin`, `event-overview`, `workspace-load`.
-     Errors from Convex actions carry `function` instead.
+     Errors from Convex actions carry `function` instead. When an error page
+     shows a server error, the browser sends `server_error_shown` with the
+     same `digest` instead of a second `$exception`.
    - Browser events from the submit page carry `form_id`, and Convex's
      `submission_submitted` carries the same `form_id`, so a failed attempt
      (`submission_failed`, `$exception`) joins to the submission that followed.

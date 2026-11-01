@@ -104,6 +104,8 @@ export type ClientEvents = {
   readme_opened: None;
   judge_link_failed: None;
   getting_started_step_completed: { step: string };
+  /** An error page showed a server error, which the server reported itself under this `digest`. */
+  server_error_shown: { boundary: string; digest: string };
 };
 
 /**
@@ -130,9 +132,15 @@ export function captureEvent<Name extends keyof ClientEvents>(name: Name, proper
  * Sends an error a boundary caught; a no-op when PostHog is not configured.
  * A `ConvexError` is an expected state the backend reported on purpose, such
  * as a stale judge link, so it is product analytics rather than a bug.
+ * An error with a `digest` happened on the server, which already reported it
+ * with its real message; the browser only gets Next.js's stand-in, so it
+ * records the digest it showed instead of a second, emptier exception.
  */
 export function reportClientError(error: unknown, properties: Record<string, string> = {}) {
-  if (posthog.__loaded && !(error instanceof ConvexError)) posthog.captureException(error, properties);
+  if (!posthog.__loaded || error instanceof ConvexError) return;
+  const digest = error && typeof error === "object" ? (error as { digest?: unknown }).digest : undefined;
+  if (typeof digest === "string") posthog.capture("server_error_shown", { boundary: properties.boundary ?? "unknown", ...properties, digest });
+  else posthog.captureException(error, properties);
 }
 
 /**

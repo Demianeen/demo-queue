@@ -8,6 +8,8 @@ import { generateText, Output } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 import { aiShuffleArgs } from "./adminActionArgs";
+import { logAiUsage } from "./aiUsage";
+import { hasTokens, usageFromError, usageFromResult, type AiUsageResult, type LoggedUsage } from "../lib/ai-usage";
 import {
   organizationPrincipalValidator,
   requireOrganization,
@@ -52,34 +54,50 @@ export async function aiShuffleForOrganization(
     );
   }
   const openai = createOpenAI({ apiKey: openaiApiKey });
+  const model = env.OPENAI_MODEL ?? "gpt-5.4";
+  // Every call is logged with its tokens, whatever happens to its output: OpenAI bills them all.
+  const logCall = (usage: LoggedUsage, result: AiUsageResult) =>
+    logAiUsage(ctx, { ...usage, eventId: admin.event.id, feature: "shuffle", result });
 
-  const { output } = await generateText({
-    model: openai(env.OPENAI_MODEL ?? "gpt-5.4"),
-    output: Output.object({
-      schema: z.object({
-        orderedIds: z
-          .array(z.string())
-          .describe("Chosen submission ids, in the order they should present"),
+  let usage: LoggedUsage | null = null;
+  let stage: "call" | "output" | "save" = "call";
+  let orderedIds: Id<"submissions">[];
+  try {
+    const response = await generateText({
+      model: openai(model),
+      output: Output.object({
+        schema: z.object({
+          orderedIds: z
+            .array(z.string())
+            .describe("Chosen submission ids, in the order they should present"),
+        }),
       }),
-    }),
-    prompt:
-      `You curate the running order for a demo night. Choose exactly ${target} presenters ` +
-      `from the list and return them in presentation order as "orderedIds". Use only ids that ` +
-      `appear in the list, no duplicates. Organizer instruction: "${args.prompt}".\n\n` +
-      `People (JSON): ${JSON.stringify(people)}`,
-  });
-
-  const orderedIds = output.orderedIds
-    .flatMap((id, i, arr) => {
-      const knownId = knownIds.get(id);
-      return knownId !== undefined && arr.indexOf(id) === i ? [knownId] : [];
-    })
-    .slice(0, target);
-
-  await ctx.runMutation(internal.mcpAdmin.setLineupOrder, {
-    principal,
-    input: { slug: args.slug, orderedIds },
-  });
+      prompt:
+        `You curate the running order for a demo night. Choose exactly ${target} presenters ` +
+        `from the list and return them in presentation order as "orderedIds". Use only ids that ` +
+        `appear in the list, no duplicates. Organizer instruction: "${args.prompt}".\n\n` +
+        `People (JSON): ${JSON.stringify(people)}`,
+    });
+    usage = usageFromResult(response, model);
+    stage = "output";
+    orderedIds = response.output.orderedIds
+      .flatMap((id, i, arr) => {
+        const knownId = knownIds.get(id);
+        return knownId !== undefined && arr.indexOf(id) === i ? [knownId] : [];
+      })
+      .slice(0, target);
+    stage = "save";
+    await ctx.runMutation(internal.mcpAdmin.setLineupOrder, {
+      principal,
+      input: { slug: args.slug, orderedIds },
+    });
+  } catch (error) {
+    const known = usage ?? usageFromError(error, model);
+    const unusable = stage === "output" || (stage === "call" && hasTokens(known));
+    await logCall(known, unusable ? "failed" : "error");
+    throw error;
+  }
+  await logCall(usage ?? { model }, "saved");
 
   return { count: orderedIds.length };
 }

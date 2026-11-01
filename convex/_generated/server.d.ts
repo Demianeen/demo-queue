@@ -31,6 +31,7 @@ type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
   readonly DEMO_QUEUE_SITE_URL: string | undefined;
+  readonly GITHUB_TOKEN: string | undefined;
   readonly GOOGLE_DRIVE_FOLDER_ID: string | undefined;
   readonly GOOGLE_OAUTH_CLIENT_ID: string | undefined;
   readonly GOOGLE_OAUTH_CLIENT_SECRET: string | undefined;

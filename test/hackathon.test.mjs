@@ -7,9 +7,13 @@ import {
   normalizeGithubRepositoryUrl,
 } from "../lib/hackathon.ts";
 import {
+  formatInternationalPhone,
+  formatWhatsAppAsYouType,
+  formatWhatsAppPhone,
   normalizeInternationalPhone,
   parseTeamContact,
   teamContactSchema,
+  whatsAppCountryName,
 } from "../lib/team-contacts.ts";
 
 test("video links accept normalized HTTPS URLs", () => {
@@ -36,6 +40,11 @@ test("video links reject unsafe or malformed URLs", () => {
 
 test("team contacts normalize valid international WhatsApp numbers", () => {
   assert.equal(normalizeInternationalPhone(" +44 20 7946 0958 "), "+442079460958");
+  assert.equal(formatInternationalPhone("+447442106036"), "+44 7442 106036");
+  assert.equal(formatInternationalPhone(" 0014155552671"), "+1 415 555 2671");
+  // Not a full international number: left as typed for validation to explain.
+  assert.equal(formatInternationalPhone("07442 106036"), "07442 106036");
+  assert.equal(formatInternationalPhone("+44 12"), "+44 12");
   assert.deepEqual(
     parseTeamContact({
       name: " Sam Lee ",
@@ -61,15 +70,35 @@ test("team contacts require a valid email", () => {
   );
 });
 
-test("team contacts require an explicit phone country code", () => {
-  assert.equal(
-    teamContactSchema.safeParse({
-      name: "Sam Lee",
-      email: "sam@example.com",
-      whatsappPhone: "020 7946 0958",
-    }).success,
-    false,
-  );
+test("a WhatsApp number needs its country code but no +; a number starting with 0 is never given a country", () => {
+  const whatsapp = (whatsappPhone) => teamContactSchema.safeParse({ name: "Sam Lee", email: "sam@example.com", whatsappPhone });
+  assert.equal(whatsapp("447442106036").data?.whatsappPhone, "+447442106036");
+  assert.equal(whatsapp("44 7442 106036").data?.whatsappPhone, "+447442106036");
+  assert.equal(whatsapp("1 (415) 555-2671").data?.whatsappPhone, "+14155552671");
+  for (const bad of ["020 7946 0958", "07442 106036", "7442", "+44 12", "call me", "", "0"]) {
+    assert.equal(whatsapp(bad).success, false, bad);
+  }
+  assert.equal(whatsapp("07442 106036").error.issues[0].message, "Enter a valid WhatsApp number with its country code, such as +44 7700 900123.");
+});
+
+test("a WhatsApp number is spaced as it is typed, and its country is named once it is valid", () => {
+  // Typed at the end of the field, one character at a time.
+  const typed = (text) => [...text].reduce((value, character) => formatWhatsAppAsYouType(value + character), "");
+  assert.equal(typed("447442106036"), "+44 7442 106036");
+  assert.equal(typed("+447442106036"), "+44 7442 106036");
+  assert.equal(typed("0014155552671"), "+1 415 555 2671");
+  // No country code: left as typed.
+  assert.equal(typed("07442106036"), "07442106036");
+  assert.equal(formatWhatsAppAsYouType(""), "");
+  assert.equal(formatWhatsAppAsYouType("call"), "call");
+  // On leaving the field: the international form when valid, otherwise as typed.
+  assert.equal(formatWhatsAppPhone("447442106036"), "+44 7442 106036");
+  assert.equal(formatWhatsAppPhone("07442 106036"), "07442 106036");
+  assert.equal(whatsAppCountryName("07442 106036"), null);
+  assert.equal(formatWhatsAppPhone("+44 12"), "+44 12");
+  assert.equal(whatsAppCountryName("447442106036"), "United Kingdom");
+  assert.equal(whatsAppCountryName("+1 415 555 2671"), "United States");
+  assert.equal(whatsAppCountryName("+44 12"), null);
 });
 
 test("GitHub repository links normalize only repository roots", () => {

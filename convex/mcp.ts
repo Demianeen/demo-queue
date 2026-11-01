@@ -10,10 +10,13 @@ import { eventThemeValidator } from "./eventTheme";
 import { z } from "zod";
 import { listOrganizationInvitations, listOrganizationMembers, revokeOrganizationInvitation, sendOrganizationInvitations } from "./members";
 import { MAX_INVITES_PER_REQUEST } from "../lib/members";
+import { meetUrlError } from "../lib/validation";
 export { createToolServer, serveMcp, validResourceRequest } from "./mcpWorkos";
 
 const tool = createTool<Id<"mcpApprovals">>();
 const styleSelection = v.union(v.object({ kind: v.literal("preset"), preset: visualStyleValidator }), v.object({ kind: v.literal("saved"), id: v.string() }));
+// set_default_style also takes "none": no default, so New event asks for a style.
+const defaultSelection = v.union(v.object({ kind: v.literal("preset"), preset: visualStyleValidator }), v.object({ kind: v.literal("saved"), id: v.string() }), v.object({ kind: v.literal("none") }));
 const organizationId = z.string().regex(/^org_[A-Za-z0-9]+$/);
 const slug = z.string().min(1).max(200);
 
@@ -69,13 +72,14 @@ export const mcp: McpServer<Id<"mcpApprovals">> = new ApprovalMcpServer(componen
     }),
     create_event: tool({
       description: "Create an initially unpublished event using a saved style, built-in preset, or the organization default.",
-      args: { organizationId: v.string(), name: v.string(), slug: v.string(), eventType: v.union(v.literal("demo"), v.literal("hackathon")), meetUrl: v.string(), style: v.optional(styleSelection) },
+      args: { organizationId: v.string(), name: v.string(), slug: v.string(), eventType: v.union(v.literal("demo"), v.literal("hackathon")), meetUrl: v.optional(v.string()), style: v.optional(styleSelection) },
       scope: "events:manage", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       handler: (ctx, args, user) => componentToolCall(ctx, user, args.organizationId, "events:manage", (principal) => {
         organizationId.parse(args.organizationId);
         const name = z.string().trim().min(1).max(160).parse(args.name);
         slug.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).parse(args.slug);
-        z.url().max(2048).refine((url) => ["https:", "http:"].includes(new URL(url).protocol)).parse(args.meetUrl);
+        const meetError = meetUrlError(args.eventType, args.meetUrl);
+        if (meetError) throw new ConvexError(meetError);
         if (args.style?.kind === "saved") z.string().min(1).max(128).parse(args.style.id);
         return ctx.runMutation(internal.mcpData.createEvent, { principal, expectedOrganizationId: args.organizationId, actor: principal.actor, name, slug: args.slug, eventType: args.eventType, meetUrl: args.meetUrl,
           ...(args.style?.kind === "saved" ? { styleId: args.style.id } : args.style?.kind === "preset" ? { visualStyle: args.style.preset } : {}) });
@@ -94,8 +98,8 @@ export const mcp: McpServer<Id<"mcpApprovals">> = new ApprovalMcpServer(componen
       }),
     }),
     set_default_style: tool({
-      description: "Explicitly change the organization default. Existing event snapshots remain unchanged.",
-      args: { organizationId: v.string(), selection: styleSelection }, scope: "events:manage", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      description: "Explicitly change the organization default, or remove it with kind \"none\" (New event then asks for a style; create_event without a style uses Base). Existing event snapshots remain unchanged.",
+      args: { organizationId: v.string(), selection: defaultSelection }, scope: "events:manage", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: (ctx, args, user) => componentToolCall(ctx, user, args.organizationId, "events:manage", (principal) => ctx.runMutation(internal.mcpData.setDefaultStyle, { ...args, principal })),
     }),
     list_members: tool({

@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useMutation } from "convex/react";
-import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -16,6 +19,8 @@ export type AdminTrack = {
   submissionCount: number;
 };
 
+const DESCRIPTION_PLACEHOLDER = "Short description shown to teams (optional)";
+
 function errorMessage(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "data" in error && typeof error.data === "string") return error.data;
   return error instanceof Error ? error.message : fallback;
@@ -23,6 +28,12 @@ function errorMessage(error: unknown, fallback: string) {
 
 function plural(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** Enter saves the field, Escape puts back what was saved. */
+function fieldKeys(event: KeyboardEvent<HTMLInputElement>, reset: () => void) {
+  if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+  else if (event.key === "Escape") { reset(); requestAnimationFrame(() => (event.target as HTMLInputElement).blur()); }
 }
 
 export function TracksAdminPanel({
@@ -41,10 +52,18 @@ export function TracksAdminPanel({
   const reorderTracks = useMutation(api.tracks.reorderTracks);
   const removeTrack = useMutation(api.tracks.removeTrack);
   const [newName, setNewName] = useState("");
-  const [editingId, setEditingId] = useState<Id<"eventTracks"> | null>(null);
+  const [newDescription, setNewDescription] = useState("");
   const [confirmingId, setConfirmingId] = useState<Id<"eventTracks"> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // The order shown while a drag is saving, so the row does not jump back.
+  const [order, setOrder] = useState<Id<"eventTracks">[] | null>(null);
+  const byId = new Map(tracks.map((track) => [track.id, track]));
+  const shown = order ? order.map((id) => byId.get(id)).filter((track): track is AdminTrack => Boolean(track)) : tracks;
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   async function run(action: () => Promise<unknown>, fallback: string) {
     setBusy(true);
@@ -64,15 +83,17 @@ export function TracksAdminPanel({
     event.preventDefault();
     const name = newName.trim();
     if (!name) return;
-    if (await run(() => addTrack({ slug, name }), "Could not add the track.")) setNewName("");
+    const description = newDescription.trim() || undefined;
+    if (await run(() => addTrack({ slug, name, description }), "Could not add the track.")) { setNewName(""); setNewDescription(""); }
   }
 
-  async function move(index: number, offset: -1 | 1) {
-    const ids = tracks.map((track) => track.id);
-    const target = index + offset;
-    if (target < 0 || target >= ids.length) return;
-    [ids[index], ids[target]] = [ids[target], ids[index]];
-    await run(() => reorderTracks({ slug, orderedIds: ids }), "Could not reorder tracks.");
+  async function onDragEnd({ active, over }: DragEndEvent) {
+    if (!over || active.id === over.id) return;
+    const ids = shown.map((track) => track.id);
+    const next = arrayMove(ids, ids.indexOf(active.id as Id<"eventTracks">), ids.indexOf(over.id as Id<"eventTracks">));
+    setOrder(next);
+    await run(() => reorderTracks({ slug, orderedIds: next }), "Could not reorder tracks.");
+    setOrder(null);
   }
 
   async function remove(track: AdminTrack, confirmInUse: boolean) {
@@ -86,116 +107,36 @@ export function TracksAdminPanel({
   }
 
   return (
-    <section aria-labelledby="admin-tracks-heading" className={`panel ${styles.panel}`}>
-      <div className={styles.heading}>
-        <h2 id="admin-tracks-heading">Tracks</h2>
-        <p>Teams pick none, one or several. Changes show on the form, judge pages and stage straight away.</p>
+    <section aria-labelledby="admin-tracks-heading" className={styles.panel}>
+      <div>
+        <h2 id="admin-tracks-heading" className={styles.title}>Tracks</h2>
+        <p className={styles.note}>Teams pick none, one or several. Changes show on the form, judge pages and stage straight away.</p>
       </div>
 
       <div className={styles.list}>
-        {tracks.map((track, index) =>
-          editingId === track.id ? (
-            <RenameRow
-              key={track.id}
-              busy={busy}
-              track={track}
-              onCancel={() => setEditingId(null)}
-              onSave={async (name, description) => {
-                if (await run(() => updateTrack({ slug, trackId: track.id, name, description }), "Could not rename the track.")) {
-                  setEditingId(null);
-                }
-              }}
-            />
-          ) : (
-            <div className={styles.item} key={track.id}>
-              <div className={styles.row}>
-                <div className={styles.name}>
-                  <strong>{track.name}</strong>
-                  {track.description ? <span>{track.description}</span> : null}
-                </div>
-                <span className={styles.count}>{plural(track.submissionCount, "submission")}</span>
-                <div className={styles.rowActions}>
-                  <Button
-                    aria-label={`Move ${track.name} up`}
-                    disabled={busy || index === 0}
-                    onClick={() => move(index, -1)}
-                    size="icon-sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <ArrowUp aria-hidden size={14} />
-                  </Button>
-                  <Button
-                    aria-label={`Move ${track.name} down`}
-                    disabled={busy || index === tracks.length - 1}
-                    onClick={() => move(index, 1)}
-                    size="icon-sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <ArrowDown aria-hidden size={14} />
-                  </Button>
-                  <Button disabled={busy} onClick={() => setEditingId(track.id)} size="sm" type="button" variant="outline">
-                    Rename
-                  </Button>
-                  <Button
-                    aria-label={`Remove ${track.name}`}
-                    disabled={busy}
-                    onClick={() => remove(track, false)}
-                    size="icon-sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <X aria-hidden size={15} />
-                  </Button>
-                </div>
-              </div>
-              {confirmingId === track.id ? (
-                <div className={styles.confirm} role="alert">
-                  <span>
-                    {plural(track.submissionCount, "submission")} picked {track.name}. Removing it takes it off
-                    them; their other tracks stay.
-                  </span>
-                  <Button disabled={busy} onClick={() => remove(track, true)} size="sm" type="button" variant="destructive">
-                    Remove from {track.submissionCount}
-                  </Button>
-                  <Button disabled={busy} onClick={() => setConfirmingId(null)} size="sm" type="button" variant="outline">
-                    Keep
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          ),
-        )}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => void onDragEnd(event)}>
+          <SortableContext items={shown.map((track) => track.id)} strategy={verticalListSortingStrategy}>
+            <ul className={styles.rows}>
+              {shown.map((track) => <TrackRow key={track.id} track={track} busy={busy} confirming={confirmingId === track.id}
+                onSave={(name, description) => run(() => updateTrack({ slug, trackId: track.id, name, description }), "Could not save the track.")}
+                onRemove={(confirmInUse) => void remove(track, confirmInUse)} onKeep={() => setConfirmingId(null)} />)}
+            </ul>
+          </SortableContext>
+        </DndContext>
         {tracks.length < MAX_EVENT_TRACKS ? (
           <form className={styles.addRow} onSubmit={add}>
-            <label className="sr-only" htmlFor="admin-new-track">
-              New track name
-            </label>
-            <input
-              id="admin-new-track"
-              maxLength={MAX_TRACK_NAME_LENGTH}
-              onChange={(event) => setNewName(event.target.value)}
-              placeholder="New track name"
-              value={newName}
-            />
-            <Button disabled={busy || !newName.trim()} size="sm" type="submit">
-              Add track
-            </Button>
+            <input aria-label="New track name" className={styles.nameInput} maxLength={MAX_TRACK_NAME_LENGTH} onChange={(event) => setNewName(event.target.value)} placeholder="New track name" value={newName} />
+            <input aria-label="New track description" className={styles.descriptionInput} maxLength={MAX_TRACK_DESCRIPTION_LENGTH} onChange={(event) => setNewDescription(event.target.value)} placeholder={DESCRIPTION_PLACEHOLDER} value={newDescription} />
+            <Button disabled={busy || !newName.trim()} size="sm" type="submit" variant="outline">Add track</Button>
           </form>
-        ) : (
-          <p className={styles.note}>An event can have up to {MAX_EVENT_TRACKS} tracks.</p>
-        )}
+        ) : null}
       </div>
 
-      {error ? (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      ) : null}
-      {tracks.length > 0 || noTrackCount > 0 ? (
-        <p className={styles.note}>No track picked: {plural(noTrackCount, "submission")}.</p>
-      ) : null}
+      {error ? <p className={styles.error} role="alert">{error}</p> : null}
+      <p className={styles.note}>
+        {tracks.length > 0 || noTrackCount > 0 ? `No track picked: ${plural(noTrackCount, "submission")}. ` : ""}
+        {tracks.length < MAX_EVENT_TRACKS ? `Up to ${MAX_EVENT_TRACKS} tracks.` : `An event can have up to ${MAX_EVENT_TRACKS} tracks.`}
+      </p>
       {legacyCategoryCount > 0 ? (
         <p className={styles.note}>
           {plural(legacyCategoryCount, "older submission")} still show the category typed before tracks existed.
@@ -205,50 +146,57 @@ export function TracksAdminPanel({
   );
 }
 
-function RenameRow({
-  track,
-  busy,
-  onSave,
-  onCancel,
-}: {
+/** One track: name and description edit in place and save when you leave the field. */
+function TrackRow({ track, busy, confirming, onSave, onRemove, onKeep }: {
   track: AdminTrack;
   busy: boolean;
-  onSave: (name: string, description?: string) => Promise<void>;
-  onCancel: () => void;
+  confirming: boolean;
+  onSave: (name: string, description?: string) => Promise<boolean>;
+  onRemove: (confirmInUse: boolean) => void;
+  onKeep: () => void;
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: track.id });
   const [name, setName] = useState(track.name);
   const [description, setDescription] = useState(track.description ?? "");
+  // A change saved elsewhere (another organiser, the assistant) shows here too.
+  useEffect(() => { setName(track.name); }, [track.name]);
+  useEffect(() => { setDescription(track.description ?? ""); }, [track.description]);
+
+  async function save() {
+    const nextName = name.trim();
+    const nextDescription = description.trim();
+    if (!nextName) { setName(track.name); return; }
+    if (nextName === track.name && nextDescription === (track.description ?? "")) return;
+    if (!(await onSave(nextName, nextDescription || undefined))) { setName(track.name); setDescription(track.description ?? ""); }
+  }
 
   return (
-    <form
-      className={styles.editRow}
-      onSubmit={(event) => {
-        event.preventDefault();
-        void onSave(name, description.trim() || undefined);
-      }}
-    >
-      <input
-        aria-label={`Name for ${track.name}`}
-        autoFocus
-        maxLength={MAX_TRACK_NAME_LENGTH}
-        onChange={(event) => setName(event.target.value)}
-        value={name}
-      />
-      <input
-        aria-label={`Description for ${track.name}`}
-        maxLength={MAX_TRACK_DESCRIPTION_LENGTH}
-        onChange={(event) => setDescription(event.target.value)}
-        placeholder="Short description shown to teams (optional)"
-        value={description}
-      />
-      <div className={styles.rowActions}>
-        <Button disabled={busy || !name.trim()} size="sm" type="submit">
-          Save
-        </Button>
-        <Button disabled={busy} onClick={onCancel} size="sm" type="button" variant="ghost">
-          Cancel
+    <li ref={setNodeRef} className={styles.item} data-dragging={isDragging ? "" : undefined} style={{ transform: CSS.Transform.toString(transform), transition }}>
+      <div className={styles.row}>
+        <button type="button" className={styles.grip} aria-label={`Move ${track.name}`} disabled={busy} {...attributes} {...listeners}><GripVertical aria-hidden /></button>
+        <input aria-label={`Name for ${track.name}`} className={styles.nameInput} maxLength={MAX_TRACK_NAME_LENGTH} value={name}
+          onChange={(event) => setName(event.target.value)} onBlur={() => void save()} onKeyDown={(event) => fieldKeys(event, () => setName(track.name))} />
+        <input aria-label={`Description for ${track.name}`} className={styles.descriptionInput} maxLength={MAX_TRACK_DESCRIPTION_LENGTH} placeholder={DESCRIPTION_PLACEHOLDER} value={description}
+          onChange={(event) => setDescription(event.target.value)} onBlur={() => void save()} onKeyDown={(event) => fieldKeys(event, () => setDescription(track.description ?? ""))} />
+        <span className={styles.count}>{plural(track.submissionCount, "submission")}</span>
+        <Button aria-label={`Remove ${track.name}`} title="Remove" disabled={busy} onClick={() => onRemove(false)} size="icon-xs" type="button" variant="ghost">
+          <X aria-hidden />
         </Button>
       </div>
-    </form>
+      {confirming ? (
+        <div className={styles.confirm} role="alert">
+          <span>
+            {plural(track.submissionCount, "submission")} picked {track.name}. Removing it takes it off
+            them; their other tracks stay.
+          </span>
+          <Button disabled={busy} onClick={() => onRemove(true)} size="sm" type="button" variant="destructive">
+            Remove from {track.submissionCount}
+          </Button>
+          <Button disabled={busy} onClick={onKeep} size="sm" type="button" variant="outline">
+            Keep
+          </Button>
+        </div>
+      ) : null}
+    </li>
   );
 }

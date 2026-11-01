@@ -100,3 +100,66 @@ test("selecting a saved default preserves its current design and rejects foreign
   const event = await one.mutation(api.events.createEvent, input);
   expect(await t.run((ctx) => ctx.db.get(event.eventId))).toMatchObject({ theme: latestTheme });
 });
+
+test("no default clears every default row, keeps events, and a new event with no choice falls back to Base", async () => {
+  const t = convexTest(schema, modules).withIdentity(identity("org_one"));
+  const outpost = await t.mutation(api.organizationStyles.setPresetDefault, { expectedOrganizationId: "org_one", preset: "outpost" });
+  const before = await t.mutation(api.events.createEvent, { ...input, slug: "before" });
+  await expect(t.mutation(api.organizationStyles.clearDefault, { expectedOrganizationId: "org_two" })).rejects.toThrow("organization changed");
+  await t.mutation(api.organizationStyles.clearDefault, { expectedOrganizationId: "org_one" });
+  const { styles } = await t.query(api.organizationStyles.list);
+  expect(styles.filter((style) => style.isDefault)).toEqual([]);
+  // The built-in row stays, so its brand is kept.
+  expect(styles.map((style) => style._id)).toEqual([outpost]);
+  expect(await t.run((ctx) => ctx.db.get(before.eventId))).toMatchObject({ visualStyle: "outpost" });
+  const after = await t.mutation(api.events.createEvent, { ...input, slug: "after" });
+  expect(await t.run((ctx) => ctx.db.get(after.eventId))).toMatchObject({ visualStyle: "neutral", theme: DEFAULT_EVENT_THEME });
+  const picked = await t.mutation(api.events.createEvent, { ...input, slug: "picked", visualStyle: "astra" });
+  expect(await t.run((ctx) => ctx.db.get(picked.eventId))).toMatchObject({ visualStyle: "astra" });
+});
+
+test("brands group built-in and saved styles by id, rename keeps their styles, and stay in their organization", async () => {
+  const t = convexTest(schema, modules);
+  const one = t.withIdentity(identity("org_one"));
+  const two = t.withIdentity(identity("org_two"));
+  const custom = await one.mutation(api.organizationStyles.save, { ...styleInput, isDefault: false });
+  const sponsor = await one.mutation(api.organizationStyles.createBrand, { expectedOrganizationId: "org_one", name: " OpenAI ", style: { kind: "preset", preset: "codex" } });
+  await expect(one.mutation(api.organizationStyles.createBrand, { expectedOrganizationId: "org_one", name: "openai" })).rejects.toThrow("already exists");
+  await expect(one.mutation(api.organizationStyles.createBrand, { expectedOrganizationId: "org_one", name: "  " })).rejects.toThrow("1–60");
+  const ours = await one.mutation(api.organizationStyles.createBrand, { expectedOrganizationId: "org_one", name: "Outpost" });
+  await one.mutation(api.organizationStyles.setStyleBrand, { expectedOrganizationId: "org_one", style: { kind: "saved", id: custom }, brandId: ours });
+  await one.mutation(api.organizationStyles.setStyleBrand, { expectedOrganizationId: "org_one", style: { kind: "preset", preset: "outpost" }, brandId: ours });
+  let state = await one.query(api.organizationStyles.list);
+  expect(state.brands.map((brand) => brand.name)).toEqual(["OpenAI", "Outpost"]);
+  // A built-in gets a non-default row that carries its brand.
+  expect(state.styles.find((style) => style.preset === "codex")).toMatchObject({ brandId: sponsor, isDefault: false, name: "Codex" });
+  expect(state.styles.find((style) => style.preset === "outpost")).toMatchObject({ brandId: ours, isDefault: false });
+  expect(state.styles.find((style) => style._id === custom)).toMatchObject({ brandId: ours });
+  // Making it the default reuses that row.
+  await one.mutation(api.organizationStyles.setPresetDefault, { expectedOrganizationId: "org_one", preset: "codex" });
+  state = await one.query(api.organizationStyles.list);
+  expect(state.styles.filter((style) => style.preset === "codex")).toHaveLength(1);
+  expect(state.styles.find((style) => style.preset === "codex")).toMatchObject({ brandId: sponsor, isDefault: true });
+
+  await one.mutation(api.organizationStyles.renameBrand, { expectedOrganizationId: "org_one", id: sponsor, name: "OpenAI DevDay" });
+  await expect(one.mutation(api.organizationStyles.renameBrand, { expectedOrganizationId: "org_one", id: sponsor, name: "outpost" })).rejects.toThrow("already exists");
+  state = await one.query(api.organizationStyles.list);
+  expect(state.brands.find((brand) => brand._id === sponsor)?.name).toBe("OpenAI DevDay");
+  expect(state.styles.find((style) => style.preset === "codex")?.brandId).toBe(sponsor);
+
+  await one.mutation(api.organizationStyles.setStyleBrand, { expectedOrganizationId: "org_one", style: { kind: "saved", id: custom } });
+  expect((await one.query(api.organizationStyles.list)).styles.find((style) => style._id === custom)).not.toHaveProperty("brandId");
+
+  expect((await two.query(api.organizationStyles.list)).brands).toEqual([]);
+  await expect(two.mutation(api.organizationStyles.renameBrand, { expectedOrganizationId: "org_two", id: sponsor, name: "Mine" })).rejects.toThrow("Brand not found");
+  await expect(two.mutation(api.organizationStyles.setStyleBrand, { expectedOrganizationId: "org_two", style: { kind: "preset", preset: "astra" }, brandId: sponsor })).rejects.toThrow("Brand not found");
+  await expect(two.mutation(api.organizationStyles.setStyleBrand, { expectedOrganizationId: "org_two", style: { kind: "saved", id: custom } })).rejects.toThrow("Style not found");
+  await expect(two.mutation(api.organizationStyles.createBrand, { expectedOrganizationId: "org_one", name: "Sneaky" })).rejects.toThrow("organization changed");
+  expect((await two.query(api.organizationStyles.list)).styles).toEqual([]);
+});
+
+test("an organization has at most 50 brands", async () => {
+  const t = convexTest(schema, modules).withIdentity(identity("org_one"));
+  await t.run(async (ctx) => { for (let i = 0; i < 50; i++) await ctx.db.insert("styleBrands", { organizationId: "org_one", name: `Brand ${i}`, updatedAt: 1 }); });
+  await expect(t.mutation(api.organizationStyles.createBrand, { expectedOrganizationId: "org_one", name: "One more" })).rejects.toThrow("up to 50 brands");
+});

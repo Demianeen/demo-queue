@@ -482,7 +482,7 @@ h3 {
   width: 1440px;
 }
 
-.shared-stage-preview-canvas > .stage:not(.stage-outpost):not(.stage-astra):not(.stage-devday) {
+.shared-stage-preview-canvas > .stage:not(.stage-outpost):not(.stage-astra):not(.stage-devday):not(.stage-neutral) {
   background-color: #eef1ff;
   background-image:
     linear-gradient(rgba(247, 248, 255, 0.36), rgba(247, 248, 255, 0.3)),
@@ -1579,6 +1579,10 @@ h3 {
   transform: translateX(-100%);
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
   animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+[data-event-shell] .skeleton {
+  background: color-mix(in srgb, currentColor 10%, transparent);
 }
 
 .skeleton.on-dark {
@@ -3919,3 +3923,27 @@ h3 {
     grid-template-columns: 1fr;
   }
 }
+
+/* Withdraw, asked first, and Submit again on the status page. */
+.withdraw-panel { display: grid; gap: 10px; margin: 16px 0; }
+.withdraw-panel p { margin: 0; }
+.withdraw-panel .actions { margin-top: 0; }
+.withdraw-error { color: var(--app-bad); font-weight: 600; }
+.withdraw-error a { color: inherit; text-decoration: underline; }
+
+/* Team status page (StatusPageB6): a kicker, the steps, and a details list. Every event style restyles these through its own --app-* colours. */
+.status-kicker { color: var(--app-muted); font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+.status-steps { display: flex; flex-wrap: wrap; gap: 6px 14px; list-style: none; margin: 0 0 16px; padding: 0; }
+.status-steps li { align-items: center; color: var(--app-muted); display: inline-flex; font-size: 13px; gap: 6px; }
+.status-step-mark { align-items: center; border: 1px solid var(--app-line); border-radius: 999px; display: inline-flex; flex: none; font-size: 11px; font-weight: 700; height: 20px; justify-content: center; width: 20px; }
+.status-steps li[data-state="done"] { color: var(--app-ink); }
+.status-steps li[data-state="done"] .status-step-mark { background: var(--app-good); border-color: var(--app-good); color: #fff; }
+.status-steps li[data-state="current"] { color: var(--app-ink); font-weight: 650; }
+.status-steps li[data-state="current"] .status-step-mark { border-color: var(--app-ink); color: var(--app-ink); }
+.status-details { border: 1px solid var(--app-line); border-radius: 12px; display: grid; gap: 0; margin: 0 0 16px; }
+.status-details > div { display: grid; gap: 2px 12px; grid-template-columns: 110px minmax(0, 1fr); padding: 10px 14px; }
+.status-details > div + div { border-top: 1px solid var(--app-line); }
+.status-details dt { color: var(--app-muted); font-size: 13px; }
+.status-details dd { align-items: baseline; display: flex; flex-wrap: wrap; font-size: 14px; gap: 4px 10px; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.status-edit { background: none; border: 0; color: var(--app-accent); cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+@media (max-width: 480px) { .status-details > div { grid-template-columns: 1fr; } }

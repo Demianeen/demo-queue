@@ -1,9 +1,14 @@
 import { requireApproval } from "./mcpConnectionPolicy";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { organizationPrincipalValidator, requireOwnedEvent } from "./organizationAuth";
 import * as events from "./events";
 import * as judging from "./judging";
+import * as phases from "./phases";
+import * as changes from "./changes";
+import * as practice from "./practice";
+import * as organizationStyles from "./organizationStyles";
+import { visualStyleValidator } from "./visualStyle";
 
 type Admin = Awaited<ReturnType<typeof events.getAdminForOrganization>>;
 type Submission = Admin["lineup"][number];
@@ -29,8 +34,8 @@ function submissionDto(s: Submission) {
     tracks: s.tracks, trackIds: s.trackIds, teamName: s.teamName, githubUrl: s.githubUrl,
     status: s.status, queueOrder: s.queueOrder, teamMembers: s.teamMembers,
     videoUrl: s.videoUrl, videoDeleteAt: s.videoDeleteAt, videoDeletedAt: s.videoDeletedAt,
-    rulesAcceptedAt: s.rulesAcceptedAt, roundOneAssignedJudges: s.roundOneAssignedJudges,
-    aiSummary: s.aiSummary, createdAt: s.createdAt, updatedAt: s.updatedAt,
+    rulesAcceptedAt: s.rulesAcceptedAt, roundOneAssignedJudges: s.roundOneAssignedJudges, roundOneAssignedJudgeKeys: s.roundOneAssignedJudgeKeys,
+    aiSummary: s.aiSummary, aiRead: s.aiRead, createdAt: s.createdAt, updatedAt: s.updatedAt,
   };
 }
 
@@ -55,6 +60,8 @@ export const getEventAdmin = internalQuery({
       event: admin.event,
       // Track ids here are what add_submission and update_submission take.
       tracks: admin.tracks, noTrackCount: admin.noTrackCount, legacyCategoryCount: admin.legacyCategoryCount,
+      // A hackathon's sponsors, with what counts as using each: the AI read checks projects for them.
+      sponsors: admin.sponsors,
       lineup: admin.lineup.map(submissionDto), pool: admin.pool.map(submissionDto),
       hidden: admin.hidden.map(submissionDto), completed: admin.completed.map(submissionDto),
       noShows: admin.noShows.map(submissionDto), withdrawn: admin.withdrawn.map(submissionDto),
@@ -185,6 +192,12 @@ export const setStageTimerVisibleInput = events.setStageTimerVisibleArgs;
 export const setStageTimerVisible = internalMutation({
   args: { principal: organizationPrincipalValidator, input: setStageTimerVisibleInput },
   handler: (ctx, { principal, input }) => events.setStageTimerVisibleForOrganization(ctx, input, principal),
+});
+
+export const setStageResultsShowFinalistsInput = events.setStageResultsShowFinalistsArgs;
+export const setStageResultsShowFinalists = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: setStageResultsShowFinalistsInput },
+  handler: (ctx, { principal, input }) => events.setStageResultsShowFinalistsForOrganization(ctx, input, principal),
 });
 
 export const setStageTimerDurationInput = events.setStageTimerDurationArgs;
@@ -411,4 +424,204 @@ export const previewRedistribution = internalQuery({
   handler: (ctx, { principal, input }) => judging.previewRedistributionForOrganization(ctx, {
     ...input, overrides: input.overrides?.map((row) => ({ ...row, submissionId: submissionId(ctx, row.submissionId) })),
   }, principal),
+});
+
+// New behaviour: phases, exact timers, Recent changes and Undo, the Judges table, the live event and practice events.
+
+export const setPhaseInput = phases.setPhaseArgs;
+export const setPhase = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: setPhaseInput },
+  handler: (ctx, { principal, input }) => phases.setPhaseForOrganization(ctx, input, principal),
+});
+
+export const previewPhaseChangeInput = phases.previewPhaseChangeArgs;
+export const previewPhaseChange = internalQuery({
+  args: { principal: organizationPrincipalValidator, input: previewPhaseChangeInput },
+  handler: (ctx, { principal, input }) => phases.previewPhaseChangeForOrganization(ctx, input, principal),
+});
+
+export const reopenSubmissionsInput = phases.reopenSubmissionsArgs;
+export const reopenSubmissions = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: reopenSubmissionsInput },
+  handler: (ctx, { principal, input }) => phases.reopenSubmissionsForOrganization(ctx, input, principal),
+});
+
+export const setJudgingTimeLeftInput = judging.setJudgingTimeLeftArgs;
+export const setJudgingTimeLeft = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: setJudgingTimeLeftInput },
+  handler: (ctx, { principal, input }) => judging.setJudgingTimeLeftForOrganization(ctx, input, principal),
+});
+
+export const pauseJudgingTimerInput = judging.pauseJudgingTimerArgs;
+export const pauseJudgingTimer = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: pauseJudgingTimerInput },
+  handler: (ctx, { principal, input }) => judging.pauseJudgingTimerForOrganization(ctx, input, principal),
+});
+
+export const resumeJudgingTimerInput = judging.resumeJudgingTimerArgs;
+export const resumeJudgingTimer = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: resumeJudgingTimerInput },
+  handler: (ctx, { principal, input }) => judging.resumeJudgingTimerForOrganization(ctx, input, principal),
+});
+
+export const setStageTimerRemainingInput = events.setStageTimerRemainingArgs;
+export const setStageTimerRemaining = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: setStageTimerRemainingInput },
+  handler: (ctx, { principal, input }) => events.setStageTimerRemainingForOrganization(ctx, input, principal),
+});
+
+export const listRecentChangesInput = changes.listRecentChangesArgs;
+export const listRecentChanges = internalQuery({
+  args: { principal: organizationPrincipalValidator, input: listRecentChangesInput },
+  handler: (ctx, { principal, input }) => changes.listRecentChangesForOrganization(ctx, input, principal),
+});
+
+export const undoChangeInput = changes.undoChangeArgs;
+export const undoChange = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: undoChangeInput },
+  handler: (ctx, { principal, input }) => changes.undoChangeForOrganization(ctx, input, principal),
+});
+
+export const getJudgesOverviewInput = judging.getJudgesOverviewArgs;
+export const getJudgesOverview = internalQuery({
+  args: { principal: organizationPrincipalValidator, input: getJudgesOverviewInput },
+  handler: (ctx, { principal, input }) => judging.getJudgesOverviewForOrganization(ctx, input, principal),
+});
+
+/** The tool makes the new token, as create_judge_link does. */
+export const replaceJudgeLinkInput = judging.replaceJudgeLinkArgs.omit("capabilityToken");
+export const replaceJudgeLink = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: replaceJudgeLinkInput },
+  handler: (ctx, { principal, input }) =>
+    judging.replaceJudgeLinkForOrganization(ctx, { ...input, capabilityToken: crypto.randomUUID() }, principal),
+});
+
+export const moveJudgeScoresInput = v.object({ ...judging.moveJudgeScoresArgs.fields, submissionIds: v.optional(v.array(v.string())) });
+export const moveJudgeScores = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: moveJudgeScoresInput },
+  handler: (ctx, { principal, input }) => judging.moveJudgeScoresForOrganization(ctx, {
+    ...input, submissionIds: input.submissionIds?.map((value) => submissionId(ctx, value)),
+  }, principal),
+});
+
+export const addJudgesInput = judging.addJudgesArgs;
+export const addJudges = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: addJudgesInput },
+  handler: (ctx, { principal, input }) => judging.addJudgesForOrganization(ctx, input, principal),
+});
+
+export const removeJudgeInput = judging.removeJudgeArgs;
+export const removeJudge = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: removeJudgeInput },
+  handler: (ctx, { principal, input }) => judging.removeJudgeForOrganization(ctx, input, principal),
+});
+
+export const renameJudgeInput = judging.renameJudgeArgs;
+export const renameJudge = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: renameJudgeInput },
+  handler: (ctx, { principal, input }) => judging.renameJudgeForOrganization(ctx, input, principal),
+});
+
+export const setJudgeLinkActiveInput = judging.setJudgeLinkActiveArgs;
+export const setJudgeLinkActive = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: setJudgeLinkActiveInput },
+  handler: (ctx, { principal, input }) => judging.setJudgeLinkActiveForOrganization(ctx, input, principal),
+});
+
+export const getLiveEventInput = events.getLiveEventArgs;
+export const getLiveEvent = internalQuery({
+  args: { principal: organizationPrincipalValidator, input: getLiveEventInput },
+  handler: (ctx, { principal, input }) => events.getLiveEventForOrganization(ctx, input, principal),
+});
+
+/** The organization comes from the tool call, so the tool does not repeat it. */
+export const createPracticeEventInput = practice.createPracticeEventArgs.omit("expectedOrganizationId");
+
+export const listPracticeEventsInput = practice.listPracticeEventsArgs;
+export const listPracticeEvents = internalQuery({
+  args: { principal: organizationPrincipalValidator, input: listPracticeEventsInput },
+  handler: (ctx, { principal, input }) => practice.listPracticeEventsForOrganization(ctx, input, principal),
+});
+
+export const addPracticeSubmissionsInput = practice.addPracticeSubmissionsArgs;
+export const addPracticeSubmissions = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: addPracticeSubmissionsInput },
+  handler: (ctx, { principal, input }) => practice.addPracticeSubmissionsForOrganization(ctx, input, principal),
+});
+
+export const scoreAsTestJudgesInput = practice.scoreAsTestJudgesArgs;
+export const scoreAsTestJudges = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: scoreAsTestJudgesInput },
+  handler: (ctx, { principal, input }) => practice.scoreAsTestJudgesForOrganization(ctx, input, principal),
+});
+
+export const skipPracticeTimerInput = practice.skipTimerToLastSecondsArgs;
+export const skipPracticeTimer = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: skipPracticeTimerInput },
+  handler: (ctx, { principal, input }) => practice.skipTimerToLastSecondsForOrganization(ctx, input, principal),
+});
+
+export const setPracticeAiSummariesInput = practice.setPracticeAiSummariesArgs;
+export const setPracticeAiSummaries = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: setPracticeAiSummariesInput },
+  handler: (ctx, { principal, input }) => practice.setPracticeAiSummariesForOrganization(ctx, input, principal),
+});
+
+export const resetPracticeEventInput = practice.resetPracticeEventArgs.extend({
+  confirmation: v.object({ action: v.literal("reset_practice_event"), slug: v.string() }),
+});
+export const resetPracticeEvent = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: resetPracticeEventInput },
+  handler: (ctx, { principal, input: { confirmation, ...input } }) => {
+    if (confirmation.slug !== input.slug) throw new ConvexError("Confirmation must match the event.");
+    return practice.resetPracticeEventForOrganization(ctx, input, principal);
+  },
+});
+
+// Style brands. MCP takes ids as strings; the operations check they belong to the organization.
+const styleRefInput = v.union(v.object({ kind: v.literal("preset"), preset: visualStyleValidator }), v.object({ kind: v.literal("saved"), id: v.string() }));
+
+function styleRef(ctx: Pick<QueryCtx, "db">, style: Infer<typeof styleRefInput>): Infer<typeof organizationStyles.styleRefValidator> {
+  if (style.kind === "preset") return style;
+  const id = ctx.db.normalizeId("organizationStyles", style.id);
+  if (!id) throw new ConvexError("Style not found.");
+  return { kind: "saved", id };
+}
+
+function brandId(ctx: Pick<QueryCtx, "db">, value: string) {
+  const id = ctx.db.normalizeId("styleBrands", value);
+  if (!id) throw new ConvexError("Brand not found.");
+  return id;
+}
+
+export const createStyleBrandInput = v.object({ name: v.string(), style: v.optional(styleRefInput) });
+export const createStyleBrand = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: createStyleBrandInput },
+  handler: async (ctx, { principal, input }) => {
+    if (principal.mcp) await requireApproval(ctx, principal.mcp.approvalId, principal.organizationId, "events:manage");
+    const style = input.style && styleRef(ctx, input.style);
+    const id = await organizationStyles.createStyleBrand(ctx, { expectedOrganizationId: principal.organizationId, name: input.name, style }, principal.organizationId);
+    return { brandId: id };
+  },
+});
+
+export const renameStyleBrandInput = v.object({ brandId: v.string(), name: v.string() });
+export const renameStyleBrand = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: renameStyleBrandInput },
+  handler: async (ctx, { principal, input }) => {
+    if (principal.mcp) await requireApproval(ctx, principal.mcp.approvalId, principal.organizationId, "events:manage");
+    const id = await organizationStyles.renameStyleBrand(ctx, { expectedOrganizationId: principal.organizationId, id: brandId(ctx, input.brandId), name: input.name }, principal.organizationId);
+    return { brandId: id };
+  },
+});
+
+export const setStyleBrandInput = v.object({ style: styleRefInput, brandId: v.union(v.string(), v.null()) });
+export const setStyleBrand = internalMutation({
+  args: { principal: organizationPrincipalValidator, input: setStyleBrandInput },
+  handler: async (ctx, { principal, input }) => {
+    if (principal.mcp) await requireApproval(ctx, principal.mcp.approvalId, principal.organizationId, "events:manage");
+    const brand = input.brandId === null ? undefined : brandId(ctx, input.brandId);
+    const styleId = await organizationStyles.setOrganizationStyleBrand(ctx, { style: styleRef(ctx, input.style), brandId: brand }, principal.organizationId);
+    return { styleId, brandId: input.brandId };
+  },
 });

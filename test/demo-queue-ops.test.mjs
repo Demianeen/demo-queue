@@ -14,6 +14,7 @@ import {
   trustedDeploymentFlags,
   runConvex,
   loadAdmin,
+  pickEvent,
 } from "../scripts/demo-queue-ops.mjs";
 
 function withTempCwd(fn) {
@@ -252,4 +253,12 @@ test("parseArgs rejects helper-owned ranking and mutation commands", () => {
     () => parseArgs(["set-lineup", "--ids", "abc", "--yes"]),
     /"set-lineup" is not supported\. This helper only fetches queue data for the model\./,
   );
+});
+
+test("pickEvent never picks a practice event unless its slug is named", () => {
+  const practice = { slug: "practice-hack", name: "Practice hackathon", practice: true, queuePublished: true, updatedAt: 3 };
+  const live = { slug: "devday", name: "DevDay", queuePublished: false, updatedAt: 1 };
+  assert.equal(pickEvent([practice, live]).slug, "devday");
+  assert.throws(() => pickEvent([practice]), /No events found/);
+  assert.equal(pickEvent([practice, live], "practice-hack").slug, "practice-hack");
 });

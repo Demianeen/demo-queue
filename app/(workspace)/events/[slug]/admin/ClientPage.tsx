@@ -2,8 +2,10 @@
 
 import React, { FormEvent, createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
+import { toast } from "sonner";
+import { errorText } from "@/components/live/changes";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { absoluteUrl, stagePath, submissionPath } from "@/lib/routes";
@@ -25,19 +27,28 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { parseAdminView, adminViewPath } from "@/lib/admin-views";
-import { useCommands, type Command } from "@/components/shell/commands";
+import { canonicalViewParam, liveView, parseAdminView, adminViewPath, type AdminView } from "@/lib/admin-views";
+import { useInPageNavigate } from "@/components/InPageLink";
+import { ResultsTab, SubmissionsClock } from "@/components/live/PhaseTabs";
+import { HackathonSubmissions } from "@/components/live/HackathonSubmissions";
+import { StageTab } from "@/components/live/StageTab";
+import { AddToDemoers } from "@/components/live/AddToDemoers";
+import { PracticeTools } from "@/components/live/PracticeTools";
+import { JudgesDialog } from "@/components/live/JudgesDialog";
+import { UndoToaster } from "@/components/live/changes";
+import { useCommandRegistry, useCommands, type Command } from "@/components/shell/commands";
 import { makeSampleHackathonTeam, makeSamplePerson, pickSampleTracks } from "@/lib/sampleData";
 import { TrackPicker, TrackPills, type TrackOption } from "@/components/TrackPicker";
 import { TracksAdminPanel } from "@/components/TracksAdminPanel";
+import { SponsorsAdminPanel } from "@/components/SponsorsAdminPanel";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
 import { LumaEventSetting } from "@/components/LumaEventSetting";
-import { JudgingAdminPanel } from "@/components/JudgingAdminPanel";
+import { JudgingPage } from "@/components/judging/JudgingPage";
 import { SubmissionPreviewTrigger, type SubmissionPreview } from "@/components/SubmissionPreviewCard";
 import { SubmissionRowActions } from "@/components/SubmissionRowActions";
 import { Skeleton } from "@/app/Skeleton";
 import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError, socialLinksError } from "@/lib/validation";
-import { parseRoundOneJudges } from "@/lib/judging-assignment";
+import { timeLeftMs } from "@/lib/timer-clock";
 import {
   DndContext,
   DragOverlay,
@@ -70,7 +81,6 @@ import {
   QrCode,
   RotateCcw,
   Undo2,
-  FileSpreadsheet,
   UserPlus,
 } from "lucide-react";
 
@@ -102,6 +112,7 @@ type AdminSubmission = {
   githubUrl?: string;
   roundOneAssignedJudges?: string[];
   aiSummary?: SubmissionPreview["aiSummary"];
+  aiRead?: SubmissionPreview["aiRead"];
   status: string;
   queueOrder?: number;
 };
@@ -116,6 +127,7 @@ function previewFor(item: AdminSubmission): SubmissionPreview & { tracks: string
     videoUrl: item.videoUrl,
     tracks: item.tracks,
     aiSummary: item.aiSummary ?? null,
+    aiRead: item.aiRead ?? null,
     people: [
       { name: item.name, presenter: true, twitter: item.twitter, linkedin: item.linkedin, githubProfile: item.githubProfile },
       ...item.teamMemberContacts.map((member) => ({
@@ -145,7 +157,6 @@ type SubmissionFields = {
 const EventTracksContext = createContext<TrackOption[]>([]);
 
 type ColumnId = "lineup" | "pool";
-type AdminTab = "all" | "lineup";
 type RosterStatus = "lineup" | "pool" | "hidden" | "inactive";
 type StatusTone = "green" | "blue" | "yellow";
 
@@ -250,59 +261,59 @@ function adminStageModeState({
   };
 }
 
-function useTimerView(timer: StageTimer | undefined) {
-  const [clientNow, setClientNow] = useState(() => Date.now());
-  const [receivedAt, setReceivedAt] = useState(() => Date.now());
+/** A timer's status, label and time left at `now`, read like every other clock (lib/timer-clock.ts). */
+function timerView(timer: StageTimer | undefined, now: number) {
+  if (!timer) return { status: "idle" as const, label: "ready", remainingMs: 0, display: formatTimerMs(0) };
+  const remainingMs = timeLeftMs({ ...timer, running: timer.status === "running" }, now);
+  const label = timer.status === "running" ? (remainingMs < 0 ? "over time" : "on clock") : timer.status === "paused" ? "paused" : "ready";
+  return { status: timer.status, label, remainingMs, display: formatTimerMs(remainingMs) };
+}
 
+/**
+ * The time shown, ticking on its own. The admin page holds every tab, so it
+ * must not re-render with the clock: only this readout does, once a second
+ * just after the shown second changes.
+ */
+function TimerReadout({ timer }: { timer: StageTimer | undefined }) {
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    setReceivedAt(Date.now());
-    setClientNow(Date.now());
-  }, [timer?.serverNow, timer?.endsAt, timer?.remainingMs, timer?.status]);
+    setNow(Date.now());
+    if (!timer || timer.status !== "running") return;
+    let id = 0;
+    const tick = () => {
+      const current = Date.now();
+      setNow(current);
+      const left = timerView(timer, current).remainingMs;
+      id = window.setTimeout(tick, (((left % 1000) + 1000) % 1000) + 20);
+    };
+    tick();
+    return () => window.clearTimeout(id);
+  }, [timer]);
+  const view = timerView(timer, now);
+  return <div className="stage-timer-readout-row">
+    <div className="stage-timer-readout">{view.display}</div>
+    <span className={`pill ${view.status === "running" ? (view.remainingMs < 0 ? "yellow" : "green") : ""}`}>{view.label}</span>
+  </div>;
+}
 
+/** Whether a timer has run past zero. Re-renders once, when a running timer reaches zero. */
+function useOvertime(timer: StageTimer | undefined) {
+  const [now, setNow] = useState(() => Date.now());
+  const left = timer ? timerView(timer, now).remainingMs : 0;
   useEffect(() => {
     if (!timer || timer.status !== "running") return;
-
-    const interval = window.setInterval(() => {
-      setClientNow(Date.now());
-    }, 250);
-
-    return () => window.clearInterval(interval);
+    const untilZero = timerView(timer, Date.now()).remainingMs;
+    if (untilZero < 0) return;
+    const id = window.setTimeout(() => setNow(Date.now()), untilZero + 20);
+    return () => window.clearTimeout(id);
   }, [timer]);
-
-  if (!timer) {
-    return {
-      status: "idle" as const,
-      label: "ready",
-      remainingMs: 0,
-      display: formatTimerMs(0),
-    };
-  }
-
-  const estimatedServerNow = timer.serverNow + (clientNow - receivedAt);
-  const remainingMs =
-    timer.status === "running" && timer.endsAt !== undefined
-      ? timer.endsAt - estimatedServerNow
-      : timer.remainingMs;
-  const label =
-    timer.status === "running"
-      ? remainingMs < 0
-        ? "over time"
-        : "on clock"
-      : timer.status === "paused"
-        ? "paused"
-        : "ready";
-
-  return {
-    status: timer.status,
-    label,
-    remainingMs,
-    display: formatTimerMs(remainingMs),
-  };
+  return left < 0;
 }
 
 export default function AdminPage() {
   const params = useParams<{ slug: string }>();
-  const router = useRouter();
+  const navigate = useInPageNavigate();
+  const { commands: registeredCommands } = useCommandRegistry();
   const { isAuthenticated } = useConvexAuth();
   const admin = useQuery(api.events.getAdmin, isAuthenticated ? { slug: params.slug } : "skip");
 
@@ -314,6 +325,7 @@ export default function AdminPage() {
   const markNoShow = useMutation(api.events.markNoShow);
   const clearQueue = useMutation(api.events.clearQueue);
   const changeEventType = useMutation(api.events.changeEventType);
+  const updateEvent = useMutation(api.events.updateEvent);
   const adminAddSubmission = useMutation(api.events.adminAddSubmission);
   const adminAddTestSubmissions = useMutation(api.events.adminAddTestSubmissions);
   const updateSubmission = useMutation(api.events.updateSubmission);
@@ -335,7 +347,6 @@ export default function AdminPage() {
   const restorePreviousPresenter = useMutation(api.events.restorePreviousPresenter);
   const shuffleLineup = useMutation(api.events.shuffleLineup);
   const requestJudgingSheetSync = useMutation(api.events.requestJudgingSheetSync);
-  const saveRoundOneJudges = useMutation(api.events.saveRoundOneJudges);
   const aiShuffle = useAction(api.ai.aiShuffle);
   const createJudgingSheet = useAction(api.googleSheets.createJudgingSheet);
 
@@ -389,15 +400,30 @@ export default function AdminPage() {
   const [testPeopleMessage, setTestPeopleMessage] = useState("");
   const [sheetBusy, setSheetBusy] = useState(false);
   const [sheetMessage, setSheetMessage] = useState("");
+  const [meetDraft, setMeetDraft] = useState<string | null>(null);
+  // A type change asks first, inline, with the meet link a demo night needs.
+  const [typeChange, setTypeChange] = useState<{ to: "demo" | "hackathon"; meetUrl: string; busy: boolean } | null>(null);
   const [judgesOpen, setJudgesOpen] = useState(false);
-  const [judgesText, setJudgesText] = useState("");
-  const [judgesBusy, setJudgesBusy] = useState(false);
-  const [judgesMessage, setJudgesMessage] = useState("");
   const [activeId, setActiveId] = useState<Id<"submissions"> | null>(null);
   const searchParams = useSearchParams();
-  const view = parseAdminView(searchParams.get("view"), admin?.event.eventType);
-  const [activeTab, setActiveTab] = useState<AdminTab>(view === "queue" ? "lineup" : "all");
-  useEffect(() => { setActiveTab(view === "queue" ? "lineup" : "all"); }, [view]);
+  const rawView = searchParams.get("view");
+  const eventType = admin?.event.eventType;
+  // Until the event loads, a tab named in the address shows its skeleton; without one, the live tab does.
+  const view = eventType ? parseAdminView(rawView, eventType, admin.event.phase) : null;
+  // Links from before the phase tabs (Overview, Presentations, Judges) say what they open now.
+  useEffect(() => {
+    if (!eventType || !rawView) return;
+    const canonical = canonicalViewParam(rawView, eventType);
+    if (canonical === rawView) return;
+    const next = new URLSearchParams(window.location.search);
+    if (canonical) next.set("view", canonical); else next.delete("view");
+    const query = next.toString();
+    window.history.replaceState(null, "", query ? `${window.location.pathname}?${query}` : window.location.pathname);
+  }, [rawView, eventType]);
+  const editParam = view === "submissions" ? searchParams.get("edit") : null;
+  useEffect(() => {
+    if (editParam) setEditingId(editParam as Id<"submissions">);
+  }, [editParam]);
   const [queueTimerMinutesInput, setQueueTimerMinutesInput] = useState("");
   const [demoTimerMinutesInput, setDemoTimerMinutesInput] = useState("");
   const [queueTimerOverride, setQueueTimerOverride] = useState<StageTimer | null>(null);
@@ -454,9 +480,14 @@ export default function AdminPage() {
   }, [demoTimerDurationMs]);
 
   const effectiveStageTimer = queueTimerOverride ?? admin?.event.stageTimer;
-  const stageTimerView = useTimerView(effectiveStageTimer);
+  // Status only: the time left is read when a button is pressed, and shown by TimerReadout.
+  const stageTimerView = { status: effectiveStageTimer?.status ?? "idle" };
+  const stageRemainingMs = () => timerView(effectiveStageTimer, Date.now()).remainingMs;
+  const stageOvertime = useOvertime(effectiveStageTimer);
   const effectiveDemoTimer = demoTimerOverride ?? admin?.event.demoTimer;
-  const demoTimerView = useTimerView(effectiveDemoTimer);
+  const demoTimerView = { status: effectiveDemoTimer?.status ?? "idle" };
+  const demoRemainingMs = () => timerView(effectiveDemoTimer, Date.now()).remainingMs;
+  const demoOvertime = useOvertime(effectiveDemoTimer);
   const judgingSheetSyncPending = isJudgingSheetSyncPending({
     spreadsheetUrl: admin?.event.judgingSheetUrl,
     requestedRevision: admin?.event.judgingSheetSyncRevision ?? 0,
@@ -539,7 +570,22 @@ export default function AdminPage() {
     setDemoTimerDuration,
   ]);
 
-  if (!admin) {
+  // Judging gets handlers that keep their identity, so the admin page's own
+  // re-renders (other tabs' state, timers) skip the memoized Judging page.
+  const judgingHandlers = useRef<{
+    hide: (id: Id<"submissions">) => Promise<void>;
+    manageJudges: () => void;
+    createSheet: () => void;
+    syncSheet: () => void;
+  } | null>(null);
+  const judgingActions = useMemo(() => ({
+    onHide: (id: Id<"submissions">) => judgingHandlers.current!.hide(id),
+    onManageJudges: () => judgingHandlers.current!.manageJudges(),
+    onCreateSheet: () => judgingHandlers.current!.createSheet(),
+    onSyncSheet: () => judgingHandlers.current!.syncSheet(),
+  }), []);
+
+  if (!admin || !view) {
     return (
       <section className="page admin-page">
         <div className="shell admin-shell">
@@ -676,11 +722,13 @@ export default function AdminPage() {
     await restoreSubmission({ slug: params.slug, submissionId: id });
   }
 
-  async function addToLineup(id: Id<"submissions">) {
-    if (board.lineup.includes(id)) return;
+  // Adds to the end, in order. Several at once when the board does not show the ones added a moment ago yet.
+  async function addToLineup(...ids: Id<"submissions">[]) {
+    const added = ids.filter((id) => !board.lineup.includes(id));
+    if (added.length === 0) return;
     await reorderLineup({
       slug: params.slug,
-      orderedIds: [...board.lineup, id],
+      orderedIds: [...board.lineup, ...added],
     });
   }
 
@@ -690,7 +738,7 @@ export default function AdminPage() {
 
   async function next() {
     if (!queueIsLive) return;
-    await pickNext({ slug: params.slug, });
+    await pickNext({ slug: params.slug, expectedCurrentId: board.lineup[0] });
   }
 
   async function skip() {
@@ -703,6 +751,18 @@ export default function AdminPage() {
     await markNoShow({
       slug: params.slug,
       });
+  }
+
+  async function saveMeetLink() {
+    if (!admin || meetDraft === null) return;
+    if (meetDraft.trim() === admin.event.meetUrl) { setMeetDraft(null); return; }
+    try {
+      await updateEvent({ slug: params.slug, name: admin.event.name, meetUrl: meetDraft });
+      setMeetDraft(null);
+      toast.success(meetDraft.trim() ? "Meet link saved." : "Meet link removed.");
+    } catch (error) {
+      toast.error(errorText(error, "Could not save the meet link."));
+    }
   }
 
   async function toggleStageMeetLink(visible: boolean) {
@@ -791,8 +851,8 @@ export default function AdminPage() {
       effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
     );
     const remainingMs =
-      stageTimerView.status === "paused" && stageTimerView.remainingMs > 0
-        ? stageTimerView.remainingMs
+      stageTimerView.status === "paused" && stageRemainingMs() > 0
+        ? stageRemainingMs()
         : durationMs;
 
     showQueueTimerImmediately({
@@ -810,7 +870,7 @@ export default function AdminPage() {
     showQueueTimerImmediately({
       status: "paused",
       durationMs: effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
-      remainingMs: stageTimerView.remainingMs,
+      remainingMs: stageRemainingMs(),
       endsAt: undefined,
       serverNow: now,
     });
@@ -840,8 +900,8 @@ export default function AdminPage() {
     const now = Date.now();
     const nextRemainingMs =
       stageTimerView.status === "running"
-        ? clampSignedTimerMs(stageTimerView.remainingMs + deltaMs)
-        : clampTimerMs(stageTimerView.remainingMs + deltaMs);
+        ? clampSignedTimerMs(stageRemainingMs() + deltaMs)
+        : clampTimerMs(stageRemainingMs() + deltaMs);
     showQueueTimerImmediately({
       status: stageTimerView.status,
       durationMs: effectiveStageTimer?.durationMs ?? DEFAULT_STAGE_TIMER_MS,
@@ -859,7 +919,7 @@ export default function AdminPage() {
     const now = Date.now();
     const durationMs = effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS;
     const remainingMs =
-      demoTimerView.status === "paused" ? demoTimerView.remainingMs : durationMs;
+      demoTimerView.status === "paused" ? demoRemainingMs() : durationMs;
 
     showDemoTimerImmediately({
       status: "running",
@@ -876,7 +936,7 @@ export default function AdminPage() {
     showDemoTimerImmediately({
       status: "paused",
       durationMs: effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS,
-      remainingMs: demoTimerView.remainingMs,
+      remainingMs: demoRemainingMs(),
       endsAt: undefined,
       serverNow: now,
     });
@@ -887,8 +947,8 @@ export default function AdminPage() {
     const now = Date.now();
     const nextRemainingMs =
       demoTimerView.status === "running" || demoTimerView.status === "paused"
-        ? clampSignedTimerMs(demoTimerView.remainingMs + deltaMs)
-        : clampTimerMs(demoTimerView.remainingMs + deltaMs);
+        ? clampSignedTimerMs(demoRemainingMs() + deltaMs)
+        : clampTimerMs(demoRemainingMs() + deltaMs);
     showDemoTimerImmediately({
       status: demoTimerView.status,
       durationMs: effectiveDemoTimer?.durationMs ?? DEFAULT_DEMO_TIMER_MS,
@@ -995,23 +1055,30 @@ export default function AdminPage() {
     await clearQueue({ slug: params.slug, });
   }
 
-  async function selectEventType(nextType: "demo" | "hackathon") {
+  function selectEventType(nextType: "demo" | "hackathon") {
     if (!admin) return;
-    if (nextType === admin.event.eventType) return;
-    const submissionCount = admin.event.submissionCount;
-    const needsConfirmation = submissionCount > 0 || Boolean(admin.event.judgingSheetUrl);
-    const confirmed =
-      !needsConfirmation ||
-      window.confirm(
-        `Change this event to ${nextType === "hackathon" ? "Hackathon" : "Demo queue"}? This permanently deletes ${submissionCount} submission${submissionCount === 1 ? "" : "s"}, team members, and uploaded files. Any exported Google Sheet remains in Drive but is disconnected from this event.`,
-      );
-    if (!confirmed) return;
+    setTypeChange(nextType === admin.event.eventType ? null : { to: nextType, meetUrl: "", busy: false });
+  }
 
-    await changeEventType({
-      slug: params.slug,
-      eventType: nextType,
-      confirmReset: submissionCount > 0,
-    });
+  async function confirmEventType() {
+    if (!admin || !typeChange) return;
+    const submissionCount = admin.event.submissionCount;
+    // A demo night needs a meet link: demoers join the call from it.
+    const meetUrl = typeChange.to === "demo" && !admin.event.meetUrl.trim() ? typeChange.meetUrl : undefined;
+    setTypeChange({ ...typeChange, busy: true });
+    try {
+      await changeEventType({
+        slug: params.slug,
+        eventType: typeChange.to,
+        confirmReset: submissionCount > 0,
+        meetUrl,
+      });
+    } catch (error) {
+      toast.error(errorText(error, "Could not change the event type."));
+      setTypeChange((current) => current && { ...current, busy: false });
+      return;
+    }
+    setTypeChange(null);
     setEditingId(null);
     setIsAdding(false);
     setSheetMessage("");
@@ -1050,41 +1117,16 @@ export default function AdminPage() {
     }
   }
 
+  judgingHandlers.current = {
+    hide,
+    manageJudges: () => openRoundOneJudges(),
+    createSheet: () => void createJudgingSheetFile(),
+    syncSheet: () => void syncJudgingSheetNow(),
+  };
+
   function openRoundOneJudges() {
     if (!admin) return;
-    setJudgesText(admin.event.roundOneJudges.join("\n"));
-    setJudgesMessage("");
     setJudgesOpen(true);
-  }
-
-  async function saveJudges(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    let judges: string[];
-    try {
-      judges = parseRoundOneJudges(judgesText);
-    } catch (error) {
-      setJudgesMessage(error instanceof Error ? error.message : "Invalid judge list.");
-      return;
-    }
-
-    setJudgesBusy(true);
-    setJudgesMessage("");
-    try {
-      const result = await saveRoundOneJudges({
-        slug: params.slug,
-        judges,
-      });
-      setJudgesOpen(false);
-      setJudgesMessage(
-        result.reassignedSubmissionCount > 0
-          ? `${result.judgeCount} judges saved. ${result.reassignedSubmissionCount} existing assignments redistributed.`
-          : `${result.judgeCount} judges saved. Assign submissions when entries are closed.`,
-      );
-    } catch (error) {
-      setJudgesMessage(error instanceof Error ? error.message : "Could not save judges.");
-    } finally {
-      setJudgesBusy(false);
-    }
   }
 
   async function saveEdit(id: Id<"submissions">, values: SubmissionFields) {
@@ -1134,6 +1176,8 @@ export default function AdminPage() {
     stageScreenMode: admin.event.stageScreenMode,
   });
   const activeTimerView = timerIsDemoLike ? demoTimerView : stageTimerView;
+  const activeTimer = timerIsDemoLike ? effectiveDemoTimer : effectiveStageTimer;
+  const activeOvertime = timerIsDemoLike ? demoOvertime : stageOvertime;
   const activeTimerVisible =
     activeTimerMode === "demo"
       ? admin.event.showDemoTimerOnStage ?? false
@@ -1164,12 +1208,14 @@ export default function AdminPage() {
   const livePrimaryLabel = shouldStartDemoFromPrimary ? "Start timer" : "Advance";
 
   const lineupName = isHackathonEvent ? "presentation lineup" : "demo queue";
-  const viewTitle = view === "submissions" ? allSubmissionsLabel : view === "judging" ? "Judging" : view === "settings" ? "Settings" : admin.event.name;
+  const viewTitle = view === "submissions" ? allSubmissionsLabel : view === "settings" ? "Settings" : admin.event.name;
   const viewDescription = view === "submissions"
     ? `Everyone who submitted. Add them to the ${lineupName}, edit, or hide them.`
-    : view === "judging" ? "Judges, judge links, progress and results."
-    : "Event type, meet link, Luma and tracks.";
-  const goTo = (next: "queue" | "submissions" | "judging" | "settings") => router.push(adminViewPath(params.slug, next));
+    : isHackathonEvent ? "Event type, meet link and tracks." : "Event type, meet link, Luma and tracks.";
+  const goTo = (next: AdminView) => navigate(adminViewPath(params.slug, next));
+  const isLiveTab = view === liveView(admin.event.eventType, admin.event.phase);
+  // Share lives in the header; its command opens it from the Submissions clock too.
+  const openShare = () => registeredCommands.find((command) => command.id === "share")?.run();
   const adminCommands: Command[] = [
     queueIsLive && currentLineupItem
       ? { id: "admin-advance", group: "This page", label: livePrimaryLabel, keys: ["A"], run: () => void livePrimaryAction() }
@@ -1190,6 +1236,7 @@ export default function AdminPage() {
     <section className="page admin-page">
       <div className="shell admin-shell">
         <AdminCommands commands={adminCommands} context={admin.event.name} />
+        <UndoToaster slug={params.slug} />
         {testPeopleOpen ? (
           <div
             aria-labelledby="test-people-title"
@@ -1258,59 +1305,13 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        {judgesOpen ? (
-          <div
-            aria-labelledby="round-one-judges-title"
-            aria-modal="true"
-            className="admin-modal-backdrop"
-            role="dialog"
-          >
-            <form className="admin-modal" onSubmit={saveJudges}>
-              <div className="admin-modal-heading">
-                <h2 id="round-one-judges-title">Judges</h2>
-                <p>
-                  Paste one judge name per line. You will distribute submissions after entries close.
-                </p>
-              </div>
-              <label className="admin-modal-field">
-                <span>Judge names</span>
-                <textarea
-                  autoFocus
-                  value={judgesText}
-                  onChange={(event) => {
-                    setJudgesText(event.currentTarget.value);
-                    setJudgesMessage("");
-                  }}
-                  placeholder={"Alex Morgan\nSam Lee\nJordan Taylor"}
-                  rows={8}
-                />
-              </label>
-              <p className="admin-modal-help">
-                At least 2 unique names. Blank lines and duplicate names are ignored. Existing assignments stay fixed.
-              </p>
-              {judgesMessage ? <p className="admin-modal-error">{judgesMessage}</p> : null}
-              <div className="admin-modal-actions">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setJudgesOpen(false);
-                    setJudgesMessage("");
-                  }}
-                  disabled={judgesBusy}
-                  type="button"
-                >
-                  Cancel
-                </Button>
-                <Button disabled={judgesBusy} type="submit">
-                  {judgesBusy ? "Saving..." : "Save judges"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        ) : null}
+        {isHackathonEvent ? <JudgesDialog slug={params.slug} eventName={admin.event.name} open={judgesOpen} onOpenChange={setJudgesOpen} /> : null}
 
 
-        {view !== "queue" ? <header className="admin-view-heading"><h1>{viewTitle}</h1><p>{viewDescription}</p></header> : null}
+        {view === "submissions" || view === "settings" ? <header className="admin-view-heading"><h1>{viewTitle}</h1><p>{viewDescription}</p></header> : null}
+        {view === "submissions" && admin.event.phase === "submissions" ? <SubmissionsClock slug={params.slug} admin={admin} onShare={openShare} /> : null}
+        {view === "stage" && isHackathonEvent ? <StageTab slug={params.slug} admin={admin} /> : null}
+        {view === "results" ? <ResultsTab slug={params.slug} admin={admin} /> : null}
         {view === "queue" ? <section className="admin-control-grid">
           <section className="panel panel-pad admin-control-panel">
             <header className="admin-page-header">
@@ -1430,7 +1431,7 @@ export default function AdminPage() {
               ) : null}
 
             <div className="admin-section-label">Presentation timer</div>
-            <div className={`stage-timer-admin${activeTimerView.remainingMs < 0 ? " is-overtime" : ""}`}>
+            <div className={`stage-timer-admin${activeOvertime ? " is-overtime" : ""}`}>
               <div className="stage-timer-admin-heading">
                 <span className="stage-timer-admin-title">
                   <Clock size={16} aria-hidden />
@@ -1462,14 +1463,7 @@ export default function AdminPage() {
                     <span>Show submissions count</span>
                   </label>
                 ) : null}
-                <div className="stage-timer-readout-row">
-                  <div className="stage-timer-readout">{activeTimerView.display}</div>
-                  <span
-                    className={`pill ${activeTimerIsRunning ? (activeTimerView.remainingMs < 0 ? "yellow" : "green") : ""}`}
-                  >
-                    {activeTimerView.label}
-                  </span>
-                </div>
+                <TimerReadout timer={activeTimer} />
                 <p className="stage-timer-note">{timerAvailabilityMessage}</p>
                 {activeTimerMode === "queue" ? (
                   <div className="stage-timer-controls" aria-label="Queue timer controls">
@@ -1623,32 +1617,56 @@ export default function AdminPage() {
                 <label htmlFor="adminEventType">Event type</label>
                 <EventTypeSelect
                   id="adminEventType"
-                  value={admin.event.eventType}
-                  onValueChange={(eventType) => void selectEventType(eventType)}
+                  value={typeChange?.to ?? admin.event.eventType}
+                  onValueChange={(eventType) => selectEventType(eventType)}
                 />
-                <span className="muted form-help">Changing type resets submissions and uploaded files.</span>
+                <span className="muted form-help">Changing it deletes every submission, so it asks first.</span>
+                {typeChange ? <TypeChangeConfirm
+                  to={typeChange.to}
+                  submissions={admin.event.submissionCount}
+                  sheet={Boolean(admin.event.judgingSheetUrl)}
+                  needsMeet={typeChange.to === "demo" && !admin.event.meetUrl.trim()}
+                  meetUrl={typeChange.meetUrl}
+                  busy={typeChange.busy}
+                  onMeetUrl={(meetUrl) => setTypeChange({ ...typeChange, meetUrl })}
+                  onCancel={() => setTypeChange(null)}
+                  onConfirm={() => void confirmEventType()}
+                /> : null}
               </div>
 
             <div className="field">
               <div className="field-heading">
-                <label htmlFor="meetUrl">Meet link</label>
+                <label htmlFor="meetUrl">{admin.event.eventType === "hackathon" ? "Meet link (optional)" : "Meet link"}</label>
                 <label className="stage-meet-toggle">
                   <input
                     type="checkbox"
                     checked={admin.event.showMeetLinkOnStage ?? false}
-                    disabled={!queueIsLive}
+                    disabled={!queueIsLive || !admin.event.meetUrl}
                     onChange={(event) => toggleStageMeetLink(event.currentTarget.checked)}
                   />
                   <span>Show in presentation view</span>
                 </label>
               </div>
-              <input id="meetUrl" readOnly value={admin.event.meetUrl} />
+              <input
+                id="meetUrl"
+                type="url"
+                placeholder="https://meet.google.com/..."
+                value={meetDraft ?? admin.event.meetUrl}
+                onChange={(event) => setMeetDraft(event.currentTarget.value)}
+                onBlur={() => void saveMeetLink()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") { event.preventDefault(); void saveMeetLink(); }
+                  if (event.key === "Escape") { event.stopPropagation(); setMeetDraft(null); }
+                }}
+              />
               <span className="muted" style={{ fontSize: 12 }}>
-                Published {admin.event.eventType === "hackathon" ? "presenters" : "demoers"} see it on their status pages. It stays hidden in the
-                presentation view unless you enable it after publishing.
+                {admin.event.eventType === "hackathon"
+                  ? "Finalists see it on their status pages. Show it in the presentation view during Stage if they pitch remotely."
+                  : "Published demoers see it on their status pages. It stays hidden in the presentation view unless you enable it after publishing."}
               </span>
             </div>
-            <LumaEventSetting available={admin.event.luma.available} lumaEvent={admin.event.luma.event} slug={params.slug} />
+            {/* Luma imports demoers; a hackathon's teams submit themselves. */}
+            {isHackathonEvent ? null : <LumaEventSetting available={admin.event.luma.available} lumaEvent={admin.event.luma.event} slug={params.slug} />}
             </div>
 
           </section>
@@ -1658,75 +1676,48 @@ export default function AdminPage() {
             noTrackCount={admin.noTrackCount}
             legacyCategoryCount={admin.legacyCategoryCount}
           />
+          {isHackathonEvent ? <SponsorsAdminPanel slug={params.slug} sponsors={admin.sponsors} /> : null}
         </> : null}
 
         {view === "judging" && isHackathonEvent ? (
-          <section className="panel panel-pad admin-judges-panel" aria-label="Judges and judging sheet">
-            <div className="actions admin-primary-actions">
-              {isHackathonEvent ? (
-                <>
-                  <Button variant="outline" onClick={openRoundOneJudges} type="button">
-                    {admin.event.roundOneJudges.length > 0
-                      ? `Manage judges (${admin.event.roundOneJudges.length})`
-                      : "Assign judges"}
-                  </Button>
-                  {admin.event.judgingSheetUrl ? (
-                    <a
-                      className={cn(buttonVariants({ variant: "link" }), "underline")}
-                      href={admin.event.judgingSheetUrl}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Open judging sheet
-                    </a>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      onClick={createJudgingSheetFile}
-                      disabled={sheetBusy}
-                      type="button"
-                    >
-                      <FileSpreadsheet size={16} aria-hidden />
-                      {sheetBusy ? "Creating sheet..." : "Create judging sheet"}
-                    </Button>
-                  )}
-                  {admin.event.judgingSheetUrl ? (
-                    <Button
-                      variant="ghost"
-                      onClick={syncJudgingSheetNow}
-                      disabled={sheetBusy || judgingSheetSyncPending}
-                      type="button"
-                    >
-                      <RotateCcw size={16} aria-hidden />
-                      {judgingSheetSyncPending ? "Syncing..." : "Sync now"}
-                    </Button>
-                  ) : null}
-                </>
-              ) : null}
-            </div>
-              {sheetMessage ? <p className="admin-action-note">{sheetMessage}</p> : null}
-              {judgesMessage && !judgesOpen ? (
-                <p className="admin-action-note">{judgesMessage}</p>
-              ) : null}
-              {judgingSheetSyncStatus ? (
-                <p className="admin-action-note">{judgingSheetSyncStatus}</p>
-              ) : null}
-          </section>
-        ) : null}
-
-        {view === "judging" && isHackathonEvent ? (
-          <JudgingAdminPanel
-            previews={submissionPreviews}
-            trackNames={admin.tracks.map((track) => track.name)}
+          <JudgingPage
             slug={params.slug}
-                        judges={admin.event.roundOneJudges}
-            lineupSubmissionIds={board.lineup}
-            onAddToLineup={addToLineup}
-            onRemoveFromLineup={removeFromLineup}
+            admin={admin}
+            previews={submissionPreviews}
+            onHide={judgingActions.onHide}
+            onManageJudges={judgingActions.onManageJudges}
+            sheetUrl={admin.event.judgingSheetUrl}
+            sheetBusy={sheetBusy}
+            sheetSyncPending={judgingSheetSyncPending}
+            sheetStatus={judgingSheetSyncStatus}
+            sheetMessage={sheetMessage}
+            onCreateSheet={judgingActions.onCreateSheet}
+            onSyncSheet={judgingActions.onSyncSheet}
           />
         ) : null}
 
-        {view === "queue" || view === "submissions" ? <DndContext
+        {view === "submissions" && isHackathonEvent ? <HackathonSubmissions
+          items={allPeopleRows.map((item) => ({ ...item, hidden: item.rosterStatus === "hidden" }))}
+          tracks={admin.tracks.map((track) => ({ id: track.id, name: track.name }))}
+          slug={params.slug}
+          admin={admin}
+          previewFor={(id) => { const item = allPeopleRows.find((row) => row.id === id); return item ? previewFor(item) : null; }}
+          contactFor={(id) => { const item = allPeopleRows.find((row) => row.id === id); return item ? <Contact item={item} /> : null; }}
+          editFormFor={(id) => {
+            const item = allPeopleRows.find((row) => row.id === id);
+            return item ? <SubmissionForm initial={item} submitLabel="Save changes" onSave={(values) => saveEdit(item.id, values)} onCancel={() => setEditingId(null)} /> : null;
+          }}
+          editingId={editingId}
+          surge={<SubmissionSurgeNotice at={admin.event.submissionSurgeAt} />}
+          onEdit={(id) => setEditingId(id)}
+          onHide={hide}
+          onRestore={restore}
+          onAddTest={() => { setTestPeopleMessage(""); setTestPeopleOpen(true); }}
+          onClearAll={() => void clearAll()}
+          onShare={openShare}
+        /> : null}
+
+        {view === "queue" || (view === "submissions" && !isHackathonEvent) ? <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={onDragStart}
@@ -1734,39 +1725,10 @@ export default function AdminPage() {
           onDragEnd={onDragEnd}
         >
           <section className="panel admin-workspace">
-            <div className="admin-tabs" role="tablist" aria-label="Admin views">
-              <button
-                aria-controls="admin-panel-all"
-                aria-selected={activeTab === "all"}
-                className={activeTab === "all" ? "admin-tab is-active" : "admin-tab"}
-                id="admin-tab-all"
-                onClick={() => setActiveTab("all")}
-                role="tab"
-                type="button"
-              >
-                <span>{allSubmissionsLabel}</span>
-                <span className="admin-tab-count">{allPeopleRows.length}</span>
-              </button>
-              <button
-                aria-controls="admin-panel-lineup"
-                aria-selected={activeTab === "lineup"}
-                className={activeTab === "lineup" ? "admin-tab is-active" : "admin-tab"}
-                id="admin-tab-lineup"
-                onClick={() => setActiveTab("lineup")}
-                role="tab"
-                type="button"
-              >
-                <span>{admin.event.eventType === "hackathon" ? "Presentation lineup" : "Demoers"}</span>
-                <span className="admin-tab-count">{lineupCount}</span>
-              </button>
-            </div>
-
-            {activeTab === "all" ? (
+            {view === "submissions" ? (
               <div
-                aria-labelledby="admin-tab-all"
                 className="admin-table-wrap"
                 id="admin-panel-all"
-                role="tabpanel"
               >
                 <table className="admin-table">
                   <thead>
@@ -1806,17 +1768,24 @@ export default function AdminPage() {
                 </table>
               </div>
             ) : (
-              <div aria-labelledby="admin-tab-lineup" id="admin-panel-lineup" role="tabpanel">
+              <div id="admin-panel-lineup">
                 <div className="lineup-toolbar">
                   <div>
                     <h2 style={{ margin: 0 }}>
                       {admin.event.eventType === "hackathon" ? "Presentation lineup" : "Demoers"}
                     </h2>
                     <p className="muted" style={{ margin: "4px 0 0" }}>
-                      Drag rows to set the live running order.
+                      {isHackathonEvent ? "Drag rows to set the live running order." : "Only the people who will demo. Drag rows to reorder."}
                     </p>
                   </div>
                   <div className="lineup-table-actions">
+                    {isHackathonEvent ? null : <AddToDemoers
+                      pool={board.pool.flatMap((id) => {
+                        const item = itemsById.get(id);
+                        return item ? [{ id, name: item.name, demo: item.demoTitle ?? "" }] : [];
+                      })}
+                      onAdd={(ids) => addToLineup(...ids)}
+                    />}
                     {admin.event.eventType === "demo" ? <Tooltip>
                       <TooltipTrigger
                         aria-label="Add person"
@@ -1875,7 +1844,7 @@ export default function AdminPage() {
                         emptyMessage={
                           isHackathonEvent
                             ? "Use All submissions to add a submission to the presentation lineup."
-                            : "Use All people to add someone to Demoers."
+                            : "No demoers yet. Add to demoers (D), Shuffle or AI shuffle."
                         }
                       >
                         {board.lineup.map((id, index) => {
@@ -1919,6 +1888,7 @@ export default function AdminPage() {
           </DragOverlay>
         </DndContext> : null}
 
+        {admin.event.practice && isLiveTab ? <div className="admin-practice-tools"><PracticeTools slug={params.slug} admin={admin} /></div> : null}
       </div>
     </section>
     </EventTracksContext.Provider>
@@ -2101,7 +2071,7 @@ function LineupRow({
         <DemoCell item={item} />
       </td>
       <td>
-        <TrackPills tracks={item.tracks} empty="None" />
+        <TrackPills tracks={item.tracks} />
       </td>
       <td>
         <Contact item={item} />
@@ -2172,7 +2142,7 @@ function AllPeopleRow({
         <DemoCell item={item} />
       </td>
       <td>
-        <TrackPills tracks={item.tracks} empty="None" />
+        <TrackPills tracks={item.tracks} />
       </td>
       <td>
         <Contact item={item} />
@@ -2556,4 +2526,40 @@ function SubmissionSurgeNotice({ at }: { at?: number }) {
 function AdminCommands({ commands, context }: { commands: Command[]; context: string }) {
   useCommands("event-admin", commands, context);
   return null;
+}
+
+function TypeChangeConfirm({ to, submissions, sheet, needsMeet, meetUrl, busy, onMeetUrl, onCancel, onConfirm }: {
+  to: "demo" | "hackathon";
+  submissions: number;
+  sheet: boolean;
+  needsMeet: boolean;
+  meetUrl: string;
+  busy: boolean;
+  onMeetUrl: (meetUrl: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const deletes = submissions > 0;
+  return (
+    <div className="admin-type-confirm" role="group" aria-labelledby="type-confirm-title"
+      onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onCancel(); } }}>
+      <strong id="type-confirm-title">Change to {to === "demo" ? "demo night" : "hackathon"}?</strong>
+      {deletes || sheet ? <span>
+        {deletes ? `This deletes ${submissions} submission${submissions === 1 ? "" : "s"}, their team members and uploaded files.` : ""}
+        {sheet ? `${deletes ? " " : ""}The judging sheet stays in Drive, disconnected.` : ""}
+      </span> : null}
+      {needsMeet ? <div className="field">
+        <label htmlFor="typeChangeMeetUrl">Google Meet link, needed for a demo night</label>
+        <input id="typeChangeMeetUrl" type="url" placeholder="https://meet.google.com/..." value={meetUrl} autoFocus
+          onChange={(event) => onMeetUrl(event.currentTarget.value)}
+          onKeyDown={(event) => { if (event.key === "Enter" && meetUrl.trim()) { event.preventDefault(); onConfirm(); } }} />
+      </div> : null}
+      <div className="admin-type-confirm-actions">
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+        <Button type="button" size="sm" variant={deletes ? "destructive" : "default"} disabled={busy || (needsMeet && !meetUrl.trim())} onClick={onConfirm}>
+          {busy ? "Changing..." : deletes ? "Delete and change" : "Change"}
+        </Button>
+      </div>
+    </div>
+  );
 }

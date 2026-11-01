@@ -50,6 +50,7 @@ export const status = query({
       organizationId,
       hidden: row?.hidden ?? false,
       dryRunMarked: row?.dryRunMarkedAt !== undefined,
+      teamSkipped: row?.teamSkippedAt !== undefined,
       testPeopleAdded: await hasTestPeople(ctx, organizationId),
       connected: await hasConnection(ctx, ownerAccountKey, organizationId),
       mcpUrl: mcpUrl(),
@@ -87,6 +88,19 @@ export const markDryRun = mutation({
     const dryRunMarkedAt = done ? Date.now() : undefined;
     if (row) await ctx.db.patch("gettingStartedGuides", row._id, { dryRunMarkedAt, updatedAt: Date.now() });
     else await ctx.db.insert("gettingStartedGuides", { ownerAccountKey, organizationId, hidden: false, dryRunMarkedAt, updatedAt: Date.now() });
+    return null;
+  },
+});
+
+export const skipTeam = mutation({
+  args: { skipped: v.boolean() },
+  handler: async (ctx, { skipped }) => {
+    const { organizationId } = await requireOrganization(ctx);
+    const { ownerAccountKey } = connectionIdentity(await ctx.auth.getUserIdentity());
+    const row = await guideRow(ctx, ownerAccountKey, organizationId);
+    const teamSkippedAt = skipped ? Date.now() : undefined;
+    if (row) await ctx.db.patch("gettingStartedGuides", row._id, { teamSkippedAt, updatedAt: Date.now() });
+    else await ctx.db.insert("gettingStartedGuides", { ownerAccountKey, organizationId, hidden: false, teamSkippedAt, updatedAt: Date.now() });
     return null;
   },
 });

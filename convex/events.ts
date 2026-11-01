@@ -23,6 +23,7 @@ import { HOUR, RateLimiter } from "@convex-dev/rate-limiter";
 import {
   emailKey,
   isValidEmail,
+  meetUrlError,
   parseContactTextFields,
   parseSubmissionTextFields,
   socialLinksError,
@@ -37,15 +38,9 @@ import {
   MAX_TEAM_MEMBER_NAME_LENGTH,
   MAX_TEAM_NAME_LENGTH,
 } from "../lib/hackathon";
-import {
-  assignRoundOneJudgePair,
-  buildJudgeAssignmentCounts,
-  isValidRoundOneAssignment,
-  parseRoundOneJudges,
-  rosterIncludesJudge,
-  sameJudge,
-} from "../lib/judging-assignment";
+import { judgeKeyOf, judgeNameKey, parseRoundOneJudges } from "../lib/judging-assignment";
 import { participantLineupStatus } from "../lib/event-state";
+import { eventPhase } from "../lib/event-phase";
 import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
 import { MAX_ORGANIZATION_STYLES, normalizeVisualStyle } from "../lib/visual-style";
 import {
@@ -64,10 +59,17 @@ import {
   trackNamesFor,
   tracksById,
 } from "./tracks";
+import { insertEventSponsors, listEventSponsors, publicSponsor, sponsorInputValidator } from "./sponsors";
 import { emailConfig } from "./emails";
-import { publicAiSummary, queueAiSummaryIfStale } from "./aiSummaries";
+import { publicAiRead, publicAiSummary, queueAiSummaryIfStale } from "./aiSummaries";
 import { lumaOrganizationAllowed, queueLumaImport, participantSocialEditPatch, participantSocials, socialEditPatch, typedSocialSources } from "./luma";
 import { ZodError } from "zod";
+import { amountOfTime, submissionTitle, withChange } from "./changeWrap";
+import { changeSummaryName, insertChange, recordChange } from "./changeLog";
+import { judgingRemaining, phaseFields } from "./phases";
+import { addJudgesToEvent, removeJudgeFromEvent, REVIEW_TARGET } from "./judging";
+import { loadJudgeDirectory } from "./judgeDirectory";
+import { isJudgedStatus } from "../lib/judged-status";
 
 const STAGE_LINEUP_LIMIT = 10;
 const DEFAULT_STAGE_TIMER_MS = 5 * 60 * 1000;
@@ -134,11 +136,35 @@ const adminSubmissionFields = (
   videoDeleteAt: submission.videoDeleteAt,
   videoDeletedAt: submission.videoDeletedAt,
   rulesAcceptedAt: submission.rulesAcceptedAt,
-  roundOneAssignedJudges: submission.roundOneAssignedJudges,
   aiSummary: publicAiSummary(submission),
   createdAt: submission.createdAt,
   updatedAt: submission.updatedAt,
 });
+
+/** The judging timer as the organiser sees it. */
+function judgingTimerView(event: Doc<"events">, now = Date.now()) {
+  return {
+    status: event.judgingTimerStatus ?? "idle",
+    remainingMs: judgingRemaining(event, now),
+    durationMs: event.judgingTimerDurationMs ?? null,
+    endsAt: event.judgingTimerStatus === "running" ? event.judgingTimerEndsAt ?? null : null,
+    serverNow: now,
+  };
+}
+
+/** Practice events tidy away this long after their last change (Proposed). */
+export const PRACTICE_TIDY_AFTER_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** What admin pages show about a practice event, or null for a real one. */
+export function practiceView(event: Doc<"events">) {
+  if (event.practice !== true) return null;
+  return {
+    ownerUserId: event.practiceOwnerActor ? /\|(user_[A-Za-z0-9]+)$/.exec(event.practiceOwnerActor)?.[1] ?? null : null,
+    copiedFromName: event.practiceCopiedFromName ?? null,
+    tidiesAwayAt: event.updatedAt + PRACTICE_TIDY_AFTER_MS,
+    aiSummaries: event.practiceAiSummaries ?? "sample",
+  };
+}
 
 async function eventBySlug(ctx: { db: DatabaseReader }, slug: string) {
   const event = await findEventBySlug(ctx, slug);
@@ -415,7 +441,21 @@ async function patchSubmissionStatus(
       await ctx.db.patch(member._id, await emailFields(ctx, submission.eventId, member.email, options));
     }
   }
-  await ctx.db.patch(submission._id, patch);
+  await ctx.db.patch(submission._id, {
+    ...patch,
+    ...(submission.status === "withdrawn" && patch.status !== "withdrawn" ? { withdrawnFromStatus: undefined, withdrawnBy: undefined } : {}),
+  });
+}
+
+/**
+ * Emails the status link to an address already on an entry in this event,
+ * at most once every two minutes per entry, through the email rate limits.
+ */
+async function emailStatusLinkToOwner(ctx: MutationCtx, owner: EmailOwner) {
+  const now = Date.now();
+  if (owner.submission.statusLinkEmailedAt !== undefined && now - owner.submission.statusLinkEmailedAt < STATUS_LINK_RESEND_MS) return;
+  await ctx.db.patch(owner.submission._id, { statusLinkEmailedAt: now });
+  await ctx.scheduler.runAfter(0, internal.emails.sendStatusLinkEmail, { submissionId: owner.submission._id, to: owner.email, reason: "resend" });
 }
 
 /** Emails the team their status link once the submission is saved. */
@@ -505,7 +545,7 @@ async function requireUnattachedSubmissionFile(ctx: MutationCtx, storageId: Id<"
   }
 }
 
-function blankEventState(now: number) {
+export function blankEventState(now: number) {
   return {
     queuePublished: false,
     stageScreenMode: "qr" as const,
@@ -523,11 +563,13 @@ function blankEventState(now: number) {
     demoTimerEndsAt: undefined,
     lineupTarget: undefined,
     lastAdvanceSnapshot: undefined,
+    phase: undefined,
+    finishedAt: undefined,
     updatedAt: now,
   };
 }
 
-async function deleteSubmissionData(
+export async function deleteSubmissionData(
   ctx: MutationCtx,
   event: Doc<"events">,
   submissions: Doc<"submissions">[],
@@ -555,19 +597,20 @@ export const createEventArgs = {
     eventType: v.union(v.literal("demo"), v.literal("hackathon")),
     visualStyle: v.optional(visualStyleValidator),
     styleId: v.optional(v.id("organizationStyles")),
-    meetUrl: v.string(),
+    // A demo night needs one; a hackathon has none (an empty string).
+    meetUrl: v.optional(v.string()),
   };
 
 type CreateEventInput = ObjectType<typeof createEventArgs>;
 
 export const createEvent = mutation({
-  args: { ...createEventArgs, tracks: v.optional(v.array(trackInputValidator)) },
-  handler: async (ctx, { tracks, ...args }) => {
+  args: { ...createEventArgs, tracks: v.optional(v.array(trackInputValidator)), sponsors: v.optional(v.array(sponsorInputValidator)) },
+  handler: async (ctx, { tracks, sponsors, ...args }) => {
     const { organizationId, actor } = await requireOrganization(ctx);
     if (args.expectedOrganizationId !== organizationId) {
       throw new ConvexError("Your organization changed. Reload events before creating an event.");
     }
-    return createOrganizationEvent(ctx, args, { organizationId, actor }, tracks);
+    return createOrganizationEvent(ctx, args, { organizationId, actor }, tracks, sponsors);
   },
 });
 
@@ -576,15 +619,15 @@ export async function createOrganizationEvent(
   args: CreateEventInput,
   { organizationId, actor }: { organizationId: string; actor: string },
   tracks: Infer<typeof trackInputValidator>[] = [],
+  sponsors: Infer<typeof sponsorInputValidator>[] = [],
 ) {
     const name = args.name.trim();
     if (!name || name.length > 160) throw new ConvexError("Enter an event name of 1–160 characters.");
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(args.slug) || args.slug.length > 200) {
       throw new ConvexError("Invalid event slug.");
     }
-    let meetUrl: URL;
-    try { meetUrl = new URL(args.meetUrl); } catch { throw new ConvexError("Enter a valid meeting URL."); }
-    if (!["https:", "http:"].includes(meetUrl.protocol)) throw new ConvexError("Enter an HTTP or HTTPS meeting URL.");
+    const meetError = meetUrlError(args.eventType, args.meetUrl);
+    if (meetError) throw new ConvexError(meetError);
     const existing = await findEventBySlug(ctx, args.slug);
     const alias = await ctx.db.query("eventSlugAliases").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
 
@@ -597,6 +640,9 @@ export async function createOrganizationEvent(
     const defaultStyle = !args.styleId && !args.visualStyle
       ? (await ctx.db.query("organizationStyles").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(MAX_ORGANIZATION_STYLES)).find((style) => style.isDefault)
       : null;
+    // With no choice and no organization default (an assistant may leave the
+    // style out), the event starts in Base, the plain style. New event in the
+    // app always sends a choice.
     const resolvedStyle = selectedStyle ?? defaultStyle;
     const visualStyle = resolvedStyle ? resolvedStyle.preset ?? "neutral" : args.visualStyle ?? "neutral";
     const theme = visualStyle === "neutral" ? (selectedStyle ?? defaultStyle)?.theme ?? DEFAULT_EVENT_THEME : undefined;
@@ -608,7 +654,7 @@ export async function createOrganizationEvent(
       eventType: args.eventType,
       visualStyle,
       theme,
-      meetUrl: args.meetUrl.trim(),
+      meetUrl: args.meetUrl?.trim() ?? "",
       queuePublished: false,
       stageScreenMode: "qr",
       showSubmissionCountOnStage: false,
@@ -621,6 +667,9 @@ export async function createOrganizationEvent(
     });
 
     await insertEventTracks(ctx, eventId, tracks);
+    // Sponsors are a hackathon's; the AI read checks each project for them.
+    if (args.eventType === "hackathon") await insertEventSponsors(ctx, eventId, sponsors);
+    else if (sponsors.some((sponsor) => sponsor.name.trim())) throw new ConvexError("Sponsors are for hackathons.");
     await logAction(ctx, eventId, "event_created", actor);
     return { eventId };
 }
@@ -629,8 +678,9 @@ export const listOrganizationEvents = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, { paginationOpts }) => {
     const { organizationId } = await requireOrganization(ctx);
+    // Real events only: practice events are listed apart, in practice.listPracticeEvents.
     const result = await ctx.db.query("events")
-      .withIndex("by_workosOrganizationId", (q) => q.eq("workosOrganizationId", organizationId))
+      .withIndex("by_workosOrganizationId_and_practice", (q) => q.eq("workosOrganizationId", organizationId).eq("practice", undefined))
       .order("desc")
       .paginate(paginationOpts);
     return {
@@ -643,10 +693,77 @@ export const listOrganizationEvents = query({
         eventType: eventType(event),
         createdAt: event.createdAt,
         organizationId,
+        phase: phaseFields(event).phase,
       })),
     };
   },
 });
+
+export const getLiveEventArgs = v.object({});
+
+/**
+ * The organization's live event: the newest real event that is not
+ * finished (Proposed). There is one at a time per organization for now.
+ * Never a practice event. Null when there is none.
+ */
+export async function getLiveEventForOrganization(
+  ctx: QueryCtx,
+  _args: Infer<typeof getLiveEventArgs>,
+  principal: OrganizationPrincipal,
+) {
+  const recent = await ctx.db.query("events")
+    .withIndex("by_workosOrganizationId_and_practice", (q) => q.eq("workosOrganizationId", principal.organizationId).eq("practice", undefined))
+    .order("desc")
+    .take(20);
+  const event = recent.find((candidate) => phaseFields(candidate).phase !== "finished");
+  if (!event) return null;
+  return { id: event._id, name: event.name, slug: event.slug, eventType: eventType(event), createdAt: event.createdAt, ...phaseFields(event) };
+}
+
+export const getLiveEvent = query({
+  args: getLiveEventArgs,
+  handler: async (ctx, args) => getLiveEventForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+/** Finalists who did not pitch in the final, so the stage leaves them out of the finalists list. */
+const NOT_PITCHED: ReadonlySet<string> = new Set(["no_show", "withdrawn", "hidden"]);
+
+type SubmittedResults = {
+  winners: { place: 1 | 2 | 3; submissionId: Id<"submissions">; demoTitle: string; teamName: string }[];
+  finalists: { submissionId: Id<"submissions">; demoTitle: string; teamName: string }[];
+};
+
+/**
+ * A hackathon's winners and its other finalists, once judging is closed and
+ * both are submitted. "needs_review" when the submitted winners no longer
+ * hold (a project removed or no longer a finalist); null before they are
+ * submitted. The finalists left over keep their pitch order, leaving out a
+ * no-show and a withdrawn or hidden project: the stage lists everyone else
+ * who pitched in the final.
+ */
+async function submittedResults(ctx: QueryCtx, event: Doc<"events">, decision: Doc<"judgingDecisions"> | null): Promise<SubmittedResults | "needs_review" | null> {
+  if (eventType(event) !== "hackathon" || event.judgingStatus !== "closed") return null;
+  if (decision?.finalistStatus !== "submitted" || decision.placementStatus !== "submitted") return null;
+  const placed = await Promise.all(decision.placementIds.map((id) => ctx.db.get(id)));
+  const valid = placed.length > 0 && placed.length <= 3 && new Set(decision.placementIds).size === placed.length
+    && placed.every((submission) => submission && submission.eventId === event._id && decision.finalistIds.includes(submission._id));
+  if (!valid) return "needs_review";
+  const placedIds = new Set(decision.placementIds.map(String));
+  const others = await Promise.all(decision.finalistIds.filter((id) => !placedIds.has(String(id))).map((id) => ctx.db.get(id)));
+  const named = (submission: Doc<"submissions">) => ({ submissionId: submission._id, demoTitle: submission.demoTitle, teamName: submission.teamName || submission.name });
+  return {
+    winners: placed.map((submission, index) => ({ place: (index + 1) as 1 | 2 | 3, ...named(submission!) })),
+    finalists: others.filter((submission): submission is Doc<"submissions"> => submission !== null && submission.eventId === event._id && !NOT_PITCHED.has(submission.status)).map(named),
+  };
+}
+
+/** The results the stage and status pages show: only once the event is finished, never before. */
+async function finishedResults(ctx: QueryCtx, event: Doc<"events">) {
+  if (phaseFields(event).phase !== "finished") return null;
+  const decision = await ctx.db.query("judgingDecisions").withIndex("by_event", (q) => q.eq("eventId", event._id)).unique();
+  const results = await submittedResults(ctx, event, decision);
+  return results === "needs_review" ? null : results;
+}
 
 export const getOrganizationEventDetailsArgs = v.object({ slug: v.string() });
 
@@ -659,27 +776,40 @@ export async function getOrganizationEventDetailsForOrganization(
     const { organizationId } = principal;
     const event = await findEventBySlug(ctx, slug);
     if (!event || event.workosOrganizationId !== organizationId) return null;
-    const [submissions, decision] = await Promise.all([
+    const isHackathon = eventType(event) === "hackathon";
+    const [submissions, decision, reviews] = await Promise.all([
       ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1001),
       ctx.db.query("judgingDecisions").withIndex("by_event", (q) => q.eq("eventId", event._id)).unique(),
+      isHackathon ? ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(4000) : [],
     ]);
-    const isHackathon = eventType(event) === "hackathon";
+    // The event tabs' counts: presenters in the lineup, and judging scores in of the scores needed.
+    const judgingIds = new Set(submissions.filter((submission) => isJudgedStatus(submission.status)).map((submission) => String(submission._id)));
+    // A helper's extra review never counts past a project's target.
+    const perProject = new Map<string, number>();
+    for (const review of reviews) {
+      const id = String(review.submissionId);
+      if (review.completed && judgingIds.has(id)) perProject.set(id, (perProject.get(id) ?? 0) + 1);
+    }
+    const scores = isHackathon
+      ? { complete: [...perProject.values()].reduce((sum, count) => sum + Math.min(count, REVIEW_TARGET), 0), target: judgingIds.size * REVIEW_TARGET }
+      : null;
     let resultsStatus: "not_applicable" | "pending" | "needs_review" | "confirmed" = isHackathon ? (decision?.placementStatus === "needs_review" || decision?.finalistStatus === "needs_review") ? "needs_review" : "pending" : "not_applicable";
     let winners: { place: number; demoTitle: string; teamName: string }[] = [];
-    if (isHackathon && event.judgingStatus === "closed" && decision?.finalistStatus === "submitted" && decision.placementStatus === "submitted") {
-      const placed = await Promise.all(decision.placementIds.map((id) => ctx.db.get(id)));
-      if (placed.length > 0 && placed.length <= 3 && new Set(decision.placementIds).size === placed.length && placed.every((submission) => submission && submission.eventId === event._id && decision.finalistIds.includes(submission._id))) {
-        winners = placed.map((submission, index) => ({ place: index + 1, demoTitle: submission!.demoTitle, teamName: submission!.teamName || submission!.name }));
-        resultsStatus = "confirmed";
-      } else resultsStatus = "needs_review";
+    const results = await submittedResults(ctx, event, decision);
+    if (results === "needs_review") resultsStatus = "needs_review";
+    else if (results) {
+      winners = results.winners.map(({ place, demoTitle, teamName }) => ({ place, demoTitle, teamName }));
+      resultsStatus = "confirmed";
     }
     return {
       organizationId, name: event.name, slug: event.slug, eventType: eventType(event),
       createdAt: event.createdAt,
       visualStyle: normalizeVisualStyle(event.visualStyle), theme: event.theme,
       submissionsClosed: event.submissionsClosedAt !== undefined, queuePublished: event.queuePublished,
+      ...phaseFields(event), practice: practiceView(event),
       judgingStatus: isHackathon ? event.judgingStatus ?? "setup" : null,
       submissionCount: Math.min(submissions.length, 1000), submissionCountCapped: submissions.length > 1000,
+      lineupCount: submissions.filter((submission) => submission.status === "queued").length, scores,
       resultsStatus, winners,
     };
 }
@@ -706,6 +836,9 @@ export const getEventMeta = query({
       name: event.name,
       slug: event.slug,
       eventType: eventType(event),
+      // The submit page's loading state wears the event's look.
+      visualStyle: normalizeVisualStyle(event.visualStyle),
+      theme: event.theme,
     };
   },
 });
@@ -781,8 +914,11 @@ export const getStage = query({
     const current = stageLineup[0] ?? null;
     const upNext = stageLineup[1] ?? null;
     const showMeetLinkOnStage = event.showMeetLinkOnStage ?? false;
+    const { phase } = phaseFields(event);
+    const results = await finishedResults(ctx, event);
 
     return {
+      phase,
       event: {
         name: event.name,
         slug: event.slug,
@@ -802,12 +938,20 @@ export const getStage = query({
       },
       stageTimer: publicStageTimer(event, now),
       demoTimer: publicDemoTimer(event, now),
+      // While judges score, the stage's clock is the judging clock, the same one judges see.
+      judgingTimer: phase === "judging" ? judgingTimerView(event, now) : null,
       current: current ? stageFields(current) : null,
       upNext: upNext ? stageFields(upNext) : null,
       lineup: stageLineup.map(stageFields),
       remainingCount: lineup.length,
       waitingCount: activeSubmissionCount,
-      meetUrl: event.queuePublished && showMeetLinkOnStage ? event.meetUrl : null,
+      meetUrl: event.queuePublished && showMeetLinkOnStage && event.meetUrl ? event.meetUrl : null,
+      // The winners screen: only once the event is finished and the winners are submitted.
+      results: results ? {
+        winners: results.winners.map(({ place, demoTitle, teamName }) => ({ place, demoTitle, teamName })),
+        finalists: results.finalists.map(({ demoTitle, teamName }) => ({ demoTitle, teamName })),
+        showFinalists: event.stageResultsShowFinalists ?? true,
+      } : null,
     };
   },
 });
@@ -838,6 +982,7 @@ export async function getAdminForOrganization(
       membersBySubmission.set(member.submissionId, members);
     }
     const tracks = await listEventTracks(ctx, event._id);
+    const sponsors = await listEventSponsors(ctx, event._id);
     const byId = tracksById(tracks);
     const trackCounts = new Map<Id<"eventTracks">, number>();
     let noTrackCount = 0;
@@ -846,15 +991,20 @@ export async function getAdminForOrganization(
       if (ids.length === 0 && !(submission.trackIds === undefined && submission.category)) noTrackCount += 1;
       for (const id of ids) trackCounts.set(id, (trackCounts.get(id) ?? 0) + 1);
     }
+    const judges = await loadJudgeDirectory(ctx, event);
     const adminSubmissions = await Promise.all(
-      submissions.map(async (submission) =>
-        adminSubmissionFields(
+      submissions.map(async (submission) => ({
+        ...adminSubmissionFields(
           submission,
           byId,
           membersBySubmission.get(submission._id) ?? [],
           await resolveSubmissionVideoUrl(ctx, submission),
         ),
-      ),
+        // The judges' names to show (the judging sheet writes these), and their keys.
+        roundOneAssignedJudges: submission.roundOneAssignedJudges?.map(judges.nameOf),
+        roundOneAssignedJudgeKeys: submission.roundOneAssignedJudges?.map(judgeKeyOf),
+        aiRead: publicAiRead(event, submission, byId, sponsors),
+      })),
     );
     const submissionById = new Map(adminSubmissions.map((submission) => [submission.id, submission]));
     const mapAdminSubmission = (submission: Doc<"submissions">) =>
@@ -882,11 +1032,17 @@ export async function getAdminForOrganization(
         showMeetLinkOnStage: event.showMeetLinkOnStage ?? false,
         showStageTimerOnStage: event.showStageTimerOnStage ?? false,
         showDemoTimerOnStage: event.showDemoTimerOnStage ?? false,
+        stageResultsShowFinalists: event.stageResultsShowFinalists ?? true,
         lineupTarget: event.lineupTarget,
         stageTimer: publicStageTimer(event),
         demoTimer: publicDemoTimer(event),
         canRestorePrevious: event.lastAdvanceSnapshot !== undefined,
         submissionSurgeAt: event.submissionSurgeAt,
+        // Where the event is (Submissions, Judging, Stage, Finished) and which phases it has.
+        ...phaseFields(event),
+        judgingStatus: eventType(event) === "hackathon" ? event.judgingStatus ?? "setup" : null,
+        judgingTimer: eventType(event) === "hackathon" ? judgingTimerView(event) : null,
+        practice: practiceView(event),
         luma: {
           // Only organisations that own the key's Luma calendar can link.
           available: lumaOrganizationAllowed(event.workosOrganizationId),
@@ -896,6 +1052,7 @@ export async function getAdminForOrganization(
         },
       },
       tracks: tracks.map((track) => ({ ...publicTrack(track), submissionCount: trackCounts.get(track._id) ?? 0 })),
+      sponsors: sponsors.map(publicSponsor),
       noTrackCount,
       legacyCategoryCount: submissions.filter((submission) => submission.trackIds === undefined && submission.category).length,
       lineup: lineupSorted(submissions).map(mapAdminSubmission),
@@ -964,6 +1121,8 @@ export const getParticipant = query({
       .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
       .collect();
     const byId = tracksById(await listEventTracks(ctx, event._id));
+    const results = await finishedResults(ctx, event);
+    const placement = results?.winners.find((winner) => winner.submissionId === submission._id)?.place ?? null;
 
     return {
       event: {
@@ -973,6 +1132,8 @@ export const getParticipant = query({
         visualStyle: normalizeVisualStyle(event.visualStyle),
         theme: event.theme,
         submissionsClosed: event.submissionsClosedAt !== undefined,
+        // Where the event is, for the team's steps (Submitted, Judging, Finalists, Results).
+        phase: eventPhase({ ...event, eventType: eventType(event) }),
         lumaLinked: Boolean(event.lumaEventId) && lumaOrganizationAllowed(event.workosOrganizationId),
       },
       submission: {
@@ -985,6 +1146,8 @@ export const getParticipant = query({
         githubUrl: submission.githubUrl,
         rulesAcceptedAt: submission.rulesAcceptedAt,
         finalist: submission.finalist ?? false,
+        // 1st, 2nd or 3rd, only once the event is finished; never before.
+        placement,
         teamMembers: teamMembers.map((member) => member.name),
         // Each member's typed socials, so the team can fill in or correct them. No emails or phones.
         teamMemberSocials: teamMembers.map((member) => ({
@@ -996,8 +1159,11 @@ export const getParticipant = query({
         videoDeleteAt: submission.videoDeleteAt,
         videoDeletedAt: submission.videoDeletedAt,
         createdAt: submission.createdAt,
+        // Withdraw only while waiting or in the lineup; Submit again only for the team's own withdraw.
+        canWithdraw: submission.status === "candidate" || submission.status === "queued",
+        canSubmitAgain: canSubmitAgain(submission),
       },
-      meetUrl: mayJoin ? event.meetUrl : null,
+      meetUrl: mayJoin && event.meetUrl ? event.meetUrl : null,
     };
   },
 });
@@ -1161,24 +1327,12 @@ export const requestStatusLinkEmail = mutation({
     if (!isValidEmail(key)) throw new ConvexError("Enter a valid email address.");
     const event = await eventBySlug(ctx, args.slug);
     const [owner] = await emailOwners(ctx, event._id, key);
-    if (!owner) return { ok: true };
-    const { submission } = owner;
-    const now = Date.now();
-    if (submission.statusLinkEmailedAt !== undefined && now - submission.statusLinkEmailedAt < STATUS_LINK_RESEND_MS) {
-      return { ok: true };
-    }
-    await ctx.db.patch(submission._id, { statusLinkEmailedAt: now });
-    await ctx.scheduler.runAfter(0, internal.emails.sendStatusLinkEmail, {
-      submissionId: submission._id,
-      to: owner.email,
-      reason: "resend",
-    });
+    if (owner) await emailStatusLinkToOwner(ctx, owner);
     return { ok: true };
   },
 });
 
-export const submitDemo = mutation({
-  args: {
+export const submitDemoArgs = {
     slug: v.string(),
     participantToken: v.string(),
     clientId: v.string(),
@@ -1194,9 +1348,17 @@ export const submitDemo = mutation({
     trackIds: v.optional(v.array(v.id("eventTracks"))),
     screenshotId: v.optional(v.id("_storage")),
     queueOrder: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
+};
+
+/** Options for test people in a practice event, which go through the same submit code. */
+type SubmitOptions = { practiceTest?: boolean };
+
+export const submitDemo = mutation({
+  args: submitDemoArgs,
+  handler: async (ctx, args) => submitDemoForEvent(ctx, await eventBySlug(ctx, args.slug), args),
+});
+
+export async function submitDemoForEvent(ctx: MutationCtx, event: Doc<"events">, args: ObjectType<typeof submitDemoArgs>, options: SubmitOptions = {}) {
     if (eventType(event) !== "demo") {
       throw new ConvexError("Use the hackathon submission form for this event.");
     }
@@ -1206,7 +1368,7 @@ export const submitDemo = mutation({
     assertSocialLinks(fields);
     const tracks = await trackSelection(ctx, event, args.trackIds);
     if (args.screenshotId) await requireUnattachedSubmissionFile(ctx, args.screenshotId);
-    await limitSubmit(ctx, event, args.clientId, [fields.email]);
+    if (!options.practiceTest) await limitSubmit(ctx, event, args.clientId, [fields.email]);
     const email = await publicEmailFields(ctx, event._id, fields.email);
     if (!email) return EMAIL_TAKEN_RESULT;
 
@@ -1228,14 +1390,17 @@ export const submitDemo = mutation({
 
     await ctx.db.patch(event._id, { updatedAt: now });
     await logAction(ctx, event._id, "submission_created", "participant", submissionId);
-    await queueSubmittedEmail(ctx, submissionId, now);
-    await queueLumaImport(ctx, event, submissionId);
+    if (options.practiceTest) await logAction(ctx, event._id, TEST_PEOPLE_ACTION, "practice", submissionId);
+    // Test people send no email: it would only spend the daily allowance real participants need.
+    if (!options.practiceTest) await queueSubmittedEmail(ctx, submissionId, now);
+    if (!options.practiceTest) await queueLumaImport(ctx, event, submissionId);
     return { submissionId };
-  },
-});
+}
 
-export const submitHackathon = mutation({
-  args: {
+/** The audit action the Getting started guide reads as "test people were added". */
+export const TEST_PEOPLE_ACTION = "test_submission_admin_added";
+
+export const submitHackathonArgs = {
     slug: v.string(),
     participantToken: v.string(),
     clientId: v.string(),
@@ -1266,9 +1431,14 @@ export const submitHackathon = mutation({
     githubUrl: v.string(),
     rulesAccepted: v.boolean(),
     videoUrl: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const event = await eventBySlug(ctx, args.slug);
+};
+
+export const submitHackathon = mutation({
+  args: submitHackathonArgs,
+  handler: async (ctx, args) => submitHackathonForEvent(ctx, await eventBySlug(ctx, args.slug), args),
+});
+
+export async function submitHackathonForEvent(ctx: MutationCtx, event: Doc<"events">, args: ObjectType<typeof submitHackathonArgs>, options: SubmitOptions = {}) {
     if (eventType(event) !== "hackathon") {
       throw new ConvexError("This event accepts personal demo submissions.");
     }
@@ -1310,7 +1480,7 @@ export const submitHackathon = mutation({
     const emails = [presenter?.email ?? fields.email, ...teamMemberContacts.map((member) => member.email)];
     assertDistinctEmails(emails);
     const tracks = await trackSelection(ctx, event, args.trackIds);
-    await limitSubmit(ctx, event, args.clientId, emails);
+    if (!options.practiceTest) await limitSubmit(ctx, event, args.clientId, emails);
     const presenterEmail = await publicEmailFields(ctx, event._id, emails[0]);
     if (!presenterEmail) return EMAIL_TAKEN_RESULT;
     const memberEmails = [];
@@ -1356,12 +1526,16 @@ export const submitHackathon = mutation({
 
     await ctx.db.patch(event._id, { updatedAt: now });
     await logAction(ctx, event._id, "hackathon_submission_created", "participant", submissionId);
+    if (options.practiceTest) await logAction(ctx, event._id, TEST_PEOPLE_ACTION, "practice", submissionId);
     await queueJudgingSheetSync(ctx, event);
-    await queueSubmittedEmail(ctx, submissionId, now);
-    await queueLumaImport(ctx, event, submissionId);
+    // Test people send no email: it would only spend the daily allowance real participants need.
+    if (!options.practiceTest) await queueSubmittedEmail(ctx, submissionId, now);
+    if (!options.practiceTest) await queueLumaImport(ctx, event, submissionId);
+    // Participants cannot edit after submitting, so the summary can be written now.
+    const submitted = await ctx.db.get(submissionId);
+    if (submitted) await queueAiSummaryIfStale(ctx, event, submitted, 0, { source: "participant" });
     return { submissionId };
-  },
-});
+}
 
 export const adminAddSubmissionArgs = v.object({
   slug: v.string(),
@@ -1380,7 +1554,7 @@ export const adminAddSubmissionArgs = v.object({
   list: v.optional(v.union(v.literal("lineup"), v.literal("pool"))),
 });
 
-export async function adminAddSubmissionForOrganization(
+async function adminAddSubmissionOperation(
   ctx: MutationCtx,
   args: Infer<typeof adminAddSubmissionArgs>,
   principal: OrganizationPrincipal,
@@ -1441,7 +1615,7 @@ export const adminAddTestSubmissionsArgs = v.object({
   submissions: v.array(adminTestSubmissionValidator),
 });
 
-export async function adminAddTestSubmissionsForOrganization(
+async function adminAddTestSubmissionsOperation(
   ctx: MutationCtx,
   args: Infer<typeof adminAddTestSubmissionsArgs>,
   principal: OrganizationPrincipal,
@@ -1595,6 +1769,15 @@ export const editTeamMemberSocials = mutation({
   },
 });
 
+export const WITHDRAW_HIDDEN_MESSAGE = "The event team hid this entry, so it can't be withdrawn here. Ask them instead.";
+export const WITHDRAW_ACTED_ON_MESSAGE = "The event team has already moved this entry on, so it can't be withdrawn here. Ask them instead.";
+
+/** Whether the team can Submit again: they withdrew it themselves, from candidate or queued. */
+export function canSubmitAgain(submission: Pick<Doc<"submissions">, "status" | "withdrawnBy" | "withdrawnFromStatus">) {
+  return submission.status === "withdrawn" && submission.withdrawnBy === "participant" &&
+    (submission.withdrawnFromStatus === "candidate" || submission.withdrawnFromStatus === "queued");
+}
+
 export const withdrawSubmission = mutation({
   args: { slug: v.string(), participantToken: v.string() },
   handler: async (ctx, args) => {
@@ -1608,10 +1791,82 @@ export const withdrawSubmission = mutation({
       throw new ConvexError("Submission not found");
     }
     if (event.submissionsClosedAt !== undefined) throw new ConvexError("Submissions are closed.");
+    if (submission.status === "withdrawn") return;
+    // Only an entry still waiting or in the lineup: never one the event team hid or moved on.
+    if (submission.status === "hidden") throw new ConvexError(WITHDRAW_HIDDEN_MESSAGE);
+    if (submission.status !== "candidate" && submission.status !== "queued") throw new ConvexError(WITHDRAW_ACTED_ON_MESSAGE);
 
     await patchSubmissionStatus(ctx, submission, { status: "withdrawn", updatedAt: Date.now() });
+    await ctx.db.patch(submission._id, { withdrawnFromStatus: submission.status, withdrawnBy: "participant" });
     await logAction(ctx, event._id, "submission_withdrawn", "participant", submission._id);
     await queueJudgingSheetSync(ctx, event);
+  },
+});
+
+export const SUBMIT_AGAIN_CLOSED_MESSAGE = "Submissions have closed.";
+export const SUBMIT_AGAIN_TAKEN_MESSAGE = "An entry with this email already exists. We've emailed its status link to that address.";
+export const SUBMIT_AGAIN_NOT_ALLOWED_MESSAGE = "This entry can't be submitted again here. Ask the event team.";
+
+/**
+ * Submit again (Proposed): brings a withdrawn entry back while submissions
+ * are open, with all its details and the same status link. The participant
+ * token is the capability, as for withdraw. The submit limits apply. It does
+ * nothing for an entry that is not withdrawn, and refuses one the team did
+ * not withdraw themselves from candidate or queued. It returns to that
+ * status. When another entry now holds one of its emails, it says so with a
+ * generic message and emails that entry's status link to the address on
+ * file; it never returns another entry's link or token.
+ */
+export const resubmitWithdrawnSubmission = mutation({
+  args: { slug: v.string(), participantToken: v.string(), clientId: v.string() },
+  handler: async (ctx, args): Promise<{ restored: true } | { restored: false; reason: "not_withdrawn" } | { restored: false; reason: "email_taken"; message: string }> => {
+    const event = await eventBySlug(ctx, args.slug);
+    const submission = await ctx.db
+      .query("submissions")
+      .withIndex("by_participant_token", (q) => q.eq("participantToken", args.participantToken))
+      .unique();
+    if (!submission || submission.eventId !== event._id) throw new ConvexError("Submission not found");
+    if (submission.status !== "withdrawn") return { restored: false, reason: "not_withdrawn" };
+    if (!canSubmitAgain(submission)) throw new ConvexError(SUBMIT_AGAIN_NOT_ALLOWED_MESSAGE);
+    if (event.submissionsClosedAt !== undefined) throw new ConvexError(SUBMIT_AGAIN_CLOSED_MESSAGE);
+
+    const members = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
+      .collect();
+    const emails = [submission.email, ...members.map((member) => member.email)];
+    // The same limits as a submit, so withdraw and submit again can't be looped.
+    await limitSubmit(ctx, event, args.clientId, emails);
+
+    for (const email of emails) {
+      if (!email?.trim()) continue;
+      const owner = (await emailOwners(ctx, event._id, emailKey(email))).find((row) => row.submission._id !== submission._id);
+      if (!owner) continue;
+      // The link goes to the address on that entry, never back to the caller.
+      await emailStatusLinkToOwner(ctx, owner);
+      return { restored: false, reason: "email_taken", message: SUBMIT_AGAIN_TAKEN_MESSAGE };
+    }
+
+    const now = Date.now();
+    // Back to where it was: the pool, or the end of the lineup.
+    let queueOrder: number | undefined;
+    if (submission.withdrawnFromStatus === "queued") {
+      const lineup = lineupSorted(await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect());
+      queueOrder = Math.max(0, ...lineup.map((entry) => entry.queueOrder ?? 0)) + 1;
+    }
+    await patchSubmissionStatus(ctx, submission, { status: submission.withdrawnFromStatus!, queueOrder, updatedAt: now });
+    await clearAdvanceSnapshot(ctx, event, now);
+    await logAction(ctx, event._id, "submission_resubmitted", "participant", submission._id);
+    await insertChange(ctx, {
+      event, principal: { actor: "participant" }, byParticipant: true,
+      kind: "submission_resubmitted", summary: `submitted ${changeSummaryName(submission)} again after withdrawing it`,
+      subjectId: submission._id, undo: "none",
+      noUndoReason: "The team brought this back themselves. Hide it if it should not take part.",
+    }, []);
+    await queueJudgingSheetSync(ctx, event);
+    const restored = await ctx.db.get(submission._id);
+    if (restored) await queueAiSummaryIfStale(ctx, event, restored, 0, { source: "participant" });
+    return { restored: true };
   },
 });
 
@@ -1622,12 +1877,17 @@ export const updateEvent = mutation({
     meetUrl: v.string(),
   },
   handler: async (ctx, args) => {
-    const { event } = await requireEventOrganization(ctx, args.slug);
-
-    await ctx.db.patch(event._id, {
-      name: args.name.trim(),
-      meetUrl: args.meetUrl.trim(),
-      updatedAt: Date.now(),
+    const principal = await requireOrganization(ctx);
+    const { event } = await requireOwnedEvent(ctx, args.slug, principal);
+    const name = args.name.trim();
+    const meetError = meetUrlError(eventType(event), args.meetUrl);
+    if (meetError) throw new ConvexError(meetError);
+    await recordChange(ctx, { event, principal, kind: "event_updated", summary: name !== event.name ? `renamed the event to ${name}` : "updated the event details" }, async () => {
+      await ctx.db.patch(event._id, {
+        name,
+        meetUrl: args.meetUrl.trim(),
+        updatedAt: Date.now(),
+      });
     });
     await queueJudgingSheetSync(ctx, event);
   },
@@ -1638,7 +1898,7 @@ export const saveRoundOneJudgesArgs = v.object({
   judges: v.array(v.string()),
 });
 
-export async function saveRoundOneJudgesForOrganization(
+async function saveRoundOneJudgesOperation(
   ctx: MutationCtx,
   args: Infer<typeof saveRoundOneJudgesArgs>,
   principal: OrganizationPrincipal,
@@ -1648,78 +1908,28 @@ export async function saveRoundOneJudgesForOrganization(
       throw new ConvexError("Judge assignments are only available for hackathons.");
     }
 
-    let roster: string[];
+    let names: string[];
     try {
-      roster = parseRoundOneJudges(args.judges);
+      names = parseRoundOneJudges(args.judges);
     } catch (error) {
       throw new ConvexError(error instanceof Error ? error.message : "Invalid judge list.");
     }
 
-    const submissions = await ctx.db
-      .query("submissions")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .take(1000);
-    const removedAssignedJudges = submissions
-      .flatMap((submission) => submission.roundOneAssignedJudges ?? [])
-      .filter((judge) => !rosterIncludesJudge(roster, judge));
-    let reassignedSubmissionCount = 0;
-    if (removedAssignedJudges.length > 0) {
-      const reviews = await ctx.db
-        .query("reviews")
-        .withIndex("by_event", (q) => q.eq("eventId", event._id))
-        .take(1);
-      if (reviews.length > 0) {
-        const removed = [...new Set(removedAssignedJudges)].join(", ");
-        throw new ConvexError(
-          `Reviews have started. Redistribute these judges before removing them: ${removed}.`,
-        );
-      }
-
-      const retainedAssignments = submissions.map((submission) => {
-        const assignment = submission.roundOneAssignedJudges;
-        return isValidRoundOneAssignment(assignment) &&
-          assignment!.every((judge) => rosterIncludesJudge(roster, judge))
-          ? assignment
-          : undefined;
-      });
-      const counts = buildJudgeAssignmentCounts(retainedAssignments);
-      const now = Date.now();
-      for (const submission of submissions) {
-        const assignment = submission.roundOneAssignedJudges;
-        if (
-          !isValidRoundOneAssignment(assignment) ||
-          assignment!.every((judge) => rosterIncludesJudge(roster, judge))
-        ) {
-          continue;
-        }
-        await ctx.db.patch(submission._id, {
-          roundOneAssignedJudges: assignRoundOneJudgePair(roster, counts),
-          updatedAt: now,
-        });
-        reassignedSubmissionCount += 1;
-      }
-
+    // A whole list of names: judges are matched to it by the names they have
+    // now. New names are added first, so a judge taken off can be replaced by
+    // one put on. See addJudgesToEvent and removeJudgeFromEvent.
+    const wanted = new Set(names.map(judgeNameKey));
+    const leaving = (await loadJudgeDirectory(ctx, event)).roster.filter((judge) => !wanted.has(judgeNameKey(judge.name)));
+    await addJudgesToEvent(ctx, event, names, { syncSheet: false });
+    const reassigned = new Set<string>();
+    for (const judge of leaving) {
+      const current = (await ctx.db.get(event._id))!;
+      const result = await removeJudgeFromEvent(ctx, current, judge.key, { syncSheet: false, leaving: leaving.map((other) => other.key) });
+      for (const id of result.reassignedSubmissionIds) reassigned.add(String(id));
     }
-
-    const now = Date.now();
-    const judgeAccess = await ctx.db
-      .query("judgeAccess")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .take(100);
-    for (const access of judgeAccess) {
-      const active = roster.some((judge) => sameJudge(judge, access.judgeName));
-      if (access.active === active) continue;
-      await ctx.db.patch(access._id, {
-        active,
-        deactivatedAt: active ? undefined : now,
-        updatedAt: now,
-      });
-    }
-
-    await ctx.db.patch(event._id, { roundOneJudges: roster, updatedAt: now });
-    await logAction(ctx, event._id, "round_one_judges_saved", actor, String(roster.length));
     await queueJudgingSheetSync(ctx, event, 0);
-    return { judgeCount: roster.length, reassignedSubmissionCount };
+    await logAction(ctx, event._id, "round_one_judges_saved", actor, String(names.length));
+    return { judgeCount: names.length, reassignedSubmissionCount: reassigned.size };
 }
 
 export const saveRoundOneJudges = mutation({
@@ -1732,9 +1942,11 @@ export const changeEventTypeArgs = v.object({
   slug: v.string(),
   eventType: v.union(v.literal("demo"), v.literal("hackathon")),
   confirmReset: v.boolean(),
+  // Needed when a hackathon becomes a demo night and has no link yet.
+  meetUrl: v.optional(v.string()),
 });
 
-export async function changeEventTypeForOrganization(
+async function changeEventTypeOperation(
   ctx: MutationCtx,
   args: Infer<typeof changeEventTypeArgs>,
   principal: OrganizationPrincipal,
@@ -1744,6 +1956,9 @@ export async function changeEventTypeForOrganization(
       throw new ConvexError("Event type cannot change after judging has started.");
     }
     if (eventType(event) === args.eventType) return { deletedSubmissions: 0 };
+    const meetUrl = args.meetUrl?.trim() || event.meetUrl;
+    const meetError = meetUrlError(args.eventType, meetUrl);
+    if (meetError) throw new ConvexError(meetError);
 
     const submissions = await ctx.db
       .query("submissions")
@@ -1760,6 +1975,7 @@ export async function changeEventTypeForOrganization(
     await ctx.db.patch(event._id, {
       ...blankEventState(now),
       eventType: args.eventType,
+      meetUrl,
       judgingSheetId: undefined,
       judgingSheetUrl: undefined,
       judgingSheetCreatedAt: undefined,
@@ -2059,6 +2275,7 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
         .collect(),
     ]);
     const byId = tracksById(await listEventTracks(ctx, event._id));
+    const judges = await loadJudgeDirectory(ctx, event);
     const membersBySubmission = new Map<string, string[]>();
     for (const member of teamMembers) {
       const members = membersBySubmission.get(member.submissionId) ?? [];
@@ -2078,7 +2295,8 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
           description: submission.description,
           tracks: trackNamesFor(submission, byId),
           githubUrl: submission.githubUrl,
-          roundOneAssignedJudges: submission.roundOneAssignedJudges,
+          roundOneAssignedJudges: submission.roundOneAssignedJudges?.map(judges.nameOf),
+          roundOneAssignedJudgeKeys: submission.roundOneAssignedJudges?.map(judgeKeyOf),
           videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
           email: submission.email,
           phone: submission.phone,
@@ -2096,6 +2314,8 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
       spreadsheetId: event.judgingSheetId,
       revision: args.revision,
       submissions: sheetSubmissions,
+      // Every judge's key and name now, to match the sheet's judge cells.
+      judges: judges.judges.map((judge) => ({ key: judge.key, name: judge.name })),
     };
   },
 });
@@ -2147,7 +2367,7 @@ export const updateSubmissionArgs = v.object({
   trackIds: v.optional(v.array(v.id("eventTracks"))),
 });
 
-export async function updateSubmissionForOrganization(
+async function updateSubmissionOperation(
   ctx: MutationCtx,
   args: Infer<typeof updateSubmissionArgs>,
   principal: OrganizationPrincipal,
@@ -2180,7 +2400,7 @@ export async function updateSubmissionForOrganization(
     });
     // A changed description gets a new AI summary once submissions are closed.
     const updated = await ctx.db.get(args.submissionId);
-    if (updated) await queueAiSummaryIfStale(ctx, event, updated);
+    if (updated) await queueAiSummaryIfStale(ctx, event, updated, 0, { source: "organiser" });
     await queueJudgingSheetSync(ctx, event);
     if (emailChanged && event.submissionsClosedAt === undefined) await queueLumaImport(ctx, event, args.submissionId);
 }
@@ -2193,7 +2413,7 @@ export const updateSubmission = mutation({
 
 export const publishQueueArgs = v.object({ slug: v.string(), });
 
-export async function publishQueueForOrganization(
+async function publishQueueOperation(
   ctx: MutationCtx,
   args: Infer<typeof publishQueueArgs>,
   principal: OrganizationPrincipal,
@@ -2203,6 +2423,8 @@ export async function publishQueueForOrganization(
     await ctx.db.patch(event._id, {
       queuePublished: true,
       stageScreenMode: "demo",
+      // A demo night's Stage is its published lineup, as setPhase does it.
+      ...(event.eventType !== "hackathon" && eventPhase(event) === "submissions" ? { phase: "stage" as const } : {}),
       updatedAt: Date.now(),
     });
     await logAction(ctx, event._id, "queue_published", actor);
@@ -2219,7 +2441,7 @@ export const setStageScreenModeArgs = v.object({
   mode: v.union(v.literal("qr"), v.literal("demo")),
 });
 
-export async function setStageScreenModeForOrganization(
+async function setStageScreenModeOperation(
   ctx: MutationCtx,
   args: Infer<typeof setStageScreenModeArgs>,
   principal: OrganizationPrincipal,
@@ -2244,7 +2466,7 @@ export const setSubmissionCountVisibleArgs = v.object({
   visible: v.boolean(),
 });
 
-export async function setSubmissionCountVisibleForOrganization(
+async function setSubmissionCountVisibleOperation(
   ctx: MutationCtx,
   args: Infer<typeof setSubmissionCountVisibleArgs>,
   principal: OrganizationPrincipal,
@@ -2274,7 +2496,7 @@ export const setStageMeetLinkVisibleArgs = v.object({
   visible: v.boolean(),
 });
 
-export async function setStageMeetLinkVisibleForOrganization(
+async function setStageMeetLinkVisibleOperation(
   ctx: MutationCtx,
   args: Infer<typeof setStageMeetLinkVisibleArgs>,
   principal: OrganizationPrincipal,
@@ -2308,7 +2530,7 @@ export const setStageTimerVisibleArgs = v.object({
   visible: v.boolean(),
 });
 
-export async function setStageTimerVisibleForOrganization(
+async function setStageTimerVisibleOperation(
   ctx: MutationCtx,
   args: Infer<typeof setStageTimerVisibleArgs>,
   principal: OrganizationPrincipal,
@@ -2333,12 +2555,42 @@ export const setStageTimerVisible = mutation({
     setStageTimerVisibleForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
+export const setStageResultsShowFinalistsArgs = v.object({
+  slug: v.string(),
+  showFinalists: v.boolean(),
+});
+
+async function setStageResultsShowFinalistsOperation(
+  ctx: MutationCtx,
+  args: Infer<typeof setStageResultsShowFinalistsArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
+
+    await ctx.db.patch(event._id, {
+      stageResultsShowFinalists: args.showFinalists,
+      updatedAt: Date.now(),
+    });
+    await logAction(
+      ctx,
+      event._id,
+      args.showFinalists ? "stage_results_finalists_shown" : "stage_results_winners_only",
+      actor,
+    );
+}
+
+export const setStageResultsShowFinalists = mutation({
+  args: setStageResultsShowFinalistsArgs,
+  handler: async (ctx, args) =>
+    setStageResultsShowFinalistsForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
 export const setStageTimerDurationArgs = v.object({
   slug: v.string(),
   durationMs: v.number(),
 });
 
-export async function setStageTimerDurationForOrganization(
+async function setStageTimerDurationOperation(
   ctx: MutationCtx,
   args: Infer<typeof setStageTimerDurationArgs>,
   principal: OrganizationPrincipal,
@@ -2374,12 +2626,48 @@ export const setStageTimerDuration = mutation({
     setStageTimerDurationForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
+export const setStageTimerRemainingArgs = v.object({
+  slug: v.string(),
+  remainingMs: v.number(),
+});
+
+/**
+ * Sets exactly how long the stage timer has left, for "click the time and
+ * type it" and the presets. Running or paused, it keeps its state; idle, it
+ * becomes the next run's length.
+ */
+async function setStageTimerRemainingOperation(
+  ctx: MutationCtx,
+  args: Infer<typeof setStageTimerRemainingArgs>,
+  principal: OrganizationPrincipal,
+) {
+    const { event, actor } = await requireOwnedEvent(ctx, args.slug, principal);
+    if (!Number.isFinite(args.remainingMs)) throw new ConvexError("Enter a time.");
+    const now = Date.now();
+    const remainingMs = clampTimerMs(Math.round(args.remainingMs / 1000) * 1000);
+    const status = event.stageTimerStatus ?? "idle";
+    await ctx.db.patch(event._id, {
+      stageTimerRemainingMs: remainingMs,
+      ...(status === "running" ? { stageTimerEndsAt: now + remainingMs } : {}),
+      ...(status === "idle" || stageTimerDuration(event) < remainingMs ? { stageTimerDurationMs: clampTimerDurationMs(remainingMs) } : {}),
+      updatedAt: now,
+    });
+    await logAction(ctx, event._id, "stage_timer_remaining_set", actor, String(remainingMs));
+    return { remainingMs };
+}
+
+export const setStageTimerRemaining = mutation({
+  args: setStageTimerRemainingArgs,
+  handler: async (ctx, args) =>
+    setStageTimerRemainingForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
 export const startStageTimerArgs = v.object({
   slug: v.string(),
   durationMs: v.optional(v.number()),
 });
 
-export async function startStageTimerForOrganization(
+async function startStageTimerOperation(
   ctx: MutationCtx,
   args: Infer<typeof startStageTimerArgs>,
   principal: OrganizationPrincipal,
@@ -2416,7 +2704,7 @@ export const setDemoTimerVisibleArgs = v.object({
   visible: v.boolean(),
 });
 
-export async function setDemoTimerVisibleForOrganization(
+async function setDemoTimerVisibleOperation(
   ctx: MutationCtx,
   args: Infer<typeof setDemoTimerVisibleArgs>,
   principal: OrganizationPrincipal,
@@ -2457,7 +2745,7 @@ export const setDemoTimerDurationArgs = v.object({
   durationMs: v.number(),
 });
 
-export async function setDemoTimerDurationForOrganization(
+async function setDemoTimerDurationOperation(
   ctx: MutationCtx,
   args: Infer<typeof setDemoTimerDurationArgs>,
   principal: OrganizationPrincipal,
@@ -2489,7 +2777,7 @@ export const startDemoTimerArgs = v.object({
   slug: v.string(),
   });
 
-export async function startDemoTimerForOrganization(
+async function startDemoTimerOperation(
   ctx: MutationCtx,
   args: Infer<typeof startDemoTimerArgs>,
   principal: OrganizationPrincipal,
@@ -2523,7 +2811,7 @@ export const pauseDemoTimerArgs = v.object({
   slug: v.string(),
   });
 
-export async function pauseDemoTimerForOrganization(
+async function pauseDemoTimerOperation(
   ctx: MutationCtx,
   args: Infer<typeof pauseDemoTimerArgs>,
   principal: OrganizationPrincipal,
@@ -2553,7 +2841,7 @@ export const adjustDemoTimerArgs = v.object({
   deltaMs: v.number(),
 });
 
-export async function adjustDemoTimerForOrganization(
+async function adjustDemoTimerOperation(
   ctx: MutationCtx,
   args: Infer<typeof adjustDemoTimerArgs>,
   principal: OrganizationPrincipal,
@@ -2587,7 +2875,7 @@ export const pauseStageTimerArgs = v.object({
   slug: v.string(),
   });
 
-export async function pauseStageTimerForOrganization(
+async function pauseStageTimerOperation(
   ctx: MutationCtx,
   args: Infer<typeof pauseStageTimerArgs>,
   principal: OrganizationPrincipal,
@@ -2617,7 +2905,7 @@ export const resetStageTimerArgs = v.object({
   durationMs: v.optional(v.number()),
 });
 
-export async function resetStageTimerForOrganization(
+async function resetStageTimerOperation(
   ctx: MutationCtx,
   args: Infer<typeof resetStageTimerArgs>,
   principal: OrganizationPrincipal,
@@ -2649,7 +2937,7 @@ export const adjustStageTimerArgs = v.object({
   deltaMs: v.number(),
 });
 
-export async function adjustStageTimerForOrganization(
+async function adjustStageTimerOperation(
   ctx: MutationCtx,
   args: Infer<typeof adjustStageTimerArgs>,
   principal: OrganizationPrincipal,
@@ -2681,7 +2969,7 @@ export const hideSubmissionArgs = v.object({
   submissionId: v.id("submissions"),
 });
 
-export async function hideSubmissionForOrganization(
+async function hideSubmissionOperation(
   ctx: MutationCtx,
   args: Infer<typeof hideSubmissionArgs>,
   principal: OrganizationPrincipal,
@@ -2715,7 +3003,7 @@ export const restoreSubmissionArgs = v.object({
   submissionId: v.id("submissions"),
 });
 
-export async function restoreSubmissionForOrganization(
+async function restoreSubmissionOperation(
   ctx: MutationCtx,
   args: Infer<typeof restoreSubmissionArgs>,
   principal: OrganizationPrincipal,
@@ -2754,7 +3042,7 @@ export const reorderLineupArgs = v.object({
   orderedIds: v.array(v.id("submissions")),
 });
 
-export async function reorderLineupForOrganization(
+async function reorderLineupOperation(
   ctx: MutationCtx,
   args: Infer<typeof reorderLineupArgs>,
   principal: OrganizationPrincipal,
@@ -2792,7 +3080,7 @@ export const reorderLineup = mutation({
 // or the pool, honoring the lineup target. Everyone not drawn goes to the pool.
 export const shuffleLineupArgs = v.object({ slug: v.string(), });
 
-export async function shuffleLineupForOrganization(
+async function shuffleLineupOperation(
   ctx: MutationCtx,
   args: Infer<typeof shuffleLineupArgs>,
   principal: OrganizationPrincipal,
@@ -2847,7 +3135,7 @@ export const setLineupOrderArgs = v.object({
   orderedIds: v.array(v.id("submissions")),
 });
 
-export async function setLineupOrderForOrganization(
+async function setLineupOrderOperation(
   ctx: MutationCtx,
   args: Infer<typeof setLineupOrderArgs>,
   principal: OrganizationPrincipal,
@@ -2897,7 +3185,7 @@ export const moveToPoolArgs = v.object({
   submissionId: v.id("submissions"),
 });
 
-export async function moveToPoolForOrganization(
+async function moveToPoolOperation(
   ctx: MutationCtx,
   args: Infer<typeof moveToPoolArgs>,
   principal: OrganizationPrincipal,
@@ -2931,7 +3219,7 @@ export const setLineupTargetArgs = v.object({
   target: v.number(),
 });
 
-export async function setLineupTargetForOrganization(
+async function setLineupTargetOperation(
   ctx: MutationCtx,
   args: Infer<typeof setLineupTargetArgs>,
   principal: OrganizationPrincipal,
@@ -2950,9 +3238,10 @@ export const setLineupTarget = mutation({
 
 export const markNoShowArgs = v.object({
   slug: v.string(),
+  expectedCurrentId: v.optional(v.string()),
   });
 
-export async function markNoShowForOrganization(
+async function markNoShowOperation(
   ctx: MutationCtx,
   args: Infer<typeof markNoShowArgs>,
   principal: OrganizationPrincipal,
@@ -2968,7 +3257,7 @@ export async function markNoShowForOrganization(
       .collect();
 
     const current = lineupSorted(submissions)[0];
-    if (!current) {
+    if (!current || (args.expectedCurrentId !== undefined && String(current._id) !== args.expectedCurrentId)) {
       return;
     }
 
@@ -2992,9 +3281,11 @@ export const markNoShow = mutation({
 // Advance the show: the person at the top of the lineup (current) is marked
 // done, so the next person becomes position 0. Order is positional, so nothing
 // else needs to move.
-export const pickNextArgs = v.object({ slug: v.string(), });
+// expectedCurrentId: the presenter the organiser saw. A second click, or a
+// second organiser, that arrives after the show moved on does nothing.
+export const pickNextArgs = v.object({ slug: v.string(), expectedCurrentId: v.optional(v.string()) });
 
-export async function pickNextForOrganization(
+async function pickNextOperation(
   ctx: MutationCtx,
   args: Infer<typeof pickNextArgs>,
   principal: OrganizationPrincipal,
@@ -3011,7 +3302,7 @@ export async function pickNextForOrganization(
 
     const lineup = lineupSorted(submissions);
     const current = lineup[0];
-    if (!current) {
+    if (!current || (args.expectedCurrentId !== undefined && String(current._id) !== args.expectedCurrentId)) {
       return;
     }
 
@@ -3054,7 +3345,7 @@ export const pickNext = mutation({
 
 export const restorePreviousPresenterArgs = v.object({ slug: v.string(), });
 
-export async function restorePreviousPresenterForOrganization(
+async function restorePreviousPresenterOperation(
   ctx: MutationCtx,
   args: Infer<typeof restorePreviousPresenterArgs>,
   principal: OrganizationPrincipal,
@@ -3105,7 +3396,7 @@ export const restorePreviousPresenter = mutation({
 
 export const skipCurrentArgs = v.object({ slug: v.string(), });
 
-export async function skipCurrentForOrganization(
+async function skipCurrentOperation(
   ctx: MutationCtx,
   args: Infer<typeof skipCurrentArgs>,
   principal: OrganizationPrincipal,
@@ -3136,7 +3427,16 @@ export async function skipCurrentForOrganization(
       queueOrder: lastQueueOrder + 1,
       updatedAt: now,
     });
-    await clearAdvanceSnapshot(ctx, event, now);
+    // The next presenter starts on a fresh demo timer, as after Advance and No-show.
+    const demoDurationMs = demoTimerDuration(event);
+    await ctx.db.patch(event._id, {
+      lastAdvanceSnapshot: undefined,
+      demoTimerStatus: "idle",
+      demoTimerDurationMs: demoDurationMs,
+      demoTimerRemainingMs: demoDurationMs,
+      demoTimerEndsAt: undefined,
+      updatedAt: now,
+    });
 
     await logAction(ctx, event._id, "current_skipped", actor, current._id);
     await queueJudgingSheetSync(ctx, event);
@@ -3150,7 +3450,7 @@ export const skipCurrent = mutation({
 
 export const clearQueueArgs = v.object({ slug: v.string(), });
 
-export async function clearQueueForOrganization(
+async function clearQueueOperation(
   ctx: MutationCtx,
   args: Infer<typeof clearQueueArgs>,
   principal: OrganizationPrincipal,
@@ -3260,3 +3560,184 @@ export const deleteOrphanedSubmissionUploads = internalMutation({
     return { deleted, scanned };
   },
 });
+
+// Organiser operations, recorded for Recent changes and Undo (convex/changeLog.ts).
+export const adminAddSubmissionForOrganization = withChange<Infer<typeof adminAddSubmissionArgs>, Awaited<ReturnType<typeof adminAddSubmissionOperation>>>(
+  (_ctx, args) => ({ kind: "submission_added", summary: `added ${args.demoTitle.trim() || args.name.trim()}`, watch: { submissions: "all" } }),
+  adminAddSubmissionOperation,
+);
+
+export const adminAddTestSubmissionsForOrganization = withChange<Infer<typeof adminAddTestSubmissionsArgs>, Awaited<ReturnType<typeof adminAddTestSubmissionsOperation>>>(
+  (_ctx, args) => ({ kind: "test_submissions_added", summary: `added ${args.submissions.length} test submission${args.submissions.length === 1 ? "" : "s"}`, watch: { submissions: "all", teamMembers: "all" } }),
+  adminAddTestSubmissionsOperation,
+);
+
+export const saveRoundOneJudgesForOrganization = withChange<Infer<typeof saveRoundOneJudgesArgs>, Awaited<ReturnType<typeof saveRoundOneJudgesOperation>>>(
+  () => ({ kind: "judges_saved", summary: "updated the judges", watch: { submissions: "all", judgeAccess: "all" } }),
+  saveRoundOneJudgesOperation,
+);
+
+export const changeEventTypeForOrganization = withChange<Infer<typeof changeEventTypeArgs>, Awaited<ReturnType<typeof changeEventTypeOperation>>>(
+  (_ctx, args) => ({ kind: "event_type_changed", summary: `changed the event to a ${args.eventType === "hackathon" ? "hackathon" : "demo night"}`, watch: { submissions: "all", teamMembers: "all" } }),
+  changeEventTypeOperation,
+);
+
+export const updateSubmissionForOrganization = withChange<Infer<typeof updateSubmissionArgs>, Awaited<ReturnType<typeof updateSubmissionOperation>>>(
+  async (ctx, args, event) => ({ kind: "submission_edited", summary: `edited ${await submissionTitle(ctx, event, args.submissionId)}`, subjectId: args.submissionId, watch: { submissions: [args.submissionId] } }),
+  updateSubmissionOperation,
+);
+
+export const publishQueueForOrganization = withChange<Infer<typeof publishQueueArgs>, Awaited<ReturnType<typeof publishQueueOperation>>>(
+  () => ({ kind: "queue_published", summary: "published the lineup" }),
+  publishQueueOperation,
+);
+
+export const setStageScreenModeForOrganization = withChange<Infer<typeof setStageScreenModeArgs>, Awaited<ReturnType<typeof setStageScreenModeOperation>>>(
+  (_ctx, args) => ({ kind: "stage_screen_mode", summary: args.mode === "qr" ? "put the QR on stage" : "put the lineup on stage" }),
+  setStageScreenModeOperation,
+);
+
+export const setSubmissionCountVisibleForOrganization = withChange<Infer<typeof setSubmissionCountVisibleArgs>, Awaited<ReturnType<typeof setSubmissionCountVisibleOperation>>>(
+  (_ctx, args) => ({ kind: "stage_count_visible", summary: `${args.visible ? "showed" : "hid"} the submission count on stage` }),
+  setSubmissionCountVisibleOperation,
+);
+
+export const setStageMeetLinkVisibleForOrganization = withChange<Infer<typeof setStageMeetLinkVisibleArgs>, Awaited<ReturnType<typeof setStageMeetLinkVisibleOperation>>>(
+  (_ctx, args) => ({ kind: "stage_meet_link_visible", summary: `${args.visible ? "showed" : "hid"} the meet link on stage` }),
+  setStageMeetLinkVisibleOperation,
+);
+
+export const setStageTimerVisibleForOrganization = withChange<Infer<typeof setStageTimerVisibleArgs>, Awaited<ReturnType<typeof setStageTimerVisibleOperation>>>(
+  (_ctx, args) => ({ kind: "stage_timer_visible", summary: `${args.visible ? "showed" : "hid"} the timer on stage` }),
+  setStageTimerVisibleOperation,
+);
+
+export const setStageResultsShowFinalistsForOrganization = withChange<Infer<typeof setStageResultsShowFinalistsArgs>, Awaited<ReturnType<typeof setStageResultsShowFinalistsOperation>>>(
+  (_ctx, args) => ({ kind: "stage_results_finalists", summary: args.showFinalists ? "set the stage to show the winners and finalists at the end" : "set the stage to show only the winners at the end" }),
+  setStageResultsShowFinalistsOperation,
+);
+
+export const setStageTimerDurationForOrganization = withChange<Infer<typeof setStageTimerDurationArgs>, Awaited<ReturnType<typeof setStageTimerDurationOperation>>>(
+  (_ctx, args) => ({ kind: "stage_timer_duration", summary: `set the stage timer to ${amountOfTime(args.durationMs)}` }),
+  setStageTimerDurationOperation,
+);
+
+export const startStageTimerForOrganization = withChange<Infer<typeof startStageTimerArgs>, Awaited<ReturnType<typeof startStageTimerOperation>>>(
+  () => ({ kind: "stage_timer_started", summary: "started the stage timer" }),
+  startStageTimerOperation,
+);
+
+export const pauseStageTimerForOrganization = withChange<Infer<typeof pauseStageTimerArgs>, Awaited<ReturnType<typeof pauseStageTimerOperation>>>(
+  () => ({ kind: "stage_timer_paused", summary: "paused the stage timer" }),
+  pauseStageTimerOperation,
+);
+
+export const resetStageTimerForOrganization = withChange<Infer<typeof resetStageTimerArgs>, Awaited<ReturnType<typeof resetStageTimerOperation>>>(
+  () => ({ kind: "stage_timer_reset", summary: "reset the stage timer" }),
+  resetStageTimerOperation,
+);
+
+export const adjustStageTimerForOrganization = withChange<Infer<typeof adjustStageTimerArgs>, Awaited<ReturnType<typeof adjustStageTimerOperation>>>(
+  (_ctx, args) => ({ kind: "stage_timer_adjusted", summary: `${args.deltaMs >= 0 ? "added" : "took off"} ${amountOfTime(args.deltaMs)} on the stage timer` }),
+  adjustStageTimerOperation,
+);
+
+export const setDemoTimerVisibleForOrganization = withChange<Infer<typeof setDemoTimerVisibleArgs>, Awaited<ReturnType<typeof setDemoTimerVisibleOperation>>>(
+  (_ctx, args) => ({ kind: "demo_timer_visible", summary: `${args.visible ? "showed" : "hid"} the demo timer on stage` }),
+  setDemoTimerVisibleOperation,
+);
+
+export const setDemoTimerDurationForOrganization = withChange<Infer<typeof setDemoTimerDurationArgs>, Awaited<ReturnType<typeof setDemoTimerDurationOperation>>>(
+  (_ctx, args) => ({ kind: "demo_timer_duration", summary: `set the demo timer to ${amountOfTime(args.durationMs)}` }),
+  setDemoTimerDurationOperation,
+);
+
+export const startDemoTimerForOrganization = withChange<Infer<typeof startDemoTimerArgs>, Awaited<ReturnType<typeof startDemoTimerOperation>>>(
+  () => ({ kind: "demo_timer_started", summary: "started the demo timer" }),
+  startDemoTimerOperation,
+);
+
+export const pauseDemoTimerForOrganization = withChange<Infer<typeof pauseDemoTimerArgs>, Awaited<ReturnType<typeof pauseDemoTimerOperation>>>(
+  () => ({ kind: "demo_timer_paused", summary: "paused the demo timer" }),
+  pauseDemoTimerOperation,
+);
+
+export const adjustDemoTimerForOrganization = withChange<Infer<typeof adjustDemoTimerArgs>, Awaited<ReturnType<typeof adjustDemoTimerOperation>>>(
+  (_ctx, args) => ({ kind: "demo_timer_adjusted", summary: `${args.deltaMs >= 0 ? "added" : "took off"} ${amountOfTime(args.deltaMs)} on the demo timer` }),
+  adjustDemoTimerOperation,
+);
+
+export const hideSubmissionForOrganization = withChange<Infer<typeof hideSubmissionArgs>, Awaited<ReturnType<typeof hideSubmissionOperation>>>(
+  async (ctx, args, event) => ({ kind: "submission_hidden", summary: `hid ${await submissionTitle(ctx, event, args.submissionId)}`, undoLabel: "Restore", subjectId: args.submissionId, watch: { submissions: [args.submissionId], teamMembers: [args.submissionId] } }),
+  hideSubmissionOperation,
+);
+
+export const restoreSubmissionForOrganization = withChange<Infer<typeof restoreSubmissionArgs>, Awaited<ReturnType<typeof restoreSubmissionOperation>>>(
+  async (ctx, args, event) => ({ kind: "submission_restored", summary: `restored ${await submissionTitle(ctx, event, args.submissionId)}`, subjectId: args.submissionId, watch: { submissions: [args.submissionId], teamMembers: [args.submissionId] } }),
+  restoreSubmissionOperation,
+);
+
+export const reorderLineupForOrganization = withChange<Infer<typeof reorderLineupArgs>, Awaited<ReturnType<typeof reorderLineupOperation>>>(
+  async (ctx, args, event) => {
+    // Adding to the demoers sends the lineup with the new person at the end: say who was added.
+    const added: Id<"submissions">[] = [];
+    for (const id of new Set(args.orderedIds)) {
+      const submission = await ctx.db.get(id);
+      if (submission?.eventId === event._id && !["queued", "up_next", "current", "done", "no_show", "withdrawn"].includes(submission.status)) added.push(id);
+    }
+    const summary = added.length === 0 ? "reordered the lineup"
+      : `added ${added.length === 1 ? await submissionTitle(ctx, event, added[0]) : `${added.length} people`} to the lineup`;
+    return { kind: "lineup_reordered", summary, watch: { submissions: "all", teamMembers: "all" } };
+  },
+  reorderLineupOperation,
+);
+
+export const shuffleLineupForOrganization = withChange<Infer<typeof shuffleLineupArgs>, Awaited<ReturnType<typeof shuffleLineupOperation>>>(
+  () => ({ kind: "lineup_shuffled", summary: "shuffled the lineup", watch: { submissions: "all" } }),
+  shuffleLineupOperation,
+);
+
+export const setLineupOrderForOrganization = withChange<Infer<typeof setLineupOrderArgs>, Awaited<ReturnType<typeof setLineupOrderOperation>>>(
+  () => ({ kind: "lineup_reordered", summary: "reordered the lineup", watch: { submissions: "all", teamMembers: "all" } }),
+  setLineupOrderOperation,
+);
+
+export const moveToPoolForOrganization = withChange<Infer<typeof moveToPoolArgs>, Awaited<ReturnType<typeof moveToPoolOperation>>>(
+  async (ctx, args, event) => ({ kind: "moved_to_pool", summary: `moved ${await submissionTitle(ctx, event, args.submissionId)} to the pool`, subjectId: args.submissionId, watch: { submissions: "all" } }),
+  moveToPoolOperation,
+);
+
+export const setLineupTargetForOrganization = withChange<Infer<typeof setLineupTargetArgs>, Awaited<ReturnType<typeof setLineupTargetOperation>>>(
+  (_ctx, args) => ({ kind: "lineup_target", summary: `set the lineup to ${args.target} presenters` }),
+  setLineupTargetOperation,
+);
+
+export const markNoShowForOrganization = withChange<Infer<typeof markNoShowArgs>, Awaited<ReturnType<typeof markNoShowOperation>>>(
+  () => ({ kind: "no_show", summary: "marked the presenter as a no-show", watch: { submissions: "all" } }),
+  markNoShowOperation,
+);
+
+export const pickNextForOrganization = withChange<Infer<typeof pickNextArgs>, Awaited<ReturnType<typeof pickNextOperation>>>(
+  () => ({ kind: "presenter_advanced", summary: "moved to the next presenter", watch: { submissions: "all" } }),
+  pickNextOperation,
+);
+
+export const restorePreviousPresenterForOrganization = withChange<Infer<typeof restorePreviousPresenterArgs>, Awaited<ReturnType<typeof restorePreviousPresenterOperation>>>(
+  () => ({ kind: "presenter_restored", summary: "brought back the previous presenter", watch: { submissions: "all" } }),
+  restorePreviousPresenterOperation,
+);
+
+export const skipCurrentForOrganization = withChange<Infer<typeof skipCurrentArgs>, Awaited<ReturnType<typeof skipCurrentOperation>>>(
+  () => ({ kind: "presenter_skipped", summary: "skipped the current presenter", watch: { submissions: "all" } }),
+  skipCurrentOperation,
+);
+
+export const clearQueueForOrganization = withChange<Infer<typeof clearQueueArgs>, Awaited<ReturnType<typeof clearQueueOperation>>>(
+  () => ({ kind: "queue_cleared", summary: "cleared every submission", undo: "none", watch: { submissions: "all", teamMembers: "all" } }),
+  clearQueueOperation,
+);
+
+export const setStageTimerRemainingForOrganization = withChange<Infer<typeof setStageTimerRemainingArgs>, Awaited<ReturnType<typeof setStageTimerRemainingOperation>>>(
+  (_ctx, args) => ({ kind: "stage_timer_remaining", summary: `set the stage timer to ${amountOfTime(Math.max(0, args.remainingMs))} left` }),
+  setStageTimerRemainingOperation,
+);

@@ -1,5 +1,6 @@
 import type { StagePresentationData, StageSubmissionData } from "@/lib/stage-presentation";
 import type { VisualStyle } from "@/lib/visual-style";
+import type { EventTheme } from "@/lib/event-theme";
 
 function previewSubmissionId(id: string): StageSubmissionData["id"] {
   return id as StageSubmissionData["id"];
@@ -68,21 +69,25 @@ export function buildStagePreviewFixture({
   eventType,
   visualStyle,
   meetUrl,
+  theme,
 }: {
   eventName: string;
   eventType: "demo" | "hackathon";
   visualStyle: VisualStyle;
   meetUrl: string;
+  /** Base's five values; the other styles ignore them. */
+  theme?: EventTheme;
 }): StagePresentationData {
   const resolvedMeetUrl = meetUrl.trim() || null;
 
   return {
+    phase: "stage",
     event: {
       name: eventName.trim() || "Frontier Hack",
       slug: "preview",
       eventType,
       visualStyle,
-      theme: undefined,
+      theme,
       submissionsClosed: false,
       queuePublished: true,
       stageScreenMode: "demo",
@@ -107,11 +112,13 @@ export function buildStagePreviewFixture({
       endsAt: undefined,
       serverNow: Date.now(),
     },
+    judgingTimer: null,
     current: SAMPLE_LINEUP[0],
     upNext: SAMPLE_LINEUP[1],
     lineup: SAMPLE_LINEUP,
     remainingCount: SAMPLE_LINEUP.length,
     waitingCount: 12,
     meetUrl: resolvedMeetUrl,
+    results: null,
   };
 }

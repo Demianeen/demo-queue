@@ -1,7 +1,7 @@
 "use client";
 
 import { eventRootProps } from "@/lib/event-theme-contract";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FocusEvent, FormEvent, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -43,7 +43,11 @@ import {
 } from "@/lib/hackathon";
 import {
   TEAM_CONTACT_FIELD_LIMITS,
+  formatInternationalPhone,
+  formatWhatsAppAsYouType,
+  formatWhatsAppPhone,
   teamContactSchema,
+  whatsAppCountryName,
   type TeamContact,
   type TeamContactInput,
 } from "@/lib/team-contacts";
@@ -54,6 +58,28 @@ type Socials = { twitter?: string; linkedin?: string; githubProfile?: string };
 
 // The single demoer uses row 0 too, so both forms share the email and social state.
 const DEMOER_ROW = 0;
+
+// A person row's input names ("whatsapp-3") and the error each one shows.
+const PERSON_FIELD_BY_INPUT: Record<string, PersonField> = {
+  name: "name", email: "email", whatsapp: "whatsappPhone", twitter: "socials", linkedin: "socials", githubProfile: "socials",
+};
+
+// WhatsApp numbers are read with or without a +; the demo night's phone keeps its own rules.
+function formatPhoneInput(input: EventTarget | null) {
+  if (!(input instanceof HTMLInputElement) || input.type !== "tel") return;
+  const formatted = input.name.startsWith("whatsapp-") ? formatWhatsAppPhone(input.value) : formatInternationalPhone(input.value);
+  if (formatted !== input.value) input.value = formatted;
+}
+
+// Spaces a WhatsApp number as it is typed, only at the end of the field: deleting
+// or editing in the middle is left alone, so the caret never jumps.
+function formatWhatsAppTyping(event: FormEvent<HTMLInputElement>) {
+  const input = event.currentTarget;
+  const inputType = (event.nativeEvent as InputEvent).inputType ?? "";
+  if (inputType.startsWith("delete") || input.selectionStart !== input.value.length) return;
+  const formatted = formatWhatsAppAsYouType(input.value);
+  if (formatted !== input.value) input.value = formatted;
+}
 
 function Req() {
   return <span style={{ color: "var(--app-bad)" }}> *</span>;
@@ -120,15 +146,21 @@ function SocialFields({ rowId, label, error, lumaLinked = false }: { rowId: numb
   );
 }
 
+type Stage = FunctionReturnType<typeof api.events.getStage>;
+/** What the page needs to wear the event's look: the hero and the theme. */
+export type SubmissionLook = Pick<Stage["event"], "name" | "eventType" | "visualStyle" | "theme">;
+
 export type SubmissionPageProps = {
   slug: string;
-  stage: FunctionReturnType<typeof api.events.getStage> | undefined;
+  stage: Stage | undefined;
+  /** Read on the server, so the loading state already wears the event's look. */
+  look?: SubmissionLook | null;
   submitDemo: (args: FunctionArgs<typeof api.events.submitDemo>) => Promise<unknown>;
   submitHackathon: (args: FunctionArgs<typeof api.events.submitHackathon>) => Promise<unknown>;
   onSubmitted: (participantToken: string) => void;
 };
 
-export default function ConnectedSubmissionPage() {
+export default function ConnectedSubmissionPage({ look }: { look?: SubmissionLook | null }) {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
   const stage = useQuery(api.events.getStage, { slug: params.slug });
@@ -139,6 +171,7 @@ export default function ConnectedSubmissionPage() {
     <SubmissionPage
       slug={params.slug}
       stage={stage}
+      look={look}
       submitDemo={submitDemo}
       submitHackathon={submitHackathon}
       onSubmitted={(participantToken) => router.push(participantPath(params.slug, participantToken))}
@@ -149,6 +182,7 @@ export default function ConnectedSubmissionPage() {
 export function SubmissionPage({
   slug,
   stage,
+  look,
   submitDemo,
   submitHackathon,
   onSubmitted,
@@ -157,6 +191,8 @@ export function SubmissionPage({
   const [phoneError, setPhoneError] = useState("");
   const [teamNameError, setTeamNameError] = useState("");
   const [personErrors, setPersonErrors] = useState<PersonErrors>({});
+  // The country each row's WhatsApp number is read as, shown under it so a wrong guess is seen.
+  const [whatsAppCountries, setWhatsAppCountries] = useState<Record<number, string | null>>({});
   const [personRowIds, setPersonRowIds] = useState([0]);
   const nextPersonRowId = useRef(1);
   const [emails, setEmails] = useState<Record<number, string>>({});
@@ -170,8 +206,6 @@ export function SubmissionPage({
   const isHackathon = stage?.event.eventType === "hackathon";
   const visualStyle = normalizeVisualStyle(stage?.event.visualStyle);
   const isOutpost = isOutpostStyle(visualStyle);
-  const isAstra = visualStyle === "astra";
-  const isDevDay = visualStyle === "devday";
 
   const setRowTaken = useCallback((rowId: number, taken: boolean) => {
     setTakenRows((current) => {
@@ -208,14 +242,16 @@ export function SubmissionPage({
   const lockedView = remembered && submittedView && !submittedView.withdrawn ? submittedView : null;
 
   if (!stage || remembered === undefined || (remembered && submittedView === undefined)) {
-    return (
+    const shellEvent = stage?.event ?? look;
+    return shellEvent ? (
+      <SubmissionShell event={shellEvent} busy>
+        <FormSkeleton />
+      </SubmissionShell>
+    ) : (
       <main className="narrow-page">
-        <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
+        <section className="panel panel-pad" aria-busy style={{ width: "min(760px, 100%)" }}>
           <Skeleton w={120} h={12} radius={6} style={{ marginBottom: 18 }} />
-          <Skeleton w="70%" h={38} radius={10} style={{ marginBottom: 18 }} />
-          <Skeleton w="90%" h={18} radius={8} style={{ marginBottom: 26 }} />
-          <Skeleton h={46} radius={12} style={{ marginBottom: 14 }} />
-          <Skeleton h={112} radius={12} />
+          <FormSkeleton />
         </section>
       </main>
     );
@@ -236,9 +272,34 @@ export function SubmissionPage({
     setRowTaken(rowId, false);
   }
 
+  // An error belongs to what was typed: editing the field clears it until the next submit.
+  function clearErrorFor(event: FormEvent<HTMLFormElement>) {
+    const name = (event.target as HTMLInputElement).name;
+    if (!name) return;
+    const limitField = name === `email-${DEMOER_ROW}` ? "email" : name;
+    if (fieldLimitIssue?.field === limitField) setFieldLimitIssue(null);
+    if (name === "phone") setPhoneError("");
+    else if (name === "teamName") setTeamNameError("");
+    else if (name === "githubUrl") setGithubError("");
+    else if (name === "videoUrl") setVideoError("");
+    else if (name === "rulesAccepted") setRulesError("");
+    const match = /^([a-zA-Z]+)-(\d+)$/.exec(name);
+    const field = match ? PERSON_FIELD_BY_INPUT[match[1]] : undefined;
+    if (!match || !field) return;
+    const rowId = Number(match[2]);
+    setPersonErrors((current) => {
+      if (!current[rowId]?.[field]) return current;
+      const row = { ...current[rowId] };
+      delete row[field];
+      return { ...current, [rowId]: row };
+    });
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
+    // Enter submits without a blur, so phones are formatted here too.
+    formElement.querySelectorAll("input[type='tel']").forEach(formatPhoneInput);
     const form = new FormData(formElement);
     const read = (key: string) => String(form.get(key) ?? "").trim();
     const socialsFor = (rowId: number): Socials => ({
@@ -405,10 +466,11 @@ export function SubmissionPage({
     }
   }
 
-  const emailField = (rowId: number, label: string, autoComplete?: string) => (
+  const emailField = (rowId: number, label: ReactNode, autoComplete?: string, help?: ReactNode) => (
     <SubmissionEmailField
       autoComplete={autoComplete}
       error={personErrors[rowId]?.email}
+      help={help}
       id={`email-${rowId}`}
       label={label}
       maxLength={TEAM_CONTACT_FIELD_LIMITS.email}
@@ -422,29 +484,7 @@ export function SubmissionPage({
   );
 
   return (
-    <main data-event-style={visualStyle} {...eventRootProps(visualStyle, stage.event.theme)} className={isDevDay ? "devday-public-page" : isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
-      {isDevDay ? (
-        <DevDayHero eventName={stage.event.name} eventType={stage.event.eventType} mode="submission" />
-      ) : null}
-      {isAstra ? (
-        <AstraHero eventName={stage.event.name} eventType={stage.event.eventType} mode="submission" />
-      ) : null}
-      {isOutpost ? (
-        <OutpostHero
-          eventName={stage.event.name}
-          eventType={stage.event.eventType}
-          mode="submission"
-        />
-      ) : null}
-      <section
-        className={cn("panel panel-pad", isOutpost && "outpost-content", isAstra && "astra-content", isDevDay && "devday-content")}
-        style={isOutpost || isAstra || isDevDay ? undefined : { width: "min(760px, 100%)" }}
-      >
-        {isOutpost || isAstra || isDevDay ? null : visualStyle === "neutral" ? <p className="neutral-event-name">{stage.event.name}</p> : <Brand label={stage.event.name} />}
-        {isAstra ? <p className="astra-eyebrow">{stage.event.name}</p> : null}
-        {isDevDay ? (
-          <p className="devday-eyebrow">{isHackathon ? "Community hackathon" : "Demo queue"} / Submission</p>
-        ) : null}
+    <SubmissionShell event={stage.event}>
         {lockedView && remembered ? (
           <SubmittedView
             onStartOver={() => {
@@ -486,7 +526,7 @@ export function SubmissionPage({
             </AlertDescription>
           </Alert>
         ) : (
-        <form className="form form-compact" onSubmit={onSubmit} style={{ marginTop: 24 }}>
+        <form className="form form-compact" onSubmit={onSubmit} onChange={clearErrorFor} onBlur={(blurEvent: FocusEvent<HTMLFormElement>) => formatPhoneInput(blurEvent.target)} style={{ marginTop: 24 }}>
           <div className="form-section">
             <h2>{isHackathon ? "Project" : "Your demo"}</h2>
 
@@ -555,7 +595,7 @@ export function SubmissionPage({
                   </div>
                 </div>
                 <div className="form-row">
-                  {emailField(DEMOER_ROW, "Email *", "email")}
+                  {emailField(DEMOER_ROW, <>Email<Req /></>, "email", "We email your status link here after you submit.")}
                 </div>
                 <div className="form-row">
                   <div className="field">
@@ -681,7 +721,7 @@ export function SubmissionPage({
                       </div>
                       <div className="form-row form-row-3">
                         <div className="field">
-                          <label htmlFor={`name-${rowId}`}>Name</label>
+                          <label htmlFor={`name-${rowId}`}>Name<Req /></label>
                           <input
                             id={`name-${rowId}`}
                             name={`name-${rowId}`}
@@ -694,9 +734,9 @@ export function SubmissionPage({
                           />
                           {errors.name ? <span id={`name-${rowId}-error`} className="form-error">{errors.name}</span> : null}
                         </div>
-                        {emailField(rowId, "Email", isPresenter ? "email" : "off")}
+                        {emailField(rowId, <>Email<Req /></>, isPresenter ? "email" : "off", isPresenter ? "We email the team's status link here after you submit." : undefined)}
                         <div className="field">
-                          <label htmlFor={`whatsapp-${rowId}`}>WhatsApp number</label>
+                          <label htmlFor={`whatsapp-${rowId}`}>WhatsApp number<Req /></label>
                           <input
                             id={`whatsapp-${rowId}`}
                             name={`whatsapp-${rowId}`}
@@ -706,10 +746,16 @@ export function SubmissionPage({
                             autoComplete={isPresenter ? "tel" : "off"}
                             maxLength={TEAM_CONTACT_FIELD_LIMITS.whatsappPhone}
                             required
+                            onInput={(inputEvent: FormEvent<HTMLInputElement>) => {
+                              formatWhatsAppTyping(inputEvent);
+                              const country = whatsAppCountryName(inputEvent.currentTarget.value);
+                              setWhatsAppCountries((current) => (current[rowId] === country ? current : { ...current, [rowId]: country }));
+                            }}
                             aria-invalid={Boolean(errors.whatsappPhone) || undefined}
-                            aria-describedby={errors.whatsappPhone ? `whatsapp-${rowId}-error` : undefined}
+                            aria-describedby={errors.whatsappPhone ? `whatsapp-${rowId}-error` : whatsAppCountries[rowId] ? `whatsapp-${rowId}-country` : undefined}
                           />
-                          {errors.whatsappPhone ? <span id={`whatsapp-${rowId}-error`} className="form-error">{errors.whatsappPhone}</span> : null}
+                          {errors.whatsappPhone ? <span id={`whatsapp-${rowId}-error`} className="form-error">{errors.whatsappPhone}</span>
+                            : whatsAppCountries[rowId] ? <span id={`whatsapp-${rowId}-country`} className="muted form-help">{whatsAppCountries[rowId]} number</span> : null}
                         </div>
                       </div>
                       <SocialFields error={errors.socials} label={label} lumaLinked={stage.event.lumaLinked} rowId={rowId} />
@@ -768,8 +814,63 @@ export function SubmissionPage({
         )}
         </>
         )}
+    </SubmissionShell>
+  );
+}
+
+/**
+ * The event's page around the form: its look, its hero and the panel. The
+ * loading state uses it too, so the page does not change style as it loads.
+ */
+function SubmissionShell({ event, busy = false, children }: { event: SubmissionLook; busy?: boolean; children: ReactNode }) {
+  const visualStyle = normalizeVisualStyle(event.visualStyle);
+  const isOutpost = isOutpostStyle(visualStyle);
+  const isAstra = visualStyle === "astra";
+  const isDevDay = visualStyle === "devday";
+  const isHackathon = event.eventType === "hackathon";
+  return (
+    <main data-event-style={visualStyle} {...eventRootProps(visualStyle, event.theme)} className={isDevDay ? "devday-public-page" : isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
+      {isDevDay ? <DevDayHero eventName={event.name} eventType={event.eventType} mode="submission" /> : null}
+      {isAstra ? <AstraHero eventName={event.name} eventType={event.eventType} mode="submission" /> : null}
+      {isOutpost ? <OutpostHero eventName={event.name} eventType={event.eventType} mode="submission" /> : null}
+      <section
+        aria-busy={busy || undefined}
+        className={cn("panel panel-pad", isOutpost && "outpost-content", isAstra && "astra-content", isDevDay && "devday-content")}
+        style={isOutpost || isAstra || isDevDay ? undefined : { width: "min(760px, 100%)" }}
+      >
+        {isOutpost || isAstra || isDevDay ? null : visualStyle === "neutral" ? <p className="neutral-event-name">{event.name}</p> : <Brand label={event.name} />}
+        {isAstra ? <p className="astra-eyebrow">{event.name}</p> : null}
+        {isDevDay ? (
+          <p className="devday-eyebrow">{isHackathon ? "Community hackathon" : "Demo queue"} / Submission</p>
+        ) : null}
+        {children}
       </section>
     </main>
+  );
+}
+
+/** The form's shape while it loads: title, lead, a section of fields and the button. */
+function FormSkeleton() {
+  const field = (height: number) => (
+    <div className="field">
+      <Skeleton w={96} h={12} radius={6} />
+      <Skeleton h={height} radius={10} />
+    </div>
+  );
+  return (
+    <>
+      <Skeleton w="62%" h={36} radius={10} style={{ marginBottom: 14 }} />
+      <Skeleton w="88%" h={18} radius={8} />
+      <div className="form form-compact" style={{ marginTop: 24 }} aria-hidden>
+        <div className="form-section">
+          <Skeleton w={110} h={20} radius={6} />
+          <div className="form-row form-row-2">{field(44)}{field(44)}</div>
+          <div className="form-row">{field(88)}</div>
+          <div className="form-row form-row-2">{field(44)}{field(44)}</div>
+        </div>
+        <div className="actions"><Skeleton w={160} h={44} radius={10} /></div>
+      </div>
+    </>
   );
 }
 

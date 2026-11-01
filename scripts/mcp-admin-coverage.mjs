@@ -3,28 +3,52 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
-const finalistPath = "components/JudgingAdminPanel.tsx";
 const finalistFunctions = ["getFinalistDecision", "saveFinalistDraft", "submitFinalists", "savePlacementDraft", "submitPlacements"];
 
 export const UI_EXCLUSIONS = [
   ...["getStage", "submitDemo", "submitHackathon"].map((name) => ({ file: "app/e/[slug]/ClientPage.tsx", browser: `events.${name}`, reason: "Participant event page, not organization administration." })),
   { file: "app/stage/[slug]/ClientPage.tsx", browser: "events.getStage", reason: "Public stage display. Operator presentation controls have separate tools." },
-  ...["getParticipant", "editParticipantContact", "withdrawSubmission"].map((name) => ({ file: "app/s/[slug]/[token]/ClientPage.tsx", browser: `events.${name}`, reason: "Participant capability page. Organization tools must not impersonate participants." })),
-  ...["getMyAssignments", "saveReview"].map((name) => ({ file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: `judging.${name}`, reason: "Judge capability page. Organization tools must not submit judge reviews." })),
+  ...["getParticipant", "editParticipantContact", "withdrawSubmission", "resubmitWithdrawnSubmission"].map((name) => ({ file: "app/s/[slug]/[token]/ClientPage.tsx", browser: `events.${name}`, reason: "Participant capability page. Organization tools must not impersonate participants." })),
+  ...["getJudgeWorkspace", "confirmJudge", "saveReview"].map((name) => ({ file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: `judging.${name}`, reason: "Judge capability page. Organization tools must not confirm, read as, or score as a judge." })),
   { file: "app/metadata.ts", browser: "events.getEventMeta", reason: "Public title metadata used by event routes, including admin navigation. Admin reads expose event metadata already." },
   { file: "app/metadata.ts", browser: "events.getParticipantMeta", reason: "Participant title metadata, not organization administration." },
   ...["memberships", "getRequest", "authorize"].map((name) => ({ file: "components/McpConnectionClient.tsx", browser: `mcpConsent.${name}`, reason: "Human connection consent. A tool must not inspect or approve its own authorization request." })),
   ...["createApiKey", "revokeConnection", "listConnections"].map((name) => ({ file: "components/McpConnectionClient.tsx", browser: `mcpConsent.${name}`, reason: "Human credential management. Connection credentials and their lifecycle stay in the signed-in browser." })),
   ...["addTrack", "updateTrack", "reorderTracks", "removeTrack"].map((name) => ({ file: "components/TracksAdminPanel.tsx", browser: `tracks.${name}`, reason: "Proposed: track editing stays in the admin page for now; MCP track tools can follow." })),
+  ...["addSponsor", "updateSponsor", "removeSponsor"].map((name) => ({ file: "components/SponsorsAdminPanel.tsx", browser: `sponsors.${name}`, reason: "Proposed: sponsor editing stays in Settings like tracks; get_event_admin reads them." })),
   ...["checkSubmissionEmail", "requestStatusLinkEmail"].map((name) => ({ file: "components/SubmissionEmailField.tsx", browser: `events.${name}`, reason: "Participant submit page email check and status link resend, not organization administration." })),
   { file: "app/e/[slug]/ClientPage.tsx", browser: "events.getSubmittedView", reason: "Participant capability view of their own submission, not organization administration." },
-  { file: "app/judge/[slug]/[token]/ClientPage.tsx", browser: "judging.getOtherSubmissions", reason: "Judge capability page. Organization tools already read every submission." },
   ...["linkLumaEvent", "unlinkLumaEvent"].map((name) => ({ file: "components/LumaEventSetting.tsx", browser: `luma.${name}`, reason: "Linking uses the deployment's Luma key and is limited to allowed organisations, so it stays in the admin page." })),
   { file: "app/s/[slug]/[token]/ClientPage.tsx", browser: "events.editTeamMemberSocials", reason: "Participant capability page. Organization tools must not impersonate participants." },
   { file: "app/(workspace)/members/actions.ts", browser: "members.reserveInvitations", reason: "Counts Members page invitations against the organization limit. The send_invitations tool uses the same limit internally." },
-  ...["status", "teamStatus", "setHidden", "markDryRun"].map((name) => ({ file: "components/GettingStarted.tsx", browser: `gettingStarted.${name}`, reason: "The signed-in person's own onboarding checklist, not event administration." })),
+  ...["status", "teamStatus", "setHidden", "markDryRun", "skipTeam"].map((name) => ({ file: "components/GettingStarted.tsx", browser: `gettingStarted.${name}`, reason: "The signed-in person's own onboarding checklist, not event administration." })),
+  ...["monthSummary", "monthCalls"].map((name) => ({ file: "components/usage/AiUsage.tsx", browser: `aiUsage.${name}`, reason: "Proposed: AI usage and estimated spend stay on the organiser page for now; a read-only MCP tool can follow." })),
   { file: "components/McpConnectionClient.tsx", browser: "gettingStarted.mcpAddress", reason: "Shows the MCP address to a person setting up an assistant; an assistant already knows it." },
-  ...finalistFunctions.map((name) => ({ file: finalistPath, browser: `judging.${name}`, reason: "Dormant finalist and placement controls require SHOW_FINALIST_TOOLS to remain false.", dormant: true })),
+  ...finalistFunctions.map((name) => ({ file: "components/judging/FinalistsView.tsx", browser: `judging.${name}`, reason: "Proposed: finalist and winner picking stays in the admin page for now; MCP tools can follow." })),
+  ...["savePlacementDraft", "submitPlacements"].map((name) => ({ file: "components/live/StagePlacings.tsx", browser: `judging.${name}`, reason: "Proposed: the Stage's placings save the winners as the Finalists view does; MCP tools can follow." })),
+  { file: "components/live/StageTab.tsx", browser: "judging.submitFinalists", reason: "Proposed: lining up the submitted finalists follows the Finalists view's submit; MCP tools can follow." },
+  { file: "components/live/PhaseTabs.tsx", browser: "judging.getFinalistDecision", reason: "Proposed: the Stage and Results tabs read the finalists and winners as the Finalists view does; MCP tools can follow." },
+  { file: "app/(workspace)/events/[slug]/admin/ClientPage.tsx", browser: "events.updateEvent", reason: "Proposed: editing the meet link stays in the admin page for now; an MCP tool can follow." },
+];
+
+/**
+ * Tools whose admin UI arrives in a later pull request: the backend and its
+ * MCP tool land first. The UI pull request removes each entry as it adds the
+ * caller; an entry that already has a caller is reported as stale.
+ */
+export const UI_PENDING = [
+  // Empty: the new-behaviour UI landed with every caller.
+].map((browser) => ({ browser, reason: "Proposed: the new-behaviour backend lands before its admin UI." }));
+
+/**
+ * Narrow reads an assistant keeps after the admin page moved to a wider one:
+ * the Judging page reads the clock from the event and judge links from the
+ * judges overview, while these tools still answer the one question.
+ */
+export const TOOL_ONLY = [
+  { browser: "judging.listJudgeAccess", reason: "Proposed: the Judging page shows links through getJudgesOverview; list_judge_links stays for assistants." },
+  { browser: "judging.getJudgingTimer", reason: "Proposed: every clock in the app reads the event's judging timer; get_judging_timer stays for assistants." },
+  { browser: "events.saveRoundOneJudges", reason: "Proposed: the Judges dialog adds, renames and removes one judge at a time; save_judges stays for assistants that send the whole list." },
 ];
 
 function sourceFile(file, text) {
@@ -214,7 +238,7 @@ export function scanToolMappings(text, legacyText = "") {
   return { mappings, errors, legacyNames: [...legacyNames] };
 }
 
-export function checkCoverage({ sources, toolSource, legacySource = "", exclusions = UI_EXCLUSIONS, requireFinalistGuard = true }) {
+export function checkCoverage({ sources, toolSource, legacySource = "", exclusions = UI_EXCLUSIONS, pending = [] }) {
   const ui = scanUiSources(sources);
   const tools = scanToolMappings(toolSource, legacySource);
   const errors = [...ui.errors, ...tools.errors];
@@ -224,25 +248,18 @@ export function checkCoverage({ sources, toolSource, legacySource = "", exclusio
     if (!exclusion.reason?.trim()) errors.push(`Exclusion ${key(exclusion)} requires a reason.`);
     if (!used.has(key(exclusion))) errors.push(`Stale exclusion ${key(exclusion)}.`);
   }
-  if (requireFinalistGuard) {
-    const file = sourceFile(finalistPath, sources[finalistPath] ?? "");
-    let guards = 0;
-    function visit(node) {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "SHOW_FINALIST_TOOLS") {
-        guards++;
-        if (node.initializer?.kind !== ts.SyntaxKind.FalseKeyword || !(node.parent.flags & ts.NodeFlags.Const)) errors.push("SHOW_FINALIST_TOOLS must be a literal const false before dormant controls can be excluded.");
-      }
-      ts.forEachChild(node, visit);
-    }
-    visit(file);
-    if (guards !== 1) errors.push("Expected exactly one SHOW_FINALIST_TOOLS=false guard in JudgingAdminPanel.");
-  }
   const excluded = new Set(exclusions.map(key));
   const enabled = ui.references.filter((entry) => !excluded.has(key(entry)));
   const enabledFunctions = new Set(enabled.map((entry) => entry.browser));
   const mapped = new Set(tools.mappings.map((entry) => entry.browser));
   for (const entry of enabled) if (!mapped.has(entry.browser)) errors.push(`Unmapped admin function ${entry.browser} at ${entry.file}:${entry.line}.`);
-  for (const entry of tools.mappings) if (!enabledFunctions.has(entry.browser)) errors.push(`Tool ${entry.name} maps ${entry.browser}, which has no enabled organization-admin UI caller.`);
+  const waiting = new Set(pending.map((entry) => entry.browser));
+  for (const entry of pending) {
+    if (!entry.reason?.trim()) errors.push(`Pending UI ${entry.browser} requires a reason.`);
+    if (enabledFunctions.has(entry.browser)) errors.push(`Stale pending UI ${entry.browser}: it has a UI caller now.`);
+    if (!tools.mappings.some((tool) => tool.browser === entry.browser)) errors.push(`Pending UI ${entry.browser} has no tool.`);
+  }
+  for (const entry of tools.mappings) if (!enabledFunctions.has(entry.browser) && !waiting.has(entry.browser)) errors.push(`Tool ${entry.name} maps ${entry.browser}, which has no enabled organization-admin UI caller.`);
   return { references: ui.references, enabled, exclusions, mappings: tools.mappings, errors: [...new Set(errors)] };
 }
 
@@ -261,7 +278,7 @@ export async function checkRepository(root = path.resolve(path.dirname(fileURLTo
     collectSources(root, "app"), collectSources(root, "components"),
     readFile(path.join(root, "convex/mcpTools.ts"), "utf8"), readFile(path.join(root, "convex/mcp.ts"), "utf8"),
   ]);
-  return checkCoverage({ sources: Object.fromEntries([...app, ...components]), toolSource, legacySource });
+  return checkCoverage({ sources: Object.fromEntries([...app, ...components]), toolSource, legacySource, pending: [...UI_PENDING, ...TOOL_ONLY] });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

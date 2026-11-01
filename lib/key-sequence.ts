@@ -1,8 +1,8 @@
-/** Matches a key sequence against the last keys pressed: ["G", "E"] or ["C"]. */
+/** Matches a key sequence against the last keys pressed: ["G", "E"] or ["C"]. "⇧T" needs Shift. */
 export function matchSequence(sequence: string[], pressed: string[]) {
   if (!sequence.length || sequence.length > pressed.length) return false;
   const tail = pressed.slice(pressed.length - sequence.length);
-  return sequence.every((key, index) => key.toLowerCase() === tail[index].toLowerCase());
+  return sequence.every((key, index) => key.startsWith("⇧") ? tail[index] === key.slice(1).toUpperCase() : key.toLowerCase() === tail[index].toLowerCase());
 }
 
 type Keyed = { keys?: string[]; disabled?: boolean };

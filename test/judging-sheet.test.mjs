@@ -11,6 +11,9 @@ import {
   hasBlankStageFinalistJudgingSheetHeaders,
   hasPreStageFinalistJudgingSheetHeaders,
   isCompatibleJudgingSheetHeaders,
+  judgeCellNote,
+  judgeKeyFromNote,
+  planJudgeCell,
 } from "../lib/judging-sheet.ts";
 import { makeSampleHackathonTeam } from "../lib/sampleData.ts";
 import {
@@ -263,6 +266,42 @@ test("judging sheet creates stable judge and score filter views", () => {
   assert.equal(repeat[1].addFilterView.filter.title, "Judge: Alex Morgan");
   assert.equal(repeat[2].deleteFilterView.filterId, 12);
   assert.equal(repeat[3].addFilterView.filter.title, "All submissions (score)");
+});
+
+test("judge filter views of judges who left or were renamed are removed", () => {
+  const requests = buildFilterViewRequests(7, 30, ["Test judge"], [
+    { filterViewId: 21, title: "Judge: Test judge C" },
+    { filterViewId: 22, title: "My own view" },
+  ]);
+  assert.deepEqual(requests[0], { deleteFilterView: { filterId: 21 } });
+  assert.equal(requests.some((request) => request.deleteFilterView?.filterId === 22), false);
+  assert.equal(requests[1].addFilterView.filter.title, "Judge: Test judge");
+});
+
+test("a judge cell is matched by the key in its note, so a rename rewrites the name instead of reporting drift", () => {
+  const judges = [{ key: "j_aaaaaaaaaaaa", name: "Test judge" }, { key: "j_bbbbbbbbbbbb", name: "Sam" }];
+  const [renamed, sam] = judges;
+  assert.equal(judgeCellNote(renamed.key), "Judge id: j_aaaaaaaaaaaa");
+  assert.equal(judgeKeyFromNote("Judge id: j_aaaaaaaaaaaa"), "j_aaaaaaaaaaaa");
+  assert.equal(judgeKeyFromNote("a note someone typed"), null);
+  // Renamed in the app: the cell still has the old name and the judge's key.
+  assert.deepEqual(planJudgeCell({ text: "Test judge C", note: judgeCellNote(renamed.key) }, renamed, judges), { drift: false, write: renamed, shown: "Test judge" });
+  // Already current: nothing to write.
+  assert.deepEqual(planJudgeCell({ text: "Test judge", note: judgeCellNote(renamed.key) }, renamed, judges), { drift: false, write: null, shown: "Test judge" });
+  // Another judge's key: drift, left alone.
+  assert.deepEqual(planJudgeCell({ text: "Sam", note: judgeCellNote(sam.key) }, renamed, judges), { drift: true, write: null, shown: "Sam" });
+  // Empty: filled in.
+  assert.deepEqual(planJudgeCell({ text: "" }, renamed, judges), { drift: false, write: renamed, shown: "Test judge" });
+  // No note yet (a sheet from before): matched by the current name, then given its note.
+  assert.deepEqual(planJudgeCell({ text: "test  judge" }, renamed, judges), { drift: false, write: renamed, shown: "Test judge" });
+  assert.deepEqual(planJudgeCell({ text: "Sam" }, renamed, judges), { drift: true, write: null, shown: "Sam" });
+});
+
+test("on an event from before judge ids, a judge cell without a note matches by the old key, which is the name then", () => {
+  // The judge was "Test judge C", key "test judge c", and is now called "Test judge".
+  const judges = [{ key: "test judge c", name: "Test judge" }, { key: "sam", name: "Sam" }];
+  assert.deepEqual(planJudgeCell({ text: "Test judge C" }, judges[0], judges), { drift: false, write: judges[0], shown: "Test judge" });
+  assert.deepEqual(planJudgeCell({ text: "Sam" }, judges[0], judges), { drift: true, write: null, shown: "Sam" });
 });
 
 test("hackathon sample data includes a team and valid project fields", () => {

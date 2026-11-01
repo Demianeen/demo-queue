@@ -3,6 +3,7 @@ import { mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireEventOrganization } from "./organizationAuth";
 import { queueJudgingSheetSync } from "./judgingSheetSync";
+import { queueAiSummaryIfStale, SUMMARY_STAGGER_MS } from "./aiSummaries";
 import {
   MAX_EVENT_TRACKS,
   normalizeTrackInput,
@@ -61,7 +62,11 @@ export async function normalizeTrackSelection(
   const allowed = new Set(tracks.map((track) => track._id));
   const chosen = new Set<Id<"eventTracks">>();
   for (const id of trackIds) {
-    if (!allowed.has(id)) throw new ConvexError("Choose tracks from this event.");
+    if (!allowed.has(id)) {
+      // A track removed while the form was open: drop it, as removing it did for saved submissions.
+      if ((await ctx.db.get(id)) === null) continue;
+      throw new ConvexError("Choose tracks from this event.");
+    }
     chosen.add(id);
   }
   return tracks.filter((track) => chosen.has(track._id)).map((track) => track._id);
@@ -155,6 +160,15 @@ export const updateTrack = mutation({
     await ctx.db.patch(track._id, { name: input.name, description: input.description, updatedAt: Date.now() });
     await logTrackAction(ctx, event._id, "track_updated", actor, `${track.name} -> ${input.name}`);
     await queueJudgingSheetSync(ctx, event);
+    // The AI read gives each picked track a fit level from its description: rewrite those of the teams that picked it.
+    if ((input.description ?? "").trim() !== (track.description ?? "").trim()) {
+      const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
+      let queued = 0;
+      for (const submission of submissions) {
+        if (!(submission.trackIds ?? []).includes(track._id)) continue;
+        if (await queueAiSummaryIfStale(ctx, event, submission, queued * SUMMARY_STAGGER_MS, { contextChanged: true, submissionCount: submissions.length })) queued += 1;
+      }
+    }
   },
 });
 

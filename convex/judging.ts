@@ -3,12 +3,22 @@ import { ConvexError, v, type Infer } from "convex/values";
 import { findEventBySlug } from "./eventSlugs";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
-import { assignRoundOneJudgePair, buildJudgeAssignmentCounts, isValidRoundOneAssignment, sameJudge } from "../lib/judging-assignment";
+import { buildJudgeAssignmentCounts, isValidRoundOneAssignment, judgeKeyOf, judgeNameKey, MAX_JUDGE_NAME_LENGTH, MAX_ROUND_ONE_JUDGES, normalizeJudgeName, parseJudgeNames, assignRoundOneJudgePair } from "../lib/judging-assignment";
+import { judgeDirectory, loadJudgeDirectory, newJudgeKey } from "./judgeDirectory";
+import { queueJudgingSheetSync } from "./judgingSheetSync";
+import { randomToken } from "../lib/tokens";
 import { isCompleteReview, isJudgingScore } from "../lib/judging-rubric";
+import { behindJudges, helpOutOwner, isCovered, leftByJudge, reviewStarted, reviewsByProject, type HelpProject, type HelpReview } from "../lib/judging-help";
 import { TableHistory } from "@convex-dev/table-history";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
-import { components, internal } from "./_generated/api";
-import { aiSummariesConfigured, aiSummaryStatus, publicAiSummary } from "./aiSummaries";
+import { components } from "./_generated/api";
+import { aiSummaryStatus, publicAiRead, publicAiSummary } from "./aiSummaries";
+import { listEventSponsors } from "./sponsors";
+import { recordChange } from "./changeLog";
+import { withChange } from "./changeWrap";
+import { closeJudgingForEvent, closeSubmissionsForEvent, judgingRemaining, reopenJudgingForEvent, syncFinalistLineup } from "./phases";
+import { eventPhase } from "../lib/event-phase";
+import { isJudgedStatus } from "../lib/judged-status";
 import type { DataModel } from "./_generated/dataModel";
 import {
   adjusted,
@@ -17,18 +27,29 @@ import {
   mean,
   type ScoreRow,
 } from "../lib/normalization";
+import { bumpScoreBasis, confirmScoreBasis, readScoreBasis } from "./scoreBasis";
 
 const BATCH_SIZE = 50;
 const DEFAULT_TIMER_MS = 60 * 60 * 1000;
 const MAX_TIMER_MS = 99 * 60 * 60 * 1000;
 const decisionHistory = new TableHistory<DataModel, "judgingDecisions">(components.judgingDecisionHistory);
 
-export function normalizeJudgeKey(value: string) {
-  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
+/** "15:00", "1:05:00": how a time reads in Recent changes. */
+export function formatDuration(ms: number) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
 }
 
+/** The key a stored judge reference stands for. See judgeKeyOf. */
+export const normalizeJudgeKey = judgeKeyOf;
+
+/** In judging: waiting, in the stage lineup, or already pitched. See isJudgedStatus. */
 function isJudgingSubmission(submission: Doc<"submissions">) {
-  return submission.status === "candidate" || submission.status === "queued";
+  return isJudgedStatus(submission.status);
 }
 
 async function adminEvent(ctx: QueryCtx | MutationCtx, slug: string) {
@@ -59,21 +80,33 @@ export async function createJudgeAccessForOrganization(
   principal: OrganizationPrincipal,
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
-  const judgeName = args.judgeName.normalize("NFKC").trim().replace(/\s+/g, " ");
-  if (!judgeName || !args.capabilityToken) throw new ConvexError("Judge name and capability token are required.");
-  const judgeKey = normalizeJudgeKey(judgeName);
-  if (!(event.roundOneJudges ?? []).some((judge) => sameJudge(judge, judgeName))) {
+  const typedName = normalizeJudgeName(args.judgeName);
+  if (!typedName || !args.capabilityToken) throw new ConvexError("Judge name and capability token are required.");
+  // The caller only has the judge's name, so the judge is found by the name they have now.
+  const judge = (await loadJudgeDirectory(ctx, event)).byName(typedName);
+  if (!judge?.onRoster) {
     throw new ConvexError("Add this judge to the event before creating their link.");
   }
-  const existing = await ctx.db.query("judgeAccess").withIndex("by_event_and_judge_key", (q) => q.eq("eventId", event._id).eq("judgeKey", judgeKey)).unique();
+  const judgeKey = judge.key;
+  const judgeName = judge.name;
+  const existing = judge.access;
   const tokenOwner = await ctx.db.query("judgeAccess").withIndex("by_token", (q) => q.eq("token", args.capabilityToken)).unique();
   if (tokenOwner && tokenOwner._id !== existing?._id) {
     throw new ConvexError("This private link token is already in use.");
   }
   const now = Date.now();
-  const fields = { judgeName, token: args.capabilityToken, active: true, updatedAt: now, deactivatedAt: undefined };
-  if (existing) await ctx.db.patch(existing._id, fields);
-  else await ctx.db.insert("judgeAccess", { eventId: event._id, judgeKey, ...fields, createdAt: now });
+  const fields = {
+    judgeName, token: args.capabilityToken, active: true, updatedAt: now, deactivatedAt: undefined,
+    // A new link has not been opened yet.
+    ...(existing && existing.token !== args.capabilityToken ? { openedAt: undefined } : {}),
+  };
+  await recordChange(ctx, {
+    event, principal, kind: existing ? "judge_link_updated" : "judge_link_created",
+    summary: `${existing ? "updated" : "created"} the judging link for ${judgeName}`, watch: { judgeAccess: "all" },
+  }, async () => {
+    if (existing) await ctx.db.patch(existing._id, fields);
+    else await ctx.db.insert("judgeAccess", { eventId: event._id, judgeKey, ...fields, createdAt: now });
+  });
   return { judgeKey };
 }
 
@@ -100,15 +133,385 @@ export const listJudgeAccess = query({
     listJudgeAccessForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
-export const deactivateJudgeAccess = mutation({
-  args: { slug: v.string(), judgeKey: v.string(), active: v.boolean() },
-  handler: async (ctx, args) => {
-    const event = await adminEvent(ctx, args.slug);
-    const access = await ctx.db.query("judgeAccess").withIndex("by_event_and_judge_key", (q) => q.eq("eventId", event._id).eq("judgeKey", args.judgeKey)).unique();
-    if (!access) throw new ConvexError("Judge not found.");
-    const now = Date.now();
+export const setJudgeLinkActiveArgs = v.object({ slug: v.string(), judgeKey: v.string(), active: v.boolean() });
+
+/** Turns one judge's link off or back on, without moving their projects. */
+export async function setJudgeLinkActiveForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setJudgeLinkActiveArgs>,
+  principal: OrganizationPrincipal,
+) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  const access = await ctx.db.query("judgeAccess").withIndex("by_event_and_judge_key", (q) => q.eq("eventId", event._id).eq("judgeKey", args.judgeKey)).unique();
+  if (!access) throw new ConvexError("Judge not found.");
+  const now = Date.now();
+  await recordChange(ctx, {
+    event, principal, kind: args.active ? "judge_link_on" : "judge_link_off",
+    summary: `turned ${args.active ? "on" : "off"} the judging link for ${access.judgeName}`, watch: { judgeAccess: "all" },
+  }, async () => {
     await ctx.db.patch(access._id, { active: args.active, deactivatedAt: args.active ? undefined : now, updatedAt: now });
+  });
+}
+
+export const deactivateJudgeAccess = mutation({
+  args: setJudgeLinkActiveArgs,
+  handler: async (ctx, args) =>
+    setJudgeLinkActiveForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+/** Judges added later get a private link at once: their name is kept on it. */
+async function insertJudgeLink(ctx: MutationCtx, event: Doc<"events">, judgeKey: string, judgeName: string) {
+  const now = Date.now();
+  await ctx.db.insert("judgeAccess", { eventId: event._id, judgeKey, judgeName, token: randomToken(), active: true, createdAt: now, updatedAt: now });
+}
+
+function judgeNameError(name: string) {
+  if (!name) return "Enter the judge's name.";
+  if (name.length > MAX_JUDGE_NAME_LENGTH) return `Judge names must be ${MAX_JUDGE_NAME_LENGTH} characters or fewer.`;
+  return null;
+}
+
+/**
+ * Adds judges by name, each with a new key and their own link. A name a
+ * judge on the roster already has is skipped. A judge who was removed comes
+ * back as themselves, with their link. Judges added during judging get no
+ * projects until assignments change, as before.
+ */
+export async function addJudgesToEvent(ctx: MutationCtx, event: Doc<"events">, names: string[], { syncSheet = true } = {}) {
+  let parsed: string[];
+  try {
+    parsed = parseJudgeNames(names);
+  } catch (error) {
+    throw new ConvexError(error instanceof Error ? error.message : "Invalid judge names.");
+  }
+  const directory = await loadJudgeDirectory(ctx, event);
+  const roster = [...(event.roundOneJudges ?? [])];
+  const taken = new Set(directory.judges.map((judge) => judge.key));
+  const added: { judgeKey: string; judgeName: string }[] = [];
+  const skipped: string[] = [];
+  const now = Date.now();
+  for (const name of parsed) {
+    const existing = directory.byName(name);
+    if (existing?.onRoster) {
+      skipped.push(existing.name);
+      continue;
+    }
+    if (roster.length >= MAX_ROUND_ONE_JUDGES) throw new ConvexError(`Add no more than ${MAX_ROUND_ONE_JUDGES} judges.`);
+    if (existing?.access) {
+      roster.push(existing.key);
+      await ctx.db.patch(existing.access._id, { active: true, deactivatedAt: undefined, updatedAt: now });
+      added.push({ judgeKey: existing.key, judgeName: existing.name });
+      continue;
+    }
+    const judgeKey = newJudgeKey(taken);
+    taken.add(judgeKey);
+    roster.push(judgeKey);
+    await insertJudgeLink(ctx, event, judgeKey, name);
+    added.push({ judgeKey, judgeName: name });
+  }
+  if (added.length > 0) {
+    await ctx.db.patch(event._id, { roundOneJudges: roster, updatedAt: now });
+    if (syncSheet) await queueJudgingSheetSync(ctx, event, 0);
+  }
+  return { added, skipped };
+}
+
+/**
+ * Takes a judge off the roster. Refused once they have a score: turn them
+ * off instead, so the scores stay. Projects they were given go to judges
+ * who are on, beside the judge already there (see replacementPicker). Their link stops
+ * working and is kept, so adding them again brings it back.
+ */
+export async function removeJudgeFromEvent(ctx: MutationCtx, event: Doc<"events">, judgeKey: string, { syncSheet = true, leaving = [] as string[] } = {}) {
+  const directory = await loadJudgeDirectory(ctx, event);
+  const judge = directory.get(judgeKey);
+  if (!judge?.onRoster) throw new ConvexError("Judge not found.");
+  const scored = await ctx.db.query("reviews").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", judge.key)).first();
+  if (scored) throw new ConvexError(`${judge.name} has scores, so they can't be removed. Turn them off instead: their scores stay.`);
+  const roster = (event.roundOneJudges ?? []).filter((reference) => judgeKeyOf(reference) !== judge.key);
+  const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
+  const affected = submissions.filter((submission) =>
+    isValidRoundOneAssignment(submission.roundOneAssignedJudges) &&
+    submission.roundOneAssignedJudges!.some((reference) => judgeKeyOf(reference) === judge.key));
+  const now = Date.now();
+  if (affected.length > 0) {
+    // Judges who are off, or leaving in the same save, take nothing new.
+    const candidates = directory.roster.filter((other) => other.key !== judge.key && !leaving.includes(other.key) && other.access?.active !== false).map((other) => other.key);
+    const reviews = await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(4000);
+    const replacementJudge = replacementPicker(candidates, submissions.filter(isJudgingSubmission), reviews);
+    for (const submission of affected) {
+      const current = submission.roundOneAssignedJudges!;
+      const kept = current.map(judgeKeyOf).find((key) => key !== judge.key)!;
+      let replacement: string;
+      try {
+        replacement = replacementJudge(String(submission._id), [judge.key, kept]);
+      } catch {
+        throw new ConvexError(`Add another judge before removing ${judge.name}: their projects need someone.`);
+      }
+      await ctx.db.patch(submission._id, {
+        roundOneAssignedJudges: current.map((reference) => (judgeKeyOf(reference) === judge.key ? rosterReference(event, replacement) : reference)),
+        updatedAt: now,
+      });
+    }
+  }
+  if (judge.access?.active) await ctx.db.patch(judge.access._id, { active: false, deactivatedAt: now, updatedAt: now });
+  await ctx.db.patch(event._id, { roundOneJudges: roster, updatedAt: now });
+  if (syncSheet) await queueJudgingSheetSync(ctx, event, 0);
+  return { judgeKey: judge.key, reassignedSubmissionIds: affected.map((submission) => submission._id) };
+}
+
+export const addJudgesArgs = v.object({ slug: v.string(), names: v.array(v.string()) });
+
+async function addJudgesOperation(ctx: MutationCtx, args: Infer<typeof addJudgesArgs>, principal: OrganizationPrincipal) {
+  return addJudgesToEvent(ctx, await ownedAdminEvent(ctx, args.slug, principal), args.names);
+}
+
+export const addJudgesForOrganization = withChange<Infer<typeof addJudgesArgs>, Awaited<ReturnType<typeof addJudgesOperation>>>(
+  async (ctx, args, event) => {
+    // Names a judge on the roster already has are skipped, so they are left out of the summary.
+    const directory = await loadJudgeDirectory(ctx, event);
+    let names: string[] = [];
+    try { names = parseJudgeNames(args.names).filter((name) => !directory.byName(name)?.onRoster); } catch { /* the operation reports it */ }
+    return { kind: "judges_added", summary: `added ${names.length === 1 ? names[0] : `${names.length} judges`}`, watch: { judgeAccess: "all" } };
   },
+  addJudgesOperation,
+);
+
+export const addJudges = mutation({
+  args: addJudgesArgs,
+  handler: async (ctx, args) =>
+    addJudgesForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const removeJudgeArgs = v.object({ slug: v.string(), judgeKey: v.string() });
+
+async function removeJudgeOperation(ctx: MutationCtx, args: Infer<typeof removeJudgeArgs>, principal: OrganizationPrincipal) {
+  return removeJudgeFromEvent(ctx, await ownedAdminEvent(ctx, args.slug, principal), args.judgeKey);
+}
+
+export const removeJudgeForOrganization = withChange<Infer<typeof removeJudgeArgs>, Awaited<ReturnType<typeof removeJudgeOperation>>>(
+  async (ctx, args, event) => ({ kind: "judge_removed", summary: `removed ${await judgeNameFor(ctx, event, args.judgeKey)}`, watch: { submissions: "all", judgeAccess: "all" } }),
+  removeJudgeOperation,
+);
+
+export const removeJudge = mutation({
+  args: removeJudgeArgs,
+  handler: async (ctx, args) =>
+    removeJudgeForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const renameJudgeArgs = v.object({ slug: v.string(), judgeKey: v.string(), name: v.string() });
+
+/**
+ * Changes only the name a judge is shown by. Their key, link, assignments,
+ * scores and evening-out choice stay, since all of them hold the key.
+ */
+async function renameJudgeOperation(ctx: MutationCtx, args: Infer<typeof renameJudgeArgs>, principal: OrganizationPrincipal) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  const name = normalizeJudgeName(args.name);
+  const invalid = judgeNameError(name);
+  if (invalid) throw new ConvexError(invalid);
+  const directory = await loadJudgeDirectory(ctx, event);
+  const judge = directory.get(args.judgeKey);
+  if (!judge) throw new ConvexError("Judge not found.");
+  const clash = directory.judges.find((other) => other.key !== judge.key && judgeNameKey(other.name) === judgeNameKey(name));
+  if (clash) throw new ConvexError(`Another judge is already called ${clash.name}.`);
+  if (judge.name !== name) {
+    // A judge from before ids with no link yet keeps their name on the roster; their link holds the new one.
+    if (judge.access) await ctx.db.patch(judge.access._id, { judgeName: name, updatedAt: Date.now() });
+    else await insertJudgeLink(ctx, event, judge.key, name);
+    await queueJudgingSheetSync(ctx, event);
+  }
+  return { judgeKey: judge.key, judgeName: name };
+}
+
+export const renameJudgeForOrganization = withChange<Infer<typeof renameJudgeArgs>, Awaited<ReturnType<typeof renameJudgeOperation>>>(
+  async (ctx, args, event) => ({ kind: "judge_renamed", summary: `renamed ${await judgeNameFor(ctx, event, args.judgeKey)} to ${normalizeJudgeName(args.name)}`, watch: { judgeAccess: "all" } }),
+  renameJudgeOperation,
+);
+
+export const renameJudge = mutation({
+  args: renameJudgeArgs,
+  handler: async (ctx, args) =>
+    renameJudgeForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+/** The private path a judge opens: /judge/<slug>/<token>. */
+export function judgeLinkPath(event: Pick<Doc<"events">, "slug">, token: string) {
+  return `/judge/${event.slug}/${token}`;
+}
+
+export const getJudgesOverviewArgs = v.object({ slug: v.string() });
+
+/**
+ * The Judges page table: one row per judge on the roster (and any link left
+ * from a removed judge), with their link, whether they opened it, how many
+ * of their own projects they scored, and how many others they helped with.
+ * "Copy all links" builds its WhatsApp, Slack and Notion text from the
+ * active rows.
+ */
+export async function getJudgesOverviewForOrganization(
+  ctx: QueryCtx,
+  args: Infer<typeof getJudgesOverviewArgs>,
+  principal: OrganizationPrincipal,
+) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  const [directory, submissions, reviews] = await Promise.all([
+    loadJudgeDirectory(ctx, event),
+    ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
+    ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(4000),
+  ]);
+  const judging = submissions.filter(isJudgingSubmission);
+  const judgingIds = new Set(judging.map((submission) => String(submission._id)));
+  const reviewedKeys = new Set(reviews.map((review) => review.judgeKey));
+  // A judge removed from the roster stays listed only while they have scores.
+  const judges = directory.judges.filter((judge) => judge.onRoster || reviewedKeys.has(judge.key));
+  const titleById = new Map(submissions.map((submission) => [String(submission._id), submission.demoTitle || submission.teamName || submission.name]));
+  const completeBySubmission = new Map<string, number>();
+  for (const review of reviews) {
+    if (review.completed && judgingIds.has(String(review.submissionId))) {
+      completeBySubmission.set(String(review.submissionId), (completeBySubmission.get(String(review.submissionId)) ?? 0) + 1);
+    }
+  }
+  const help = helpState(judging, reviews, judges.map((judge) => judge.key), new Set(directory.judges.filter((judge) => judge.access?.active).map((judge) => judge.key)));
+  const rows = judges.map(({ key: judgeKey, name: judgeName, onRoster, access: link }) => {
+    const assigned = judging.filter((submission) => isAssignedTo(submission, judgeKey));
+    const assignedIds = new Set(assigned.map((submission) => String(submission._id)));
+    const complete = reviews.filter((review) => review.judgeKey === judgeKey && review.completed && judgingIds.has(String(review.submissionId)));
+    const started = reviews.filter((review) => review.judgeKey === judgeKey && judgingIds.has(String(review.submissionId)));
+    return {
+      judgeKey,
+      judgeName,
+      onRoster,
+      hasLink: Boolean(link),
+      active: link?.active ?? false,
+      path: link ? judgeLinkPath(event, link.token) : null,
+      openedAt: link?.openedAt ?? null,
+      deactivatedAt: link?.deactivatedAt ?? null,
+      linkCreatedAt: link?.createdAt ?? null,
+      assignedCount: assigned.length,
+      assignedScoredCount: complete.filter((review) => assignedIds.has(String(review.submissionId))).length,
+      // Complete reviews on projects assigned to someone else.
+      helpedCount: complete.filter((review) => !assignedIds.has(String(review.submissionId))).length,
+      // Their projects not scored yet and not covered by others: what they still have to do.
+      leftCount: help.left.get(judgeKey) ?? 0,
+      // Most left, by a margin: Help out sends finished judges to them first.
+      behind: help.behind.has(judgeKey),
+      // Started but not finished, on any project.
+      inProgressCount: started.filter((review) => !review.completed).length,
+      lastScoredAt: started.reduce<number | null>((latest, review) => Math.max(latest ?? 0, review.updatedAt), null),
+      // Every project this judge has a review of, finished or not: what Move scores moves.
+      reviewedProjects: reviews.filter((review) => review.judgeKey === judgeKey).map((review) => ({
+        submissionId: review.submissionId,
+        demoTitle: titleById.get(String(review.submissionId)) ?? "A project",
+      })),
+    };
+  });
+  return {
+    judgingStatus: event.judgingStatus ?? "setup",
+    reviewTarget: REVIEW_TARGET,
+    totals: {
+      judges: rows.filter((row) => row.onRoster).length,
+      activeJudges: rows.filter((row) => row.active).length,
+      openedJudges: rows.filter((row) => row.active && row.openedAt !== null).length,
+      projects: judging.length,
+      fullyReviewedProjects: judging.filter((submission) => (completeBySubmission.get(String(submission._id)) ?? 0) >= REVIEW_TARGET).length,
+      completeReviews: [...completeBySubmission.values()].reduce((sum, count) => sum + count, 0),
+      targetReviews: judging.length * REVIEW_TARGET,
+    },
+    judges: rows,
+  };
+}
+
+export const getJudgesOverview = query({
+  args: getJudgesOverviewArgs,
+  handler: async (ctx, args) =>
+    getJudgesOverviewForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const replaceJudgeLinkArgs = v.object({ slug: v.string(), judgeKey: v.string(), capabilityToken: v.string() });
+
+/**
+ * Gives a judge a new private link, for when theirs went to the wrong person.
+ * The old link stops working at once, and Opened clears until the new one
+ * is confirmed. Scores stay with the judge.
+ */
+export async function replaceJudgeLinkForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof replaceJudgeLinkArgs>,
+  principal: OrganizationPrincipal,
+) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  if (args.capabilityToken.length < 16) throw new ConvexError("The new link token is too short.");
+  const access = await ctx.db.query("judgeAccess").withIndex("by_event_and_judge_key", (q) => q.eq("eventId", event._id).eq("judgeKey", args.judgeKey)).unique();
+  if (!access) throw new ConvexError("Judge not found.");
+  const tokenOwner = await ctx.db.query("judgeAccess").withIndex("by_token", (q) => q.eq("token", args.capabilityToken)).unique();
+  if (tokenOwner) throw new ConvexError("This private link token is already in use.");
+  const now = Date.now();
+  await recordChange(ctx, {
+    event, principal, kind: "judge_link_replaced", summary: `replaced the judging link for ${access.judgeName}`, watch: { judgeAccess: "all" },
+  }, async () => {
+    await ctx.db.patch(access._id, { token: args.capabilityToken, openedAt: undefined, replacedAt: now, updatedAt: now });
+  });
+  return { judgeKey: access.judgeKey, path: judgeLinkPath(event, args.capabilityToken) };
+}
+
+export const replaceJudgeLink = mutation({
+  args: replaceJudgeLinkArgs,
+  handler: async (ctx, args) =>
+    replaceJudgeLinkForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const moveJudgeScoresArgs = v.object({
+  slug: v.string(),
+  fromJudgeKey: v.string(),
+  toJudgeKey: v.string(),
+  // Only these projects; every review of the first judge when left out.
+  submissionIds: v.optional(v.array(v.id("submissions"))),
+});
+
+/**
+ * Moves reviews from one judge to another, for when someone scored on the
+ * wrong link. Refuses when the other judge already has a review of the same
+ * project, naming those projects, so no score is overwritten.
+ */
+export async function moveJudgeScoresForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof moveJudgeScoresArgs>,
+  principal: OrganizationPrincipal,
+) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  if (args.fromJudgeKey === args.toJudgeKey) throw new ConvexError("Choose another judge to move the scores to.");
+  const directory = await loadJudgeDirectory(ctx, event);
+  const fromName = directory.get(args.fromJudgeKey)?.name;
+  const toName = directory.get(args.toJudgeKey)?.name;
+  if (!fromName || !toName) throw new ConvexError("Judge not found.");
+  const only = args.submissionIds ? new Set(args.submissionIds.map(String)) : null;
+  const fromReviews = (await ctx.db.query("reviews").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", args.fromJudgeKey)).take(1000))
+    .filter((review) => !only || only.has(String(review.submissionId)));
+  if (fromReviews.length === 0) throw new ConvexError(`${fromName} has no scores to move.`);
+  const toReviews = await ctx.db.query("reviews").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", args.toJudgeKey)).take(1000);
+  const clashes = fromReviews.filter((review) => toReviews.some((other) => other.submissionId === review.submissionId));
+  if (clashes.length > 0) {
+    const titles = await Promise.all(clashes.slice(0, 3).map(async (review) => (await ctx.db.get(review.submissionId))?.demoTitle ?? "a project"));
+    throw new ConvexError(`${toName} already scored ${titles.join(", ")}${clashes.length > 3 ? ` and ${clashes.length - 3} more` : ""}. Leave those out to move the rest.`);
+  }
+  const now = Date.now();
+  await recordChange(ctx, {
+    event, principal, kind: "judge_scores_moved",
+    summary: `moved ${fromReviews.length} score${fromReviews.length === 1 ? "" : "s"} from ${fromName} to ${toName}`,
+    watch: { reviews: "all", normalizationDecisions: "all" },
+  }, async () => {
+    for (const review of fromReviews) await ctx.db.patch(review._id, { judgeKey: args.toJudgeKey, updatedAt: now });
+    await markScoreBasisChanged(ctx, event, [args.fromJudgeKey, args.toJudgeKey], now);
+  });
+  return { moved: fromReviews.length };
+}
+
+export const moveJudgeScores = mutation({
+  args: moveJudgeScoresArgs,
+  handler: async (ctx, args) =>
+    moveJudgeScoresForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 export const closeSubmissionsArgs = v.object({ slug: v.string(), });
@@ -122,15 +525,11 @@ export async function closeSubmissionsForOrganization(
   if (event.submissionsClosedAt !== undefined) {
     return { judgingStatus: event.judgingStatus ?? "setup" };
   }
-  const now = Date.now();
-  await ctx.db.patch(event._id, { submissionsClosedAt: now, judgingStatus: "setup", updatedAt: now });
-  // Judges get a short AI summary of each project, written once submissions are final.
-  if (aiSummariesConfigured()) {
-    await ctx.scheduler.runAfter(0, internal.aiSummaries.queueEventSummaries, { eventId: event._id });
-  } else {
-    console.log(JSON.stringify({ event: "ai-summary", status: "skipped", reason: "not_configured" }));
-  }
-  return { judgingStatus: "setup" };
+  const judgingStatus = await recordChange(ctx, {
+    event, principal, kind: "phase_changed", summary: "closed submissions", undoLabel: "Reopen",
+    undo: "phase", fromPhase: eventPhase(event), toPhase: "judging", watch: { submissions: "all" },
+  }, () => closeSubmissionsForEvent(ctx, event));
+  return { judgingStatus };
 }
 
 export const closeSubmissions = mutation({
@@ -198,29 +597,36 @@ export const prepareAssignmentBatch = mutation({
 
 const overrideValidator = v.object({ submissionId: v.id("submissions"), judges: v.array(v.string()) });
 
-function replacementJudge(
-  roster: string[],
-  excluded: string[],
-  counts: ReturnType<typeof buildJudgeAssignmentCounts>,
+/**
+ * Who takes a removed or turned-off judge's unscored projects, one project
+ * per call. Judges who still have unscored projects of their own come first:
+ * they are active and on the page. The projects are spread one at a time
+ * among them, the judge with the most left first, then roster order. A judge
+ * who has finished comes next, and a judge with no projects of their own (one
+ * added after the hand-out, who gets none of their own) only when nobody else
+ * can. Never the judge already on the project, nor one who scored it.
+ */
+function replacementPicker(
+  candidateKeys: string[],
+  judging: Doc<"submissions">[],
+  reviews: Doc<"reviews">[],
 ) {
-  const candidates = roster.filter(
-    (judge) => !excluded.some((excludedJudge) => sameJudge(judge, excludedJudge)),
-  );
-  const replacement = candidates
-    .map((judge, index) => ({
-      judge,
-      index,
-      load: counts.individual.get(normalizeJudgeKey(judge)) ?? 0,
-    }))
-    .sort((a, b) => a.load - b.load || a.index - b.index)[0]?.judge;
-  if (!replacement) {
-    throw new ConvexError("Add another available judge before redistributing reviews.");
-  }
-  counts.individual.set(
-    normalizeJudgeKey(replacement),
-    (counts.individual.get(normalizeJudgeKey(replacement)) ?? 0) + 1,
-  );
-  return replacement;
+  const { left } = helpState(judging, reviews, candidateKeys, new Set());
+  const withProjects = new Set(judging.flatMap((submission) => (submission.roundOneAssignedJudges ?? []).map(judgeKeyOf)));
+  const tier = (key: string) => ((left.get(key) ?? 0) > 0 ? 0 : withProjects.has(key) ? 1 : 2);
+  const given = new Map<string, number>();
+  return (submissionId: string, excluded: string[]) => {
+    const scored = new Set(reviews.filter((review) => review.completed && String(review.submissionId) === submissionId).map((review) => review.judgeKey));
+    const replacement = candidateKeys
+      .map((key, index) => ({ key, index, tier: tier(key), given: given.get(key) ?? 0, left: left.get(key) ?? 0 }))
+      .filter(({ key }) => !excluded.includes(key) && !scored.has(key))
+      .sort((a, b) => a.tier - b.tier || a.given - b.given || b.left - a.left || a.index - b.index)[0]?.key;
+    if (!replacement) {
+      throw new ConvexError("Add another available judge before redistributing reviews.");
+    }
+    given.set(replacement, (given.get(replacement) ?? 0) + 1);
+    return replacement;
+  };
 }
 
 export const previewRedistributionArgs = v.object({
@@ -235,48 +641,44 @@ export async function previewRedistributionForOrganization(
   principal: OrganizationPrincipal,
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
-  const unavailable = await ctx.db
-    .query("judgeAccess")
-    .withIndex("by_event_and_judge_key", (q) =>
-      q.eq("eventId", event._id).eq("judgeKey", args.unavailableJudgeKey),
-    )
-    .unique();
+  const directory = await loadJudgeDirectory(ctx, event);
+  const unavailable = directory.get(args.unavailableJudgeKey)?.access;
   if (!unavailable) throw new ConvexError("Judge not found.");
+  const unavailableKey = unavailable.judgeKey;
   const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
   const reviews = await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000);
-  const counts = buildJudgeAssignmentCounts(submissions.map((s) => s.roundOneAssignedJudges));
-  const overrides = new Map((args.overrides ?? []).map((item) => [String(item.submissionId), item.judges]));
+  const overrides = new Map((args.overrides ?? []).map((item) => [String(item.submissionId), item.judges.map(judgeKeyOf)]));
   const completedBySubmission = new Map<string, string[]>();
   for (const review of reviews.filter((review) => review.completed)) {
     const key = String(review.submissionId);
     completedBySubmission.set(key, [...(completedBySubmission.get(key) ?? []), review.judgeKey]);
   }
+  // Judges who are turned off take nothing new.
+  const candidates = directory.roster.filter((judge) => judge.access?.active !== false).map((judge) => judge.key);
+  const replacementJudge = replacementPicker(candidates, submissions.filter(isJudgingSubmission), reviews);
 
   const changes = [];
   for (const submission of submissions) {
     if (!isJudgingSubmission(submission)) continue;
     const current = submission.roundOneAssignedJudges;
-    if (
-      !isValidRoundOneAssignment(current) ||
-      !current!.some((judge) => sameJudge(judge, unavailable.judgeName))
-    ) {
-      continue;
-    }
+    if (!isValidRoundOneAssignment(current)) continue;
+    const currentKeys = current!.map(judgeKeyOf);
+    if (!currentKeys.includes(unavailableKey)) continue;
     const completedJudges = completedBySubmission.get(String(submission._id)) ?? [];
-    if (completedJudges.some((judge) => sameJudge(judge, unavailable.judgeName))) {
-      continue;
-    }
-    const keptJudge = current!.find((judge) => !sameJudge(judge, unavailable.judgeName))!;
-    const automatic = current!.map((judge) =>
-      sameJudge(judge, unavailable.judgeName)
-        ? replacementJudge(event.roundOneJudges ?? [], [unavailable.judgeName, keptJudge], counts)
-        : judge,
+    if (completedJudges.includes(unavailableKey)) continue;
+    const keptJudge = currentKeys.find((key) => key !== unavailableKey)!;
+    const automatic = currentKeys.map((key) =>
+      key === unavailableKey ? replacementJudge(String(submission._id), [unavailableKey, keptJudge]) : key,
     );
+    const judges = overrides.get(String(submission._id)) ?? automatic;
     changes.push({
       submissionId: submission._id,
-      previousJudges: current!,
-      judges: overrides.get(String(submission._id)) ?? automatic,
-      preservedCompletedJudge: completedJudges.find((judge) => sameJudge(judge, keptJudge)) ?? null,
+      // Judge keys, with the names to show beside them.
+      previousJudges: currentKeys,
+      previousJudgeNames: currentKeys.map(directory.nameOf),
+      judges,
+      judgeNames: judges.map(directory.nameOf),
+      preservedCompletedJudge: completedJudges.find((key) => key === keptJudge) ?? null,
     });
   }
   return changes;
@@ -294,22 +696,17 @@ export const applyRedistributionArgs = v.object({
     assignments: v.array(overrideValidator),
   });
 
-export async function applyRedistributionForOrganization(
+async function applyRedistributionOperation(
   ctx: MutationCtx,
   args: Infer<typeof applyRedistributionArgs>,
   principal: OrganizationPrincipal,
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
-  const unavailable = await ctx.db
-    .query("judgeAccess")
-    .withIndex("by_event_and_judge_key", (q) =>
-      q.eq("eventId", event._id).eq("judgeKey", args.unavailableJudgeKey),
-    )
-    .unique();
+  const directory = await loadJudgeDirectory(ctx, event);
+  const unavailable = directory.get(args.unavailableJudgeKey)?.access;
   if (!unavailable) throw new ConvexError("Judge not found.");
-  const allowed = (event.roundOneJudges ?? []).filter(
-    (judge) => !sameJudge(judge, unavailable.judgeName),
-  );
+  const unavailableKey = unavailable.judgeKey;
+  const allowed = new Set(directory.roster.map((judge) => judge.key).filter((key) => key !== unavailableKey));
   const submissions = await ctx.db
     .query("submissions")
     .withIndex("by_event", (q) => q.eq("eventId", event._id))
@@ -323,21 +720,15 @@ export async function applyRedistributionForOrganization(
     .take(2000);
   const completedUnavailable = new Set(
     eventReviews
-      .filter(
-        (review) => review.completed && sameJudge(review.judgeKey, unavailable.judgeName),
-      )
+      .filter((review) => review.completed && review.judgeKey === unavailableKey)
       .map((review) => String(review.submissionId)),
   );
+  const assignedToUnavailable = (assignment: string[] | undefined) =>
+    isValidRoundOneAssignment(assignment) && assignment!.some((reference) => judgeKeyOf(reference) === unavailableKey);
   const requiredIds: string[] = [];
   for (const submission of submissions) {
     if (!isJudgingSubmission(submission)) continue;
-    const current = submission.roundOneAssignedJudges;
-    if (
-      !isValidRoundOneAssignment(current) ||
-      !current!.some((judge) => sameJudge(judge, unavailable.judgeName))
-    ) {
-      continue;
-    }
+    if (!assignedToUnavailable(submission.roundOneAssignedJudges)) continue;
     if (!completedUnavailable.has(String(submission._id))) {
       requiredIds.push(String(submission._id));
     }
@@ -350,33 +741,24 @@ export async function applyRedistributionForOrganization(
     throw new ConvexError("Redistribution must include every unfinished assignment in the preview.");
   }
   for (const item of args.assignments) {
+    const judges = item.judges.map(judgeKeyOf);
     if (
-      item.judges.length !== 2 ||
-      sameJudge(item.judges[0], item.judges[1]) ||
-      item.judges.some((judge) => !allowed.some((candidate) => sameJudge(candidate, judge)))
+      judges.length !== 2 ||
+      judges[0] === judges[1] ||
+      judges.some((key) => !allowed.has(key))
     ) {
       throw new ConvexError("Invalid judge assignment.");
     }
     const submission = await ctx.db.get(item.submissionId);
     if (!submission || submission.eventId !== event._id) throw new ConvexError("Submission does not belong to this event.");
     const current = submission.roundOneAssignedJudges;
-    if (
-      !isValidRoundOneAssignment(current) ||
-      !current!.some((judge) => sameJudge(judge, unavailable.judgeName))
-    ) {
-      continue;
-    }
-    const submissionReviews = eventReviews.filter(
-      (review) => review.submissionId === item.submissionId,
-    );
-    if (submissionReviews.some((review) => review.completed && sameJudge(review.judgeKey, unavailable.judgeName))) {
-      continue;
-    }
-    const keptJudge = current!.find((judge) => !sameJudge(judge, unavailable.judgeName))!;
-    if (!item.judges.some((judge) => sameJudge(judge, keptJudge))) {
+    if (!assignedToUnavailable(current)) continue;
+    if (completedUnavailable.has(String(item.submissionId))) continue;
+    const keptJudge = current!.map(judgeKeyOf).find((key) => key !== unavailableKey)!;
+    if (!judges.includes(keptJudge)) {
       throw new ConvexError("Redistribution must keep the other assigned judge.");
     }
-    await ctx.db.patch(item.submissionId, { roundOneAssignedJudges: item.judges, updatedAt: Date.now() });
+    await ctx.db.patch(item.submissionId, { roundOneAssignedJudges: judges.map((key) => rosterReference(event, key)), updatedAt: Date.now() });
   }
   await ctx.db.patch(unavailable._id, {
     active: false,
@@ -391,14 +773,45 @@ export const applyRedistribution = mutation({
     applyRedistributionForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
+/**
+ * How the roster stores this judge: their key, or on an event set up before
+ * judges had ids, their name then. Assignments store the same, so an old
+ * event keeps one shape throughout.
+ */
+export function rosterReference(event: Pick<Doc<"events">, "roundOneJudges">, key: string) {
+  return (event.roundOneJudges ?? []).find((reference) => judgeKeyOf(reference) === key) ?? key;
+}
+
 /** Judges see submissions only once judging is open, and keep read access after it closes. */
 function judgingVisible(event: Doc<"events">) {
   const judgingStatus = event.judgingStatus ?? "setup";
   return judgingStatus === "open" || judgingStatus === "closed";
 }
 
-function isAssignedTo(submission: Doc<"submissions">, judgeName: string) {
-  return (submission.roundOneAssignedJudges ?? []).some((judge) => sameJudge(judge, judgeName));
+function isAssignedTo(submission: Doc<"submissions">, judgeKey: string) {
+  return (submission.roundOneAssignedJudges ?? []).some((reference) => judgeKeyOf(reference) === judgeKey);
+}
+
+/**
+ * The projects in judging and their reviews, read by lib/judging-help: what
+ * each judge has left (covered projects stop counting) and who is behind,
+ * among the judges whose link is on.
+ */
+function helpState(
+  judging: Doc<"submissions">[],
+  reviews: Doc<"reviews">[],
+  judgeKeys: string[],
+  activeKeys: ReadonlySet<string>,
+) {
+  const judgingIds = new Set(judging.map((submission) => String(submission._id)));
+  const projects: HelpProject[] = judging.map((submission) => ({ id: String(submission._id), judgeKeys: (submission.roundOneAssignedJudges ?? []).map(judgeKeyOf) }));
+  const helpReviews: HelpReview[] = reviews.filter((review) => judgingIds.has(String(review.submissionId))).map((review) => ({
+    submissionId: String(review.submissionId), judgeKey: review.judgeKey, completed: review.completed, started: reviewStarted(review), updatedAt: review.updatedAt,
+  }));
+  const keys = [...new Set([...judgeKeys, ...projects.flatMap((project) => project.judgeKeys)])];
+  const left = leftByJudge(projects, helpReviews, keys);
+  const behind = behindJudges(keys.filter((key) => activeKeys.has(key)).map((key) => ({ judgeKey: key, left: left.get(key) ?? 0 })));
+  return { projects, byProject: reviewsByProject(helpReviews), left, behind };
 }
 
 /**
@@ -411,6 +824,7 @@ async function judgeSubmissionViews(
   submissions: Doc<"submissions">[],
 ) {
   const byId = tracksById(await listEventTracks(ctx, event._id));
+  const sponsors = await listEventSponsors(ctx, event._id);
   const members = await ctx.db
     .query("teamMembers")
     .withIndex("by_event", (q) => q.eq("eventId", event._id))
@@ -428,10 +842,13 @@ async function judgeSubmissionViews(
     // The presenter plus everyone they listed.
     memberCount: 1 + (memberCount.get(String(submission._id)) ?? 0),
     tracks: trackNamesFor(submission, byId),
+    // Only ids of the event's current tracks; none means the main event.
+    trackIds: (submission.trackIds ?? []).filter((id) => byId.has(id)),
     githubUrl: submission.githubUrl ?? null,
     videoUrl: submission.videoUrl ?? null,
     aiSummary: publicAiSummary(submission),
     aiSummaryStatus: aiSummaryStatus(event, submission),
+    aiRead: publicAiRead(event, submission, byId, sponsors),
   }));
 }
 
@@ -442,6 +859,20 @@ async function judgeEvent(ctx: QueryCtx, slug: string, token: string) {
   return { event, access };
 }
 
+/** True while submissions are reopened after judging started: judges read, but cannot save. */
+function judgingPaused(event: Doc<"events">) {
+  return event.submissionsClosedAt === undefined;
+}
+
+function judgingTimerView(event: Doc<"events">, now: number) {
+  return {
+    remainingMs: judgingRemaining(event, now),
+    serverNow: now,
+    running: event.judgingTimerStatus === "running",
+    paused: event.judgingTimerStatus === "paused",
+  };
+}
+
 export const getMyAssignments = query({
   args: { slug: v.string(), capabilityToken: v.string() },
   handler: async (ctx, args) => {
@@ -449,27 +880,22 @@ export const getMyAssignments = query({
     const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
     const assigned = submissions.filter(
       (submission: Doc<"submissions">) =>
-        isJudgingSubmission(submission) && isAssignedTo(submission, access.judgeName),
+        isJudgingSubmission(submission) && isAssignedTo(submission, access.judgeKey),
     );
     const reviews = await ctx.db.query("reviews").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", access.judgeKey)).take(1000);
     const reviewBySubmission = new Map(reviews.map((r: Doc<"reviews">) => [r.submissionId, r]));
     const eventTracks = await listEventTracks(ctx, event._id);
     const now = Date.now();
-    const remainingMs =
-      event.judgingTimerStatus === "running" && event.judgingTimerEndsAt !== undefined
-        ? event.judgingTimerEndsAt - now
-        : event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS;
     const judgingStatus = event.judgingStatus ?? "setup";
     const visible = judgingVisible(event);
+    const timer = judgingTimerView(event, now);
     return {
       eventName: event.name,
       judgeName: access.judgeName,
+      openedAt: access.openedAt ?? null,
       judgingStatus,
-      timer: {
-        remainingMs,
-        serverNow: now,
-        running: event.judgingTimerStatus === "running",
-      },
+      judgingPaused: judgingPaused(event),
+      timer: { remainingMs: timer.remainingMs, serverNow: timer.serverNow, running: timer.running },
       trackNames: visible ? eventTracks.map((track) => track.name) : [],
       assignments: visible
         ? (await judgeSubmissionViews(ctx, event, assigned)).map((view) => ({
@@ -483,7 +909,7 @@ export const getMyAssignments = query({
 
 /**
  * Every other submission in judging, so a judge can open any project.
- * Read only: saveReview still accepts scores only from a submission's assigned judges.
+ * A judge may score any of them too; that review counts as their own.
  */
 export const getOtherSubmissions = query({
   args: { slug: v.string(), capabilityToken: v.string() },
@@ -492,48 +918,218 @@ export const getOtherSubmissions = query({
     if (!judgingVisible(event)) return [];
     const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
     const others = submissions.filter(
-      (submission) => isJudgingSubmission(submission) && !isAssignedTo(submission, access.judgeName),
+      (submission) => isJudgingSubmission(submission) && !isAssignedTo(submission, access.judgeKey),
     );
     return await judgeSubmissionViews(ctx, event, others);
   },
 });
 
+/** Reviews still needed per project: the target is two complete reviews. */
+export const REVIEW_TARGET = 2;
+
+/**
+ * Everything the judge page shows, in one query: who the link is for and
+ * whether they confirmed it, the timer, the event's tracks with counts, and
+ * every project in judging with its tracks, whether it is the judge's own,
+ * the judge's review, and how many complete reviews it has.
+ *
+ * Groups, as the Show select counts them:
+ * - yours: assigned to this judge and not fully scored by them yet
+ * - covered: assigned to this judge, not started by them, and already given
+ *   its two complete reviews by others; it no longer counts as theirs
+ * - helpOut: assigned to other judges, fewer than 2 complete reviews, not
+ *   yet fully scored by this judge
+ * - scored: fully scored by this judge
+ * - all: every project in judging
+ *
+ * Help out comes with whose project each one helps (`helpFor`) and every
+ * judge's left count, so the page lists the judge with the most left first.
+ * `scorers` are other judges' unfinished reviews with when they last saved:
+ * the page decides "scoring it now" on its own ticking clock, so it never
+ * goes stale while this query stays cached.
+ */
+export const getJudgeWorkspace = query({
+  args: { slug: v.string(), capabilityToken: v.string() },
+  handler: async (ctx, args) => {
+    const { event, access } = await judgeEvent(ctx, args.slug, args.capabilityToken);
+    const now = Date.now();
+    const visible = judgingVisible(event);
+    const eventTracks = await listEventTracks(ctx, event._id);
+    const base = {
+      eventName: event.name,
+      eventSlug: event.slug,
+      practice: event.practice === true,
+      judgeName: access.judgeName,
+      openedAt: access.openedAt ?? null,
+      judgingStatus: event.judgingStatus ?? "setup",
+      judgingPaused: judgingPaused(event),
+      canScore: event.judgingStatus === "open" && !judgingPaused(event),
+      timer: judgingTimerView(event, now),
+      reviewTarget: REVIEW_TARGET,
+    };
+    if (!visible) {
+      return {
+        ...base,
+        tracks: eventTracks.map((track) => ({ id: track._id, name: track.name, description: track.description ?? null, count: 0 })),
+        mainEventCount: 0,
+        counts: { yours: 0, covered: 0, helpOut: 0, scored: 0, all: 0 },
+        yoursTotal: 0,
+        yoursScored: 0,
+        judges: [],
+        projects: [],
+      };
+    }
+    const [submissions, reviews, links] = await Promise.all([
+      ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
+      ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(4000),
+      ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(200),
+    ]);
+    const judging = submissions.filter(isJudgingSubmission);
+    const directory = judgeDirectory(event, links);
+    const nameOf = (key: string) => directory.nameOf(key);
+    const help = helpState(judging, reviews, directory.roster.map((judge) => judge.key), new Set(directory.judges.filter((judge) => judge.access?.active).map((judge) => judge.key)));
+    const me = access.judgeKey;
+    const completeBySubmission = new Map<string, number>();
+    const mine = new Map<string, Doc<"reviews">>();
+    for (const review of reviews) {
+      if (review.completed) completeBySubmission.set(String(review.submissionId), (completeBySubmission.get(String(review.submissionId)) ?? 0) + 1);
+      if (review.judgeKey === access.judgeKey) mine.set(String(review.submissionId), review);
+    }
+    const views = await judgeSubmissionViews(ctx, event, judging);
+    const trackCounts = new Map<string, number>();
+    let mainEventCount = 0;
+    const counts = { yours: 0, covered: 0, helpOut: 0, scored: 0, all: views.length };
+    let yoursTotal = 0;
+    let yoursScored = 0;
+    const projects = views.map((view, index) => {
+      const submission = judging[index];
+      const helpProject = help.projects[index];
+      const projectReviews = help.byProject.get(String(view.id)) ?? [];
+      const assignedToMe = isAssignedTo(submission, access.judgeKey);
+      const review = mine.get(String(view.id)) ?? null;
+      const scoredByMe = review?.completed === true;
+      const completeReviewCount = completeBySubmission.get(String(view.id)) ?? 0;
+      const needsReview = completeReviewCount < REVIEW_TARGET;
+      const covered = assignedToMe && isCovered(helpProject, me, projectReviews);
+      const group: "yours" | "covered" | "helpOut" | "scored" | "other" = scoredByMe
+        ? "scored"
+        : covered ? "covered" : assignedToMe ? "yours" : needsReview ? "helpOut" : "other";
+      if (group !== "other") counts[group] += 1;
+      if (assignedToMe && !covered) {
+        yoursTotal += 1;
+        if (scoredByMe) yoursScored += 1;
+      }
+      // Who covered it: the helpers, or whoever else completed it when no helper did.
+      const completers = projectReviews.filter((other) => other.completed && other.judgeKey !== me);
+      const helpers = completers.filter((other) => !helpProject.judgeKeys.includes(other.judgeKey));
+      const coveredBy = covered ? (helpers.length ? helpers : completers).map((other) => nameOf(other.judgeKey)) : [];
+      for (const id of view.trackIds) trackCounts.set(String(id), (trackCounts.get(String(id)) ?? 0) + 1);
+      if (view.trackIds.length === 0) mainEventCount += 1;
+      return {
+        ...view,
+        assignedToMe,
+        group,
+        completeReviewCount,
+        needsReview,
+        coveredBy,
+        helpFor: assignedToMe ? null : helpOutOwner(helpProject, projectReviews, help.left),
+        scorers: projectReviews.filter((other) => other.judgeKey !== me && other.started && !other.completed).map((other) => ({
+          judgeKey: other.judgeKey, judgeName: nameOf(other.judgeKey), updatedAt: other.updatedAt, assigned: helpProject.judgeKeys.includes(other.judgeKey),
+        })),
+        review: review
+          ? { innovation: review.innovation ?? null, execution: review.execution ?? null, demoClarity: review.demoClarity ?? null, completed: review.completed, updatedAt: review.updatedAt }
+          : null,
+      };
+    });
+    return {
+      ...base,
+      tracks: eventTracks.map((track) => ({ id: track._id, name: track.name, description: track.description ?? null, count: trackCounts.get(String(track._id)) ?? 0 })),
+      mainEventCount,
+      counts,
+      yoursTotal,
+      yoursScored,
+      judges: [...help.left].map(([judgeKey, left]) => ({ judgeKey, judgeName: nameOf(judgeKey), left, behind: help.behind.has(judgeKey) })),
+      projects,
+    };
+  },
+});
+
+/**
+ * The judge confirmed "Are you <name>?" on their link. The first confirmation
+ * is what the Judges page shows as Opened.
+ */
+export const confirmJudge = mutation({
+  args: { slug: v.string(), capabilityToken: v.string() },
+  handler: async (ctx, args) => {
+    const event = await findEventBySlug(ctx, args.slug);
+    if (!event || event.eventType !== "hackathon") throw new ConvexError("Event not found.");
+    const access = await judgeAccess(ctx, event._id, args.capabilityToken);
+    const openedAt = access.openedAt ?? Date.now();
+    if (access.openedAt === undefined) await ctx.db.patch(access._id, { openedAt, updatedAt: openedAt });
+    return { judgeName: access.judgeName, openedAt };
+  },
+});
+
+export const saveReviewArgs = { slug: v.string(), capabilityToken: v.string(), submissionId: v.id("submissions"), innovation: v.optional(v.number()), execution: v.optional(v.number()), demoClarity: v.optional(v.number()) };
+
+/**
+ * Saves one judge's scores for one project. Any active judge may score any
+ * project in judging; a review on someone else's project counts as the
+ * judge's own. Practice test judges come through here too.
+ */
+export async function saveReviewForJudge(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  access: Doc<"judgeAccess">,
+  args: { submissionId: Doc<"submissions">["_id"]; innovation?: number; execution?: number; demoClarity?: number },
+) {
+  if (event.judgingStatus !== "open") throw new ConvexError("Judging is not open.");
+  if (judgingPaused(event)) throw new ConvexError("Judging is paused while submissions are open again.");
+  const submission = await ctx.db.get(args.submissionId);
+  if (!submission || submission.eventId !== event._id || !isJudgingSubmission(submission)) throw new ConvexError("This project is not in judging.");
+  for (const value of [args.innovation, args.execution, args.demoClarity]) if (value !== undefined && !isJudgingScore(value)) throw new ConvexError("Scores must be whole numbers from 0 to 10.");
+  const existing = await ctx.db.query("reviews").withIndex("by_submission_and_judge", (q) => q.eq("submissionId", submission._id).eq("judgeKey", access.judgeKey)).unique();
+  const now = Date.now();
+  const values = { innovation: args.innovation, execution: args.execution, demoClarity: args.demoClarity, completed: isCompleteReview({ innovation: args.innovation, execution: args.execution, demoClarity: args.demoClarity }), updatedAt: now };
+  if (existing) await ctx.db.patch(existing._id, values); else await ctx.db.insert("reviews", { eventId: event._id, submissionId: submission._id, judgeKey: access.judgeKey, ...values, createdAt: now });
+  const valuesChanged =
+    !existing ||
+    existing.completed !== values.completed ||
+    existing.innovation !== values.innovation ||
+    existing.execution !== values.execution ||
+    existing.demoClarity !== values.demoClarity;
+  if (valuesChanged && Boolean(existing?.completed || values.completed)) {
+    await markScoreBasisChanged(ctx, event, [access.judgeKey], now);
+  }
+  return { completed: values.completed };
+}
+
+/** A contributing score changed: normalization recomputes and stale raw choices fall back. */
+async function markScoreBasisChanged(ctx: MutationCtx, event: Doc<"events">, judgeKeys: string[], now = Date.now()) {
+  for (const judgeKey of new Set(judgeKeys)) {
+    const decision = await ctx.db.query("normalizationDecisions").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", judgeKey)).unique();
+    if (decision) await ctx.db.patch(decision._id, { stale: true, updatedAt: now });
+  }
+  await bumpScoreBasis(ctx, event, now);
+}
+
 export const saveReview = mutation({
-  args: { slug: v.string(), capabilityToken: v.string(), submissionId: v.id("submissions"), innovation: v.optional(v.number()), execution: v.optional(v.number()), demoClarity: v.optional(v.number()) },
+  args: saveReviewArgs,
   handler: async (ctx, args) => {
     const event = await findEventBySlug(ctx, args.slug);
     if (!event || event.judgingStatus !== "open") throw new ConvexError("Judging is not open.");
     const access = await judgeAccess(ctx, event._id, args.capabilityToken);
-    const submission = await ctx.db.get(args.submissionId);
-    if (!submission || submission.eventId !== event._id || !isAssignedTo(submission, access.judgeName)) throw new ConvexError("Submission is not assigned to this judge.");
-    for (const value of [args.innovation, args.execution, args.demoClarity]) if (value !== undefined && !isJudgingScore(value)) throw new ConvexError("Scores must be whole numbers from 0 to 10.");
-    const existing = await ctx.db.query("reviews").withIndex("by_submission_and_judge", (q) => q.eq("submissionId", submission._id).eq("judgeKey", access.judgeKey)).unique();
-    const now = Date.now();
-    const values = { innovation: args.innovation, execution: args.execution, demoClarity: args.demoClarity, completed: isCompleteReview({ innovation: args.innovation, execution: args.execution, demoClarity: args.demoClarity }), updatedAt: now };
-    if (existing) await ctx.db.patch(existing._id, values); else await ctx.db.insert("reviews", { eventId: event._id, submissionId: submission._id, judgeKey: access.judgeKey, ...values, createdAt: now });
-    const decision = await ctx.db.query("normalizationDecisions").withIndex("by_event_and_judge", (q) => q.eq("eventId", event._id).eq("judgeKey", access.judgeKey)).unique();
-    const valuesChanged =
-      !existing ||
-      existing.completed !== values.completed ||
-      existing.innovation !== values.innovation ||
-      existing.execution !== values.execution ||
-      existing.demoClarity !== values.demoClarity;
-    const changedContributingReview =
-      valuesChanged && Boolean(existing?.completed || values.completed);
-    if (changedContributingReview) {
-      if (decision) await ctx.db.patch(decision._id, { stale: true, updatedAt: now });
-      await ctx.db.patch(event._id, { scoreBasisVersion: (event.scoreBasisVersion ?? 0) + 1, confirmedScoreBasisVersion: undefined, updatedAt: now });
-    }
-    return { completed: values.completed };
+    return saveReviewForJudge(ctx, event, access, args);
   },
 });
 
 export function scoreSubmissions(submissions: Doc<"submissions">[], reviews: Doc<"reviews">[]) {
   const bySubmission = new Map<string, Doc<"reviews">[]>();
   const submissionById = new Map(submissions.map((submission) => [String(submission._id), submission]));
+  // Every complete review counts, including a judge helping on someone else's project.
   for (const review of reviews.filter((r) => r.completed)) {
     const submission = submissionById.get(String(review.submissionId));
-    if (!submission || !(submission.roundOneAssignedJudges ?? []).some((judge) => sameJudge(judge, review.judgeKey))) continue;
+    if (!submission) continue;
     bySubmission.set(String(review.submissionId), [...(bySubmission.get(String(review.submissionId)) ?? []), review]);
   }
   return submissions.map((submission) => { const complete = bySubmission.get(String(submission._id)) ?? []; const score = complete.length ? complete.reduce((sum, r) => sum + (r.innovation! + r.execution! + r.demoClarity!) / 3, 0) / complete.length : null; return { submissionId: submission._id, demoTitle: submission.demoTitle, presenterName: submission.name, completeReviewCount: complete.length, score, warning: complete.length === 1 ? "Only one complete review" : complete.length === 0 ? "No complete reviews" : null }; });
@@ -549,23 +1145,32 @@ export async function getAdminProgressForOrganization(
   const event = await ownedAdminEvent(ctx, args.slug, principal);
   const submissions = (await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000)).filter(isJudgingSubmission);
   const reviews = await ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000);
-  const access = await ctx.db.query("judgeAccess").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(100);
-  const nameByJudgeKey = new Map(access.map((judge) => [judge.judgeKey, judge.judgeName]));
+  const directory = await loadJudgeDirectory(ctx, event);
+  const eventTracks = await listEventTracks(ctx, event._id);
+  const trackById = tracksById(eventTracks);
+  const submissionById = new Map(submissions.map((submission) => [String(submission._id), submission]));
   return {
     eventStatus: event.judgingStatus ?? "setup",
+    tracks: eventTracks.map((track) => ({ id: track._id, name: track.name })),
     submissionsClosedAt: event.submissionsClosedAt ?? null,
     assignmentVersion: event.assignmentVersion ?? null,
     totalSubmissions: submissions.length,
-    scoring: scoreSubmissions(submissions, reviews).map((row) => ({
-      ...row,
-      assignedJudges:
-        submissions.find((submission) => submission._id === row.submissionId)
-          ?.roundOneAssignedJudges ?? [],
-    })),
+    scoring: scoreSubmissions(submissions, reviews).map((row) => {
+      const submission = submissionById.get(String(row.submissionId))!;
+      return {
+        ...row,
+        teamName: submission.teamName ?? null,
+        tracks: trackNamesFor(submission, trackById),
+        trackIds: (submission.trackIds ?? []).filter((id) => trackById.has(id)),
+        // Names to show; assignedJudgeKeys says who they are.
+        assignedJudges: (submission.roundOneAssignedJudges ?? []).map(directory.nameOf),
+        assignedJudgeKeys: (submission.roundOneAssignedJudges ?? []).map(judgeKeyOf),
+      };
+    }),
     reviews: reviews.map((review) => ({
       submissionId: review.submissionId,
       judgeKey: review.judgeKey,
-      judgeName: nameByJudgeKey.get(review.judgeKey) ?? review.judgeKey,
+      judgeName: directory.nameOf(review.judgeKey),
       innovation: review.innovation,
       execution: review.execution,
       demoClarity: review.demoClarity,
@@ -583,16 +1188,119 @@ export const getAdminProgress = query({
 
 export const setJudgingTimerArgs = v.object({ slug: v.string(), durationMs: v.number() });
 
+/** Sets the judging time. A running timer keeps running from the new time. */
 export async function setJudgingTimerForOrganization(
   ctx: MutationCtx,
   args: Infer<typeof setJudgingTimerArgs>,
   principal: OrganizationPrincipal,
-) { const event = await ownedAdminEvent(ctx, args.slug, principal); const durationMs = Math.max(0, Math.min(MAX_TIMER_MS, Math.round(args.durationMs))); await ctx.db.patch(event._id, { judgingTimerDurationMs: durationMs || DEFAULT_TIMER_MS, judgingTimerRemainingMs: durationMs || DEFAULT_TIMER_MS, updatedAt: Date.now() }); }
+) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  const durationMs = Math.max(0, Math.min(MAX_TIMER_MS, Math.round(args.durationMs))) || DEFAULT_TIMER_MS;
+  const now = Date.now();
+  await recordChange(ctx, { event, principal, kind: "judging_timer_set", summary: `set the judging time to ${formatDuration(durationMs)}` }, async () => {
+    await ctx.db.patch(event._id, {
+      judgingTimerDurationMs: durationMs,
+      judgingTimerRemainingMs: durationMs,
+      ...(event.judgingTimerStatus === "running" ? { judgingTimerEndsAt: now + durationMs } : {}),
+      updatedAt: now,
+    });
+  });
+}
 
 export const setJudgingTimer = mutation({
   args: setJudgingTimerArgs,
   handler: async (ctx, args) =>
     setJudgingTimerForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const setJudgingTimeLeftArgs = v.object({ slug: v.string(), remainingMs: v.number() });
+
+/**
+ * Sets exactly how long judging has left, for "click the time and type it"
+ * and the 5, 10, 15 and 30 minute presets. Running or paused, the timer keeps
+ * its state.
+ */
+export async function setJudgingTimeLeftForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof setJudgingTimeLeftArgs>,
+  principal: OrganizationPrincipal,
+) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  if (!Number.isFinite(args.remainingMs)) throw new ConvexError("Enter a time.");
+  const remainingMs = Math.max(0, Math.min(MAX_TIMER_MS, Math.round(args.remainingMs / 1000) * 1000));
+  const now = Date.now();
+  await recordChange(ctx, { event, principal, kind: "judging_time_left_set", summary: `set the judging time left to ${formatDuration(remainingMs)}` }, async () => {
+    await ctx.db.patch(event._id, {
+      judgingTimerRemainingMs: remainingMs,
+      ...(event.judgingTimerDurationMs === undefined || event.judgingTimerDurationMs < remainingMs ? { judgingTimerDurationMs: remainingMs } : {}),
+      ...(event.judgingTimerStatus === "running" ? { judgingTimerEndsAt: now + remainingMs } : {}),
+      updatedAt: now,
+    });
+  });
+  return { remainingMs };
+}
+
+export const setJudgingTimeLeft = mutation({
+  args: setJudgingTimeLeftArgs,
+  handler: async (ctx, args) =>
+    setJudgingTimeLeftForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const pauseJudgingTimerArgs = v.object({ slug: v.string() });
+
+export async function pauseJudgingTimerForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof pauseJudgingTimerArgs>,
+  principal: OrganizationPrincipal,
+) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  if (event.judgingTimerStatus !== "running") throw new ConvexError("The judging timer is not running.");
+  const now = Date.now();
+  await recordChange(ctx, { event, principal, kind: "judging_timer_paused", summary: "paused the judging timer" }, async () => {
+    await ctx.db.patch(event._id, {
+      judgingTimerStatus: "paused",
+      judgingTimerRemainingMs: judgingRemaining(event, now),
+      judgingTimerEndsAt: undefined,
+      judgingTimerPausedByPhase: undefined,
+      updatedAt: now,
+    });
+  });
+}
+
+export const pauseJudgingTimer = mutation({
+  args: pauseJudgingTimerArgs,
+  handler: async (ctx, args) =>
+    pauseJudgingTimerForOrganization(ctx, args, await requireOrganization(ctx)),
+});
+
+export const resumeJudgingTimerArgs = v.object({ slug: v.string() });
+
+export async function resumeJudgingTimerForOrganization(
+  ctx: MutationCtx,
+  args: Infer<typeof resumeJudgingTimerArgs>,
+  principal: OrganizationPrincipal,
+) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  if (event.judgingStatus !== "open") throw new ConvexError("Judging is not open.");
+  if (event.submissionsClosedAt === undefined) throw new ConvexError("Close submissions again to carry on judging.");
+  if (event.judgingTimerStatus === "running") return;
+  const now = Date.now();
+  const remaining = judgingRemaining(event, now);
+  await recordChange(ctx, { event, principal, kind: "judging_timer_resumed", summary: "resumed the judging timer" }, async () => {
+    await ctx.db.patch(event._id, {
+      judgingTimerStatus: "running",
+      judgingTimerRemainingMs: remaining,
+      judgingTimerEndsAt: now + remaining,
+      judgingTimerPausedByPhase: undefined,
+      updatedAt: now,
+    });
+  });
+}
+
+export const resumeJudgingTimer = mutation({
+  args: resumeJudgingTimerArgs,
+  handler: async (ctx, args) =>
+    resumeJudgingTimerForOrganization(ctx, args, await requireOrganization(ctx)),
 });
 
 export const startJudgingArgs = v.object({ slug: v.string(), });
@@ -601,7 +1309,16 @@ export async function startJudgingForOrganization(
   ctx: MutationCtx,
   args: Infer<typeof startJudgingArgs>,
   principal: OrganizationPrincipal,
-) { const event = await ownedAdminEvent(ctx, args.slug, principal); if (event.judgingStatus !== "ready") throw new ConvexError("Assignments are not ready."); const now = Date.now(); const remaining = event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS; await ctx.db.patch(event._id, { judgingStatus: "open", judgingTimerStatus: "running", judgingTimerEndsAt: now + remaining, judgingTimerRemainingMs: remaining, updatedAt: now }); }
+) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  if (event.judgingStatus !== "ready") throw new ConvexError("Assignments are not ready.");
+  if (event.submissionsClosedAt === undefined) throw new ConvexError("Close submissions first.");
+  const now = Date.now();
+  const remaining = event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS;
+  await recordChange(ctx, { event, principal, kind: "judging_started", summary: "started judging" }, async () => {
+    await ctx.db.patch(event._id, { judgingStatus: "open", phase: "judging", judgingTimerStatus: "running", judgingTimerEndsAt: now + remaining, judgingTimerRemainingMs: remaining, updatedAt: now });
+  });
+}
 
 export const startJudging = mutation({
   args: startJudgingArgs,
@@ -615,7 +1332,16 @@ export async function addJudgingTimeForOrganization(
   ctx: MutationCtx,
   args: Infer<typeof addJudgingTimeArgs>,
   principal: OrganizationPrincipal,
-) { const event = await ownedAdminEvent(ctx, args.slug, principal); const now = Date.now(); const current = event.judgingTimerStatus === "running" && event.judgingTimerEndsAt !== undefined ? event.judgingTimerEndsAt - now : event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS; await ctx.db.patch(event._id, { judgingTimerRemainingMs: current + args.deltaMs, judgingTimerEndsAt: event.judgingTimerStatus === "running" ? now + current + args.deltaMs : event.judgingTimerEndsAt, updatedAt: now }); }
+) {
+  const event = await ownedAdminEvent(ctx, args.slug, principal);
+  const now = Date.now();
+  const current = judgingRemaining(event, now);
+  const minutes = Math.round(Math.abs(args.deltaMs) / 60000);
+  const amount = minutes >= 1 ? `${minutes} minute${minutes === 1 ? "" : "s"}` : formatDuration(Math.abs(args.deltaMs));
+  await recordChange(ctx, { event, principal, kind: "judging_time_added", summary: args.deltaMs >= 0 ? `added ${amount}` : `took off ${amount}` }, async () => {
+    await ctx.db.patch(event._id, { judgingTimerRemainingMs: current + args.deltaMs, judgingTimerEndsAt: event.judgingTimerStatus === "running" ? now + current + args.deltaMs : event.judgingTimerEndsAt, updatedAt: now });
+  });
+}
 
 export const addJudgingTime = mutation({
   args: addJudgingTimeArgs,
@@ -632,18 +1358,11 @@ export async function closeJudgingForOrganization(
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
   if (event.judgingStatus !== "open") throw new ConvexError("Judging is not open.");
-  const now = Date.now();
-  const remaining =
-    event.judgingTimerStatus === "running" && event.judgingTimerEndsAt !== undefined
-      ? event.judgingTimerEndsAt - now
-      : event.judgingTimerRemainingMs ?? 0;
-  await ctx.db.patch(event._id, {
-    judgingStatus: "closed",
-    judgingTimerStatus: "idle",
-    judgingTimerRemainingMs: remaining,
-    judgingTimerEndsAt: undefined,
-    updatedAt: now,
-  });
+  if (event.submissionsClosedAt === undefined) throw new ConvexError("Close submissions first.");
+  await recordChange(ctx, {
+    event, principal, kind: "phase_changed", summary: "closed judging", undoLabel: "Reopen",
+    undo: "phase", fromPhase: eventPhase(event), toPhase: "stage",
+  }, () => closeJudgingForEvent(ctx, event));
 }
 
 export const closeJudging = mutation({
@@ -661,15 +1380,10 @@ export async function reopenJudgingForOrganization(
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
   if (event.judgingStatus !== "closed") throw new ConvexError("Judging is not closed.");
-  const now = Date.now();
-  const remaining =
-    event.judgingTimerRemainingMs ?? event.judgingTimerDurationMs ?? DEFAULT_TIMER_MS;
-  await ctx.db.patch(event._id, {
-    judgingStatus: "open",
-    judgingTimerStatus: "running",
-    judgingTimerEndsAt: now + remaining,
-    updatedAt: now,
-  });
+  await recordChange(ctx, {
+    event, principal, kind: "phase_changed", summary: "reopened judging",
+    undo: "phase", fromPhase: eventPhase(event), toPhase: "judging",
+  }, () => reopenJudgingForEvent(ctx, event));
 }
 
 export const reopenJudging = mutation({
@@ -704,14 +1418,10 @@ function completeAssignedReviews(
   const submissionById = new Map(
     activeSubmissions.map((submission) => [String(submission._id), submission]),
   );
+  // A judge helping on another judge's project scores it as themselves, so it counts.
   const completeReviews = reviews.filter((review) => {
     if (!review.completed || !reviewRow(review)) return false;
-    const submission = submissionById.get(String(review.submissionId));
-    return Boolean(
-      submission?.roundOneAssignedJudges?.some((judge) =>
-        sameJudge(judge, review.judgeKey),
-      ),
-    );
+    return submissionById.has(String(review.submissionId));
   });
   return { activeSubmissions, completeReviews };
 }
@@ -821,10 +1531,9 @@ export const previewNormalization = query({
   args: { slug: v.string(), judgeKey: v.string() },
   handler: async (ctx, args) => {
     const event = await adminEvent(ctx, args.slug);
-    const judgeName = (event.roundOneJudges ?? []).find(
-      (judge) => normalizeJudgeKey(judge) === args.judgeKey,
-    );
-    if (!judgeName) throw new ConvexError("Judge not found.");
+    const judge = (await loadJudgeDirectory(ctx, event)).get(args.judgeKey);
+    if (!judge?.onRoster) throw new ConvexError("Judge not found.");
+    const judgeName = judge.name;
     const [submissions, reviews, decisions] = await Promise.all([
       ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
       ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000),
@@ -834,7 +1543,7 @@ export const previewNormalization = query({
     return {
       ...normalizationPreviewForJudge(args.judgeKey, judgeName, submissions, state),
       scoreBasisReady: state.ready,
-      scoreBasisVersion: event.scoreBasisVersion ?? 0,
+      scoreBasisVersion: (await readScoreBasis(ctx, event)).version,
     };
   },
 });
@@ -847,24 +1556,19 @@ export async function getNormalizationOverviewForOrganization(
   principal: OrganizationPrincipal,
 ) {
   const event = await ownedAdminEvent(ctx, args.slug, principal);
-  const [submissions, reviews, decisions] = await Promise.all([
+  const [submissions, reviews, decisions, directory] = await Promise.all([
     ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000),
     ctx.db.query("reviews").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(2000),
     ctx.db.query("normalizationDecisions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(100),
+    loadJudgeDirectory(ctx, event),
   ]);
   const state = normalizationState(submissions, reviews, decisions);
+  const basis = await readScoreBasis(ctx, event);
   return {
     judgingStatus: event.judgingStatus ?? "setup",
     scoreBasisReady: state.ready,
-    scoreBasisVersion: event.scoreBasisVersion ?? 0,
-    judges: (event.roundOneJudges ?? []).map((judgeName) =>
-      normalizationPreviewForJudge(
-        normalizeJudgeKey(judgeName),
-        judgeName,
-        submissions,
-        state,
-      ),
-    ),
+    scoreBasisVersion: basis.version,
+    judges: directory.roster.map((judge) => normalizationPreviewForJudge(judge.key, judge.name, submissions, state)),
   };
 }
 
@@ -876,7 +1580,7 @@ export const getNormalizationOverview = query({
 
 export const saveNormalizationDecisionArgs = v.object({ slug: v.string(), judgeKey: v.string(), decision: v.union(v.literal("apply"), v.literal("raw")) });
 
-export async function saveNormalizationDecisionForOrganization(
+async function saveNormalizationDecisionOperation(
   ctx: MutationCtx,
   args: Infer<typeof saveNormalizationDecisionArgs>,
   principal: OrganizationPrincipal,
@@ -894,7 +1598,7 @@ export async function saveNormalizationDecisionForOrganization(
   }
   const existing = state.decisionByJudge.get(args.judgeKey);
   const now = Date.now();
-  const version = event.scoreBasisVersion ?? 0;
+  const version = (await readScoreBasis(ctx, event)).version;
   const fields = {
     decision: args.decision,
     scoreBasisVersion: version,
@@ -910,10 +1614,7 @@ export async function saveNormalizationDecisionForOrganization(
       createdAt: now,
     });
   }
-  await ctx.db.patch(event._id, {
-    confirmedScoreBasisVersion: version,
-    updatedAt: now,
-  });
+  await confirmScoreBasis(ctx, event, now);
   return { scoreBasisReady: true };
 }
 
@@ -998,7 +1699,7 @@ export const getFinalistDecision = query({
     return {
       judgingStatus: event.judgingStatus ?? "setup",
       scoreBasisReady: result.ready,
-      scoreBasisVersion: result.ready ? event.scoreBasisVersion ?? 0 : null,
+      scoreBasisVersion: result.ready ? (await readScoreBasis(ctx, event)).version : null,
       submissions: result.scored,
       finalistIds: decision?.finalistIds ?? [],
       finalistStatus: decision?.finalistStatus ?? "draft",
@@ -1006,6 +1707,7 @@ export const getFinalistDecision = query({
       placementIds: decision?.placementIds ?? [],
       placementStatus: decision?.placementStatus ?? "draft",
       placementVersion: decision?.placementVersion ?? 0,
+      updatedAt: decision?.updatedAt ?? null,
     };
   },
 });
@@ -1130,10 +1832,10 @@ export const submitFinalists = mutation({
       incrementFinalist: true,
       recordHistory: true,
     });
-    await ctx.db.patch(event._id, {
-      confirmedScoreBasisVersion: event.scoreBasisVersion ?? 0,
-      updatedAt: now,
-    });
+    await confirmScoreBasis(ctx, event, now);
+    await ctx.db.patch(event._id, { updatedAt: now });
+    // During Stage the lineup follows the finalists; before it, moving to Stage does this.
+    if (eventPhase(event) === "stage") await syncFinalistLineup(ctx, event);
   },
 });
 
@@ -1187,3 +1889,18 @@ export const submitPlacements = mutation({
     });
   },
 });
+
+async function judgeNameFor(ctx: MutationCtx, event: Doc<"events">, judgeKey: string) {
+  return (await loadJudgeDirectory(ctx, event)).nameOf(judgeKey);
+}
+
+/** Turn off: the judge's unscored projects go to others, and their link stops working. Undoable. */
+export const applyRedistributionForOrganization = withChange<Infer<typeof applyRedistributionArgs>, Awaited<ReturnType<typeof applyRedistributionOperation>>>(
+  async (ctx, args, event) => ({ kind: "judge_turned_off", summary: `turned off ${await judgeNameFor(ctx, event, args.unavailableJudgeKey)} and moved their projects`, watch: { submissions: "all", judgeAccess: "all" } }),
+  applyRedistributionOperation,
+);
+
+export const saveNormalizationDecisionForOrganization = withChange<Infer<typeof saveNormalizationDecisionArgs>, Awaited<ReturnType<typeof saveNormalizationDecisionOperation>>>(
+  async (ctx, args, event) => ({ kind: "normalization_decision", summary: `${args.decision === "raw" ? "used raw scores" : "normalized scores"} for ${await judgeNameFor(ctx, event, args.judgeKey)}`, watch: { normalizationDecisions: "all" } }),
+  saveNormalizationDecisionOperation,
+);

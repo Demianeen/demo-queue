@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { browserClientId } from "@/lib/client-id";
@@ -19,13 +19,19 @@ function useDebounced<T>(value: T, delayMs: number) {
   return debounced;
 }
 
+type EmailCheck = (args: { slug: string; email: string; clientId: string }) => Promise<{ taken: boolean }>;
+
+/** Replaces the server check: the style preview's sample form uses it, so typing there reaches no event. */
+export const EmailCheckOverride = createContext<EmailCheck | null>(null);
+
 /**
  * Checks, while the person types, whether this email already submitted to the
  * event (as a presenter or a team member). The server enforces the same rule
  * on submit, so a failed or rate limited check just shows nothing.
  */
 export function useEmailTaken(slug: string, email: string) {
-  const check = useMutation(api.events.checkSubmissionEmail);
+  const serverCheck = useMutation(api.events.checkSubmissionEmail);
+  const check = useContext(EmailCheckOverride) ?? serverCheck;
   const [answers, setAnswers] = useState<Record<string, boolean>>({});
   const trimmed = email.trim();
   const debounced = useDebounced(trimmed, CHECK_DELAY_MS);
@@ -53,6 +59,7 @@ export function SubmissionEmailField({
   id,
   name,
   label,
+  help,
   value,
   onChange,
   onTakenChange,
@@ -64,7 +71,8 @@ export function SubmissionEmailField({
   slug: string;
   id: string;
   name: string;
-  label: string;
+  label: ReactNode;
+  help?: ReactNode;
   value: string;
   onChange: (value: string) => void;
   onTakenChange: (taken: boolean) => void;
@@ -77,12 +85,13 @@ export function SubmissionEmailField({
   useEffect(() => onTakenChange(taken), [taken, onTakenChange]);
   const errorId = `${id}-error`;
   const takenId = `${id}-taken`;
+  const helpId = `${id}-help`;
 
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
       <input
-        aria-describedby={[taken && takenId, error && errorId].filter(Boolean).join(" ") || undefined}
+        aria-describedby={[help && helpId, taken && takenId, error && errorId].filter(Boolean).join(" ") || undefined}
         aria-invalid={Boolean(taken || error) || undefined}
         autoComplete={autoComplete}
         id={id}
@@ -94,6 +103,11 @@ export function SubmissionEmailField({
         type="email"
         value={value}
       />
+      {help ? (
+        <span className="muted form-help" id={helpId}>
+          {help}
+        </span>
+      ) : null}
       {error && !taken ? (
         <span className="form-error" id={errorId}>
           {error}

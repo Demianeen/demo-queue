@@ -1,6 +1,8 @@
 import type { sheets_v4 } from "googleapis";
 // @ts-expect-error Node's strip-types test runner resolves the source extension directly.
 import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS, JUDGING_SCORE_MAX } from "./judging-rubric.ts";
+// @ts-expect-error Node's strip-types test runner resolves the source extension directly.
+import { judgeKeyOf, judgeNameKey } from "./judging-assignment.ts";
 
 export const JUDGING_SHEET_NAME = "Judging";
 export const JUDGING_HEADER_ROW = 4;
@@ -21,7 +23,10 @@ export type JudgingSheetSubmission = {
   tracks?: string[];
   videoUrl?: string | null;
   githubUrl?: string;
+  /** The assigned judges' names, as the sheet shows them. */
   roundOneAssignedJudges?: string[];
+  /** The same judges' keys, in the same order. */
+  roundOneAssignedJudgeKeys?: string[];
   email?: string;
   phone: string;
   twitter?: string;
@@ -74,7 +79,42 @@ export type JudgingFormulaColumn = {
 };
 
 export const ALL_SUBMISSIONS_FILTER_VIEW_TITLE = "All submissions (score)";
-export const judgeFilterViewTitle = (judge: string) => `Judge: ${judge}`;
+const JUDGE_FILTER_VIEW_PREFIX = "Judge: ";
+export const judgeFilterViewTitle = (judge: string) => `${JUDGE_FILTER_VIEW_PREFIX}${judge}`;
+
+export type SheetJudge = { key: string; name: string };
+
+/**
+ * A Judge 1 or Judge 2 cell shows the judge's name and keeps their key in its
+ * note, so the cell stays matched to the judge when they are renamed.
+ */
+export const judgeCellNote = (key: string) => `Judge id: ${key}`;
+
+export function judgeKeyFromNote(note: string | null | undefined) {
+  const match = /^Judge id: (.+)$/m.exec(note ?? "");
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * What to do with one judge cell, given the judge the app has in that slot.
+ * The cell is matched by the key in its note. A cell without one (written
+ * before notes, or typed by hand) is matched by its text: on an event set up
+ * before judges had ids, a judge's key is their name then; else whoever has
+ * that name now. A cell for another judge is left alone and reported as
+ * drift; a cell for the same judge is rewritten with their current name.
+ */
+export function planJudgeCell(cell: { text: string; note?: string | null }, assigned: SheetJudge | undefined, judges: SheetJudge[]) {
+  const text = cell.text.trim();
+  if (!assigned) return { drift: false, write: null, shown: text };
+  if (!text) return { drift: false, write: assigned, shown: assigned.name };
+  const noted = judgeKeyFromNote(cell.note);
+  const byText = judgeKeyOf(text);
+  const key = noted ??
+    (judges.some((judge) => judge.key === byText) ? byText : judges.find((judge) => judgeNameKey(judge.name) === judgeNameKey(text))?.key ?? byText);
+  if (key !== assigned.key) return { drift: true, write: null, shown: text };
+  const current = text === assigned.name && noted === assigned.key;
+  return { drift: false, write: current ? null : assigned, shown: assigned.name };
+}
 
 export function isCompatibleJudgingSheetHeaders(headers: unknown[]) {
   return matchesJudgingSheetHeaders(headers, JUDGING_HEADERS) ||
@@ -119,7 +159,12 @@ export function buildFilterViewRequests(
       sortSpecs: [{ dimensionIndex: 23, sortOrder: "DESCENDING" }],
     },
   ];
-  return views.flatMap((view) => {
+  // A judge view whose judge is no longer in the sheet, or was renamed, goes.
+  const titles = new Set(views.map((view) => view.title));
+  const stale = existingViews
+    .filter((view) => view.filterViewId !== undefined && view.filterViewId !== null && view.title?.startsWith(JUDGE_FILTER_VIEW_PREFIX) && !titles.has(view.title))
+    .map((view) => ({ deleteFilterView: { filterId: view.filterViewId! } }));
+  return [...stale, ...views.flatMap((view) => {
     const existing = existingViews.find((candidate) => candidate.title === view.title);
     const addRequest = {
       addFilterView: {
@@ -141,7 +186,7 @@ export function buildFilterViewRequests(
           addRequest,
         ]
       : [addRequest];
-  });
+  })];
 }
 
 export function buildJudgingSubmissionRow(submission: JudgingSheetSubmission) {

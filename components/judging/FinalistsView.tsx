@@ -1,0 +1,165 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { Check } from "lucide-react";
+import { toast } from "sonner";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
+import { errorText } from "@/components/live/changes";
+import { TimeAgo } from "@/components/live/TimeAgo";
+import { addFinalist, finalistOrder, REVIEW_TARGET, WINNER_COUNT, type RankedRow } from "@/lib/judging-board";
+import { CriteriaChip, CriteriaHeader, formatScore, slots } from "./ProjectRows";
+import { WinnerOrder } from "./WinnerOrder";
+import type { BoardRow } from "./JudgingPage";
+import styles from "./judging.module.css";
+
+function clockTime(at: number) {
+  return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+/**
+ * Finalists: tick finalists from every project, wherever they rank, then
+ * submit them; then order them, and the top three are the winners. Both go
+ * through the versioned judging decision, which confirms the results once
+ * judging is closed and both are submitted.
+ */
+export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolbar, filters, filtered, onClearFilters }: {
+  slug: string;
+  closed: boolean;
+  /** Every project, ranked: the card's scores. */
+  rows: RankedRow<BoardRow>[];
+  /** After the search and track filter: the list. */
+  visibleRows: RankedRow<BoardRow>[];
+  loading: boolean;
+  toolbar: ReactNode;
+  filters: ReactNode;
+  filtered: boolean;
+  onClearFilters: () => void;
+}) {
+  const decision = useQuery(api.judging.getFinalistDecision, closed ? { slug } : "skip");
+  const saveFinalistDraft = useMutation(api.judging.saveFinalistDraft);
+  const submitFinalists = useMutation(api.judging.submitFinalists);
+  const savePlacementDraft = useMutation(api.judging.savePlacementDraft);
+  const submitPlacements = useMutation(api.judging.submitPlacements);
+  const scoreById = useMemo(() => new Map(rows.map((row) => [row.id, row.final])), [rows]);
+  const orderItems = useMemo(() => new Map(rows.map((row) => [row.id, { title: row.title, score: row.final }])), [rows]);
+
+  const serverFinalists = useMemo(() => (decision?.finalistIds ?? []).map(String), [decision?.finalistIds]);
+  const serverPlacements = useMemo(() => (decision?.placementIds ?? []).map(String), [decision?.placementIds]);
+  const serverKey = `${serverFinalists.join(",")}|${serverPlacements.join(",")}`;
+  // Local copies so a tick or a drag shows at once; they follow the server whenever it changes.
+  const [ticked, setTicked] = useState<string[] | null>(null);
+  const [order, setOrder] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Draft saves still on their way. Ticks stay clickable while one saves, so local
+  // copies only give way to the server once every save is in; Convex runs one
+  // client's mutations in order, so the last tick wins.
+  const pendingDrafts = useRef(0);
+  const [savingDraft, setSavingDraft] = useState(false);
+  useEffect(() => { if (pendingDrafts.current === 0) { setTicked(null); setOrder(null); } }, [serverKey]);
+
+  const finalists = ticked ?? serverFinalists;
+  const finalistsSubmitted = decision?.finalistStatus === "submitted" && ticked === null;
+  const shownOrder = order ?? finalistOrder(finalists, finalistsSubmitted ? serverPlacements : []);
+  const winners = shownOrder.slice(0, WINNER_COUNT);
+  const winnersSubmitted = decision?.placementStatus === "submitted" && winners.join(",") === serverPlacements.join(",");
+
+  async function act(action: () => Promise<unknown>, failure: string, done?: string) {
+    setBusy(true);
+    try { await action(); if (done) toast(done); } catch (error) { toast.error(errorText(error, failure)); setTicked(null); setOrder(null); } finally { setBusy(false); }
+  }
+  async function saveDraft(next: string[], failure: string) {
+    pendingDrafts.current += 1;
+    setSavingDraft(true);
+    try { await saveFinalistDraft({ slug, finalistIds: next as Id<"submissions">[] }); } catch (error) { toast.error(errorText(error, failure)); } finally {
+      pendingDrafts.current -= 1;
+      // The server has every save now (or refused one): show what it holds.
+      if (pendingDrafts.current === 0) { setSavingDraft(false); setTicked(null); setOrder(null); }
+    }
+  }
+  function toggle(id: string) {
+    const next = finalists.includes(id) ? shownOrder.filter((item) => item !== id) : addFinalist(shownOrder, id, scoreById);
+    setTicked(next);
+    setOrder(null);
+    void saveDraft(next, "Could not save the finalists.");
+  }
+  // Before finalists are submitted a drag orders the draft: submitting keeps that order, so the winners are picked too.
+  function reorderDraft(next: string[]) {
+    setTicked(next);
+    void saveDraft(next, "Could not save the order.");
+  }
+  function reorder(next: string[]) {
+    setOrder(next);
+    // Only the winners are saved: a move below the line, or one that changes nothing, keeps them submitted.
+    if (next.slice(0, WINNER_COUNT).join(",") === winners.join(",")) return;
+    void act(() => savePlacementDraft({ slug, placementIds: next.slice(0, WINNER_COUNT) as Id<"submissions">[] }), "Could not save the order.");
+  }
+
+  if (!closed) return <div className={styles.page}><div className={styles.main}>
+    {toolbar}
+    <div className={`dq-card ${styles.emptyCard}`}>
+      <h3>Finalists open once judging is closed</h3>
+      <p>Then tick any project to make it a finalist, wherever it ranks, and submit them. After the final presentations, drag the finalists into order: the top three are the winners.</p>
+    </div>
+  </div></div>;
+
+  const loadingDecision = decision === undefined;
+  return <div className={styles.page}>
+    <div className={styles.main}>
+      {toolbar}
+      <ol className={styles.steps} aria-label="Steps">
+        <li data-done={finalistsSubmitted ? "" : undefined}>{finalistsSubmitted ? <Check aria-hidden /> : <span>1</span>}{finalistsSubmitted ? "Finalists submitted" : "Pick finalists"}</li>
+        <li aria-hidden className={styles.stepLine} />
+        <li data-done={winnersSubmitted ? "" : undefined} data-current={finalistsSubmitted && !winnersSubmitted ? "" : undefined}>{winnersSubmitted ? <Check aria-hidden /> : <span>2</span>}{winnersSubmitted ? "Winners submitted" : "Winners after the final presentations"}</li>
+        {decision?.updatedAt && (ticked !== null || order !== null || decision.finalistStatus !== "submitted" || decision.placementStatus === "draft") && <li className={styles.saved}>{busy || savingDraft ? "Saving…" : <>Draft saved <TimeAgo at={decision.updatedAt} /></>}</li>}
+      </ol>
+      <div className={`dq-card ${styles.list}`}>
+        <div className={styles.listHead}><strong>All {rows.length} projects</strong>{filters}</div>
+        <div className={styles.rankHead} role="row">
+          <span className={styles.tick} aria-hidden />
+          <span className={styles.rank}>#</span>
+          <span className={styles.title}>Project</span>
+          <CriteriaHeader slotCount={REVIEW_TARGET} />
+          <span className={styles.final}>Final</span>
+        </div>
+        {loading || loadingDecision ? Array.from({ length: 6 }, (_, index) => <div key={index} className={styles.row} aria-hidden><Skeleton className="size-4 rounded" /><Skeleton className="h-3 w-40" /><Skeleton className="ml-auto h-3 w-10" /></div>)
+          : visibleRows.length === 0 ? <div className={styles.empty}>{filtered ? <>No projects match. <Button variant="link" size="sm" onClick={onClearFilters}>Clear the search and track</Button></> : "No projects in judging."}</div>
+          : visibleRows.map((row) => {
+            const checked = finalists.includes(row.id);
+            return <label key={row.id} className={styles.row} data-selected={checked ? "" : undefined}>
+              <span className={styles.tick}><Checkbox checked={checked} disabled={busy} onCheckedChange={() => toggle(row.id)} aria-label={`${row.title} is a finalist`} /></span>
+              <span className={styles.rank}>{row.rank}</span>
+              <span className={styles.title}><span className={styles.titleText}>{row.title}</span><span className={styles.team}>{row.team}</span></span>
+              <span className={styles.chips}>{slots(row, REVIEW_TARGET).map((chip, index) => <CriteriaChip key={chip?.judgeKey ?? `empty-${index}`} chip={chip} />)}</span>
+              <span className={`dq-mono ${styles.final}`}>{formatScore(row.final)}</span>
+            </label>;
+          })}
+      </div>
+      <p className={styles.footnote}>Tick any project to make it a finalist, wherever it ranks. Scores are the same as on Ranking.</p>
+    </div>
+    <aside className={styles.side} aria-label="Finalists">
+      <section className={`dq-card ${styles.card}`} aria-labelledby="finalists-title">
+        <div className={styles.cardHead}>
+          <span id="finalists-title">Finalists <span className={styles.count}>{finalists.length}</span></span>
+          <span className={styles.muted}>{decision?.finalistStatus === "submitted" && decision.updatedAt ? `submitted ${clockTime(decision.updatedAt)} · version ${decision.finalistVersion}` : decision?.finalistVersion ? `draft · version ${decision.finalistVersion} submitted before` : "draft"}</span>
+        </div>
+        {decision?.placementStatus === "needs_review" && <p className={styles.warning}>The finalists changed after the winners were picked. Check the order and submit the winners again.</p>}
+        {loadingDecision ? <Skeleton className="h-24 w-full" />
+          : finalists.length === 0 ? <p className={styles.help}>No finalists yet. Tick projects on the left.</p>
+          : <WinnerOrder order={shownOrder} items={orderItems} disabled={busy} onReorder={finalistsSubmitted ? reorder : reorderDraft} onRemove={toggle} />}
+        <div className={styles.cardFoot}>
+          {finalistsSubmitted
+            ? <><p className={styles.help}>Starts in the order you submitted. Drag, or Alt and an arrow key, to reorder. The top three are the winners.</p>
+              <Button size="sm" disabled={busy || savingDraft || winnersSubmitted || finalists.length === 0} onClick={() => void act(() => submitPlacements({ slug, placementIds: winners as Id<"submissions">[] }), "Could not submit the winners.", "Winners submitted.")}>{winnersSubmitted ? "Winners submitted" : "Submit winners"}</Button></>
+            : <><p className={styles.help}>Drag, or Alt and an arrow key, to order them now or after the final presentations. The top three are the winners, and this is the pitch order.</p>
+              <Button size="sm" disabled={busy || savingDraft || finalists.length === 0} onClick={() => void act(() => submitFinalists({ slug, finalistIds: shownOrder as Id<"submissions">[] }), "Could not submit the finalists.", "Finalists submitted.")}>Submit finalists</Button></>}
+        </div>
+        {winnersSubmitted && <p className={styles.help}>Winners submitted {decision?.updatedAt ? clockTime(decision.updatedAt) : ""} · version {decision?.placementVersion}. Reordering saves a new draft until you submit again.</p>}
+      </section>
+    </aside>
+  </div>;
+}

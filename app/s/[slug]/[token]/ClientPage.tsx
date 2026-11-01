@@ -1,8 +1,10 @@
 "use client";
 
 import { eventRootProps } from "@/lib/event-theme-contract";
-import { FormEvent, ReactNode, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { CheckIcon } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
@@ -23,25 +25,25 @@ import { AstraHero } from "@/components/AstraHero";
 import { DevDayHero } from "@/components/DevDayHero";
 import { OutpostHero } from "@/components/OutpostHero";
 import { cn } from "@/lib/utils";
+import { browserClientId } from "@/lib/client-id";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
+import { displayUrl, participantCelebration, participantHeading, participantSteps, type StatusStep } from "@/lib/participant-status";
+import { Celebration } from "@/components/results/Celebration";
 
-const statusLabels: Record<string, string> = {
-  candidate: "Submitted, waiting to be added as a demoer",
-  queued: "You are listed as a demoer",
-  hidden: "Hidden by event team",
-  up_next: "You are up next",
-  current: "You are presenting now",
-  done: "Demo complete",
-  no_show: "Marked as no-show",
-  withdrawn: "Withdrawn",
-};
-
-const hackathonStatusLabels: Record<string, string> = {
-  ...statusLabels,
-  candidate: "Submitted, waiting for judging",
-  queued: "Scheduled to present",
-  done: "Presentation complete",
-};
+/** Where the team is, as numbered steps; done steps get a check. */
+function StatusSteps({ steps }: { steps: StatusStep[] }) {
+  return (
+    <ol className="status-steps" aria-label="Progress">
+      {steps.map((step, index) => (
+        <li key={step.label} data-state={step.state} aria-current={step.state === "current" ? "step" : undefined}>
+          <span className="status-step-mark" aria-hidden="true">{step.state === "done" ? <CheckIcon size={12} strokeWidth={3} /> : index + 1}</span>
+          {step.label}
+          {step.state === "done" ? <span className="sr-only"> (done)</span> : null}
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 function FieldError({ children }: { children: ReactNode }) {
   return <span style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600 }}>{children}</span>;
@@ -56,8 +58,7 @@ type MemberSocials = {
 };
 
 /** One team member's socials as the team typed them, editable here. */
-function MemberSocialsForm({ slug, token, member }: { slug: string; token: string; member: MemberSocials }) {
-  const save = useMutation(api.events.editTeamMemberSocials);
+function MemberSocialsForm({ slug, token, member, save }: { slug: string; token: string; member: MemberSocials; save: ParticipantPageProps["editTeamMemberSocials"] }) {
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -106,13 +107,112 @@ function MemberSocialsForm({ slug, token, member }: { slug: string; token: strin
   );
 }
 
+type ResubmitResult = FunctionReturnType<typeof api.events.resubmitWithdrawnSubmission>;
+
 export type ParticipantPageProps = {
   slug: string;
   token: string;
   participant: FunctionReturnType<typeof api.events.getParticipant> | undefined;
   editContact: (args: FunctionArgs<typeof api.events.editParticipantContact>) => Promise<unknown>;
   withdraw: (args: FunctionArgs<typeof api.events.withdrawSubmission>) => Promise<unknown>;
+  resubmit: (args: FunctionArgs<typeof api.events.resubmitWithdrawnSubmission>) => Promise<ResubmitResult>;
+  editTeamMemberSocials: (args: FunctionArgs<typeof api.events.editTeamMemberSocials>) => Promise<unknown>;
 };
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof ConvexError && typeof error.data === "string") return error.data;
+  const message = error instanceof Error ? error.message : "";
+  return message.includes("ConvexError: ") ? message.split("ConvexError: ").pop()!.split("\n")[0] : fallback;
+}
+
+/**
+ * Withdraw, asked first inline, and Submit again (Proposed) while
+ * submissions are open: the same entry comes back with the same status link.
+ */
+function WithdrawPanel({ slug, token, participant, withdraw, resubmit, confirming, setConfirming, place }: Pick<ParticipantPageProps, "slug" | "token" | "withdraw" | "resubmit"> & {
+  participant: NonNullable<ParticipantPageProps["participant"]>;
+  confirming: boolean;
+  setConfirming: (value: boolean) => void;
+  /** "top" under the description: the withdrawn state and the question. "bottom": the Withdraw button. */
+  place: "top" | "bottom";
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { demoTitle } = participant.submission;
+  const hackathon = participant.event.eventType === "hackathon";
+  const closed = participant.event.submissionsClosed;
+
+  async function confirmWithdraw() {
+    setBusy(true);
+    setError(null);
+    try {
+      await withdraw({ slug, participantToken: token });
+      setConfirming(false);
+    } catch (failure) {
+      setError(errorMessage(failure, "Could not withdraw. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitAgain() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await resubmit({ slug, participantToken: token, clientId: browserClientId() });
+      if (!result.restored && result.reason === "email_taken") setError(result.message);
+    } catch (failure) {
+      setError(errorMessage(failure, "Could not submit again. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const errorLine = error ? <p role="alert" className="withdraw-error">{error}</p> : null;
+
+  if (participant.submission.status === "withdrawn") {
+    if (place !== "top") return null;
+    if (closed) {
+      return <div className="copy-line withdraw-panel" role="status"><strong>Submissions have closed.</strong> {demoTitle} stays withdrawn.</div>;
+    }
+    if (!participant.submission.canSubmitAgain) {
+      return <div className="copy-line withdraw-panel" role="status"><strong>{demoTitle} was withdrawn.</strong> Ask the event team if it should come back.</div>;
+    }
+    return (
+      <div className="copy-line withdraw-panel" role="region" aria-label="Withdrawn">
+        <p><strong>You withdrew {demoTitle}.</strong> Submissions are still open, so you can submit it again with everything as it was, on this same status link.</p>
+        {errorLine}
+        <div className="actions">
+          <button className="button" type="button" disabled={busy} onClick={() => void submitAgain()}>{busy ? "Submitting again…" : "Submit again"}</button>
+        </div>
+      </div>
+    );
+  }
+  if (closed || !participant.submission.canWithdraw) return null;
+  if (!confirming) {
+    if (place !== "bottom") return null;
+    return (
+      <div className="actions">
+        <button className="button danger" type="button" onClick={() => { setError(null); setConfirming(true); }}>Withdraw</button>
+      </div>
+    );
+  }
+  if (place !== "top") return null;
+  return (
+    <div className="copy-line withdraw-panel" role="region" aria-label="Withdraw">
+      <p>
+        <strong>Withdraw {demoTitle}?</strong>{" "}
+        {hackathon ? "It leaves judging, and judges stop seeing it." : "It leaves the lineup, and the event team stop seeing it in the queue."}{" "}
+        You can submit it again while submissions are open.
+      </p>
+      {errorLine}
+      <div className="actions">
+        <button className="button danger" type="button" disabled={busy} onClick={() => void confirmWithdraw()}>{busy ? "Withdrawing…" : `Withdraw ${demoTitle}`}</button>
+        <button className="button ghost" type="button" disabled={busy} autoFocus onClick={() => setConfirming(false)}>Keep it</button>
+      </div>
+    </div>
+  );
+}
 
 export default function ConnectedParticipantStatusPage() {
   const params = useParams<{ slug: string; token: string }>();
@@ -122,6 +222,8 @@ export default function ConnectedParticipantStatusPage() {
   });
   const editContact = useMutation(api.events.editParticipantContact);
   const withdraw = useMutation(api.events.withdrawSubmission);
+  const resubmit = useMutation(api.events.resubmitWithdrawnSubmission);
+  const editTeamMemberSocials = useMutation(api.events.editTeamMemberSocials);
 
   return (
     <ParticipantPage
@@ -130,6 +232,8 @@ export default function ConnectedParticipantStatusPage() {
       participant={participant}
       editContact={editContact}
       withdraw={withdraw}
+      resubmit={resubmit}
+      editTeamMemberSocials={editTeamMemberSocials}
     />
   );
 }
@@ -140,6 +244,8 @@ export function ParticipantPage({
   participant,
   editContact,
   withdraw,
+  resubmit,
+  editTeamMemberSocials,
 }: ParticipantPageProps) {
   const [message, setMessage] = useState("");
   const [phoneError, setPhoneError] = useState("");
@@ -147,6 +253,12 @@ export function ParticipantPage({
   const [linkedinError, setLinkedinError] = useState("");
   const [githubError, setGithubError] = useState("");
   const [socialError, setSocialError] = useState("");
+  const [confirmingWithdraw, setConfirmingWithdraw] = useState(false);
+  // The contact form opens from Edit, or straight away from a "#contact" link.
+  const [editingContact, setEditingContact] = useState(false);
+  useEffect(() => {
+    if (window.location.hash === "#contact") setEditingContact(true);
+  }, []);
 
   if (!participant) {
     return (
@@ -154,6 +266,7 @@ export function ParticipantPage({
         <section className="panel panel-pad" style={{ width: "min(760px, 100%)" }}>
           <Skeleton w={110} h={12} radius={6} style={{ marginBottom: 18 }} />
           <Skeleton w="60%" h={34} radius={10} style={{ marginBottom: 18 }} />
+          <Skeleton w={300} h={22} radius={999} style={{ marginBottom: 18 }} />
           <Skeleton w={180} h={26} radius={999} style={{ marginBottom: 22 }} />
           <Skeleton h={16} style={{ marginBottom: 10 }} />
           <Skeleton w="80%" h={16} style={{ marginBottom: 28 }} />
@@ -221,22 +334,29 @@ export function ParticipantPage({
       return;
     }
 
-    await editContact({
-      slug,
-      participantToken: token,
-      phone,
-      email: read("email") || undefined,
-      twitter: twitter || undefined,
-      linkedin: linkedin || undefined,
-      githubProfile,
-    });
+    try {
+      await editContact({
+        slug,
+        participantToken: token,
+        phone,
+        email: read("email") || undefined,
+        twitter: twitter || undefined,
+        linkedin: linkedin || undefined,
+        githubProfile,
+      });
+    } catch {
+      setSocialError("Could not save. Try again.");
+      return;
+    }
     setMessage("Contact info updated.");
+    setEditingContact(false);
   }
 
-  async function withdrawDemo() {
-    await withdraw({ slug, participantToken: token });
-    setMessage("Your submission has been withdrawn.");
-  }
+  const hackathon = participant.event.eventType === "hackathon";
+  const statusInput = { eventType: participant.event.eventType, status: participant.submission.status, finalist: participant.submission.finalist, phase: participant.event.phase };
+  const celebration = participantCelebration({ ...statusInput, placement: participant.submission.placement, demoTitle: participant.submission.demoTitle });
+  const withdrawProps = { slug, token, participant, withdraw, resubmit, confirming: confirmingWithdraw, setConfirming: setConfirmingWithdraw };
+  const contactLine = [participant.submission.email, participant.submission.phone].filter(Boolean).join(" · ");
 
   return (
     <main data-event-style={visualStyle} {...eventRootProps(visualStyle, participant.event.theme)} className={isDevDay ? "devday-public-page" : isAstra ? "astra-public-page" : isOutpost ? "outpost-public-page" : "narrow-page"} data-visual-style={visualStyle}>
@@ -257,7 +377,10 @@ export function ParticipantPage({
         className={cn("panel panel-pad", isOutpost && "outpost-content", isAstra && "astra-content", isDevDay && "devday-content")}
         style={isOutpost || isAstra || isDevDay ? undefined : { width: "min(760px, 100%)" }}
       >
-        {isOutpost || isAstra || isDevDay ? null : visualStyle === "neutral" ? <p className="neutral-event-name">{participant.event.name}</p> : <Brand label={participant.event.name} />}
+        {isOutpost || isAstra || isDevDay ? null : visualStyle === "neutral" ? null : <Brand label={participant.event.name} />}
+        {isOutpost || isAstra || isDevDay ? null : (
+          <p className="status-kicker">{hackathon ? "Project status" : "Demo status"} · {participant.event.name}</p>
+        )}
         {isAstra ? <p className="astra-eyebrow">{participant.event.name}</p> : null}
         {isDevDay ? (
           <p className="devday-eyebrow">{participant.event.eventType === "hackathon" ? "Community hackathon" : "Demo queue"} / Your submission</p>
@@ -267,11 +390,11 @@ export function ParticipantPage({
             {participant.event.eventType === "hackathon" ? "Project status" : "Demo status"} · {participant.event.name}
           </p>
         ) : null}
-        <h1>
-          {(participant.event.eventType === "hackathon" ? hackathonStatusLabels : statusLabels)[
-            participant.submission.status
-          ] ?? participant.submission.status}
-        </h1>
+        <h1>{participantHeading(statusInput)}</h1>
+
+        {celebration ? <Celebration celebration={celebration} /> : null}
+
+        <StatusSteps steps={participantSteps(statusInput)} />
 
         <div className="status-strip">
           <span className="pill green">{participant.submission.demoTitle}</span>
@@ -285,40 +408,50 @@ export function ParticipantPage({
 
         <p className="lead">{participant.submission.description}</p>
 
-        {participant.submission.finalist ? (
-          <div className="copy-line">Your team was selected as a finalist.</div>
-        ) : null}
+        <WithdrawPanel {...withdrawProps} place="top" />
 
-        {participant.event.eventType === "hackathon" ? (
-          <div className="hackathon-status-details">
+        <dl className="status-details">
+          {hackathon ? (
             <div>
-              <strong>Team</strong>
-              <span>
-                {[participant.submission.name, ...participant.submission.teamMembers].join(", ")}
-              </span>
+              <dt>Team</dt>
+              <dd>{[participant.submission.name, ...participant.submission.teamMembers].join(", ")}</dd>
             </div>
+          ) : null}
+          {hackathon ? (
             <div>
-              <strong>Demo video</strong>
-              {participant.submission.videoUrl ? (
-                <a href={participant.submission.videoUrl} target="_blank" rel="noreferrer">
-                  Open video
-                </a>
-              ) : (
-                <span>Video retention period ended</span>
+              <dt>Demo video</dt>
+              <dd>
+                {participant.submission.videoUrl ? (
+                  <a href={participant.submission.videoUrl} target="_blank" rel="noreferrer">Open video</a>
+                ) : (
+                  "Video retention period ended"
+                )}
+              </dd>
+            </div>
+          ) : null}
+          {hackathon ? (
+            <div>
+              <dt>Repository</dt>
+              <dd>
+                {participant.submission.githubUrl ? (
+                  <a href={participant.submission.githubUrl} target="_blank" rel="noreferrer">{displayUrl(participant.submission.githubUrl)}</a>
+                ) : (
+                  "Not provided"
+                )}
+              </dd>
+            </div>
+          ) : null}
+          <div id="contact">
+            <dt>Contact</dt>
+            <dd>
+              <span>{contactLine || "Not provided"}</span>
+              {editingContact ? null : (
+                <button className="status-edit" type="button" onClick={() => { setMessage(""); setEditingContact(true); }} aria-label="Edit contact info">Edit</button>
               )}
-            </div>
-            <div>
-              <strong>GitHub repository</strong>
-              {participant.submission.githubUrl ? (
-                <a href={participant.submission.githubUrl} target="_blank" rel="noreferrer">
-                  Open repository
-                </a>
-              ) : (
-                <span>Not provided</span>
-              )}
-            </div>
+            </dd>
           </div>
-        ) : null}
+        </dl>
+        {message ? <p className="muted" role="status">{message}</p> : null}
 
         {participant.meetUrl ? (
           <a
@@ -336,7 +469,8 @@ export function ParticipantPage({
           </div>
         ) : null}
 
-        <h2 id="contact" style={{ marginTop: 24 }}>Contact info</h2>
+        {editingContact ? <>
+        <h2 style={{ marginTop: 8 }}>Contact info</h2>
         <form className="form" onSubmit={saveContact}>
           <div className="field">
             <label htmlFor="phone">Phone</label>
@@ -407,15 +541,12 @@ export function ParticipantPage({
             <button className="button" type="submit">
               Save contact
             </button>
-            {!participant.event.submissionsClosed ? (
-              <button className="button danger" type="button" onClick={withdrawDemo}>
-                Withdraw
-              </button>
-            ) : null}
+            <button className="button ghost" type="button" onClick={() => setEditingContact(false)}>
+              Cancel
+            </button>
           </div>
         </form>
-
-        {message ? <p className="muted" style={{ marginTop: 14 }}>{message}</p> : null}
+        </> : null}
 
         {participant.submission.teamMemberSocials.length > 0 ? (
           <>
@@ -423,7 +554,7 @@ export function ParticipantPage({
             <p className="muted form-help">Add or correct each team member&apos;s X, LinkedIn and GitHub.</p>
             <div className="member-socials-list">
               {participant.submission.teamMemberSocials.map((member) => (
-                <MemberSocialsForm key={member.id} member={member} slug={slug} token={token} />
+                <MemberSocialsForm key={member.id} member={member} slug={slug} token={token} save={editTeamMemberSocials} />
               ))}
             </div>
             {participant.event.lumaLinked ? (
@@ -431,6 +562,8 @@ export function ParticipantPage({
             ) : null}
           </>
         ) : null}
+
+        <WithdrawPanel {...withdrawProps} place="bottom" />
       </section>
     </main>
   );

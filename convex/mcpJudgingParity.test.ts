@@ -22,15 +22,19 @@ const principal = { organizationId: "org_parity", actor: "https://identity.examp
 const input = { slug: "hack" };
 afterEach(() => vi.useRealTimers());
 
+/**
+ * An event whose judges were set up before judges had ids: the roster holds
+ * their names, and their keys are those names normalized ("alex"). Events
+ * like this exist and are not migrated, so the tools must keep working on them.
+ */
 async function fixture(judges = ["Alex", "Sam", "Taylor", "Jo"]) {
   const t = convexTest(schema, modules);
   t.registerComponent("judgingDecisionHistory", tableHistorySchema, historyModules);
   const browser = t.withIdentity({ subject: "operator", org_id: principal.organizationId, tokenIdentifier: principal.actor });
   const eventId = await t.run((ctx) => ctx.db.insert("events", {
     name: "Hack", slug: "hack", eventType: "hackathon", workosOrganizationId: principal.organizationId,
-    meetUrl: "https://meet.example", queuePublished: false, createdAt: 1, updatedAt: 1,
+    meetUrl: "https://meet.example", queuePublished: false, roundOneJudges: judges, createdAt: 1, updatedAt: 1,
   }));
-  await t.mutation(internal.mcpAdmin.saveRoundOneJudges, { principal, input: { ...input, judges } });
   return { t, browser, eventId };
 }
 type Test = Awaited<ReturnType<typeof fixture>>["t"];
@@ -75,7 +79,6 @@ test("private roster save matches browser normalization and records the trusted 
   })).toEqual({ judgeCount: 2, reassignedSubmissionCount: 0 });
   const log = await t.run((ctx) => ctx.db.query("auditLog").withIndex("by_event", (q) => q.eq("eventId", eventId)).collect());
   expect(log.map(({ action, actor, details }) => ({ action, actor, details }))).toEqual([
-    { action: "round_one_judges_saved", actor: principal.actor, details: "4" },
     { action: "round_one_judges_saved", actor: principal.actor, details: "2" },
     { action: "round_one_judges_saved", actor: principal.actor, details: "2" },
   ]);
@@ -94,7 +97,7 @@ test("private judge links are generated, rotated, listed and absent from public 
   ]);
   expect(await browser.query(api.judging.listJudgeAccess, input)).toMatchObject([{ judgeKey: "alex", token: rotated.capabilityToken, active: true }]);
   const publicEvent = await t.query(api.events.getEventMeta, input);
-  expect(publicEvent).toEqual({ name: "Hack", slug: "hack", eventType: "hackathon" });
+  expect(publicEvent).toEqual({ name: "Hack", slug: "hack", eventType: "hackathon", visualStyle: "codex" });
   expect(JSON.stringify(await t.query(api.events.getStage, input))).not.toContain(rotated.capabilityToken);
   await expect(t.query(api.judging.listJudgeAccess, input)).rejects.toThrow("Sign in");
   await expect(t.mutation(api.judging.createJudgeAccess, { ...input, judgeName: "Alex", capabilityToken: "chosen-by-public-client" })).rejects.toThrow("Sign in");
@@ -193,7 +196,7 @@ test("private normalization uses real judge reviews, persists decisions and pres
     { judgeKey: "alex", effectiveDecision: "apply" }, { judgeKey: "sam", decision: { decision: "raw", stale: false }, effectiveDecision: "raw" },
   ] });
   expect((await t.query(components.judgingDecisionHistory.lib.listHistory, historyArgs)).page).toEqual(beforeHistory.page);
-  expect(await t.run((ctx) => ctx.db.get(eventId))).toMatchObject({ confirmedScoreBasisVersion: 5 });
+  expect(await t.run((ctx) => ctx.db.query("scoreBases").withIndex("by_event", (q) => q.eq("eventId", eventId)).unique())).toMatchObject({ version: 5, confirmedVersion: 5 });
   await expect(t.mutation(internal.mcpAdmin.saveNormalizationDecision, { principal, input: { ...input, judgeKey: "missing", decision: "apply" } })).rejects.toThrow("no complete reviews");
 });
 
@@ -212,9 +215,10 @@ test("private redistribution rejects incomplete, duplicate, foreign and changed 
   await review(t, alex.capabilityToken, finished, 7);
   const previewInput = { ...input, unavailableJudgeKey: "alex" };
   const preview = await t.query(internal.mcpAdmin.previewRedistribution, { principal, input: previewInput });
+  // Judges come back as keys, with their names beside them.
   expect(preview).toMatchObject([
-    { submissionId: first, previousJudges: ["Alex", "Sam"], judges: ["Taylor", "Sam"], preservedCompletedJudge: "sam" },
-    { submissionId: second, previousJudges: ["Alex", "Sam"], judges: ["Jo", "Sam"], preservedCompletedJudge: null },
+    { submissionId: first, previousJudges: ["alex", "sam"], previousJudgeNames: ["Alex", "Sam"], judges: ["taylor", "sam"], judgeNames: ["Taylor", "Sam"], preservedCompletedJudge: "sam" },
+    { submissionId: second, previousJudges: ["alex", "sam"], judges: ["jo", "sam"], preservedCompletedJudge: null },
   ]);
   expect(await browser.query(api.judging.previewRedistribution, previewInput)).toEqual(preview);
   const assignments = preview.map(({ submissionId, judges }) => ({ submissionId, judges }));
@@ -290,6 +294,6 @@ test("private judging rejects invalid lifecycle transitions and judge tokens can
   await expect(t.mutation(internal.mcpAdmin.startAssignmentPreparation, { principal, input })).rejects.toThrow("before judging starts");
   const foreignEventId = await t.run((ctx) => ctx.db.insert("events", { name: "Other", slug: "other", eventType: "hackathon", workosOrganizationId: "org_foreign", meetUrl: "https://meet.example", queuePublished: false, createdAt: 1, updatedAt: 1 }));
   const foreignSubmissionId = await submission(t, foreignEventId, 99, ["Alex", "Sam"]);
-  await expect(review(t, alex.capabilityToken, foreignSubmissionId, 10)).rejects.toThrow("not assigned to this judge");
+  await expect(review(t, alex.capabilityToken, foreignSubmissionId, 10)).rejects.toThrow("not in judging");
   expect(await review(t, alex.capabilityToken, first, 8)).toEqual({ completed: true });
 });

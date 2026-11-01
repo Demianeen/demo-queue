@@ -23,6 +23,7 @@ export function buildDevDayParticipantFixture(eventType: "demo" | "hackathon"): 
       visualStyle: "devday",
       theme: stage.event.theme,
       submissionsClosed: false,
+      phase: "submissions" as const,
       lumaLinked: false,
     },
     submission: {
@@ -36,12 +37,15 @@ export function buildDevDayParticipantFixture(eventType: "demo" | "hackathon"): 
       githubUrl: "https://github.com/example/signal-relay",
       rulesAcceptedAt: undefined,
       finalist: false,
+      placement: null,
       teamMembers: eventType === "hackathon" ? ["Noah Williams"] : [],
       teamMemberSocials: [],
       videoUrl: "https://example.com/demo",
       videoDeleteAt: undefined,
       videoDeletedAt: undefined,
       createdAt: 0,
+      canWithdraw: true,
+      canSubmitAgain: false,
     },
     meetUrl: null,
   };

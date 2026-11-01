@@ -79,17 +79,32 @@
 .sectionLabel svg { width: 16px; height: 16px; }
 .readmeLoading { display: grid; gap: 12px; padding-top: 20px; }
 .markdown { padding: 8px 6px 0; color: var(--app-ink); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
-.markdown h1, .markdown h2, .markdown h3 { margin: 1.15em 0 .45em; letter-spacing: -.02em; line-height: 1.25; }
-.markdown h1 { font-size: 25px; }
-.markdown h2 { padding-bottom: 7px; border-bottom: 1px solid var(--app-line); font-size: 20px; }
-.markdown h3 { font-size: 16px; }
-.markdown p, .markdown ul, .markdown ol, .markdown pre { margin: .75em 0; }
+/* Through .readmeSection: the organiser shell's own heading and paragraph margins outrank a single class. */
+.readmeSection .markdown :is(h1, h2, h3, h4, h5, h6) { margin: 1.4em 0 .5em; letter-spacing: -.01em; line-height: 1.25; font-weight: 600; }
+.readmeSection .markdown > :first-child { margin-top: 0; }
+.readmeSection .markdown h1 { font-size: 22px; padding-bottom: 6px; border-bottom: 1px solid var(--app-line); }
+.readmeSection .markdown h2 { font-size: 18px; padding-bottom: 6px; border-bottom: 1px solid var(--app-line); }
+.readmeSection .markdown h3 { font-size: 15px; }
+.readmeSection .markdown :is(h4, h5, h6) { font-size: 14px; }
+.readmeSection .markdown :is(p, ul, ol, pre, table, blockquote, details) { margin: .75em 0; }
+.readmeSection .markdown ul { list-style: disc; padding-left: 1.5em; }
+.readmeSection .markdown ol { list-style: decimal; padding-left: 1.5em; }
+.readmeSection .markdown li + li, .readmeSection .markdown li > :is(ul, ol) { margin-top: .25em; }
+.readmeSection .markdown li > :is(ul, ol) { margin-bottom: 0; }
+.readmeSection .markdown li:has(> input[type="checkbox"]) { list-style: none; }
+.readmeSection .markdown li > input[type="checkbox"] { margin: 0 .4em 0 -1.3em; vertical-align: middle; }
 .markdown pre { overflow-x: auto; padding: 13px; border: 1px solid var(--app-line); border-radius: 10px; background: color-mix(in srgb, var(--app-bg) 70%, white); }
 .markdown code { padding: .12em .3em; border-radius: 5px; background: color-mix(in srgb, var(--app-bg) 70%, white); font-size: .9em; }
 .markdown pre code { padding: 0; background: transparent; }
-.markdown img { max-width: 100%; height: auto; border-radius: 10px; }
+/* Inline, as on GitHub, so a row of badges stays a row; a lone image still fills its line. */
+.readmeSection .markdown img { display: inline-block; vertical-align: middle; max-width: 100%; height: auto; }
 .markdown a { color: var(--dq-accent); }
-.markdown blockquote { margin-left: 0; padding-left: 14px; border-left: 3px solid var(--app-line); color: var(--app-muted); }
+.readmeSection .markdown blockquote { margin-left: 0; padding-left: 14px; border-left: 3px solid var(--app-line); color: var(--app-muted); }
+.readmeSection .markdown hr { margin: 1.5em 0; border: 0; border-top: 1px solid var(--app-line); }
+.readmeSection .markdown table { display: block; overflow-x: auto; border-collapse: collapse; }
+.readmeSection .markdown :is(th, td) { padding: 6px 12px; border: 1px solid var(--app-line); text-align: left; }
+.readmeSection .markdown th { font-weight: 600; }
+.readmeSection .markdown summary { cursor: pointer; }
 .emptyCopy { margin: 22px 4px; color: var(--app-muted); font-size: 13px; line-height: 1.5; }
 .scorePanel { display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; padding: 24px 22px 18px; }
 .scoreHeading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
@@ -172,3 +187,75 @@ div.videoFallback { font-weight: 400; color: var(--dq-fg-3); text-decoration: no
 .aiSummaryPending { display: grid; gap: 8px; padding: 2px 0 4px; }
 .aiSummaryNone { display: grid; gap: 4px; margin-top: 8px; padding: 12px 14px; border: 1px dashed var(--dq-line); border-radius: 10px; }
 .aiSummaryNone .aiSummaryHeading { color: var(--dq-fg-2); }
+
+/* PR 3: the judge page on getJudgeWorkspace. */
+.confirmActions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.waitingPanel h1 { font-size: 20px; line-height: 26px; font-weight: 600; }
+.scoringAs { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 10px; border: 1px solid var(--dq-line); border-radius: 7px; background: var(--dq-card); font-size: 13px; color: var(--dq-fg-3); white-space: nowrap; }
+.scoringAs strong { color: var(--dq-fg); font-weight: 600; }
+.scoringAs button { height: 22px; padding: 0 8px; border: 0; border-radius: 5px; background: var(--dq-segment); color: var(--dq-fg-2); font: inherit; font-size: 12px; cursor: pointer; }
+.scoringAs button:hover { color: var(--dq-fg); }
+.searchField input { padding-right: 32px; }
+.searchKey { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); min-width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid var(--dq-line); border-radius: 4px; font-size: 11px; color: var(--dq-fg-3); background: var(--dq-card); }
+.filters { display: grid; grid-template-columns: auto minmax(0, 1fr) 30px; gap: 6px; }
+.filterButton { height: 30px; min-width: 0; display: flex; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid var(--dq-input); border-radius: 7px; background: var(--dq-card); font: inherit; font-size: 12px; color: var(--dq-fg-3); cursor: pointer; }
+.filterButton strong { color: var(--dq-fg); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filterButton svg { width: 13px; height: 13px; margin-left: auto; flex: none; }
+.filterButton[data-popup-open] { border-color: var(--dq-accent); box-shadow: 0 0 0 3px var(--dq-focus); }
+.sortButton { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 1px solid var(--dq-input); border-radius: 7px; background: var(--dq-card); color: var(--dq-fg-3); cursor: pointer; }
+.sortButton svg { width: 15px; height: 15px; }
+.sortButton:hover { color: var(--dq-fg); }
+.sortButton:focus-visible { outline: none; border-color: var(--dq-accent); box-shadow: 0 0 0 3px var(--dq-focus); }
+.sortButton[aria-pressed="true"] { border-color: var(--dq-accent); background: var(--dq-accent-soft); color: var(--dq-accent); }
+.filterCount { color: var(--dq-fg-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.menu { width: 300px; padding: 4px; gap: 0; }
+.menuItem { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; font: inherit; text-align: left; cursor: pointer; color: var(--dq-fg); }
+.menuItem:hover, .menuItem[aria-selected="true"], .menuItem[aria-pressed="true"] { background: var(--dq-hover); }
+.menuItem[aria-selected="true"] strong { color: var(--dq-accent); }
+.menuText { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.menuText strong { font-size: 13px; font-weight: 500; }
+.menuText small { font-size: 11px; color: var(--dq-fg-3); }
+.menuKey { min-width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid var(--dq-line); border-radius: 4px; font-size: 11px; color: var(--dq-fg-2); background: var(--dq-card); }
+.assignmentButton, .assignmentActive { grid-template-columns: 18px minmax(0, 1fr) auto; }
+.rowNote { font-size: 11px; color: var(--dq-warning-fg); font-variant-numeric: tabular-nums; }
+.moreLink { margin: 6px 12px 12px; padding: 0; border: 0; background: transparent; font: inherit; font-size: 12px; color: var(--dq-fg-2); cursor: pointer; text-align: left; }
+.moreLink:hover { color: var(--dq-fg); text-decoration: underline; }
+.inlineLink { padding: 0; border: 0; background: transparent; font: inherit; color: var(--dq-fg-2); text-decoration: underline; cursor: pointer; }
+.inlineLink:hover { color: var(--dq-fg); }
+.rowTotal { font-size: 12px; color: var(--dq-fg); font-variant-numeric: tabular-nums; }
+.mineHeading { color: var(--dq-fg-3); line-height: 16px; }
+.projectTitle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px; }
+.projectTeam { color: var(--dq-fg-2); font-size: 13px; }
+.aiSummaryRows { display: grid; gap: 6px; margin: 0; font-size: 13px; line-height: 19px; }
+.aiSummaryRows > div { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px; }
+.aiSummaryRows dt { color: var(--dq-fg-2); }
+.aiSummaryRows dd { margin: 0; color: var(--dq-fg); }
+.projectLinks { justify-content: space-between; margin-top: 12px; }
+.projectLinks > span { display: inline-flex; gap: 14px; flex-wrap: wrap; }
+.descriptionSection { margin-top: 24px; }
+.descriptionSection .description { padding: 8px 4px 0; }
+.criterionTitle { display: flex; width: 100%; justify-content: space-between; gap: 8px; }
+.criterionPicked { font-size: 12px; font-weight: 500; color: var(--dq-fg-3); font-variant-numeric: tabular-nums; }
+.criterion[data-active] .scoreScale { border-color: var(--dq-accent); }
+.scoreTip { display: grid; gap: 2px; max-width: 240px; }
+.scoreTip strong { font-weight: 600; }
+.scoreTipKey { opacity: 0.8; }
+.guide { margin-top: 4px; padding: 10px 12px; border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); font-size: 12px; }
+.guide summary { cursor: pointer; font-weight: 500; color: var(--dq-fg); }
+.guide dl { display: grid; gap: 4px; margin: 8px 0 0; }
+.guide dl > div { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; }
+.guide dt { color: var(--dq-fg-3); font-variant-numeric: tabular-nums; }
+.guide dd { margin: 0; color: var(--dq-fg-2); }
+.guide dd strong { color: var(--dq-fg); font-weight: 500; }
+.guide p { margin: 8px 0 0; color: var(--dq-fg-3); }
+
+.aiSummaryMissing { color: var(--dq-fg-3); font-style: italic; }
+
+/* Help out: whose project a row helps, who covered it, who is scoring it now. */
+.mineHeading[data-tone="behind"] { color: var(--dq-warning-fg); font-weight: 600; }
+.assignmentButton[data-dim] strong, .assignmentButton[data-dim] svg { opacity: 0.55; }
+.assignmentText small[data-tone="warning"] { color: var(--dq-warning-fg); }
+.assignmentText small[data-tone="done"] { color: var(--dq-success-fg); }
+.helpNote { margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--dq-warning-line); border-radius: 8px; background: var(--dq-warning-bg); color: var(--dq-fg); font-size: 13px; line-height: 19px; }
+.helpNote[data-tone="done"] { border-color: var(--dq-success-line); background: var(--dq-success-bg); }
+.helpNote strong { font-weight: 600; }

@@ -1,6 +1,7 @@
 "use client";
 
 import { EventWelcome } from "./EventWelcome";
+import { StageWinners } from "./results/StageWinners";
 import { eventRootProps, eventThemeContract, eventTokenProperties } from "@/lib/event-theme-contract";
 import Image from "next/image";
 import { AstraBackdrop } from "@/components/AstraBackdrop";
@@ -13,14 +14,7 @@ import { stageSubmissionPrompt } from "@/lib/event-state";
 import type { StagePresentationData, StageTimerData } from "@/lib/stage-presentation";
 import { cn } from "@/lib/utils";
 import { isOutpostStyle, normalizeVisualStyle } from "@/lib/visual-style";
-
-function formatTimer(ms: number) {
-  const totalSeconds = ms < 0 ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
-  const absoluteSeconds = Math.abs(totalSeconds);
-  const minutes = Math.floor(absoluteSeconds / 60);
-  const seconds = absoluteSeconds % 60;
-  return `${totalSeconds < 0 ? "-" : ""}${minutes}:${String(seconds).padStart(2, "0")}`;
-}
+import { formatSignedClock as formatTimer, submissionsClockLabel, timeLeftMs } from "@/lib/timer-clock";
 
 type TimerUrgency = "normal" | "warning" | "danger";
 
@@ -33,21 +27,25 @@ function timerUrgency(remainingMs: number, durationMs: number): TimerUrgency {
   return "normal";
 }
 
-function useStageTimer(timer: StageTimerData | undefined) {
+type ClockTimer = Pick<StageTimerData, "status" | "remainingMs" | "serverNow"> & {
+  durationMs: number | null;
+  endsAt?: number | null;
+};
+
+function useStageTimer(timer: ClockTimer | null | undefined) {
   const [clientNow, setClientNow] = useState(() => Date.now());
-  const [receivedAt, setReceivedAt] = useState(() => Date.now());
+  const running = timer?.status === "running";
 
   useEffect(() => {
-    setReceivedAt(Date.now());
     setClientNow(Date.now());
-  }, [timer?.serverNow, timer?.endsAt, timer?.remainingMs, timer?.status]);
+    if (!running) return;
 
-  useEffect(() => {
-    if (!timer || timer.status !== "running") return;
+    const interval = window.setInterval(() => {
+      setClientNow(Date.now());
+    }, 250);
 
-    const interval = window.setInterval(() => setClientNow(Date.now()), 250);
     return () => window.clearInterval(interval);
-  }, [timer]);
+  }, [running, timer?.serverNow, timer?.remainingMs, timer?.endsAt]);
 
   if (!timer) {
     return {
@@ -59,11 +57,8 @@ function useStageTimer(timer: StageTimerData | undefined) {
     };
   }
 
-  const estimatedServerNow = timer.serverNow + (clientNow - receivedAt);
-  const remainingMs =
-    timer.status === "running" && timer.endsAt !== undefined
-      ? timer.endsAt - estimatedServerNow
-      : timer.remainingMs;
+  // The same reading as every other clock: see lib/timer-clock.ts.
+  const remainingMs = timeLeftMs({ ...timer, running: timer.status === "running" }, clientNow);
   const label =
     timer.status === "running"
       ? remainingMs < 0
@@ -77,8 +72,20 @@ function useStageTimer(timer: StageTimerData | undefined) {
     status: timer.status,
     label,
     remainingMs,
-    durationMs: timer.durationMs,
+    durationMs: timer.durationMs ?? 0,
     display: formatTimer(remainingMs),
+  };
+}
+
+/** The judging clock: never below 0:00, and "Time's up" once it runs out, as on the organiser's and judges' pages. */
+function useJudgingStageClock(timer: ClockTimer | null | undefined) {
+  const clock = useStageTimer(timer);
+  if (!timer) return null;
+  const over = clock.remainingMs <= 0;
+  return {
+    ...clock,
+    label: over ? "Time's up" : clock.status === "paused" ? "Judging paused" : "Judging closes in",
+    display: formatTimer(Math.max(0, clock.remainingMs)),
   };
 }
 
@@ -115,7 +122,12 @@ export function StagePresentation({
   const lineupListRef = useRef<HTMLOListElement | null>(null);
   const previousCurrentId = useRef<string | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
-  const queueTimer = useStageTimer(stage.stageTimer);
+  const submissionsClock = useStageTimer(stage.stageTimer);
+  // The submissions clock still counts below zero; past it the label says the deadline passed.
+  const stageClock = { ...submissionsClock, label: submissionsClockLabel(submissionsClock.remainingMs, submissionsClock.label) };
+  const judgingClock = useJudgingStageClock(stage.judgingTimer);
+  // During judging the shown clock is the judging clock, so the stage never disagrees with judges.
+  const queueTimer = judgingClock ?? stageClock;
   const demoTimer = useStageTimer(stage.demoTimer);
   const showQueueTimer = stage.event.showStageTimerOnStage;
   const showQrStage = stage.event.stageScreenMode === "qr";
@@ -134,14 +146,14 @@ export function StagePresentation({
   const liveLineupIsComplete = isLive && !stage.current && stage.remainingCount === 0;
   const currentStageLabel = stage.current
     ? isHackathon
-      ? "Now presenting"
+      ? "Now pitching"
       : "Now demoing"
     : liveLineupIsComplete
-      ? `All ${isHackathon ? "presentations" : "demos"} complete`
+      ? `All ${isHackathon ? "pitches" : "demos"} complete`
       : isLive
-        ? "Waiting for presenter"
+        ? isHackathon ? "Waiting for the first pitch" : "Waiting for presenter"
         : isHackathon
-          ? "Now presenting"
+          ? "Now pitching"
           : "Now demoing";
   const currentStageTitle =
     (isOutpost ? stage.current?.demoTitle : stage.current?.teamName ?? stage.current?.name) ??
@@ -263,8 +275,10 @@ export function StagePresentation({
   }, [currentId, isLive]);
 
   const Root = embedded ? "div" : "main";
+  // Once the event finishes with its winners submitted, the stage shows them instead of the lineup.
+  const results = stage.results;
 
-  if (visualStyle === "neutral" && showQrStage) return <Root className="neutral-stage" data-event-stage="classic" style={eventTokenProperties(eventThemeContract("neutral", stage.event.theme))} inert={embedded ? true : undefined}>
+  if (visualStyle === "neutral" && showQrStage && !results) return <Root className="neutral-stage" data-event-stage="classic" style={eventTokenProperties(eventThemeContract("neutral", stage.event.theme))} inert={embedded ? true : undefined}>
     <EventWelcome name={stage.event.name} eventType={stage.event.eventType} submissionUrl={submissionUrl} theme={stage.event.theme} closed={stage.event.submissionsClosed} />
     {showQueueTimer && <div className={`neutral-stage-timer is-${queueTimerUrgency}`} aria-live="polite">{queueTimer.label} <strong>{queueTimer.display}</strong></div>}
     {showSubmissionCount && <p className="neutral-stage-count">{waitingCount} {isHackathon ? "projects" : "demos"} submitted</p>}
@@ -313,7 +327,7 @@ export function StagePresentation({
       ) : (
         <span className="codex-mark stage-mark" aria-hidden />
       )}
-      <section className="stage-grid">
+      {results ? <StageWinners eventName={stage.event.name} results={results} layout={isAstra ? "lineup" : "podium"} /> : <section className="stage-grid">
         {showQrStage ? (
           <div className="stage-main stage-qr-main">
             {showQueueTimer ? (
@@ -450,7 +464,7 @@ export function StagePresentation({
             </div>
           )}
         </aside>
-      </section>
+      </section>}
     </Root>
   );
 }

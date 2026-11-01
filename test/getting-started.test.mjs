@@ -37,3 +37,13 @@ test("every assistant gets steps that use the address and end with the read-only
   assert.equal(assistantSetup("codex", url).steps[0].command, `codex mcp add demo-queue --url ${url}`);
   assert.match(SAMPLE_PROMPT, /Do not change anything\.$/);
 });
+
+test("the guide reads its status without throwing during render (React error 310)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../components/GettingStarted.tsx", import.meta.url), "utf8");
+  // useQuery throws a failed query during render; that left /events unable to navigate away.
+  assert.doesNotMatch(source, /useQuery\(api\.gettingStarted\.status/);
+  assert.match(source, /useQueries\(request\)/);
+  assert.match(source, /const request = useMemo\(/, "a new request object every render resubscribes in a loop");
+  assert.match(source, /if \(failed\) return <GuideUnavailable/);
+});

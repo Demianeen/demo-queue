@@ -171,6 +171,9 @@ test("removing a track in use needs confirmation and leaves other tracks on the 
   expect(await owner.mutation(api.tracks.removeTrack, { slug: input.slug, trackId: ai, confirmInUse: true })).toEqual({ removedFromSubmissions: 1 });
   expect((await t.run((ctx) => ctx.db.get(submissionId)))?.trackIds).toEqual([open]);
   expect(await ids()).toEqual([open]);
+  // A form opened before the removal still sends the removed track: it is dropped, not an error.
+  const late = await submit(t, [ai, open]);
+  expect((await t.run((ctx) => ctx.db.get(late.submissionId)))?.trackIds).toEqual([open]);
   const log = await t.run((ctx) => ctx.db.query("auditLog").collect());
   expect(log.map((entry) => entry.action)).toEqual(expect.arrayContaining(["track_removed"]));
 });

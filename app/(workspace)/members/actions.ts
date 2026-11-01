@@ -103,3 +103,19 @@ export async function removeMember(membershipId: string): Promise<ActionResult> 
     return { ok: true };
   } catch (error) { return failure(error, "Could not remove this member. Try again."); }
 }
+
+/**
+ * First names of the organization's members by WorkOS user id, for "who did
+ * this" in Recent changes and the practice list. Names only, no emails.
+ */
+export async function memberNames(): Promise<Record<string, string>> {
+  try {
+    const { user, organizationId } = await requireOrganizationMember();
+    const overview = await loadMembersOverview(organizationId, user.id);
+    return Object.fromEntries(overview.members.map((member) => [member.userId, member.name]));
+  } catch (error) {
+    unstable_rethrow(error);
+    console.error("member-names-failed", { reason: error instanceof Error ? error.name : "unknown" });
+    return {};
+  }
+}

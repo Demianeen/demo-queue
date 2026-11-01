@@ -1,0 +1,50 @@
+/* Option A: one card. The top line holds the heading and the caveat; the body has the read, then the summary lines. */
+.panel { container-type: inline-size; border: 1px solid var(--dq-line); border-radius: 10px; background: var(--dq-card); }
+.head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding: 9px 14px; border-bottom: 1px solid var(--dq-divider-soft); }
+.title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; line-height: 18px; font-weight: 600; color: var(--dq-fg); }
+.title svg { width: 13px; height: 13px; color: var(--dq-accent); }
+.caveat { font-size: 12px; line-height: 18px; color: var(--dq-fg-3); }
+.body { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 14px; }
+.verdict { margin: 0; font-size: 14px; line-height: 21px; color: var(--dq-fg); }
+.fit { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 10px; align-items: baseline; }
+.fit:empty { display: none; }
+.fitRow { display: contents; }
+.fitRow .level { justify-self: start; }
+.reason { min-width: 0; font-size: 13px; line-height: 19px; color: var(--dq-fg-2); }
+.rows { display: grid; gap: 6px; margin: 0; font-size: 13px; line-height: 19px; }
+.verdict ~ .rows, .fit ~ .rows, .pending ~ .rows, .fit ~ .pending { padding-top: 12px; border-top: 1px solid var(--dq-divider-soft); }
+.rows > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; }
+.rows dt { color: var(--dq-fg-3); }
+.rows dd { margin: 0; color: var(--dq-fg); }
+.missing { color: var(--dq-fg-3); font-style: italic; }
+.pending { display: grid; gap: 6px; }
+.note { font-size: 11px; color: var(--dq-fg-3); }
+/* A narrow card (the organiser's project panel) puts each reason under its level, and each label over its line. */
+@container (max-width: 460px) {
+  .fit { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .fitRow .reason { margin-bottom: 6px; }
+  .rows > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+
+/* Level pills: green for a fit or a real use, amber for partial or light, grey for weak or no sign. */
+.level, .chipLevel { font-size: 11px; line-height: 16px; border: 1px solid var(--dq-line); background: var(--dq-card); color: var(--dq-fg-3); border-radius: 10px; padding: 0 7px; white-space: nowrap; }
+.level[data-tone="good"], .chipLevel[data-tone="good"] { color: var(--dq-success-fg); border-color: var(--dq-success-line); background: var(--dq-success-bg); }
+.level[data-tone="some"], .chipLevel[data-tone="some"] { color: var(--dq-warning-fg); border-color: var(--dq-warning-line); background: var(--dq-warning-bg); }
+
+/*
+ * Rows: the chips sit after the team name, which gives way first. Past that
+ * they keep their width up to the space left, and a chip that no longer fits
+ * wraps onto a hidden second line, so no chip is ever cut in half.
+ */
+/* A chip alone on its line shrinks its name instead. */
+.chips { box-sizing: border-box; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; margin-left: auto; padding-left: 8px; flex: 0 0 auto; max-width: 100%; height: 18px; overflow: hidden; }
+.chip { display: inline-flex; flex: 0 1 auto; min-width: 0; border-radius: 10px; }
+.chip:focus-visible, .more:focus-visible { outline: 2px solid var(--dq-accent); outline-offset: 1px; }
+.chipLevel { display: inline-flex; min-width: 0; }
+.chipName { overflow: hidden; text-overflow: ellipsis; max-width: 14ch; min-width: 0; }
+.chipSuffix { flex: none; }
+/* Too narrow for even one level: no chips rather than a cut one. */
+@container (max-width: 100px) { .chips { display: none; } }
+.more { flex: none; font-size: 11px; line-height: 16px; color: var(--dq-fg-2); border: 1px solid var(--dq-line); border-radius: 10px; padding: 0 7px; white-space: nowrap; }
+.tip { max-width: 320px; white-space: normal; }
+.tipList { display: grid; gap: 4px; }

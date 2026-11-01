@@ -13,6 +13,7 @@ const styleSelection = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("preset"), preset: z.enum(VISUAL_STYLES) }).strict(),
   z.object({ kind: z.literal("saved"), id: z.string().min(1).max(128) }).strict(),
 ]);
+const defaultSelection = z.discriminatedUnion("kind", [...styleSelection.options, z.object({ kind: z.literal("none") }).strict()]);
 const theme = z.object({
   background: z.string().regex(/^#[0-9a-f]{6}$/i), foreground: z.string().regex(/^#[0-9a-f]{6}$/i), accent: z.string().regex(/^#[0-9a-f]{6}$/i),
   font: z.enum(["sans", "serif", "mono"]), radius: z.number().int().min(0).max(24),
@@ -76,7 +77,7 @@ export function createToolServer(ctx: Pick<ActionCtx, "runQuery" | "runMutation"
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runQuery(internal.mcpData.getEvent, args)));
   server.registerTool("create_event", {
     description: "Create an initially unpublished event using a saved style, built-in preset, or the organization default.",
-    inputSchema: z.object({ organizationId, name: z.string().trim().min(1).max(160), slug: z.string().max(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), eventType: z.enum(["demo", "hackathon"]), meetUrl: z.url().max(2048).refine((url) => ["https:", "http:"].includes(new URL(url).protocol)), style: styleSelection.optional() }).strict(),
+    inputSchema: z.object({ organizationId, name: z.string().trim().min(1).max(160), slug: z.string().max(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), eventType: z.enum(["demo", "hackathon"]), meetUrl: z.url().max(2048).refine((url) => ["https:", "http:"].includes(new URL(url).protocol)).optional().describe("Google Meet link. Required for a demo night; optional for a hackathon."), style: styleSelection.optional() }).strict(),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runMutation(internal.mcpData.createEvent, {
     expectedOrganizationId: args.organizationId, actor: user.actor, name: args.name, slug: args.slug, eventType: args.eventType, meetUrl: args.meetUrl,
@@ -90,8 +91,8 @@ export function createToolServer(ctx: Pick<ActionCtx, "runQuery" | "runMutation"
     inputSchema: z.object({ organizationId, name: z.string().trim().min(1).max(80), theme }).strict(), annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runMutation(internal.mcpData.createStyle, args)));
   server.registerTool("set_default_style", {
-    description: "Explicitly change the organization default. Existing event snapshots remain unchanged.",
-    inputSchema: z.object({ organizationId, selection: styleSelection }).strict(), annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    description: "Explicitly change the organization default, or remove it with kind \"none\" (New event then asks for a style; create_event without a style uses Base). Existing event snapshots remain unchanged.",
+    inputSchema: z.object({ organizationId, selection: defaultSelection }).strict(), annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   }, async (args) => toolCall(user, config, args.organizationId, () => ctx.runMutation(internal.mcpData.setDefaultStyle, args)));
   registerAdminTools(server, ctx, user, (organizationId, operation) => toolCall(user, config, organizationId, operation, true));
   return server;

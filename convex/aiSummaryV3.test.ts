@@ -180,3 +180,27 @@ test("regenerate queues every project in judging, reports progress and has its o
   const outsider = convexTest(schema, modules).withIdentity({ subject: "x", org_id: "org_other" });
   await expect(outsider.query(api.aiSummaries.eventSummaryRegeneration, { slug: "hack" })).rejects.toThrow();
 });
+
+test("editing a picked track's description or a sponsor rewrites the full v3 summary", async () => {
+  generateText.mockResolvedValue({ output: V3_OUTPUT });
+  const { t, eventId, ids, runAll, summary } = await setup();
+  const agents = await t.run((ctx) => ctx.db.insert("eventTracks", { eventId, name: "AI agents", description: "Agents that do real work", order: 0, createdAt: 1, updatedAt: 1 }));
+  await t.run((ctx) => ctx.db.patch(ids[0], { trackIds: [agents] }));
+  await t.mutation(api.aiSummaries.regenerateEventSummaries, { slug: "hack" });
+  await runAll();
+  expect(generateText).toHaveBeenCalledTimes(1);
+
+  await t.mutation(api.tracks.updateTrack, { slug: "hack", trackId: agents, name: "AI agents", description: "Agents that act without a person" });
+  await runAll();
+  expect(generateText).toHaveBeenCalledTimes(2);
+  const trackCall = generateText.mock.calls[1][0];
+  expect(trackCall.providerOptions).toBeDefined();
+  expect(trackCall.prompt).toContain("Agents that act without a person");
+  expect(await summary(ids[0])).toMatchObject({ model: "gpt-6.1-sol", codeHash: "v3:s2", questions: V3_OUTPUT.questions, build: { sha: "s2" } });
+
+  await t.mutation(api.sponsors.addSponsor, { slug: "hack", name: "Daytona", usage: "Runs code in Daytona sandboxes" });
+  await runAll();
+  expect(generateText).toHaveBeenCalledTimes(3);
+  expect(generateText.mock.calls[2][0].prompt).toContain("Runs code in Daytona sandboxes");
+  expect(await summary(ids[0])).toMatchObject({ model: "gpt-6.1-sol", build: { sha: "s2" } });
+});

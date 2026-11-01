@@ -7,7 +7,8 @@ export default function config(phase: string): NextConfig {
   // Design review runs the real UI with local fixtures; normal builds still
   // require the configured backend URL and retain the existing validation.
   const previewOnly = phase === PHASE_DEVELOPMENT_SERVER && process.env.DEMO_QUEUE_THEME_PREVIEW === "1";
-  const routes = previewOnly ? [] : mcpRewrites(getEnv().NEXT_PUBLIC_CONVEX_URL);
+  // A Vercel preview has its own Convex deployment, which serves no MCP, so there is nothing to proxy.
+  const routes = previewOnly || process.env.VERCEL_ENV === "preview" ? [] : mcpRewrites(getEnv().NEXT_PUBLIC_CONVEX_URL);
   return {
     async rewrites() { return routes; },
     async headers() {

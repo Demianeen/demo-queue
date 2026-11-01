@@ -5,10 +5,10 @@ import { useAction, useMutation } from "convex/react";
 import { ExternalLinkIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
+import { convexErrorText } from "@/lib/convex-error";
 
 function errorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "Something went wrong.";
-  return message.includes("ConvexError") ? message.split("ConvexError: ").pop()?.split("\n")[0] ?? message : message;
+  return convexErrorText(error) ?? "Something went wrong.";
 }
 
 const HELP =

@@ -8,6 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { TrackPicker } from "@/components/TrackPicker";
 import { EMAIL_TAKEN_MESSAGE, SubmissionEmailField } from "@/components/SubmissionEmailField";
 import { browserClientId } from "@/lib/client-id";
+import { convexErrorText } from "@/lib/convex-error";
 import { captureEvent } from "@/lib/posthog-browser";
 import { SubmittedView } from "./SubmittedView";
 import { forgetSubmission, readRememberedSubmission, rememberSubmission } from "@/lib/remembered-submission";
@@ -472,8 +473,7 @@ export function SubmissionPage({
     } catch (error) {
       setIsSubmitting(false);
       captureEvent("submission_failed", { event_slug: slug, reason: "server_error" });
-      const message = error instanceof Error ? error.message : "Something went wrong submitting.";
-      setSubmissionError(message.includes("ConvexError") ? message.split("ConvexError: ").pop() ?? message : message);
+      setSubmissionError(convexErrorText(error) ?? "Something went wrong submitting. Please try again.");
     }
   }
 

@@ -8,6 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { TrackPicker } from "@/components/TrackPicker";
 import { EMAIL_TAKEN_MESSAGE, SubmissionEmailField } from "@/components/SubmissionEmailField";
 import { browserClientId } from "@/lib/client-id";
+import { captureEvent } from "@/lib/posthog-browser";
 import { SubmittedView } from "./SubmittedView";
 import { forgetSubmission, readRememberedSubmission, rememberSubmission } from "@/lib/remembered-submission";
 import { LockKeyholeIcon, Plus, Trash2 } from "lucide-react";
@@ -195,6 +196,7 @@ export function SubmissionPage({
   const [whatsAppCountries, setWhatsAppCountries] = useState<Record<number, string | null>>({});
   const [personRowIds, setPersonRowIds] = useState([0]);
   const nextPersonRowId = useRef(1);
+  const started = useRef(false);
   const [emails, setEmails] = useState<Record<number, string>>({});
   const [takenRows, setTakenRows] = useState<ReadonlySet<number>>(new Set());
   const [videoError, setVideoError] = useState("");
@@ -274,6 +276,10 @@ export function SubmissionPage({
 
   // An error belongs to what was typed: editing the field clears it until the next submit.
   function clearErrorFor(event: FormEvent<HTMLFormElement>) {
+    if (!started.current) {
+      started.current = true;
+      captureEvent("submission_started", { event_slug: slug });
+    }
     const name = (event.target as HTMLInputElement).name;
     if (!name) return;
     const limitField = name === `email-${DEMOER_ROW}` ? "email" : name;
@@ -418,6 +424,9 @@ export function SubmissionPage({
     }
     setPersonErrors(nextPersonErrors);
     if (!valid) {
+      // Field names without their row numbers: which fields were wrong, never what was typed.
+      const fields = [...new Set([...invalidFieldNames].map((name) => name.replace(/-\d+$/, "")))].sort().join(",");
+      captureEvent("submission_failed", { event_slug: slug, reason: "validation", fields });
       focusFirstInvalidField(formElement, invalidFieldNames);
       return;
     }
@@ -455,12 +464,14 @@ export function SubmissionPage({
       if (typeof result === "object" && result !== null && "emailTaken" in result) {
         setIsSubmitting(false);
         setSubmissionError(EMAIL_TAKEN_MESSAGE);
+        captureEvent("submission_failed", { event_slug: slug, reason: "email_taken" });
         return;
       }
       rememberSubmission(slug, participantToken);
       onSubmitted(participantToken);
     } catch (error) {
       setIsSubmitting(false);
+      captureEvent("submission_failed", { event_slug: slug, reason: "server_error" });
       const message = error instanceof Error ? error.message : "Something went wrong submitting.";
       setSubmissionError(message.includes("ConvexError") ? message.split("ConvexError: ").pop() ?? message : message);
     }

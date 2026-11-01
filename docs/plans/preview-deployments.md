@@ -111,9 +111,9 @@ development):
 
 | Name | On previews |
 | --- | --- |
-| `WORKOS_API_KEY` | Required, the development WorkOS key. `convex deploy` reads it from the deployment to register callbacks, and member functions use it. |
+| `WORKOS_API_KEY` | Required, the development WorkOS key. `convex deploy` reads it only from the deployment, never from Vercel. Without it, the CLI provisions a new AuthKit environment for the preview instead of failing, and sign-in no longer matches the frontend's client. |
+| `WORKOS_CLIENT_ID` | Required, `client_01M1RPKQD8S6KM3Q61N0N2FE4D`, the development client the build pins. |
 | `PREVIEW_SEED_ORGANIZATION_ID` | Required, the development Test organisation id. New; not on development. |
-| `WORKOS_CLIENT_ID` | Optional. When unset, `convex deploy` copies Vercel's, which the build pins. If set, it must be `client_01M1RPKQD8S6KM3Q61N0N2FE4D`. |
 | `WORKOS_ENVIRONMENT_ID` | Optional. |
 | `OPENAI_API_KEY` | Optional. Seeded events use sample summaries; needed only to try the real model. |
 | `GITHUB_TOKEN` | Optional. Raises the README read limit for AI summaries. |
@@ -123,12 +123,29 @@ development):
 | `GOOGLE_PRIVATE_KEY`, `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Not needed: no current code reads them. |
 | `RESEND_API_KEY` | Do not set. Not on development either. |
 
-Until the deploy key and the two required variables are set, preview builds
-fail.
+Until the deploy key and the three required variables are set, preview builds
+fail or sign in against the wrong WorkOS environment.
 
-Re-running the seed, for example after setting the organisation id on a
-branch whose first build failed: Convex dashboard > the branch's preview
+Default variables apply only when a preview deployment is created, and the
+seed runs only then. A preview deployment created before the defaults were set
+keeps what it got: delete it in the Convex dashboard (its name is the branch)
+and redeploy the branch in Vercel, which creates it again with the defaults and
+runs the seed. If its first build provisioned an AuthKit environment, remove
+that under Convex dashboard > Settings > Integrations > WorkOS.
+
+To run only the seed on an existing preview deployment, for example after its
+first build stopped at the organisation id: Convex dashboard > that preview
 deployment > Functions > `previewSeed:seed` > Run, with `{}`.
+
+## First hosted run, 1 November 2026
+
+The first build of this branch, Vercel deployment
+`dpl_GAEUxwxMcm7QHfqPhZSaF9jNuPAk`, used the preview deploy key: it created
+preview deployment `giant-bloodhound-107`, built Next.js against it and pushed
+the functions. The deployment had no `WORKOS_API_KEY`, so the CLI provisioned a
+new AuthKit environment and registered the branch callback there. The seed
+then stopped because `PREVIEW_SEED_ORGANIZATION_ID` was not set, which failed
+the build.
 
 ## Verification
 
@@ -139,5 +156,6 @@ deployment > Functions > `previewSeed:seed` > Run, with `{}`.
   dropped Convex variables, unchanged Production command.
 - `convex/mcpConfiguration.test.ts`: a preview site loads `http.ts` with no
   MCP routes.
-- A hosted preview build and sign-in are not verified until the settings above
-  exist.
+- Hosted: the deploy key path, Next.js build against the preview and function
+  push work (first hosted run above). The seed, sign-in and the WorkOS client
+  on a preview are not verified until the settings above exist.

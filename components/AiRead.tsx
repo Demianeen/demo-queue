@@ -13,10 +13,12 @@ const SPONSOR_TONE = { core: "good", used: "good", light: "some", none: "none" }
 export type AiSummaryRow = { label: string; text: string };
 
 /** The panel's top line: where the AI got its text, and that it can be wrong. */
-export function aiSummaryCaveat(summary: { sample?: boolean; usedReadme?: boolean; stale?: boolean }) {
+export function aiSummaryCaveat(summary: { sample?: boolean; usedReadme?: boolean; usedCode?: boolean; stale?: boolean }) {
+  const sources = ["the team's description", ...(summary.usedReadme ? ["README"] : []), ...(summary.usedCode ? ["code"] : [])];
+  const read = sources.length > 1 ? `${sources.slice(0, -1).join(", ")} and ${sources.at(-1)}` : sources[0];
   const source = summary.sample
     ? "Sample (practice). The real model is off for this event."
-    : `From the team's description${summary.usedReadme ? " and README" : ""}. Check it against the demo.`;
+    : `From ${read}. Check it against the demo.`;
   return summary.stale ? `${source} The project changed; a new one is on its way.` : source;
 }
 

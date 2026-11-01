@@ -554,6 +554,8 @@ export function publicAiSummary(submission: Doc<"submissions">) {
     // Every section in order, with its label: what the judge page shows.
     sections,
     usedReadme: summary.usedReadme,
+    // "none" when there was no code to read; no hash at all on summaries from before the code read.
+    usedCode: summary.codeHash !== undefined && summary.codeHash !== "none",
     // A practice sample summary: judges see "Sample summary (practice)" instead of "Written by AI".
     sample: summary.sample === true,
     generatedAt: summary.generatedAt,

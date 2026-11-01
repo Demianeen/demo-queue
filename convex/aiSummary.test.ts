@@ -205,6 +205,7 @@ test("judges see the summary, labelled fields only", async () => {
       { key: "demoFocus", label: "Look for in the demo", text: "Watch a blocked call and the reason it gives." },
     ],
     usedReadme: true,
+    usedCode: false,
     sample: false,
     generatedAt: expect.any(Number),
     stale: false,
@@ -230,6 +231,7 @@ test("organisers see the summary on the admin board; other organisations cannot 
       { key: "demoFocus", label: "Look for in the demo", text: "Watch a blocked call and the reason it gives." },
     ],
     usedReadme: true,
+    usedCode: false,
     sample: false,
     generatedAt: expect.any(Number),
     stale: false,
@@ -549,6 +551,9 @@ test("a short code read goes into the prompt, the summary keeps its hash, and th
   const summary = (await summaryOf(t, id))!;
   expect(summary.codeHash).toMatch(/^[0-9a-f]{64}$/);
   expect(summary.transcriptHash).toBeUndefined();
+  // The panel says the code was read.
+  const admin = await t.query(api.events.getAdmin, { slug: "hack" });
+  expect([...admin.lineup, ...admin.pool].find((submission) => submission.id === id)?.aiSummary).toMatchObject({ usedReadme: true, usedCode: true });
 });
 
 test("a rate-limited code read still writes the summary at once, and is logged by reason only", async () => {

@@ -29,6 +29,7 @@ export type SubmissionPreview = {
     howItWorks: string;
     demoFocus: string;
     usedReadme: boolean;
+    usedCode?: boolean;
     sample?: boolean;
     stale: boolean;
   } | null;

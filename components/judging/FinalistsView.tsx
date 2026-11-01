@@ -2,10 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { Check, GripVertical, X } from "lucide-react";
+import { Check } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -14,8 +11,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorText } from "@/components/live/changes";
 import { TimeAgo } from "@/components/live/TimeAgo";
-import { addFinalist, finalistOrder, moveItem, placeLabel, REVIEW_TARGET, WINNER_COUNT, type RankedRow } from "@/lib/judging-board";
+import { addFinalist, finalistOrder, REVIEW_TARGET, WINNER_COUNT, type RankedRow } from "@/lib/judging-board";
 import { CriteriaChip, CriteriaHeader, formatScore, slots } from "./ProjectRows";
+import { WinnerOrder } from "./WinnerOrder";
 import type { BoardRow } from "./JudgingPage";
 import styles from "./judging.module.css";
 
@@ -48,7 +46,7 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
   const savePlacementDraft = useMutation(api.judging.savePlacementDraft);
   const submitPlacements = useMutation(api.judging.submitPlacements);
   const scoreById = useMemo(() => new Map(rows.map((row) => [row.id, row.final])), [rows]);
-  const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
+  const orderItems = useMemo(() => new Map(rows.map((row) => [row.id, { title: row.title, score: row.final }])), [rows]);
 
   const serverFinalists = useMemo(() => (decision?.finalistIds ?? []).map(String), [decision?.finalistIds]);
   const serverPlacements = useMemo(() => (decision?.placementIds ?? []).map(String), [decision?.placementIds]);
@@ -152,7 +150,7 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
         {decision?.placementStatus === "needs_review" && <p className={styles.warning}>The finalists changed after the winners were picked. Check the order and submit the winners again.</p>}
         {loadingDecision ? <Skeleton className="h-24 w-full" />
           : finalists.length === 0 ? <p className={styles.help}>No finalists yet. Tick projects on the left.</p>
-          : <WinnerOrder order={shownOrder} rowById={rowById} disabled={busy} onReorder={finalistsSubmitted ? reorder : reorderDraft} onRemove={toggle} />}
+          : <WinnerOrder order={shownOrder} items={orderItems} disabled={busy} onReorder={finalistsSubmitted ? reorder : reorderDraft} onRemove={toggle} />}
         <div className={styles.cardFoot}>
           {finalistsSubmitted
             ? <><p className={styles.help}>Starts in the order you submitted. Drag, or Alt and an arrow key, to reorder. The top three are the winners.</p>
@@ -164,41 +162,4 @@ export function FinalistsView({ slug, closed, rows, visibleRows, loading, toolba
       </section>
     </aside>
   </div>;
-}
-
-/** The submitted finalists in order: drag or Alt+arrows to reorder; a line marks the winners. */
-function WinnerOrder({ order, rowById, disabled, onReorder, onRemove }: { order: string[]; rowById: ReadonlyMap<string, RankedRow<BoardRow>>; disabled: boolean; onReorder: (next: string[]) => void; onRemove: (id: string) => void }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  function onDragEnd(event: DragEndEvent) {
-    if (!event.over || event.active.id === event.over.id) return;
-    onReorder(moveItem(order, order.indexOf(String(event.active.id)), order.indexOf(String(event.over.id))));
-  }
-  return <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-    <SortableContext items={order} strategy={verticalListSortingStrategy}>
-      <ul className={styles.finalists} aria-label="Finalists in order. The top three are the winners.">
-        {order.map((id, index) => <SortableFinalist key={id} id={id} index={index} count={order.length} title={rowById.get(id)?.title ?? "A project"} score={rowById.get(id)?.final ?? null} disabled={disabled}
-          onMove={(to) => onReorder(moveItem(order, index, to))} onRemove={() => onRemove(id)} />)}
-      </ul>
-    </SortableContext>
-  </DndContext>;
-}
-
-function SortableFinalist({ id, index, count, title, score, disabled, onMove, onRemove }: { id: string; index: number; count: number; title: string; score: number | null; disabled: boolean; onMove: (to: number) => void; onRemove: () => void }) {
-  const sortable = useSortable({ id, disabled });
-  const winner = index < WINNER_COUNT;
-  return <>
-    <li ref={sortable.setNodeRef} className={styles.finalist} data-winner={winner ? "" : undefined} data-dragging={sortable.isDragging ? "" : undefined}
-      style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}>
-      <button type="button" className={styles.handle} aria-label={`Move ${title}. Alt and an arrow key moves it up or down.`} disabled={disabled} {...sortable.attributes} {...sortable.listeners}
-        onKeyDown={(event) => {
-          if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) { event.preventDefault(); onMove(index + (event.key === "ArrowUp" ? -1 : 1)); return; }
-          sortable.listeners?.onKeyDown?.(event);
-        }}><GripVertical aria-hidden /></button>
-      <span className={styles.place}>{placeLabel(index)}</span>
-      <span className={styles.finalistTitle}>{title}</span>
-      <span className="dq-mono">{formatScore(score)}</span>
-      <Button variant="ghost" size="icon-xs" aria-label={`Remove ${title} from the finalists`} disabled={disabled} onClick={onRemove}><X aria-hidden /></Button>
-    </li>
-    {index === WINNER_COUNT - 1 && count > WINNER_COUNT && <li className={styles.winnerLine} aria-hidden>Drag a finalist above this line to make it a winner</li>}
-  </>;
 }

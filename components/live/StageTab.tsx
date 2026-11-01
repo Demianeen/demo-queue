@@ -16,6 +16,7 @@ import { timeLeftMs } from "@/lib/timer-clock";
 import { InPageLink } from "@/components/InPageLink";
 import { errorText } from "./changes";
 import { ExactTimer, ListSkeleton, TrackChips, teamLine, useFinalists, type AdminData } from "./PhaseTabs";
+import { StagePlacings } from "./StagePlacings";
 import { StageResultsSetting } from "./StageResultsSetting";
 import styles from "./live.module.css";
 
@@ -124,6 +125,7 @@ export function StageTab({ slug, admin }: { slug: string; admin: AdminData }) {
         </li>)}</ol>
       </details>}
     </section>
+    {onStage && finalists && finalists.decision.finalistStatus === "submitted" && finalists.rows.length > 0 && <StagePlacings slug={slug} finalists={finalists} />}
     <StageResultsSetting slug={slug} admin={admin} finalists={finalists} />
     <p className={styles.footer}>
       <span>{event.judgingStatus === "closed" ? "Judging closed" : "Judging still open"}</span>

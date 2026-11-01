@@ -1,6 +1,6 @@
 "use client";
 
-import React, { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { FormEvent, createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/event-state";
 import { socialUrl } from "@/lib/social";
 import { randomToken } from "@/lib/tokens";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -24,12 +25,16 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { makeSampleHackathonTeam, makeSamplePerson } from "@/lib/sampleData";
+import { makeSampleHackathonTeam, makeSamplePerson, pickSampleTracks } from "@/lib/sampleData";
+import { TrackPicker, TrackPills, type TrackOption } from "@/components/TrackPicker";
+import { TracksAdminPanel } from "@/components/TracksAdminPanel";
 import { EventTypeSelect } from "@/components/EventTypeSelect";
+import { LumaEventSetting } from "@/components/LumaEventSetting";
 import { JudgingAdminPanel } from "@/components/JudgingAdminPanel";
+import { SubmissionPreviewTrigger, type SubmissionPreview } from "@/components/SubmissionPreviewCard";
 import { SubmissionRowActions } from "@/components/SubmissionRowActions";
 import { Skeleton } from "@/app/Skeleton";
-import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError } from "@/lib/validation";
+import { SUBMISSION_FIELD_LIMITS, firstFieldLimitError, socialLinksError } from "@/lib/validation";
 import { parseRoundOneJudges } from "@/lib/judging-assignment";
 import {
   DndContext,
@@ -76,22 +81,51 @@ type AdminSubmission = {
   email?: string;
   twitter?: string;
   linkedin?: string;
-  category?: string;
+  githubProfile?: string;
+  tracks: string[];
+  trackIds: Id<"eventTracks">[];
   teamName?: string;
   teamMembers: string[];
   teamMemberContacts: Array<{
     name: string;
     email?: string;
     whatsappPhone?: string;
+    twitter?: string;
+    linkedin?: string;
+    githubProfile?: string;
   }>;
   videoUrl?: string | null;
   videoDeleteAt?: number;
   videoDeletedAt?: number;
   githubUrl?: string;
   roundOneAssignedJudges?: string[];
+  aiSummary?: SubmissionPreview["aiSummary"];
   status: string;
   queueOrder?: number;
 };
+
+/** What the project hover card shows: no phones or emails. */
+function previewFor(item: AdminSubmission): SubmissionPreview & { tracks: string[] } {
+  return {
+    demoTitle: item.demoTitle,
+    description: item.description,
+    teamName: item.teamName,
+    githubUrl: item.githubUrl,
+    videoUrl: item.videoUrl,
+    tracks: item.tracks,
+    aiSummary: item.aiSummary ?? null,
+    people: [
+      { name: item.name, presenter: true, twitter: item.twitter, linkedin: item.linkedin, githubProfile: item.githubProfile },
+      ...item.teamMemberContacts.map((member) => ({
+        name: member.name,
+        presenter: false,
+        twitter: member.twitter,
+        linkedin: member.linkedin,
+        githubProfile: member.githubProfile,
+      })),
+    ],
+  };
+}
 
 type SubmissionFields = {
   name: string;
@@ -101,8 +135,12 @@ type SubmissionFields = {
   email: string;
   twitter: string;
   linkedin: string;
-  category: string;
+  githubProfile: string;
+  trackIds: Id<"eventTracks">[];
 };
+
+// The event's tracks, for the admin add and edit forms deep in the tables.
+const EventTracksContext = createContext<TrackOption[]>([]);
 
 type ColumnId = "lineup" | "pool";
 type AdminTab = "all" | "lineup";
@@ -378,6 +416,10 @@ export default function AdminPage() {
     admin?.withdrawn.forEach((item) => map.set(item.id, item));
     return map;
   }, [admin?.lineup, admin?.pool, admin?.hidden, admin?.completed, admin?.noShows, admin?.withdrawn]);
+  const submissionPreviews = useMemo(
+    () => new Map([...itemsById].map(([id, item]) => [String(id), previewFor(item)])),
+    [itemsById],
+  );
 
   // Mirror the server lists into local board state for drag previews, but never
   // while a drag is in flight (that would yank a card out from under the cursor).
@@ -887,7 +929,8 @@ export default function AdminPage() {
       email: values.email || undefined,
       twitter: values.twitter || undefined,
       linkedin: values.linkedin || undefined,
-      category: values.category || undefined,
+      githubProfile: values.githubProfile || undefined,
+      trackIds: values.trackIds,
       queueOrder: Date.now(),
       list: "lineup",
     });
@@ -903,6 +946,7 @@ export default function AdminPage() {
     }
 
     const safeCount = Math.min(count, 1000);
+    const sampleTrackIds = admin?.tracks.map((track) => track.id) ?? [];
     const batchSize = 25;
     const subject = isHackathonEvent ? "submissions" : "people";
     setTestPeopleBusy(true);
@@ -916,6 +960,7 @@ export default function AdminPage() {
           return {
             participantToken: randomToken(32),
             ...sample,
+            trackIds: pickSampleTracks(sampleTrackIds),
           };
         });
         await adminAddTestSubmissions({
@@ -1047,7 +1092,8 @@ export default function AdminPage() {
       email: values.email || undefined,
       twitter: values.twitter || undefined,
       linkedin: values.linkedin || undefined,
-      category: values.category || undefined,
+      githubProfile: values.githubProfile || undefined,
+      trackIds: values.trackIds,
     });
     setEditingId(null);
   }
@@ -1112,6 +1158,7 @@ export default function AdminPage() {
   const livePrimaryLabel = shouldStartDemoFromPrimary ? "Start timer" : "Advance";
 
   return (
+    <EventTracksContext.Provider value={admin.tracks}>
     <section className="page admin-page">
       <div className="shell admin-shell">
         <section className="admin-control-grid">
@@ -1123,6 +1170,8 @@ export default function AdminPage() {
               </div>
               <h1 className="admin-event-title">{admin.event.name}</h1>
             </header>
+
+            <SubmissionSurgeNotice at={admin.event.submissionSurgeAt} />
 
             <div className="status-strip admin-status-strip">
               <span className={queueIsLive ? "pill green" : "pill yellow"}>
@@ -1427,6 +1476,7 @@ export default function AdminPage() {
                 presentation view unless you enable it after publishing.
               </span>
             </div>
+            <LumaEventSetting available={admin.event.luma.available} lumaEvent={admin.event.luma.event} slug={params.slug} />
             </div>
 
             <div className="admin-section-label">Presentation timer</div>
@@ -1615,8 +1665,17 @@ export default function AdminPage() {
           />
         </section>
 
+        <TracksAdminPanel
+          slug={params.slug}
+          tracks={admin.tracks}
+          noTrackCount={admin.noTrackCount}
+          legacyCategoryCount={admin.legacyCategoryCount}
+        />
+
         {isHackathonEvent ? (
           <JudgingAdminPanel
+            previews={submissionPreviews}
+            trackNames={admin.tracks.map((track) => track.name)}
             slug={params.slug}
                         judges={admin.event.roundOneJudges}
             lineupSubmissionIds={board.lineup}
@@ -1673,7 +1732,7 @@ export default function AdminPage() {
                       <th>Status</th>
                       <th>{admin.event.eventType === "hackathon" ? "Team / presenter" : "Person"}</th>
                       <th>{admin.event.eventType === "hackathon" ? "Project" : "Demo"}</th>
-                      <th>Category</th>
+                      <th>Tracks</th>
                       <th>Contact</th>
                       <th>Action</th>
                     </tr>
@@ -1763,7 +1822,7 @@ export default function AdminPage() {
                         <th>Position</th>
                         <th>{admin.event.eventType === "hackathon" ? "Team / presenter" : "Person"}</th>
                         <th>{admin.event.eventType === "hackathon" ? "Project" : "Demo"}</th>
-                        <th>Category</th>
+                        <th>Tracks</th>
                         <th>Contact</th>
                         <th>Action</th>
                       </tr>
@@ -1820,6 +1879,7 @@ export default function AdminPage() {
 
       </div>
     </section>
+    </EventTracksContext.Provider>
   );
 }
 
@@ -1999,7 +2059,7 @@ function LineupRow({
         <DemoCell item={item} />
       </td>
       <td>
-        <CategoryCell category={item.category} />
+        <TrackPills tracks={item.tracks} empty="None" />
       </td>
       <td>
         <Contact item={item} />
@@ -2070,7 +2130,7 @@ function AllPeopleRow({
         <DemoCell item={item} />
       </td>
       <td>
-        <CategoryCell category={item.category} />
+        <TrackPills tracks={item.tracks} empty="None" />
       </td>
       <td>
         <Contact item={item} />
@@ -2117,7 +2177,7 @@ function PersonCell({ item }: { item: AdminSubmission }) {
 function DemoCell({ item }: { item: AdminSubmission }) {
   return (
     <>
-      <span className="admin-demo-title">{item.demoTitle}</span>
+      <SubmissionPreviewTrigger className="admin-demo-title" preview={previewFor(item)} />
       {item.description ? <span className="muted">{item.description}</span> : null}
       {item.videoUrl ? (
         <a className="admin-project-link" href={item.videoUrl} target="_blank" rel="noreferrer">
@@ -2132,16 +2192,6 @@ function DemoCell({ item }: { item: AdminSubmission }) {
         </a>
       ) : null}
     </>
-  );
-}
-
-function CategoryCell({ category }: { category?: string }) {
-  const fullCategory = category || "demo";
-  const visibleCategory = fullCategory.slice(0, SUBMISSION_FIELD_LIMITS.category);
-  return (
-    <span className="admin-category-text" aria-label={fullCategory} title={fullCategory}>
-      {visibleCategory}
-    </span>
   );
 }
 
@@ -2227,6 +2277,8 @@ function SubmissionForm({
   onCancel: () => void;
 }) {
   const fieldId = useId();
+  const eventTracks = useContext(EventTracksContext);
+  const [trackIds, setTrackIds] = useState<Id<"eventTracks">[]>(initial?.trackIds ?? []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -2242,9 +2294,9 @@ function SubmissionForm({
       email: read("email"),
       twitter: read("twitter"),
       linkedin: read("linkedin"),
-      category: read("category"),
+      githubProfile: read("githubProfile"),
     };
-    const lengthError = firstFieldLimitError(values);
+    const lengthError = firstFieldLimitError(values) || socialLinksError(values);
 
     if (lengthError) {
       setError(lengthError);
@@ -2254,7 +2306,7 @@ function SubmissionForm({
     setSaving(true);
     setError("");
     try {
-      await onSave(values);
+      await onSave({ ...values, trackIds });
     } finally {
       setSaving(false);
     }
@@ -2329,15 +2381,16 @@ function SubmissionForm({
         />
       </div>
       <div className="field">
-        <label htmlFor={`${fieldId}-category`}>Category</label>
+        <label htmlFor={`${fieldId}-githubProfile`}>GitHub</label>
         <input
-          id={`${fieldId}-category`}
-          name="category"
-          defaultValue={initial?.category ?? ""}
-          placeholder="AI, devtools, consumer, hardware..."
-          maxLength={SUBMISSION_FIELD_LIMITS.category}
+          id={`${fieldId}-githubProfile`}
+          name="githubProfile"
+          placeholder="Username or github.com link"
+          defaultValue={initial?.githubProfile ?? ""}
+          maxLength={SUBMISSION_FIELD_LIMITS.githubProfile}
         />
       </div>
+      <TrackPicker tracks={eventTracks} value={trackIds} onChange={setTrackIds} disabled={saving} hint="none, one or several" />
       {error ? (
         <p style={{ color: "var(--app-bad)", fontSize: 13, fontWeight: 600, margin: 0 }}>
           {error}
@@ -2355,18 +2408,33 @@ function SubmissionForm({
   );
 }
 
+type ContactPerson = {
+  name: string;
+  email?: string;
+  phone?: string;
+  whatsappPhone?: string;
+  twitter?: string;
+  linkedin?: string;
+  githubProfile?: string;
+};
+
 function Contact({ item }: { item: AdminSubmission }) {
-  const contacts = [
+  const contacts: ContactPerson[] = [
     {
       name: item.name,
       email: item.email,
       phone: item.teamName ? undefined : item.phone,
       whatsappPhone: item.teamName ? item.phone : undefined,
+      twitter: item.twitter,
+      linkedin: item.linkedin,
+      githubProfile: item.githubProfile,
     },
-    ...item.teamMemberContacts.map((contact) => ({ ...contact, phone: undefined })),
-  ].filter((contact) => contact.email || contact.phone || contact.whatsappPhone);
-  const hasContact = contacts.length > 0 || item.twitter || item.linkedin;
-  if (!hasContact) return null;
+    ...item.teamMemberContacts,
+  ].filter(
+    (contact: ContactPerson) =>
+      contact.email || contact.phone || contact.whatsappPhone || contact.twitter || contact.linkedin || contact.githubProfile,
+  );
+  if (contacts.length === 0) return null;
 
   return (
     <div className="contact-list">
@@ -2384,18 +2452,60 @@ function Contact({ item }: { item: AdminSubmission }) {
             </a>
           ) : null}
           {contact.email ? <a href={`mailto:${contact.email}`}>{contact.email}</a> : null}
+          <ContactSocials person={contact} />
         </div>
       ))}
-      {item.twitter ? (
-        <a href={socialUrl("twitter", item.twitter)} rel="noreferrer" target="_blank">
-          {item.twitter}
-        </a>
-      ) : null}
-      {item.linkedin ? (
-        <a href={socialUrl("linkedin", item.linkedin)} rel="noreferrer" target="_blank">
-          {item.linkedin}
-        </a>
-      ) : null}
     </div>
+  );
+}
+
+function ContactSocials({ person }: { person: ContactPerson }) {
+  const links = [
+    person.twitter ? { kind: "twitter" as const, label: "X", value: person.twitter } : null,
+    person.linkedin ? { kind: "linkedin" as const, label: "LinkedIn", value: person.linkedin } : null,
+    person.githubProfile ? { kind: "github" as const, label: "GitHub", value: person.githubProfile } : null,
+  ].filter((link) => link !== null);
+  if (links.length === 0) return null;
+  return (
+    <span className="contact-socials">
+      {links.map((link) => {
+        const href = socialUrl(link.kind, link.value);
+        // Never link to a site other than the platform's own.
+        if (!href) return <span key={link.kind} title={link.value}>{link.label}</span>;
+        return (
+          <a
+            aria-label={`${person.name} on ${link.label}`}
+            href={href}
+            key={link.kind}
+            rel="noreferrer"
+            target="_blank"
+            title={link.value}
+          >
+            {link.label}
+          </a>
+        );
+      })}
+    </span>
+  );
+}
+
+// Show the warning for this long after the last surge.
+const SUBMISSION_SURGE_NOTICE_MS = 2 * 60 * 60 * 1000;
+
+function SubmissionSurgeNotice({ at }: { at?: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (at === undefined) return;
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, [at]);
+  if (at === undefined || now - at > SUBMISSION_SURGE_NOTICE_MS) return null;
+  return (
+    <Alert className="mb-4">
+      <AlertTitle>Submissions arrived unusually fast</AlertTitle>
+      <AlertDescription>
+        Nothing was refused. Check the pool for spam and hide anything that is not real; hidden submissions free their emails.
+      </AlertDescription>
+    </Alert>
   );
 }

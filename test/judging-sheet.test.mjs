@@ -38,7 +38,7 @@ test("judging sheet keeps submission data and category scoring on one tab", () =
         name: "Sam",
         demoTitle: "Launchpad",
         description: '=IMPORTXML("https://example.com/private","//data")',
-        category: "AI",
+        tracks: ["AI", "Developer tools"],
         videoUrl: "https://example.com/video",
         githubUrl: "https://github.com/orbit/launchpad",
         roundOneAssignedJudges: ["Alex Morgan", "Sam Lee"],
@@ -57,6 +57,7 @@ test("judging sheet keeps submission data and category scoring on one tab", () =
   assert.equal(values[4][1], "Orbit");
   assert.equal(values[4][2], "Sam, Alex, Morgan");
   assert.equal(values[4][4], '=IMPORTXML("https://example.com/private","//data")');
+  assert.equal(values[4][5], "AI · Developer tools");
   assert.equal(values[4][6], "https://example.com/video");
   assert.equal(values[4][14], "Alex Morgan");
   assert.equal(values[4][18], "Sam Lee");
@@ -97,7 +98,7 @@ test("judging sheet source updates stop before judge-entered columns", () => {
     name: "Taylor",
     demoTitle: "Signal",
     description: "Fast project summary",
-    category: "Tools",
+    tracks: ["Tools"],
     videoUrl: "https://example.com/video-2",
     email: "taylor@example.com",
     phone: "+44 20 7000 0000",

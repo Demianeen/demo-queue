@@ -344,6 +344,13 @@ export function StagePresentation({
               <p className="stage-label">{currentStageLabel}</p>
               <div className="stage-title">{currentStageTitle}</div>
               <div className="stage-subtitle">{currentStageSubtitle}</div>
+              {stage.current && stage.current.tracks.length > 0 ? (
+                <ul className="stage-tracks" aria-label="Tracks">
+                  {stage.current.tracks.map((track) => (
+                    <li key={track}>{track}</li>
+                  ))}
+                </ul>
+              ) : null}
               {showDemoTimer ? (
                 <div className={`stage-demo-timer${demoTimerStateClass}`} aria-live="polite">
                   <span>{demoTimer.label}</span>

@@ -12,8 +12,19 @@
 .timerActions { justify-content: flex-start; flex-wrap: wrap; }
 .timerActions input, .timerActions select { min-height: 36px; border: 1px solid var(--app-line); border-radius: 8px; padding: 0 8px; }
 .tableWrap { overflow-x: auto; }
-.table { border-collapse: collapse; font-size: 12px; min-width: 620px; width: 100%; }
-.table th, .table td { border-bottom: 1px solid var(--app-line); padding: 7px; text-align: left; vertical-align: top; }
+.table { border-collapse: collapse; font-size: 12px; min-width: 1040px; width: 100%; }
+.table th, .table td { border-bottom: 1px solid var(--app-line); padding: 6px 8px; text-align: left; vertical-align: middle; }
+.rankCol { width: 36px; color: var(--app-muted); font-variant-numeric: tabular-nums; }
+.titleCell { min-width: 180px; font-weight: 650; }
+.teamCell { white-space: nowrap; color: var(--app-ink); }
+.emptyRow { color: var(--app-muted); padding: 14px 8px !important; }
+.progressHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.progressHeader h3 { margin: 0; }
+.progressFilters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.progressFilters label { display: inline-flex; align-items: center; gap: 6px; color: var(--app-muted); font-size: 12px; font-weight: 650; }
+.progressFilters select, .progressFilters input { min-height: 32px; border: 1px solid var(--app-line); border-radius: 8px; background: var(--app-paper, #fff); color: var(--app-ink); font: inherit; font-size: 13px; padding: 0 8px; }
+.progressFilters input { width: 220px; }
+.visuallyHidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .table th { color: var(--app-muted); font-size: 11px; text-transform: uppercase; }
 .judgeReviews { display: flex; flex-wrap: wrap; gap: 6px; }
 .judgeReview, .judgeReviewPending { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-height: 34px; padding: 5px 9px; border: 1px solid var(--app-line); border-radius: 9px; background: color-mix(in srgb, var(--app-paper) 86%, white); color: var(--app-ink); font: inherit; cursor: help; }

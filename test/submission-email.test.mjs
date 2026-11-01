@@ -1,0 +1,68 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { buildSubmissionEmail, emailSender, escapeHtml } from "../lib/submission-email.ts";
+
+const team = {
+  reason: "submitted",
+  eventName: "Outpost",
+  eventType: "hackathon",
+  recipientName: "Sam Lee",
+  demoTitle: "Guardrail",
+  teamName: "Night Owls",
+  people: ["Sam Lee", "Ana Ruiz"],
+  tracks: ["Developer tools", "Best use of Daytona"],
+  statusUrl: "https://demo-queue.test/s/outpost/token123",
+};
+
+test("the team email has the details, the status link and how teammates get a copy", () => {
+  const email = buildSubmissionEmail(team);
+  assert.equal(email.subject, "Your submission to Outpost");
+  assert.match(email.text, /^Your team is in, Sam/);
+  assert.match(email.text, /Open your status page: https:\/\/demo-queue\.test\/s\/outpost\/token123/);
+  assert.match(email.text, /Team: Night Owls · Sam Lee, Ana Ruiz/);
+  assert.match(email.text, /Tracks: Developer tools · Best use of Daytona/);
+  assert.match(email.text, /Teammates can get their own copy/);
+  assert.doesNotMatch(email.text, /Everyone on the team gets this email/);
+  assert.match(email.html, /href="https:\/\/demo-queue\.test\/s\/outpost\/token123"/);
+});
+
+test("a demo email and a resend use their own copy", () => {
+  const demo = buildSubmissionEmail({ ...team, eventType: "demo", teamName: undefined, tracks: [] });
+  assert.match(demo.text, /^Your demo is in, Sam/);
+  assert.match(demo.text, /Demo: Guardrail/);
+  assert.match(demo.text, /Tracks: None/);
+  assert.doesNotMatch(demo.text, /Team:|Teammates/);
+
+  const resend = buildSubmissionEmail({ ...team, reason: "resend" });
+  assert.equal(resend.subject, "Your status link for Outpost");
+  assert.match(resend.text, /^Here is your status link/);
+  assert.doesNotMatch(resend.text, /Teammates can get their own copy/);
+});
+
+test("what people typed is escaped and kept on one line", () => {
+  const email = buildSubmissionEmail({
+    ...team,
+    demoTitle: "<script>alert(1)</script>\r\nBcc: x@evil.test",
+    teamName: '"><img src=x>',
+  });
+  // Nothing participants typed reaches the subject.
+  assert.equal(email.subject, "Your submission to Outpost");
+  assert.doesNotMatch(email.html, /<script>|<img src=x>/);
+  assert.match(email.html, /&lt;script&gt;/);
+  assert.doesNotMatch(email.html, /href="javascript:/);
+  assert.equal(escapeHtml(`<a href="x">'&'</a>`), "&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;");
+});
+
+test("the status link is the only link, so a submitter's links never come from our sender", () => {
+  const email = buildSubmissionEmail({ ...team, githubUrl: "https://evil.test/claim", videoUrl: "https://evil.test/video" });
+  assert.deepEqual([...email.html.matchAll(/href="([^"]+)"/g)].map((match) => match[1]), [team.statusUrl]);
+  assert.doesNotMatch(email.html + email.text, /evil\.test|GitHub|Demo video/);
+});
+
+test("the sender names the event and uses only the configured address", () => {
+  assert.equal(emailSender("Outpost", "hello@demo-queue.test"), '"Outpost via Demo Queue" <hello@demo-queue.test>');
+  assert.equal(emailSender("Outpost", "Someone <hello@demo-queue.test>"), '"Outpost via Demo Queue" <hello@demo-queue.test>');
+  assert.equal(emailSender('Evil" <x@y.z>,\r\nBcc: a@b.c', "hello@demo-queue.test"), '"Evil xy.z Bcc ab.c via Demo Queue" <hello@demo-queue.test>');
+  assert.equal(emailSender("", "hello@demo-queue.test"), '"Demo Queue" <hello@demo-queue.test>');
+});

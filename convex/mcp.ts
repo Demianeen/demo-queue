@@ -8,6 +8,8 @@ import { componentToolCall, toolFailure } from "./mcpRuntime";
 import { visualStyleValidator } from "./visualStyle";
 import { eventThemeValidator } from "./eventTheme";
 import { z } from "zod";
+import { listOrganizationInvitations, listOrganizationMembers, revokeOrganizationInvitation, sendOrganizationInvitations } from "./members";
+import { MAX_INVITES_PER_REQUEST } from "../lib/members";
 export { createToolServer, serveMcp, validResourceRequest } from "./mcpWorkos";
 
 const tool = createTool<Id<"mcpApprovals">>();
@@ -95,6 +97,43 @@ export const mcp: McpServer<Id<"mcpApprovals">> = new ApprovalMcpServer(componen
       description: "Explicitly change the organization default. Existing event snapshots remain unchanged.",
       args: { organizationId: v.string(), selection: styleSelection }, scope: "events:manage", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: (ctx, args, user) => componentToolCall(ctx, user, args.organizationId, "events:manage", (principal) => ctx.runMutation(internal.mcpData.setDefaultStyle, { ...args, principal })),
+    }),
+    list_members: tool({
+      description: "List the organization's members with names, emails and join dates. Needs manage access because it shows emails.",
+      args: { organizationId: v.string() }, scope: "events:manage", annotations: { readOnlyHint: true, openWorldHint: false },
+      handler: (ctx, args, user) => componentToolCall(ctx, user, args.organizationId, "events:manage", async () => {
+        organizationId.parse(args.organizationId);
+        return { members: await listOrganizationMembers(args.organizationId) };
+      }),
+    }),
+    list_invitations: tool({
+      description: "List pending and expired invitations to the organization, newest first. Needs manage access because it shows emails.",
+      args: { organizationId: v.string() }, scope: "events:manage", annotations: { readOnlyHint: true, openWorldHint: false },
+      handler: (ctx, args, user) => componentToolCall(ctx, user, args.organizationId, "events:manage", async () => {
+        organizationId.parse(args.organizationId);
+        const members = await listOrganizationMembers(args.organizationId);
+        return { invitations: await listOrganizationInvitations(args.organizationId, members.map((member) => member.email), Date.now()) };
+      }),
+    }),
+    send_invitations: tool({
+      description: `Invite up to ${MAX_INVITES_PER_REQUEST} people by email to run this organization's events. WorkOS emails each person a link that expires in 7 days. Members and people with a pending invitation are skipped. Rate limited per organization.`,
+      args: { organizationId: v.string(), emails: v.array(v.string()) }, scope: "events:manage", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      handler: (ctx, args, user) => componentToolCall(ctx, user, args.organizationId, "events:manage", async (principal) => {
+        organizationId.parse(args.organizationId);
+        const emails = z.array(z.string().max(320)).min(1).max(MAX_INVITES_PER_REQUEST).parse(args.emails);
+        const approval = await ctx.runQuery(internal.mcpConnectionPolicy.getApproval, { approvalId: user.userId });
+        if (!approval || !principal.mcp) throw new ConvexError("Unauthorized");
+        const approvalId = principal.mcp.approvalId;
+        return { results: await sendOrganizationInvitations(args.organizationId, approval.workosUserId, emails, async (count) => { await ctx.runMutation(internal.members.reserveInvitationsForMcp, { approvalId, organizationId: args.organizationId, count }); }) };
+      }),
+    }),
+    revoke_invitation: tool({
+      description: "Revoke a pending invitation so its link stops working. Send a new invitation to invite the person again.",
+      args: { organizationId: v.string(), invitationId: v.string() }, scope: "events:manage", annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+      handler: (ctx, args, user) => componentToolCall(ctx, user, args.organizationId, "events:manage", async () => {
+        organizationId.parse(args.organizationId);
+        return await revokeOrganizationInvitation(args.organizationId, z.string().max(128).parse(args.invitationId));
+      }),
     }),
     ...Object.fromEntries(ADMIN_TOOLS.map((tool) => [tool.name, tool.component])),
   },

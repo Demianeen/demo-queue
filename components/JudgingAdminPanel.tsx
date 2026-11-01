@@ -15,6 +15,8 @@ import { DndContext, closestCenter, type DragEndEvent, useDraggable, useDroppabl
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Id } from "@/convex/_generated/dataModel";
+import { SubmissionPreviewTrigger, teamShortLabel, type SubmissionPreview } from "@/components/SubmissionPreviewCard";
+import { TrackPills } from "@/components/TrackPicker";
 import styles from "./JudgingAdminPanel.module.css";
 
 const SHOW_FINALIST_TOOLS = false;
@@ -173,12 +175,17 @@ function SubmissionScore({ score, rawScore, normalized }: { score: number | null
 }
 
 export function JudgingAdminPanel({
+  previews,
+  trackNames,
   slug,
   judges,
   lineupSubmissionIds,
   onAddToLineup,
   onRemoveFromLineup,
 }: {
+  /** Hover card details per submission id, from the admin query. */
+  previews: ReadonlyMap<string, SubmissionPreview & { tracks: string[] }>;
+  trackNames: string[];
   slug: string;
   judges: string[];
   lineupSubmissionIds: Id<"submissions">[];
@@ -211,6 +218,8 @@ export function JudgingAdminPanel({
   const [unavailableJudge, setUnavailableJudge] = useState("");
   const [redistributionOverrides, setRedistributionOverrides] = useState<Record<string, string[]>>({});
   const [openScorePopover, setOpenScorePopover] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [trackFilter, setTrackFilter] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const redistribution = useQuery(
     api.judging.previewRedistribution,
@@ -276,6 +285,18 @@ export function JudgingAdminPanel({
       return right.effectiveScore - left.effectiveScore || left.demoTitle.localeCompare(right.demoTitle);
     });
   }, [normalizedByAssignment, progress?.eventStatus, progress?.scoring, reviewsByAssignment]);
+  // Rank follows the score order; search and the track filter only hide rows.
+  const rankedRows = useMemo(() => scoringRows.map((row, index) => ({ ...row, rank: index + 1 })), [scoringRows]);
+  const visibleRows = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase("en");
+    return rankedRows.filter((row) => {
+      const preview = previews.get(String(row.submissionId));
+      if (trackFilter && !(preview?.tracks ?? []).includes(trackFilter)) return false;
+      if (!query) return true;
+      return [row.demoTitle, preview?.teamName ?? "", ...(preview?.people ?? []).map((person) => person.name)]
+        .some((value) => value.toLocaleLowerCase("en").includes(query));
+    });
+  }, [previews, rankedRows, search, trackFilter]);
   const unavailableJudgeName = access?.find((item) => item.judgeKey === unavailableJudge)?.judgeName;
 
   async function run(label: string, action: () => Promise<unknown>) {
@@ -312,7 +333,22 @@ export function JudgingAdminPanel({
         <div className={styles.card}><h3>Timer</h3><div className={remaining < 0 ? `${styles.timer} ${styles.overtime}` : styles.timer}>{formatTimer(remaining)}</div><div className={styles.timerActions}><input aria-label="Judging minutes" inputMode="numeric" value={minutes} onChange={(event) => setMinutes(event.target.value.replace(/\D/g, "").slice(0, 3))} /><Button size="sm" variant="outline" disabled={busy} onClick={() => void run("Timer saved.", () => setTimer({ slug, durationMs: Math.max(1, Number(minutes)) * 60_000 }))}>Set minutes</Button><Button size="sm" variant="outline" disabled={busy || progress?.eventStatus !== "open"} onClick={() => void run("Added 5 minutes.", () => addTime({ slug, deltaMs: 5 * 60_000 }))}>+5 min</Button></div></div>
       </div>
       <div className={styles.card}>
-        <h3>Judging progress</h3>
+        <div className={styles.progressHeader}>
+          <h3>Judging progress</h3>
+          <div className={styles.progressFilters}>
+            <label>
+              <span>Track</span>
+              <select aria-label="Filter by track" onChange={(event) => setTrackFilter(event.target.value)} value={trackFilter}>
+                <option value="">All tracks</option>
+                {trackNames.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+            </label>
+            <label>
+              <span className={styles.visuallyHidden}>Search</span>
+              <input onChange={(event) => setSearch(event.target.value)} placeholder="Search projects or people" type="search" value={search} />
+            </label>
+          </div>
+        </div>
         <p className={styles.help}>
           {progress?.eventStatus === "setup"
             ? "Assign submissions to distribute two judges per entry. Open judging only when the assignments look right."
@@ -322,11 +358,21 @@ export function JudgingAdminPanel({
         </p>
         <div className={styles.tableWrap}>
           <table className={styles.table}>
-            <thead><tr><th>Submission</th><th>Judge reviews</th><th>Score</th><th>Status</th><th>Action</th></tr></thead>
+            <thead><tr><th className={styles.rankCol}>#</th><th>Submission</th><th>Tracks</th><th>Team</th><th>Judge reviews</th><th>Score</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
-              {scoringRows.map((row) => (
+              {visibleRows.length === 0 && rankedRows.length > 0 ? (
+                <tr><td className={styles.emptyRow} colSpan={8}>No submissions match.</td></tr>
+              ) : null}
+              {visibleRows.map((row) => {
+                const preview = previews.get(String(row.submissionId));
+                return (
                 <tr key={String(row.submissionId)}>
-                  <td>{row.demoTitle}</td>
+                  <td className={styles.rankCol}>{row.rank}</td>
+                  <td className={styles.titleCell}>{preview ? <SubmissionPreviewTrigger preview={preview} /> : row.demoTitle}</td>
+                  <td><TrackPills tracks={preview?.tracks ?? []} empty="None" /></td>
+                  <td className={styles.teamCell} title={preview ? [preview.teamName, preview.people.map((person) => person.name).join(", ")].filter(Boolean).join(": ") : undefined}>
+                    {preview ? teamShortLabel(preview) : row.presenterName}
+                  </td>
                   <td>
                     {row.assignedJudges.length > 0 ? (
                       <div className={styles.judgeReviews}>
@@ -389,7 +435,8 @@ export function JudgingAdminPanel({
                     />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

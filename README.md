@@ -132,8 +132,30 @@ pnpm exec convex env set OPENAI_MODEL <fast-model-name>
 
 `OPENAI_API_KEY` is optional for deploys so previews and non-AI changes do not
 fail to ship, but AI shuffle throws a clear runtime error if it is missing.
+The same key writes the three-line AI summary judges see for each hackathon
+project, once submissions close and again when a project's description or
+repository changes. Without the key, summaries are skipped and logged.
 `OPENAI_MODEL` is optional, but setting it lets event operators pick a faster
 model without changing code.
+
+Luma import runs in Convex from `convex/luma.ts`. An organiser links an event
+to its Luma event in Event settings. After a team submits, an internal action
+looks up the presenter and every team member by email and fills only the X,
+LinkedIn and GitHub fields they left empty. It never overwrites what people
+typed, and it records where each value came from. Imported values show only to
+organisers: the submit form never calls Luma, and the team's status page shows
+only what people typed. The Luma registration form needs X, LinkedIn and
+GitHub questions. It only reads from Luma.
+
+```bash
+pnpm exec convex env set LUMA_API_KEY "$(cat ~/.config/demo-queue/luma-api-key)"
+pnpm exec convex env set LUMA_ORGANIZATION_IDS org_...
+```
+
+Both are optional. `LUMA_API_KEY` belongs to one Luma calendar, so only admins
+of the WorkOS organisations listed in `LUMA_ORGANIZATION_IDS` (comma-separated)
+can link an event, and only to an event on that calendar. Everyone else sees
+the Luma setting as unavailable, and without a key nothing is imported.
 
 Hackathon judging export also runs from Convex. It uses one personal Google
 account with the narrow `drive.file` OAuth scope. Sheets are owned by that
@@ -232,7 +254,7 @@ https://vercel.com/docs/environment-variables/system-environment-variables
 
 ## Organization access and styles
 
-`/events` and `/styles` require a WorkOS session and active organization membership.
+`/events`, `/styles` and `/members` require a WorkOS session and active organization membership.
 New events belong to the organization in the verified access token. Event lists,
 overviews, and organization defaults are scoped to that organization. Membership
 lists are cached per user and environment for at most 60 seconds; organization
@@ -253,6 +275,16 @@ Styles provides existing-style previews, event selection, and organization
 defaults. Existing events keep their saved appearance. Style authoring is deferred
 to a separate MCP change. The admin interface always uses Base; public pages use
 the event's selected style.
+
+Members (`/members`) lists the organization's members and pending invitations.
+Any member can invite people by email, resend or revoke an invitation, and remove
+another member (not themselves). The server action checks the caller's active
+membership in the session's organization in WorkOS; the organization never comes
+from the browser. WorkOS sends the invitation email; the link goes through
+`/events/sign-in/initiated` and lands the person in the organization. Invitations
+share a per-organization limit in Convex (20 at once, then about one every three
+minutes) with the MCP `send_invitations` tool. A removed member's MCP connections
+lose that organization on their next call, because every call checks membership.
 
 ### WorkOS configuration before merging or deploying
 
@@ -316,10 +348,10 @@ Consent offers All current and future organizations or Choose organizations,
 plus Read only or Manage events. A selected grant never gains another
 organization automatically. Both policies still check active WorkOS membership
 on every tool call and enforce the approved permissions. Read-only connections
-exclude writes, participant contacts and private judge links.
+exclude writes, participant contacts, member emails and private judge links.
 
-The [60-tool catalog](docs/reports/mcp-tools.md) covers event administration,
-styles, submissions, queues, stage controls, timers, judging and external actions.
+The [64-tool catalog](docs/reports/mcp-tools.md) covers event administration,
+members and invitations, styles, submissions, queues, stage controls, timers, judging and external actions.
 New events remain unpublished. Destructive tools require explicit confirmations.
 The server exposes these fixed tools, not arbitrary database queries or mutations.
 

@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { OrganizationPrincipal } from "./organizationAuth";
 import { currentMemberships, type McpScope } from "./mcpConnectionPolicy";
+import { MEMBER_MESSAGES } from "./members";
 
 const adminMessages = new Set([
   "Submissions are closed.", "Judging is only available for hackathon events.",
@@ -22,6 +23,7 @@ const adminMessages = new Set([
   "Confirmation must match the event.", "Confirmation must match the event and type.",
   "Add hackathon teams through the public submission form.",
   "Publish the queue before showing the Meet link in the presentation view",
+  ...MEMBER_MESSAGES,
 ]);
 
 export function toolFailure(error: unknown) {

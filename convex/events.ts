@@ -6,7 +6,7 @@ import {
   type OrganizationPrincipal,
 } from "./organizationAuth";
 import { findEventBySlug } from "./eventSlugs";
-import { ConvexError, v, type Infer } from "convex/values";
+import { ConvexError, v, type Infer, type ObjectType } from "convex/values";
 import {
   DatabaseReader,
   DatabaseWriter,
@@ -18,10 +18,14 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
+import { components, internal } from "./_generated/api";
+import { HOUR, RateLimiter } from "@convex-dev/rate-limiter";
 import {
+  emailKey,
+  isValidEmail,
   parseContactTextFields,
   parseSubmissionTextFields,
+  socialLinksError,
   type ContactTextInput,
   type SubmissionTextInput,
 } from "../lib/validation";
@@ -50,6 +54,19 @@ import {
   type TeamContactInput,
 } from "../lib/team-contacts";
 import { visualStyleValidator } from "./visualStyle";
+import { queueJudgingSheetSync } from "./judgingSheetSync";
+import {
+  insertEventTracks,
+  listEventTracks,
+  normalizeTrackSelection,
+  publicTrack,
+  trackInputValidator,
+  trackNamesFor,
+  tracksById,
+} from "./tracks";
+import { emailConfig } from "./emails";
+import { publicAiSummary, queueAiSummaryIfStale } from "./aiSummaries";
+import { lumaOrganizationAllowed, queueLumaImport, participantSocialEditPatch, participantSocials, socialEditPatch, typedSocialSources } from "./luma";
 import { ZodError } from "zod";
 
 const STAGE_LINEUP_LIMIT = 10;
@@ -61,7 +78,6 @@ const MIN_STAGE_TIMER_MS = 0;
 const MIN_OVERTIME_TIMER_MS = -MAX_STAGE_TIMER_MS;
 const ORPHAN_UPLOAD_GRACE_MS = 24 * 60 * 60 * 1000;
 const ORPHAN_UPLOAD_BATCH_SIZE = 50;
-const JUDGING_SHEET_SYNC_DEBOUNCE_MS = 2_000;
 type PublicStageTimerStatus = "idle" | "running" | "paused";
 type StageScreenMode = "qr" | "demo";
 type EventType = "demo" | "hackathon";
@@ -74,12 +90,14 @@ function stageScreenMode(event: Doc<"events">): StageScreenMode {
   return event.stageScreenMode ?? (event.queuePublished ? "demo" : "qr");
 }
 
-const publicSubmissionFields = (submission: Doc<"submissions">) => ({
+type TracksById = ReadonlyMap<Id<"eventTracks">, Doc<"eventTracks">>;
+
+const publicSubmissionFields = (submission: Doc<"submissions">, byId: TracksById) => ({
   id: submission._id,
   name: submission.name,
   demoTitle: submission.demoTitle,
   description: submission.description,
-  category: submission.category,
+  tracks: trackNamesFor(submission, byId),
   teamName: submission.teamName,
   githubUrl: submission.githubUrl,
   status: submission.status,
@@ -88,23 +106,36 @@ const publicSubmissionFields = (submission: Doc<"submissions">) => ({
 
 const adminSubmissionFields = (
   submission: Doc<"submissions">,
-  teamMemberContacts: Array<Pick<Doc<"teamMembers">, "name" | "email" | "whatsappPhone">> = [],
+  byId: TracksById,
+  teamMemberContacts: Array<
+    Pick<Doc<"teamMembers">, "name" | "email" | "whatsappPhone" | "twitter" | "linkedin" | "githubProfile">
+  > = [],
   videoUrl: string | null = null,
 ) => ({
-  ...publicSubmissionFields(submission),
+  ...publicSubmissionFields(submission, byId),
+  trackIds: submission.trackIds ?? [],
   phone: submission.phone,
   email: submission.email,
   twitter: submission.twitter,
   linkedin: submission.linkedin,
+  githubProfile: submission.githubProfile,
   participantToken: submission.participantToken,
   screenshotId: submission.screenshotId,
   teamMembers: teamMemberContacts.map((member) => member.name),
-  teamMemberContacts,
+  teamMemberContacts: teamMemberContacts.map((member) => ({
+    name: member.name,
+    email: member.email,
+    whatsappPhone: member.whatsappPhone,
+    twitter: member.twitter,
+    linkedin: member.linkedin,
+    githubProfile: member.githubProfile,
+  })),
   videoUrl: submission.videoUrl ?? videoUrl,
   videoDeleteAt: submission.videoDeleteAt,
   videoDeletedAt: submission.videoDeletedAt,
   rulesAcceptedAt: submission.rulesAcceptedAt,
   roundOneAssignedJudges: submission.roundOneAssignedJudges,
+  aiSummary: publicAiSummary(submission),
   createdAt: submission.createdAt,
   updatedAt: submission.updatedAt,
 });
@@ -233,25 +264,6 @@ async function logAction(
   });
 }
 
-async function queueJudgingSheetSync(
-  ctx: MutationCtx,
-  event: Doc<"events">,
-  delayMs = JUDGING_SHEET_SYNC_DEBOUNCE_MS,
-) {
-  if (eventType(event) !== "hackathon" || !event.judgingSheetId) return null;
-
-  const revision = (event.judgingSheetSyncRevision ?? 0) + 1;
-  await ctx.db.patch(event._id, {
-    judgingSheetSyncRevision: revision,
-    judgingSheetSyncError: undefined,
-  });
-  await ctx.scheduler.runAfter(delayMs, internal.googleSheets.syncJudgingSheet, {
-    eventId: event._id,
-    revision,
-  });
-  return revision;
-}
-
 function zodToConvexError(error: unknown): never {
   if (error instanceof ZodError) {
     throw new ConvexError(error.issues[0]?.message ?? "Invalid submission.");
@@ -281,6 +293,140 @@ function normalizeContactTextFields(args: ContactTextInput): ReturnType<typeof p
   } catch (error) {
     zodToConvexError(error);
   }
+}
+
+async function trackSelection(
+  ctx: Pick<QueryCtx, "db">,
+  event: Doc<"events">,
+  trackIds: Id<"eventTracks">[] | undefined,
+): Promise<{ trackIds?: Id<"eventTracks">[] }> {
+  if (trackIds === undefined) return {};
+  return { trackIds: await normalizeTrackSelection(ctx, event._id, trackIds) };
+}
+
+export const EMAIL_TAKEN_MESSAGE =
+  "You already submitted with this email. Check your inbox for your status link.";
+// Wait this long before emailing the same status link again.
+const STATUS_LINK_RESEND_MS = 2 * 60 * 1000;
+type EmailOwner = { submission: Doc<"submissions">; email: string };
+type SubmissionStatus = Doc<"submissions">["status"];
+
+/*
+ * Email uniqueness. Invariant: in one event, at most one row across
+ * submissions and team members holds a given normalizedEmail, and only rows of
+ * submissions that hold emails (not withdrawn or hidden) hold one. Every write
+ * keeps it through two helpers: emailFields for any email written onto a row,
+ * and patchSubmissionStatus for any status change. A lookup then reads at
+ * most two rows per table.
+ */
+
+/** Withdrawn and hidden submissions free their emails; every other status holds them. */
+export function holdsEmails(status: SubmissionStatus) {
+  return status !== "withdrawn" && status !== "hidden";
+}
+
+/** The stored lookup key: emailKey(email) while the row holds it, otherwise "". */
+export function storedEmailKey(email: string | undefined, holds: boolean) {
+  return holds && email?.trim() ? emailKey(email) : "";
+}
+
+export const EMAIL_RESTORE_TAKEN_MESSAGE =
+  "Another submission in this event now uses an email from this one. Change that email first.";
+// Rows written before normalizedEmail existed, read until the backfill has run.
+const LEGACY_EMAIL_SCAN_LIMIT = 1000;
+
+async function emailOwners(ctx: Pick<QueryCtx, "db">, eventId: Id<"events">, key: string): Promise<EmailOwner[]> {
+  const [submissions, members, legacySubmissions, legacyMembers] = await Promise.all([
+    ctx.db.query("submissions").withIndex("by_event_and_normalized_email", (q) => q.eq("eventId", eventId).eq("normalizedEmail", key)).take(2),
+    ctx.db.query("teamMembers").withIndex("by_event_and_normalized_email", (q) => q.eq("eventId", eventId).eq("normalizedEmail", key)).take(2),
+    ctx.db.query("submissions").withIndex("by_event_and_normalized_email", (q) => q.eq("eventId", eventId).eq("normalizedEmail", undefined)).take(LEGACY_EMAIL_SCAN_LIMIT + 1),
+    ctx.db.query("teamMembers").withIndex("by_event_and_normalized_email", (q) => q.eq("eventId", eventId).eq("normalizedEmail", undefined)).take(LEGACY_EMAIL_SCAN_LIMIT + 1),
+  ]);
+  if (legacySubmissions.length > LEGACY_EMAIL_SCAN_LIMIT || legacyMembers.length > LEGACY_EMAIL_SCAN_LIMIT) {
+    console.error("Email lookup refused: run migrations:backfillNormalizedEmails", { eventId });
+    throw new ConvexError("Email checks are being updated. Try again in a few minutes.");
+  }
+  if (submissions.length + members.length > 1) {
+    console.error("Email lookup found more than one row holding one email", {
+      eventId,
+      rows: [...submissions, ...members].map((row) => row._id),
+    });
+  }
+  const matches = (row: { email?: string }) => Boolean(row.email) && emailKey(row.email!) === key;
+  const owners: EmailOwner[] = [];
+  for (const submission of [...submissions, ...legacySubmissions.filter(matches)]) {
+    if (holdsEmails(submission.status)) owners.push({ submission, email: submission.email! });
+  }
+  for (const member of [...members, ...legacyMembers.filter(matches)]) {
+    const submission = await ctx.db.get(member.submissionId);
+    if (submission && holdsEmails(submission.status)) owners.push({ submission, email: member.email! });
+  }
+  return owners;
+}
+
+/** Rejects emails that repeat within one submission. */
+function assertDistinctEmails(emails: Array<string | undefined>) {
+  const keys = emails.filter((email): email is string => Boolean(email?.trim())).map(emailKey);
+  if (new Set(keys).size !== keys.length) throw new ConvexError("Each person needs a different email.");
+}
+
+/**
+ * The one way to write an email onto a submission or team member row. When
+ * the row holds emails, checks no other submission in the event uses it.
+ * Returns the email with its lookup key, to spread into the insert or patch.
+ */
+async function emailFields(
+  ctx: Pick<QueryCtx, "db">,
+  eventId: Id<"events">,
+  email: string | undefined,
+  options: { ownSubmissionId?: Id<"submissions">; holds?: boolean; takenMessage?: string } = {},
+) {
+  const holds = options.holds ?? true;
+  const normalizedEmail = storedEmailKey(email, holds);
+  if (normalizedEmail) {
+    const owners = await emailOwners(ctx, eventId, normalizedEmail);
+    if (owners.some((owner) => owner.submission._id !== options.ownSubmissionId)) {
+      throw new ConvexError(options.takenMessage ?? EMAIL_TAKEN_MESSAGE);
+    }
+  }
+  return { email, normalizedEmail };
+}
+
+/**
+ * The one way to change a submission's status. Leaving the statuses that hold
+ * emails clears the lookup keys on the submission and its team members; coming
+ * back checks every email again and refuses if another submission took one.
+ */
+async function patchSubmissionStatus(
+  ctx: MutationCtx,
+  submission: Doc<"submissions">,
+  patch: { status: SubmissionStatus; queueOrder?: number | undefined; updatedAt: number },
+) {
+  const holds = holdsEmails(patch.status);
+  if (holds !== holdsEmails(submission.status)) {
+    const members = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
+      .collect();
+    if (holds) assertDistinctEmails([submission.email, ...members.map((member) => member.email)]);
+    const options = { ownSubmissionId: submission._id, holds, takenMessage: EMAIL_RESTORE_TAKEN_MESSAGE };
+    await ctx.db.patch(submission._id, await emailFields(ctx, submission.eventId, submission.email, options));
+    for (const member of members) {
+      await ctx.db.patch(member._id, await emailFields(ctx, submission.eventId, member.email, options));
+    }
+  }
+  await ctx.db.patch(submission._id, patch);
+}
+
+/** Emails the team their status link once the submission is saved. */
+async function queueSubmittedEmail(ctx: MutationCtx, submissionId: Id<"submissions">, now: number) {
+  await ctx.db.patch(submissionId, { statusLinkEmailedAt: now });
+  await ctx.scheduler.runAfter(0, internal.emails.sendStatusLinkEmail, { submissionId, reason: "submitted" });
+}
+
+function assertSocialLinks(links: { twitter?: string; linkedin?: string; githubProfile?: string }) {
+  const message = socialLinksError(links);
+  if (message) throw new ConvexError(message);
 }
 
 function normalizeTeamName(value: string) {
@@ -412,23 +558,24 @@ export const createEventArgs = {
     meetUrl: v.string(),
   };
 
-const createEventInput = v.object(createEventArgs);
+type CreateEventInput = ObjectType<typeof createEventArgs>;
 
 export const createEvent = mutation({
-  args: createEventInput,
-  handler: async (ctx, args) => {
+  args: { ...createEventArgs, tracks: v.optional(v.array(trackInputValidator)) },
+  handler: async (ctx, { tracks, ...args }) => {
     const { organizationId, actor } = await requireOrganization(ctx);
     if (args.expectedOrganizationId !== organizationId) {
       throw new ConvexError("Your organization changed. Reload events before creating an event.");
     }
-    return createOrganizationEvent(ctx, args, { organizationId, actor });
+    return createOrganizationEvent(ctx, args, { organizationId, actor }, tracks);
   },
 });
 
 export async function createOrganizationEvent(
   ctx: MutationCtx,
-  args: Infer<typeof createEventInput>,
+  args: CreateEventInput,
   { organizationId, actor }: { organizationId: string; actor: string },
+  tracks: Infer<typeof trackInputValidator>[] = [],
 ) {
     const name = args.name.trim();
     if (!name || name.length > 160) throw new ConvexError("Enter an event name of 1–160 characters.");
@@ -473,6 +620,7 @@ export async function createOrganizationEvent(
       updatedAt: now,
     });
 
+    await insertEventTracks(ctx, eventId, tracks);
     await logAction(ctx, eventId, "event_created", actor);
     return { eventId };
 }
@@ -621,6 +769,9 @@ export const getStage = query({
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
+    const tracks = await listEventTracks(ctx, event._id);
+    const byId = tracksById(tracks);
+    const stageFields = (submission: Doc<"submissions">) => publicSubmissionFields(submission, byId);
 
     const lineup = lineupSorted(submissions);
     const activeSubmissionCount = submissions.filter(
@@ -645,12 +796,15 @@ export const getStage = query({
         showMeetLinkOnStage,
         showStageTimerOnStage: event.showStageTimerOnStage ?? false,
         showDemoTimerOnStage: event.showDemoTimerOnStage ?? false,
+        tracks: tracks.map(publicTrack),
+        // Whether the submit form can prefill socials from Luma. Never the Luma id.
+        lumaLinked: Boolean(event.lumaEventId) && lumaOrganizationAllowed(event.workosOrganizationId),
       },
       stageTimer: publicStageTimer(event, now),
       demoTimer: publicDemoTimer(event, now),
-      current: current ? publicSubmissionFields(current) : null,
-      upNext: upNext ? publicSubmissionFields(upNext) : null,
-      lineup: stageLineup.map(publicSubmissionFields),
+      current: current ? stageFields(current) : null,
+      upNext: upNext ? stageFields(upNext) : null,
+      lineup: stageLineup.map(stageFields),
       remainingCount: lineup.length,
       waitingCount: activeSubmissionCount,
       meetUrl: event.queuePublished && showMeetLinkOnStage ? event.meetUrl : null,
@@ -683,10 +837,20 @@ export async function getAdminForOrganization(
       members.push(member);
       membersBySubmission.set(member.submissionId, members);
     }
+    const tracks = await listEventTracks(ctx, event._id);
+    const byId = tracksById(tracks);
+    const trackCounts = new Map<Id<"eventTracks">, number>();
+    let noTrackCount = 0;
+    for (const submission of submissions) {
+      const ids = submission.trackIds ?? [];
+      if (ids.length === 0 && !(submission.trackIds === undefined && submission.category)) noTrackCount += 1;
+      for (const id of ids) trackCounts.set(id, (trackCounts.get(id) ?? 0) + 1);
+    }
     const adminSubmissions = await Promise.all(
       submissions.map(async (submission) =>
         adminSubmissionFields(
           submission,
+          byId,
           membersBySubmission.get(submission._id) ?? [],
           await resolveSubmissionVideoUrl(ctx, submission),
         ),
@@ -722,7 +886,18 @@ export async function getAdminForOrganization(
         stageTimer: publicStageTimer(event),
         demoTimer: publicDemoTimer(event),
         canRestorePrevious: event.lastAdvanceSnapshot !== undefined,
+        submissionSurgeAt: event.submissionSurgeAt,
+        luma: {
+          // Only organisations that own the key's Luma calendar can link.
+          available: lumaOrganizationAllowed(event.workosOrganizationId),
+          event: event.lumaEventId
+            ? { id: event.lumaEventId, name: event.lumaEventName ?? event.lumaEventId, url: event.lumaEventUrl ?? null }
+            : null,
+        },
       },
+      tracks: tracks.map((track) => ({ ...publicTrack(track), submissionCount: trackCounts.get(track._id) ?? 0 })),
+      noTrackCount,
+      legacyCategoryCount: submissions.filter((submission) => submission.trackIds === undefined && submission.category).length,
       lineup: lineupSorted(submissions).map(mapAdminSubmission),
       pool: submissions
         .filter((submission) => submission.status === "candidate")
@@ -788,6 +963,7 @@ export const getParticipant = query({
       .query("teamMembers")
       .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
       .collect();
+    const byId = tracksById(await listEventTracks(ctx, event._id));
 
     return {
       event: {
@@ -797,18 +973,25 @@ export const getParticipant = query({
         visualStyle: normalizeVisualStyle(event.visualStyle),
         theme: event.theme,
         submissionsClosed: event.submissionsClosedAt !== undefined,
+        lumaLinked: Boolean(event.lumaEventId) && lumaOrganizationAllowed(event.workosOrganizationId),
       },
       submission: {
-        ...publicSubmissionFields(submission),
+        ...publicSubmissionFields(submission, byId),
         status: liveStatus,
         phone: submission.phone,
         email: submission.email,
-        twitter: submission.twitter,
-        linkedin: submission.linkedin,
+        // Only what people typed: Luma-imported socials are for organisers and judges.
+        ...participantSocials(submission),
         githubUrl: submission.githubUrl,
         rulesAcceptedAt: submission.rulesAcceptedAt,
         finalist: submission.finalist ?? false,
         teamMembers: teamMembers.map((member) => member.name),
+        // Each member's typed socials, so the team can fill in or correct them. No emails or phones.
+        teamMemberSocials: teamMembers.map((member) => ({
+          id: member._id,
+          name: member.name,
+          ...participantSocials(member),
+        })),
         videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
         videoDeleteAt: submission.videoDeleteAt,
         videoDeletedAt: submission.videoDeletedAt,
@@ -819,10 +1002,186 @@ export const getParticipant = query({
   },
 });
 
+/**
+ * What a participant sent, for the submit page when it is reopened in the
+ * browser that submitted. The participant token is the capability, as on the
+ * status page. Answers null instead of throwing for a stale token.
+ */
+export const getSubmittedView = query({
+  args: { slug: v.string(), participantToken: v.string() },
+  handler: async (ctx, { slug, participantToken }) => {
+    const event = await findEventBySlug(ctx, slug);
+    if (!event) return null;
+    const submission = await ctx.db
+      .query("submissions")
+      .withIndex("by_participant_token", (q) => q.eq("participantToken", participantToken))
+      .unique();
+    if (!submission || submission.eventId !== event._id) return null;
+    const members = await ctx.db
+      .query("teamMembers")
+      .withIndex("by_submission", (q) => q.eq("submissionId", submission._id))
+      .take(MAX_ADDITIONAL_TEAM_MEMBERS + 1);
+    const byId = tracksById(await listEventTracks(ctx, event._id));
+
+    return {
+      eventType: eventType(event),
+      emailConfigured: emailConfig().ok,
+      submittedAt: submission.createdAt,
+      withdrawn: submission.status === "withdrawn",
+      email: submission.email,
+      teamName: submission.teamName,
+      demoTitle: submission.demoTitle,
+      description: submission.description,
+      tracks: trackNamesFor(submission, byId),
+      githubUrl: submission.githubUrl,
+      videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
+      people: [
+        {
+          name: submission.name,
+          presenter: true,
+          ...participantSocials(submission),
+        },
+        ...members.map((member) => ({
+          name: member.name,
+          presenter: false,
+          ...participantSocials(member),
+        })),
+      ],
+    };
+  },
+});
+
+/**
+ * Limits for the public submit page. Submits are refused per browser and per
+ * email, never for the whole event: a full event bucket only logs and warns
+ * the organiser, so nobody can lock real participants out. A browser can
+ * change its id; organisers hide what gets through.
+ *
+ * The instant check and a submit both answer whether an email is taken, so
+ * they draw on the same per browser budget. A submit spends its tokens before
+ * looking at emails and answers "taken" as a result, not an error, so the
+ * spent tokens commit. Everything that can fail runs before that point.
+ */
+export const PUBLIC_FORM_LIMITS = {
+  emailCheckPerCaller: { kind: "token bucket", rate: 60, period: HOUR, capacity: 20 },
+  // Only the instant check: when it runs out the form shows nothing and submit still checks.
+  emailCheckPerEvent: { kind: "token bucket", rate: 2000, period: HOUR, capacity: 300 },
+  submitPerCaller: { kind: "token bucket", rate: 10, period: HOUR, capacity: 3 },
+  // Bounds withdraw and resubmit rounds with one email.
+  submitPerEmail: { kind: "token bucket", rate: 6, period: HOUR, capacity: 3 },
+  // Soft: never refuses, only marks the event so the admin shows a warning.
+  submitPerEvent: { kind: "token bucket", rate: 600, period: HOUR, capacity: 200 },
+} as const;
+
+const publicFormLimiter = new RateLimiter(components.rateLimiter, PUBLIC_FORM_LIMITS);
+
+export const EMAIL_CHECK_LIMITED_MESSAGE = "Too many email checks. Try again in a few minutes.";
+export const SUBMIT_LIMITED_MESSAGE = "Too many submissions from this browser. Try again in a few minutes.";
+export const SUBMIT_EMAIL_LIMITED_MESSAGE = "Too many submissions with this email. Try again in an hour.";
+// Mark the event again at most this often while submissions keep pouring in.
+const SUBMISSION_SURGE_MARK_MS = 10 * 60 * 1000;
+const CLIENT_ID = /^[A-Za-z0-9_-]{16,64}$/;
+
+function assertClientId(clientId: string) {
+  if (!CLIENT_ID.test(clientId)) throw new ConvexError("Reload the page and try again.");
+}
+
+async function limitEmailCheck(ctx: MutationCtx, eventId: Id<"events">, clientId: string) {
+  assertClientId(clientId);
+  const perCaller = await publicFormLimiter.limit(ctx, "emailCheckPerCaller", { key: `${eventId}:${clientId}` });
+  if (!perCaller.ok) throw new ConvexError(EMAIL_CHECK_LIMITED_MESSAGE);
+  const perEvent = await publicFormLimiter.limit(ctx, "emailCheckPerEvent", { key: eventId });
+  if (!perEvent.ok) throw new ConvexError(EMAIL_CHECK_LIMITED_MESSAGE);
+}
+
+/** Refuses per browser and per email; an event-wide surge only warns the organiser. */
+async function limitSubmit(ctx: MutationCtx, event: Doc<"events">, clientId: string, emails: Array<string | undefined>) {
+  assertClientId(clientId);
+  const callerKey = { key: `${event._id}:${clientId}` };
+  const perCaller = await publicFormLimiter.limit(ctx, "submitPerCaller", callerKey);
+  if (!perCaller.ok) throw new ConvexError(SUBMIT_LIMITED_MESSAGE);
+  // A submit also answers "is this email taken", so it spends the instant check's budget too.
+  const asked = await publicFormLimiter.limit(ctx, "emailCheckPerCaller", callerKey);
+  if (!asked.ok) throw new ConvexError(SUBMIT_LIMITED_MESSAGE);
+  for (const email of emails) {
+    if (!email?.trim()) continue;
+    const perEmail = await publicFormLimiter.limit(ctx, "submitPerEmail", { key: `${event._id}:${emailKey(email)}` });
+    if (!perEmail.ok) throw new ConvexError(SUBMIT_EMAIL_LIMITED_MESSAGE);
+  }
+  const perEvent = await publicFormLimiter.limit(ctx, "submitPerEvent", { key: event._id });
+  if (!perEvent.ok) {
+    const now = Date.now();
+    if (event.submissionSurgeAt === undefined || now - event.submissionSurgeAt > SUBMISSION_SURGE_MARK_MS) {
+      console.warn("Submission surge", { eventId: event._id });
+      await ctx.db.patch(event._id, { submissionSurgeAt: now });
+    }
+  }
+}
+
+/** What a public submit answers when an email is already in the event; the spent limits commit. */
+const EMAIL_TAKEN_RESULT = { emailTaken: true } as const;
+
+/** emailFields for the public form: null instead of an error when the email is taken. */
+async function publicEmailFields(ctx: MutationCtx, eventId: Id<"events">, email: string | undefined) {
+  try {
+    return await emailFields(ctx, eventId, email);
+  } catch (error) {
+    if (error instanceof ConvexError && error.data === EMAIL_TAKEN_MESSAGE) return null;
+    throw error;
+  }
+}
+
+/**
+ * Whether someone in this event already submitted with this email, as a
+ * presenter or a team member. Never says which submission.
+ */
+/** A mutation rather than a query, so every answer counts against the limits. */
+export const checkSubmissionEmail = mutation({
+  args: { slug: v.string(), email: v.string(), clientId: v.string() },
+  handler: async (ctx, args) => {
+    const key = emailKey(args.email);
+    if (!isValidEmail(key)) throw new ConvexError("Enter a valid email address.");
+    const event = await findEventBySlug(ctx, args.slug);
+    // Says nothing about events that are not taking submissions.
+    if (!event || event.submissionsClosedAt !== undefined) return { taken: false };
+    await limitEmailCheck(ctx, event._id, args.clientId);
+    return { taken: (await emailOwners(ctx, event._id, key)).length > 0 };
+  },
+});
+
+/**
+ * Emails the private status link again to an address already in this event.
+ * Answers the same way whether or not the address is known, and sends at
+ * most once every two minutes per submission.
+ */
+export const requestStatusLinkEmail = mutation({
+  args: { slug: v.string(), email: v.string() },
+  handler: async (ctx, args) => {
+    const key = emailKey(args.email);
+    if (!isValidEmail(key)) throw new ConvexError("Enter a valid email address.");
+    const event = await eventBySlug(ctx, args.slug);
+    const [owner] = await emailOwners(ctx, event._id, key);
+    if (!owner) return { ok: true };
+    const { submission } = owner;
+    const now = Date.now();
+    if (submission.statusLinkEmailedAt !== undefined && now - submission.statusLinkEmailedAt < STATUS_LINK_RESEND_MS) {
+      return { ok: true };
+    }
+    await ctx.db.patch(submission._id, { statusLinkEmailedAt: now });
+    await ctx.scheduler.runAfter(0, internal.emails.sendStatusLinkEmail, {
+      submissionId: submission._id,
+      to: owner.email,
+      reason: "resend",
+    });
+    return { ok: true };
+  },
+});
+
 export const submitDemo = mutation({
   args: {
     slug: v.string(),
     participantToken: v.string(),
+    clientId: v.string(),
     name: v.string(),
     demoTitle: v.string(),
     description: v.string(),
@@ -830,7 +1189,9 @@ export const submitDemo = mutation({
     email: v.optional(v.string()),
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
+    githubProfile: v.optional(v.string()),
     category: v.optional(v.string()),
+    trackIds: v.optional(v.array(v.id("eventTracks"))),
     screenshotId: v.optional(v.id("_storage")),
     queueOrder: v.number(),
   },
@@ -839,15 +1200,24 @@ export const submitDemo = mutation({
     if (eventType(event) !== "demo") {
       throw new ConvexError("Use the hackathon submission form for this event.");
     }
+    if (event.submissionsClosedAt !== undefined) throw new ConvexError("Submissions are closed.");
     const now = Date.now();
     const fields = normalizeSubmissionTextFields(args);
+    assertSocialLinks(fields);
+    const tracks = await trackSelection(ctx, event, args.trackIds);
     if (args.screenshotId) await requireUnattachedSubmissionFile(ctx, args.screenshotId);
+    await limitSubmit(ctx, event, args.clientId, [fields.email]);
+    const email = await publicEmailFields(ctx, event._id, fields.email);
+    if (!email) return EMAIL_TAKEN_RESULT;
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,
       ...fields,
+      ...email,
+      ...tracks,
       screenshotId: args.screenshotId,
+      socialSources: typedSocialSources(fields),
       // New submissions land in the pool ("all people"); the admin drags chosen
       // people into the lineup.
       status: "candidate",
@@ -858,6 +1228,8 @@ export const submitDemo = mutation({
 
     await ctx.db.patch(event._id, { updatedAt: now });
     await logAction(ctx, event._id, "submission_created", "participant", submissionId);
+    await queueSubmittedEmail(ctx, submissionId, now);
+    await queueLumaImport(ctx, event, submissionId);
     return { submissionId };
   },
 });
@@ -866,6 +1238,7 @@ export const submitHackathon = mutation({
   args: {
     slug: v.string(),
     participantToken: v.string(),
+    clientId: v.string(),
     name: v.string(),
     teamName: v.string(),
     teamMembers: v.array(v.string()),
@@ -875,6 +1248,9 @@ export const submitHackathon = mutation({
           name: v.string(),
           email: v.string(),
           whatsappPhone: v.string(),
+          twitter: v.optional(v.string()),
+          linkedin: v.optional(v.string()),
+          githubProfile: v.optional(v.string()),
         }),
       ),
     ),
@@ -884,7 +1260,9 @@ export const submitHackathon = mutation({
     email: v.optional(v.string()),
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
+    githubProfile: v.optional(v.string()),
     category: v.optional(v.string()),
+    trackIds: v.optional(v.array(v.id("eventTracks"))),
     githubUrl: v.string(),
     rulesAccepted: v.boolean(),
     videoUrl: v.string(),
@@ -928,16 +1306,31 @@ export const submitHackathon = mutation({
     if (!args.rulesAccepted) {
       throw new ConvexError("Confirm that your submission meets the event rules.");
     }
+    assertSocialLinks(fields);
+    const emails = [presenter?.email ?? fields.email, ...teamMemberContacts.map((member) => member.email)];
+    assertDistinctEmails(emails);
+    const tracks = await trackSelection(ctx, event, args.trackIds);
+    await limitSubmit(ctx, event, args.clientId, emails);
+    const presenterEmail = await publicEmailFields(ctx, event._id, emails[0]);
+    if (!presenterEmail) return EMAIL_TAKEN_RESULT;
+    const memberEmails = [];
+    for (const contact of teamMemberContacts) {
+      const memberEmail = await publicEmailFields(ctx, event._id, contact.email);
+      if (!memberEmail) return EMAIL_TAKEN_RESULT;
+      memberEmails.push(memberEmail);
+    }
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,
       ...fields,
+      ...tracks,
       name: presenter?.name ?? fields.name,
       phone: presenter?.whatsappPhone ?? fields.phone,
-      email: presenter?.email ?? fields.email,
+      ...presenterEmail,
       teamName,
       githubUrl,
       videoUrl,
+      socialSources: typedSocialSources(fields),
       rulesAcceptedAt: now,
       status: "candidate",
       queueOrder: undefined,
@@ -951,8 +1344,12 @@ export const submitHackathon = mutation({
         eventId: event._id,
         submissionId,
         name: memberName,
-        email: contact?.email,
+        ...(memberEmails[index] ?? (await emailFields(ctx, event._id, undefined))),
         whatsappPhone: contact?.whatsappPhone,
+        twitter: contact?.twitter,
+        linkedin: contact?.linkedin,
+        githubProfile: contact?.githubProfile,
+        socialSources: typedSocialSources(contact ?? {}),
         createdAt: now,
       });
     }
@@ -960,6 +1357,8 @@ export const submitHackathon = mutation({
     await ctx.db.patch(event._id, { updatedAt: now });
     await logAction(ctx, event._id, "hackathon_submission_created", "participant", submissionId);
     await queueJudgingSheetSync(ctx, event);
+    await queueSubmittedEmail(ctx, submissionId, now);
+    await queueLumaImport(ctx, event, submissionId);
     return { submissionId };
   },
 });
@@ -974,7 +1373,9 @@ export const adminAddSubmissionArgs = v.object({
   email: v.optional(v.string()),
   twitter: v.optional(v.string()),
   linkedin: v.optional(v.string()),
+  githubProfile: v.optional(v.string()),
   category: v.optional(v.string()),
+  trackIds: v.optional(v.array(v.id("eventTracks"))),
   queueOrder: v.number(),
   list: v.optional(v.union(v.literal("lineup"), v.literal("pool"))),
 });
@@ -991,11 +1392,16 @@ export async function adminAddSubmissionForOrganization(
     const now = Date.now();
     const toPool = args.list === "pool";
     const fields = normalizeSubmissionTextFields(args);
+    const tracks = await trackSelection(ctx, event, args.trackIds);
+    const email = await emailFields(ctx, event._id, fields.email);
 
     const submissionId = await ctx.db.insert("submissions", {
       eventId: event._id,
       participantToken: args.participantToken,
       ...fields,
+      ...email,
+      ...tracks,
+      socialSources: typedSocialSources(fields),
       status: toPool ? "candidate" : "queued",
       queueOrder: toPool ? undefined : args.queueOrder,
       createdAt: now,
@@ -1003,6 +1409,7 @@ export async function adminAddSubmissionForOrganization(
     });
 
     await logAction(ctx, event._id, "submission_admin_added", actor, submissionId);
+    await queueLumaImport(ctx, event, submissionId);
     return { submissionId };
 }
 
@@ -1022,6 +1429,7 @@ const adminTestSubmissionValidator = v.object({
   twitter: v.optional(v.string()),
   linkedin: v.optional(v.string()),
   category: v.optional(v.string()),
+  trackIds: v.optional(v.array(v.id("eventTracks"))),
   teamName: v.optional(v.string()),
   teamMembers: v.optional(v.array(v.string())),
   githubUrl: v.optional(v.string()),
@@ -1061,10 +1469,15 @@ export async function adminAddTestSubmissionsForOrganization(
       const videoUrl = isHackathon && submission.videoUrl
         ? normalizeHackathonVideoUrl(submission.videoUrl) ?? undefined
         : undefined;
+      const tracks = await trackSelection(ctx, event, submission.trackIds);
+      // Rows inserted earlier in this batch already hold their emails, so repeats are caught too.
+      const email = await emailFields(ctx, event._id, fields.email);
       const submissionId = await ctx.db.insert("submissions", {
         eventId: event._id,
         participantToken: submission.participantToken,
         ...fields,
+        ...email,
+        ...tracks,
         teamName,
         githubUrl,
         videoUrl,
@@ -1080,6 +1493,7 @@ export async function adminAddTestSubmissionsForOrganization(
           eventId: event._id,
           submissionId,
           name: memberName,
+          ...(await emailFields(ctx, event._id, undefined)),
           createdAt: now,
         });
       }
@@ -1107,6 +1521,8 @@ export const editParticipantContact = mutation({
     email: v.optional(v.string()),
     twitter: v.optional(v.string()),
     linkedin: v.optional(v.string()),
+    // Sent by current clients ("" to clear); left alone when missing.
+    githubProfile: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const event = await eventBySlug(ctx, args.slug);
@@ -1119,10 +1535,62 @@ export const editParticipantContact = mutation({
       throw new ConvexError("Submission not found");
     }
 
+    const { githubProfile, ...contact } = normalizeContactTextFields(args);
+    assertSocialLinks({ ...contact, githubProfile });
+    const email = await emailFields(ctx, event._id, contact.email, {
+      ownSubmissionId: submission._id,
+      holds: holdsEmails(submission.status),
+    });
+    const socials = {
+      twitter: contact.twitter,
+      linkedin: contact.linkedin,
+      ...(args.githubProfile !== undefined ? { githubProfile } : {}),
+    };
+    const { patch, emailChanged } = participantSocialEditPatch(submission, socials, contact.email);
     await ctx.db.patch(submission._id, {
-      ...normalizeContactTextFields(args),
+      ...contact,
+      ...email,
+      ...patch,
       updatedAt: Date.now(),
     });
+    await queueJudgingSheetSync(ctx, event);
+    // No new import once submissions are closed.
+    if (emailChanged && event.submissionsClosedAt === undefined) await queueLumaImport(ctx, event, submission._id);
+  },
+});
+
+/**
+ * A team member's socials, corrected from the private status page. The
+ * participant token is the capability, as for the presenter's contact info.
+ * What is saved counts as typed, so a later Luma import never replaces it.
+ */
+export const editTeamMemberSocials = mutation({
+  args: {
+    slug: v.string(),
+    participantToken: v.string(),
+    memberId: v.id("teamMembers"),
+    twitter: v.string(),
+    linkedin: v.string(),
+    githubProfile: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const event = await eventBySlug(ctx, args.slug);
+    const submission = await ctx.db
+      .query("submissions")
+      .withIndex("by_participant_token", (q) => q.eq("participantToken", args.participantToken))
+      .unique();
+    const member = await ctx.db.get(args.memberId);
+    if (!submission || submission.eventId !== event._id || !member || member.submissionId !== submission._id) {
+      throw new ConvexError("Submission not found");
+    }
+    const { twitter, linkedin, githubProfile } = normalizeSubmissionTextFields({
+      name: member.name, demoTitle: "", description: "", phone: "",
+      twitter: args.twitter, linkedin: args.linkedin, githubProfile: args.githubProfile,
+    });
+    assertSocialLinks({ twitter, linkedin, githubProfile });
+    const { patch } = participantSocialEditPatch(member, { twitter, linkedin, githubProfile }, member.email);
+    await ctx.db.patch(member._id, patch);
+    await ctx.db.patch(submission._id, { updatedAt: Date.now() });
     await queueJudgingSheetSync(ctx, event);
   },
 });
@@ -1141,7 +1609,7 @@ export const withdrawSubmission = mutation({
     }
     if (event.submissionsClosedAt !== undefined) throw new ConvexError("Submissions are closed.");
 
-    await ctx.db.patch(submission._id, { status: "withdrawn", updatedAt: Date.now() });
+    await patchSubmissionStatus(ctx, submission, { status: "withdrawn", updatedAt: Date.now() });
     await logAction(ctx, event._id, "submission_withdrawn", "participant", submission._id);
     await queueJudgingSheetSync(ctx, event);
   },
@@ -1590,6 +2058,7 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
         .withIndex("by_event", (q) => q.eq("eventId", event._id))
         .collect(),
     ]);
+    const byId = tracksById(await listEventTracks(ctx, event._id));
     const membersBySubmission = new Map<string, string[]>();
     for (const member of teamMembers) {
       const members = membersBySubmission.get(member.submissionId) ?? [];
@@ -1607,7 +2076,7 @@ export const getJudgingSheetSyncSnapshot = internalQuery({
           name: submission.name,
           demoTitle: submission.demoTitle,
           description: submission.description,
-          category: submission.category,
+          tracks: trackNamesFor(submission, byId),
           githubUrl: submission.githubUrl,
           roundOneAssignedJudges: submission.roundOneAssignedJudges,
           videoUrl: await resolveSubmissionVideoUrl(ctx, submission),
@@ -1673,7 +2142,9 @@ export const updateSubmissionArgs = v.object({
   email: v.optional(v.string()),
   twitter: v.optional(v.string()),
   linkedin: v.optional(v.string()),
+  githubProfile: v.optional(v.string()),
   category: v.optional(v.string()),
+  trackIds: v.optional(v.array(v.id("eventTracks"))),
 });
 
 export async function updateSubmissionForOrganization(
@@ -1688,11 +2159,30 @@ export async function updateSubmissionForOrganization(
       throw new ConvexError("Submission not found");
     }
 
+    const { category, githubProfile, ...fields } = normalizeSubmissionTextFields(args);
+    const email = await emailFields(ctx, event._id, fields.email, {
+      ownSubmissionId: submission._id,
+      holds: holdsEmails(submission.status),
+    });
+    const { patch: socialPatch, emailChanged } = socialEditPatch(
+      submission,
+      { twitter: fields.twitter, linkedin: fields.linkedin, ...(args.githubProfile !== undefined ? { githubProfile } : {}) },
+      fields.email,
+    );
     await ctx.db.patch(args.submissionId, {
-      ...normalizeSubmissionTextFields(args),
+      ...fields,
+      ...email,
+      ...socialPatch,
+      // Legacy clients still send a category; newer ones send tracks instead.
+      ...(args.category !== undefined ? { category } : {}),
+      ...(await trackSelection(ctx, event, args.trackIds)),
       updatedAt: Date.now(),
     });
+    // A changed description gets a new AI summary once submissions are closed.
+    const updated = await ctx.db.get(args.submissionId);
+    if (updated) await queueAiSummaryIfStale(ctx, event, updated);
     await queueJudgingSheetSync(ctx, event);
+    if (emailChanged && event.submissionsClosedAt === undefined) await queueLumaImport(ctx, event, args.submissionId);
 }
 
 export const updateSubmission = mutation({
@@ -2204,7 +2694,7 @@ export async function hideSubmissionForOrganization(
     }
 
     const now = Date.now();
-    await ctx.db.patch(args.submissionId, {
+    await patchSubmissionStatus(ctx, submission, {
       status: "hidden",
       queueOrder: undefined,
       updatedAt: now,
@@ -2240,7 +2730,7 @@ export async function restoreSubmissionForOrganization(
     const now = Date.now();
     // Restoring a hidden person returns them to the pool, not straight into the
     // lineup; the admin drags them into the running order if they want them.
-    await ctx.db.patch(args.submissionId, {
+    await patchSubmissionStatus(ctx, submission, {
       status: "candidate",
       queueOrder: undefined,
       updatedAt: now,
@@ -2280,7 +2770,7 @@ export async function reorderLineupForOrganization(
       ) {
         continue;
       }
-      await ctx.db.patch(submissionId, {
+      await patchSubmissionStatus(ctx, submission, {
         status: "queued",
         queueOrder: index + 1,
         updatedAt: now,
@@ -2332,7 +2822,7 @@ export async function shuffleLineupForOrganization(
     const now = Date.now();
     for (let i = 0; i < eligible.length; i += 1) {
       const inLineup = i < target;
-      await ctx.db.patch(eligible[i]._id, {
+      await patchSubmissionStatus(ctx, eligible[i], {
         status: inLineup ? "queued" : "candidate",
         queueOrder: inLineup ? i + 1 : undefined,
         updatedAt: now,
@@ -2368,24 +2858,25 @@ export async function setLineupOrderForOrganization(
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
-    const eligibleIds = new Set(
+    const eligible = new Map(
       submissions
         .filter((s) => s.status === "queued" || s.status === "candidate")
-        .map((s) => s._id),
+        .map((s) => [s._id, s]),
     );
+    const eligibleIds = new Set(eligible.keys());
 
     const now = Date.now();
     const placed = new Set<string>();
     let order = 1;
     for (const id of args.orderedIds) {
       if (!eligibleIds.has(id) || placed.has(id)) continue;
-      await ctx.db.patch(id, { status: "queued", queueOrder: order, updatedAt: now });
+      await patchSubmissionStatus(ctx, eligible.get(id)!, { status: "queued", queueOrder: order, updatedAt: now });
       placed.add(id);
       order += 1;
     }
     for (const id of eligibleIds) {
       if (!placed.has(id)) {
-        await ctx.db.patch(id, { status: "candidate", queueOrder: undefined, updatedAt: now });
+        await patchSubmissionStatus(ctx, eligible.get(id)!, { status: "candidate", queueOrder: undefined, updatedAt: now });
       }
     }
 
@@ -2419,7 +2910,7 @@ export async function moveToPoolForOrganization(
     }
 
     const now = Date.now();
-    await ctx.db.patch(args.submissionId, {
+    await patchSubmissionStatus(ctx, submission, {
       status: "candidate",
       queueOrder: undefined,
       updatedAt: now,
@@ -2482,7 +2973,7 @@ export async function markNoShowForOrganization(
     }
 
     const now = Date.now();
-    await ctx.db.patch(current._id, {
+    await patchSubmissionStatus(ctx, current, {
       status: "no_show",
       queueOrder: undefined,
       updatedAt: now,
@@ -2529,7 +3020,7 @@ export async function pickNextForOrganization(
     const demoRemainingMs = currentDemoTimerRemaining(event, now);
     const demoTimerStatus = event.demoTimerStatus ?? "idle";
 
-    await ctx.db.patch(current._id, {
+    await patchSubmissionStatus(ctx, current, {
       status: "done",
       queueOrder: undefined,
       updatedAt: now,
@@ -2587,7 +3078,7 @@ export async function restorePreviousPresenterForOrganization(
         ? snapshot.demoTimerDurationMs
         : clampSignedTimerMs(snapshot.demoTimerRemainingMs);
 
-    await ctx.db.patch(snapshot.currentSubmissionId, {
+    await patchSubmissionStatus(ctx, submission, {
       status: "queued",
       queueOrder: snapshot.currentQueueOrder ?? now,
       updatedAt: now,

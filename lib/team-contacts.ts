@@ -1,4 +1,4 @@
-import { AsYouType, parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
+import { AsYouType, parsePhoneNumberFromString } from "libphonenumber-js";
 import { z } from "zod";
 // @ts-expect-error Node's strip-types test runner resolves the source extension directly.
 import { SUBMISSION_FIELD_LIMITS, isValidGithubProfile, isValidLinkedin, isValidTwitter } from "./validation.ts";
@@ -28,20 +28,17 @@ function optionalSocial(limit: number, label: string, isValid: (value: string) =
     .refine((value) => value === undefined || isValid(value), message);
 }
 
-/** A WhatsApp number typed with a single leading 0 is read as a number in this country. */
-export const WHATSAPP_HOME_COUNTRY: CountryCode = "GB";
-
 /**
- * Reads a WhatsApp number however it was typed: with a +, with 00 for the +,
- * as a bare international number ("44 7442 106036"), or as a UK number with
- * its leading 0. Anything else (letters, an empty field) is undefined.
+ * Reads a WhatsApp number typed with its country code: with a +, with 00 for
+ * the +, or bare ("44 7442 106036"). A number starting with a single 0 has no
+ * country code and is never guessed, nor is anything else (letters, an empty
+ * field): undefined.
  */
 function readWhatsAppNumber(value: string) {
   const trimmed = value.trim();
   if (trimmed.startsWith("+")) return parsePhoneNumberFromString(trimmed);
   if (trimmed.startsWith("00")) return parsePhoneNumberFromString(`+${trimmed.slice(2)}`);
-  if (trimmed.startsWith("0")) return parsePhoneNumberFromString(trimmed, WHATSAPP_HOME_COUNTRY);
-  return /^\d[\d\s().-]*$/.test(trimmed) ? parsePhoneNumberFromString(`+${trimmed}`) : undefined;
+  return /^[1-9][\d\s().-]*$/.test(trimmed) ? parsePhoneNumberFromString(`+${trimmed}`) : undefined;
 }
 
 export function normalizeInternationalPhone(value: string) {
@@ -59,13 +56,12 @@ export function formatWhatsAppPhone(value: string) {
 
 /**
  * Spaces a WhatsApp number while it is typed. A bare number gets its + at
- * once; one starting with a single 0 is spaced as a UK number until it is
- * complete, when the blur turns it into +44.
+ * once; one starting with a single 0 stays as typed, for validation to ask
+ * for the country code.
  */
 export function formatWhatsAppAsYouType(value: string) {
   const trimmed = value.trimStart();
-  if (trimmed.startsWith("0") && !trimmed.startsWith("00")) return new AsYouType(WHATSAPP_HOME_COUNTRY).input(trimmed);
-  const international = trimmed.startsWith("+") ? trimmed : trimmed.startsWith("00") ? `+${trimmed.slice(2)}` : /^\d/.test(trimmed) ? `+${trimmed}` : null;
+  const international = trimmed.startsWith("+") ? trimmed : trimmed.startsWith("00") ? `+${trimmed.slice(2)}` : /^[1-9]/.test(trimmed) ? `+${trimmed}` : null;
   return international ? new AsYouType().input(international) : value;
 }
 
@@ -119,7 +115,7 @@ export const teamContactSchema = z.object({
     )
     .refine(
       (value) => normalizeInternationalPhone(value) !== null,
-      "Enter a valid WhatsApp number, such as +44 7700 900123.",
+      "Enter a valid WhatsApp number with its country code, such as +44 7700 900123.",
     )
     .transform((value) => normalizeInternationalPhone(value)!),
   twitter: optionalSocial(SUBMISSION_FIELD_LIMITS.twitter, "X", isValidTwitter, "Enter an X @handle or an x.com link."),

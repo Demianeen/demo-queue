@@ -39,9 +39,11 @@ shown on GitHub, state what was verified, and retry the existing check through
 its owning service before proposing replacement automation.
 
 The only canonical Convex deployments are development `precious-elk-564` and
-production `giant-egret-456`. Preview frontends use `precious-elk-564` and its
-matching development WorkOS application. Never read, write, configure, or deploy
-to another Convex deployment, including one provisioned by a Preview integration.
+production `giant-egret-456`. Each Vercel Preview build gets its own Convex
+preview deployment, created and seeded by CI with the Preview deploy key, and
+signs in through the development WorkOS application. Never read, write,
+configure, or deploy to another Convex deployment yourself, including a preview
+deployment.
 
 For local development commands, verify that `.env.local` exists and selects
 `precious-elk-564`. Before each local Convex command, report whether `.env.local`
@@ -65,16 +67,20 @@ Agents may run, restart, and stop `convex dev` against `precious-elk-564`,
 including syncing schema/functions and running development checks, without
 asking for permission again.
 
-Preview frontend and Production deployments run through CI/CD, not local `convex deploy`.
-Preview runs only the Next.js build. Its settings, set once for the whole Preview environment and never per branch, must use the
-canonical development backend and matching WorkOS credentials. The build guard
-rejects mismatches and strips inherited Convex deployment credentials. Never
-provision a Convex Preview deployment. Production retains its existing deploy
+Preview and Production deployments run through CI/CD, not local `convex deploy`.
+On Preview, `scripts/vercel-build.mjs` runs `convex deploy` with the Preview
+deploy key: it creates the branch's preview deployment, builds Next.js against
+it and seeds it once with `previewSeed:seed` (see
+`docs/plans/preview-deployments.md`). Its settings, set once for the whole
+Preview environment and never per branch, must use the development WorkOS
+credentials. The build guard rejects a missing or non-preview deploy key and
+WorkOS mismatches, and strips other inherited Convex settings. Never provision
+a Convex preview deployment by hand. Production retains its existing deploy
 command and environment.
 When asked to deploy or retry CI/CD, rerun the relevant GitHub Actions workflow.
 If the check is owned by Vercel's GitHub integration instead, use its Redeploy
 control. Verify the repository, project, branch, commit, and target environment
-before restarting. A Vercel frontend Preview is not a separate Convex deployment.
+before restarting. Each Vercel Preview has its own Convex preview deployment.
 Inspect the run and address
 reproducible failures before retrying unchanged failures repeatedly.
 
@@ -164,9 +170,8 @@ add 30 seconds before any useful data is returned.
 Use raw Convex CLI table commands only when the helper does not fit, the user
 explicitly asks for table output, or you need to debug the helper itself. If the
 user says "prod queue" or "production queue", use `--prod`; otherwise use the
-default dev deployment unless they name a deployment. Preview frontends share
-the canonical development backend; do not pass a separate Preview deployment
-reference to the helper.
+default dev deployment unless they name a deployment. Each Vercel Preview has
+its own Convex preview deployment; do not point the helper at one.
 
 1. Read events first:
 

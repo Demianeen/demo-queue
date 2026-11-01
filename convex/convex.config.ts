@@ -26,8 +26,10 @@ const app = defineApp({
     // PostHog product events, errors and LLM analytics. Without the token, nothing is sent.
     POSTHOG_PROJECT_TOKEN: v.optional(v.string()),
     POSTHOG_HOST: v.optional(v.string()),
-    // "development", "preview" or "production": dev Convex serves local and Preview alike.
+    // "development", "preview" or "production". Each Vercel preview's own deployment sets "preview".
     POSTHOG_ENVIRONMENT: v.optional(v.string()),
+    // Preview deployments only: the WorkOS organisation that previewSeed.seed fills with test events.
+    PREVIEW_SEED_ORGANIZATION_ID: v.optional(v.string()),
   },
 });
 

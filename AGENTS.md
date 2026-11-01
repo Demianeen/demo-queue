@@ -170,9 +170,8 @@ add 30 seconds before any useful data is returned.
 Use raw Convex CLI table commands only when the helper does not fit, the user
 explicitly asks for table output, or you need to debug the helper itself. If the
 user says "prod queue" or "production queue", use `--prod`; otherwise use the
-default dev deployment unless they name a deployment. Preview frontends share
-the canonical development backend; do not pass a separate Preview deployment
-reference to the helper.
+default dev deployment unless they name a deployment. Each Vercel Preview has
+its own Convex preview deployment; do not point the helper at one.
 
 1. Read events first:
 

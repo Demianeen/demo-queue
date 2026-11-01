@@ -117,6 +117,7 @@ development):
 | `WORKOS_ENVIRONMENT_ID` | Optional. |
 | `OPENAI_API_KEY` | Optional. Seeded events use sample summaries; needed only to try the real model. |
 | `GITHUB_TOKEN` | Optional. Raises the README read limit for AI summaries. |
+| `POSTHOG_PROJECT_TOKEN`, `POSTHOG_ENVIRONMENT` | Optional. The development project `329561`'s token and `preview` report the preview's Convex events, marked as Preview. Without the token it sends none. Do not copy development's `POSTHOG_ENVIRONMENT`, or preview events read as development. |
 | `DEMO_QUEUE_SITE_URL`, `RESEND_FROM_EMAIL` | Optional. Used only for email, which stays off without `RESEND_API_KEY`. |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN`, `GOOGLE_DRIVE_FOLDER_ID` | Leave unset: they would let previews create judging sheets in the real Drive folder. |
 | `WORKOS_MCP_ISSUER` | Not needed: previews serve no MCP. |

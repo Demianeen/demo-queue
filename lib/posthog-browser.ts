@@ -77,11 +77,37 @@ export function posthogOptions(): Partial<PostHogConfig> {
     mask_all_text: true,
     mask_all_element_attributes: true,
     capture_exceptions: { capture_unhandled_errors: true, capture_unhandled_rejections: true, capture_console_errors: false },
+    // Web vitals for every page, judges' phones in particular; no network timing.
+    capture_performance: { web_vitals: true, network_timing: false },
     before_send: scrubEvent,
     // Used wherever PostHog reads the page URL itself rather than an event property.
     get_current_url: scrubUrl,
     loaded: (client) => client.register({ environment: analyticsEnvironment() }),
   };
+}
+
+type None = Record<never, never>;
+
+/**
+ * Every product event the browser sends, with its properties. No free text:
+ * slugs, codes, field names, counts and booleans only.
+ */
+export type ClientEvents = {
+  submission_started: None;
+  /** `fields` lists the invalid form fields by name, never what was typed. */
+  submission_failed: { reason: "validation" | "email_taken" | "server_error"; fields?: string };
+  judge_confirmed: None;
+  /** Sent when a save leaves the review complete. */
+  review_saved: { assigned: boolean };
+  ai_summary_viewed: None;
+  readme_opened: None;
+  judge_link_failed: None;
+  getting_started_step_completed: { step: string };
+};
+
+/** Sends a product event; a no-op when PostHog is not configured. */
+export function captureEvent<Name extends keyof ClientEvents>(name: Name, properties: ClientEvents[Name] & { event_slug?: string }) {
+  if (posthog.__loaded) posthog.capture(name, properties);
 }
 
 /**

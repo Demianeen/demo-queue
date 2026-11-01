@@ -31,6 +31,7 @@ import { AiPanel, aiSummaryCaveat } from "@/components/AiRead";
 import { JUDGING_CRITERIA, JUDGING_CRITERION_LABELS } from "@/lib/judging-rubric";
 import { helpOutSections, joinNames, scoringNow, startedAgo, yoursSections, type Scorer } from "@/lib/judging-help";
 import { judgeTotal, parseJudgeSort, sortByScore, type JudgeSort } from "@/lib/judge-sort";
+import { captureEvent } from "@/lib/posthog-browser";
 import { timeLeftMs, type TimerReading } from "@/lib/timer-clock";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { videoEmbedUrl, youtubeEmbedUrl } from "@/lib/video-embed";
@@ -217,7 +218,7 @@ export default function JudgeClientPage() {
 
   async function confirm() {
     setConfirming(true); setConfirmError("");
-    try { await confirmJudge({ slug: params.slug, capabilityToken: params.token }); setNotYou(false); }
+    try { await confirmJudge({ slug: params.slug, capabilityToken: params.token }); setNotYou(false); captureEvent("judge_confirmed", { event_slug: params.slug }); }
     catch { setConfirmError("Could not confirm. Check your connection and try again."); }
     finally { setConfirming(false); }
   }
@@ -344,6 +345,9 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
   useEffect(() => { if (selectedId) document.getElementById(`judge-row-${selectedId}`)?.scrollIntoView({ block: "nearest" }); }, [selectedId, sort]);
 
   const selected = data.projects.find((project) => String(project.id) === selectedId) ?? null;
+  // Once each time a project with a summary is opened.
+  const summaryShown = selected?.aiSummary ? String(selected.id) : null;
+  useEffect(() => { if (summaryShown) captureEvent("ai_summary_viewed", { event_slug: slug }); }, [summaryShown, slug]);
   const selectedIndex = visible.findIndex((project) => String(project.id) === selectedId);
   const currentScores = selected ? scores[String(selected.id)] ?? {} : {};
   const canScore = Boolean(data.canScore && selected);
@@ -374,6 +378,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
     try {
       await saveReview({ slug, capabilityToken: token, submissionId: submissionId as Id<"submissions">, innovation: nextScores.innovation, execution: nextScores.execution, demoClarity: nextScores.demoClarity });
       setSaveState((current) => ({ ...current, [submissionId]: "saved" }));
+      if (scoreIsComplete(nextScores)) captureEvent("review_saved", { event_slug: slug, assigned: data.projects.some((project) => String(project.id) === submissionId && project.assignedToMe) });
     } catch {
       setSaveState((current) => ({ ...current, [submissionId]: "error" }));
     }
@@ -535,7 +540,7 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
                   {selected.githubUrl ? <a href={selected.githubUrl} target="_blank" rel="noreferrer">GitHub repository</a> : null}
                   {selected.videoUrl ? <a href={selected.videoUrl} target="_blank" rel="noreferrer">Demo video</a> : null}
                 </span>
-                <span><a href="#project-description">Team&apos;s description</a><a href="#project-readme">README</a></span>
+                <span><a href="#project-description">Team&apos;s description</a><a href="#project-readme" onClick={() => captureEvent("readme_opened", { event_slug: slug })}>README</a></span>
               </div>
               <section id="project-description" className={styles.descriptionSection}>
                 <div className={styles.sectionLabel}>Team&apos;s description</div>

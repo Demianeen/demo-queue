@@ -8,10 +8,12 @@ import test from "node:test";
 
 const script = fileURLToPath(new URL("../scripts/vercel-build.mjs", import.meta.url));
 const branchHost = "demo-queue-git-codex-organizat-d0ac4e-netlyukh-demians-projects.vercel.app";
+const previewDeployKey = "preview:demianeen:demo-queue|test-private-preview-secret";
+const previewDeploy = ["exec", "convex", "deploy", "--cmd-url-env-var-name", "NEXT_PUBLIC_CONVEX_URL", "--cmd", "pnpm run build", "--preview-run", "previewSeed:seed"];
 const preview = {
   VERCEL_ENV: "preview",
   VERCEL_BRANCH_URL: branchHost,
-  NEXT_PUBLIC_CONVEX_URL: "https://precious-elk-564.convex.cloud",
+  CONVEX_DEPLOY_KEY: previewDeployKey,
   WORKOS_CLIENT_ID: "client_01M1RPKQD8S6KM3Q61N0N2FE4D",
   WORKOS_API_KEY: "test-private-api-key",
   WORKOS_COOKIE_PASSWORD: "test-private-cookie-password-over-32-characters",
@@ -54,23 +56,23 @@ process.exit(${exitCode});
     if (error.code === "ENOENT") return null;
     throw error;
   });
-  for (const secret of [preview.WORKOS_API_KEY, preview.WORKOS_COOKIE_PASSWORD, "inherited-production-deploy-secret"]) {
+  for (const secret of [preview.WORKOS_API_KEY, preview.WORKOS_COOKIE_PASSWORD, "test-private-preview-secret", "inherited-production-deploy-secret"]) {
     assert.equal(`${result.stdout}${result.stderr}`.includes(secret), false);
   }
   return { ...result, call };
 }
 
-test("Preview builds Next.js with canonical auth and removes inherited Convex credentials", async (t) => {
+test("Preview deploys and seeds its own Convex preview with canonical auth, dropping other Convex settings", async (t) => {
   const result = await runBuild(t, {
-    CONVEX_DEPLOY_KEY: "inherited-production-deploy-secret",
-    CONVEX_DEPLOYMENT: "preview:unrelated-deployment",
+    CONVEX_DEPLOYMENT: "dev:precious-elk-564",
     CONVEX_OVERRIDE_ACCESS_TOKEN: "test-private-override",
-    NEXT_PUBLIC_CONVEX_SITE_URL: "https://unrelated-deployment.convex.site",
+    NEXT_PUBLIC_CONVEX_URL: "https://precious-elk-564.convex.cloud",
+    NEXT_PUBLIC_CONVEX_SITE_URL: "https://precious-elk-564.convex.site",
   });
   assert.equal(result.status, 0);
   assert.deepEqual(result.call, {
-    args: ["run", "build"],
-    convexVariables: { NEXT_PUBLIC_CONVEX_URL: "https://precious-elk-564.convex.cloud" },
+    args: previewDeploy,
+    convexVariables: { CONVEX_DEPLOY_KEY: previewDeployKey },
     client: "client_01M1RPKQD8S6KM3Q61N0N2FE4D",
     callback: `https://${branchHost}/callback`,
     apiKeyPresent: true,
@@ -112,8 +114,16 @@ test("Production retains the exact deploy command and its existing environment",
 
 test("Preview rejects mismatched providers and missing credentials before building", async (t) => {
   const cases = [
-    [{ NEXT_PUBLIC_CONVEX_URL: "https://giant-egret-456.convex.cloud" }, "preview_convex_url_mismatch"],
-    [{ NEXT_PUBLIC_CONVEX_URL: "" }, "preview_convex_url_mismatch"],
+    [{ CONVEX_DEPLOY_KEY: undefined }, "preview_deploy_key_missing"],
+    [{ CONVEX_DEPLOY_KEY: "" }, "preview_deploy_key_missing"],
+    [{ CONVEX_DEPLOY_KEY: "  " }, "preview_deploy_key_missing"],
+    // Production's key, inherited by Preview, would deploy the preview to Production.
+    [{ CONVEX_DEPLOY_KEY: "prod:giant-egret-456|inherited-production-deploy-secret" }, "preview_deploy_key_not_preview"],
+    [{ CONVEX_DEPLOY_KEY: "inherited-production-deploy-secret" }, "preview_deploy_key_not_preview"],
+    [{ CONVEX_DEPLOY_KEY: "dev:precious-elk-564|test-private-preview-secret" }, "preview_deploy_key_not_preview"],
+    [{ CONVEX_DEPLOY_KEY: "project:demianeen:demo-queue|test-private-preview-secret" }, "preview_deploy_key_not_preview"],
+    [{ CONVEX_DEPLOY_KEY: "preview:demo-queue|test-private-preview-secret" }, "preview_deploy_key_not_preview"],
+    [{ CONVEX_DEPLOY_KEY: "preview:demianeen:demo-queue" }, "preview_deploy_key_not_preview"],
     [{ WORKOS_CLIENT_ID: "client_wrong" }, "preview_workos_client_mismatch"],
     [{ WORKOS_API_KEY: "" }, "preview_workos_api_key_missing"],
     [{ WORKOS_API_KEY: "  " }, "preview_workos_api_key_missing"],
@@ -151,5 +161,10 @@ test("Unknown build environments fail closed and child failures propagate", asyn
   }
   const failed = await runBuild(t, {}, 23);
   assert.equal(failed.status, 23);
-  assert.deepEqual(failed.call.args, ["run", "build"]);
+  assert.deepEqual(failed.call.args, previewDeploy);
+});
+
+test("The preview seed the build names is an internal mutation", async () => {
+  const seed = await readFile(fileURLToPath(new URL("../convex/previewSeed.ts", import.meta.url)), "utf8");
+  assert.match(seed, /^export const seed = internalMutation\(/m);
 });

@@ -209,80 +209,88 @@ async function addTestJudges(ctx: MutationCtx, event: Doc<"events">, count: numb
 /** Creates the practice event once the action has the creator's email. */
 export const createPracticeEventForOwner = internalMutation({
   args: { principal: organizationPrincipalValidator, ownerEmail: v.string(), input: createPracticeEventArgs },
-  handler: async (ctx, { principal, ownerEmail, input }) => {
-    if (input.expectedOrganizationId !== principal.organizationId) throw new ConvexError("Your organization changed. Reload before making a practice event.");
-    const testSubmissions = wholeNumber(input.testSubmissions, MAX_TEST_SUBMISSIONS_PER_CALL, "Test submissions");
-    const testJudges = wholeNumber(input.testJudges, MAX_TEST_JUDGES, "Test judges");
-    if (!isValidEmail(ownerEmail)) throw new ConvexError("Your email cannot take a plus-address.");
-    const random = seeded(Date.now());
-    let source: Doc<"events"> | null = null;
-    if (input.start.kind === "copy") {
-      source = (await requireOwnedEvent(ctx, input.start.slug, principal)).event;
-      if (source.practice === true) throw new ConvexError("Copy a real event, not another practice event.");
-    }
-    const eventType = source ? source.eventType ?? "demo" : input.start.kind === "blank" ? input.start.eventType : "demo";
-    if (testJudges > 0 && eventType !== "hackathon") throw new ConvexError("A demo night has no judges.");
-    if (testJudges === 1) throw new ConvexError("Add at least 2 test judges, or none.");
-    const typed = input.name?.trim();
-    const taken = typed ? [] : (await ctx.db.query("events")
-      .withIndex("by_workosOrganizationId_and_practice", (q) => q.eq("workosOrganizationId", principal.organizationId).eq("practice", true))
-      .take(PRACTICE_LIST_LIMIT)).map((event) => event.name);
-    const name = (typed || practiceEventName({ sourceName: source?.name, eventType }, taken, new Date(), true)).slice(0, 160);
-    const slug = practiceSlug(name, random);
-    const hackathon = eventType === "hackathon";
-    const tracks = source
-      ? (await listEventTracks(ctx, source._id)).map((track) => ({ name: track.name, description: track.description }))
-      : hackathon ? SAMPLE_TRACKS : [];
-    const sponsors = source
-      ? (await listEventSponsors(ctx, source._id)).map((sponsor) => ({ name: sponsor.name, usage: sponsor.usage }))
-      : hackathon ? SAMPLE_SPONSORS : [];
-    const { eventId } = await createOrganizationEvent(ctx, {
-      expectedOrganizationId: principal.organizationId,
-      name,
-      slug,
-      eventType,
-      visualStyle: source?.visualStyle ?? undefined,
-      meetUrl: source?.meetUrl || DEFAULT_MEET_URL,
-    }, principal, tracks, sponsors);
-    await ctx.db.patch(eventId, {
-      practice: true,
-      practiceOwnerActor: principal.actor,
-      practiceOwnerEmail: emailKey(ownerEmail),
-      practiceCopiedFromEventId: source?._id,
-      practiceCopiedFromName: source?.name,
-      practiceTestPeopleCount: 0,
-      practiceAiSummaries: input.practiceAiSummaries ?? "sample",
-      phase: "submissions",
-      ...(source
-        ? {
-            theme: source.theme,
-            visualStyle: source.visualStyle,
-            judgingTimerDurationMs: source.judgingTimerDurationMs,
-            judgingTimerRemainingMs: source.judgingTimerDurationMs,
-            stageTimerDurationMs: source.stageTimerDurationMs,
-            stageTimerRemainingMs: source.stageTimerDurationMs,
-            demoTimerDurationMs: source.demoTimerDurationMs,
-            demoTimerRemainingMs: source.demoTimerDurationMs,
-            lineupTarget: source.lineupTarget,
-            aiSummarySections: source.aiSummarySections,
-            showSubmissionCountOnStage: source.showSubmissionCountOnStage,
-            showMeetLinkOnStage: source.showMeetLinkOnStage,
-          }
-        : {}),
-      updatedAt: Date.now(),
-    });
-    let event = (await ctx.db.get(eventId))!;
-    const judges = await addTestJudges(ctx, event, testJudges, principal);
-    event = (await ctx.db.get(eventId))!;
-    const { submissionIds } = await addPracticeSubmissionsForEvent(ctx, event, testSubmissions);
-    event = (await ctx.db.get(eventId))!;
-    await insertChange(ctx, {
-      event, principal, kind: "practice_created", undo: "none",
-      summary: source ? `made this practice event from ${source.name}` : "made this practice event",
-    }, []);
-    return { eventId, slug, judges, submissionCount: submissionIds.length };
-  },
+  handler: async (ctx, { principal, ownerEmail, input }) => createPracticeEventWithOwner(ctx, principal, ownerEmail, input),
 });
+
+/** The practice event itself, for createPracticeEventForOwner and the preview seed. */
+export async function createPracticeEventWithOwner(
+  ctx: MutationCtx,
+  principal: OrganizationPrincipal,
+  ownerEmail: string,
+  input: Infer<typeof createPracticeEventArgs>,
+) {
+  if (input.expectedOrganizationId !== principal.organizationId) throw new ConvexError("Your organization changed. Reload before making a practice event.");
+  const testSubmissions = wholeNumber(input.testSubmissions, MAX_TEST_SUBMISSIONS_PER_CALL, "Test submissions");
+  const testJudges = wholeNumber(input.testJudges, MAX_TEST_JUDGES, "Test judges");
+  if (!isValidEmail(ownerEmail)) throw new ConvexError("Your email cannot take a plus-address.");
+  const random = seeded(Date.now());
+  let source: Doc<"events"> | null = null;
+  if (input.start.kind === "copy") {
+    source = (await requireOwnedEvent(ctx, input.start.slug, principal)).event;
+    if (source.practice === true) throw new ConvexError("Copy a real event, not another practice event.");
+  }
+  const eventType = source ? source.eventType ?? "demo" : input.start.kind === "blank" ? input.start.eventType : "demo";
+  if (testJudges > 0 && eventType !== "hackathon") throw new ConvexError("A demo night has no judges.");
+  if (testJudges === 1) throw new ConvexError("Add at least 2 test judges, or none.");
+  const typed = input.name?.trim();
+  const taken = typed ? [] : (await ctx.db.query("events")
+    .withIndex("by_workosOrganizationId_and_practice", (q) => q.eq("workosOrganizationId", principal.organizationId).eq("practice", true))
+    .take(PRACTICE_LIST_LIMIT)).map((event) => event.name);
+  const name = (typed || practiceEventName({ sourceName: source?.name, eventType }, taken, new Date(), true)).slice(0, 160);
+  const slug = practiceSlug(name, random);
+  const hackathon = eventType === "hackathon";
+  const tracks = source
+    ? (await listEventTracks(ctx, source._id)).map((track) => ({ name: track.name, description: track.description }))
+    : hackathon ? SAMPLE_TRACKS : [];
+  const sponsors = source
+    ? (await listEventSponsors(ctx, source._id)).map((sponsor) => ({ name: sponsor.name, usage: sponsor.usage }))
+    : hackathon ? SAMPLE_SPONSORS : [];
+  const { eventId } = await createOrganizationEvent(ctx, {
+    expectedOrganizationId: principal.organizationId,
+    name,
+    slug,
+    eventType,
+    visualStyle: source?.visualStyle ?? undefined,
+    meetUrl: source?.meetUrl || DEFAULT_MEET_URL,
+  }, principal, tracks, sponsors);
+  await ctx.db.patch(eventId, {
+    practice: true,
+    practiceOwnerActor: principal.actor,
+    practiceOwnerEmail: emailKey(ownerEmail),
+    practiceCopiedFromEventId: source?._id,
+    practiceCopiedFromName: source?.name,
+    practiceTestPeopleCount: 0,
+    practiceAiSummaries: input.practiceAiSummaries ?? "sample",
+    phase: "submissions",
+    ...(source
+      ? {
+          theme: source.theme,
+          visualStyle: source.visualStyle,
+          judgingTimerDurationMs: source.judgingTimerDurationMs,
+          judgingTimerRemainingMs: source.judgingTimerDurationMs,
+          stageTimerDurationMs: source.stageTimerDurationMs,
+          stageTimerRemainingMs: source.stageTimerDurationMs,
+          demoTimerDurationMs: source.demoTimerDurationMs,
+          demoTimerRemainingMs: source.demoTimerDurationMs,
+          lineupTarget: source.lineupTarget,
+          aiSummarySections: source.aiSummarySections,
+          showSubmissionCountOnStage: source.showSubmissionCountOnStage,
+          showMeetLinkOnStage: source.showMeetLinkOnStage,
+        }
+      : {}),
+    updatedAt: Date.now(),
+  });
+  let event = (await ctx.db.get(eventId))!;
+  const judges = await addTestJudges(ctx, event, testJudges, principal);
+  event = (await ctx.db.get(eventId))!;
+  const { submissionIds } = await addPracticeSubmissionsForEvent(ctx, event, testSubmissions);
+  event = (await ctx.db.get(eventId))!;
+  await insertChange(ctx, {
+    event, principal, kind: "practice_created", undo: "none",
+    summary: source ? `made this practice event from ${source.name}` : "made this practice event",
+  }, []);
+  return { eventId, slug, judges, submissionCount: submissionIds.length };
+}
 
 /**
  * New practice event: a copy of a real event (its tracks, sponsors, style,

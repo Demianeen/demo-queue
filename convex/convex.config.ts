@@ -23,6 +23,8 @@ const app = defineApp({
     RESEND_API_KEY: v.optional(v.string()),
     RESEND_FROM_EMAIL: v.optional(v.string()),
     DEMO_QUEUE_SITE_URL: v.optional(v.string()),
+    // Preview deployments only: the WorkOS organisation that previewSeed.seed fills with test events.
+    PREVIEW_SEED_ORGANIZATION_ID: v.optional(v.string()),
   },
 });
 

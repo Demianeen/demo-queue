@@ -33,6 +33,7 @@ export const modules = {
   "./mcpAdmin.ts": () => import("./mcpAdmin"),
   "./luma.ts": () => import("./luma"),
   "./practice.ts": () => import("./practice"),
+  "./previewSeed.ts": () => import("./previewSeed"),
   "./members.ts": () => import("./members"),
 };
 

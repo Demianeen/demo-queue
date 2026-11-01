@@ -3,7 +3,7 @@
 import { SparklesIcon } from "lucide-react";
 import { Skeleton } from "@/app/Skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { aiReadChips, splitRowChips, SPONSOR_USE_LABELS, TRACK_FIT_LABELS, type AiReadChip, type AiReadTone, type AiReadView } from "@/lib/ai-read";
+import { aiReadChips, BUILT_STATUS_LABELS, BUILT_STATUS_TONES, buildFactsLine, buildReadLine, splitRowChips, SPONSOR_USE_LABELS, TRACK_FIT_LABELS, type AiDetailsView, type AiReadChip, type AiReadTone, type AiReadView } from "@/lib/ai-read";
 import styles from "./AiRead.module.css";
 
 const TRACK_TONE = { strong: "good", partial: "some", weak: "none" } as const satisfies Record<string, AiReadTone>;
@@ -13,8 +13,10 @@ const SPONSOR_TONE = { core: "good", used: "good", light: "some", none: "none" }
 export type AiSummaryRow = { label: string; text: string };
 
 /** The panel's top line: where the AI got its text, and that it can be wrong. */
-export function aiSummaryCaveat(summary: { sample?: boolean; usedReadme?: boolean; usedCode?: boolean; stale?: boolean }) {
-  const sources = ["the team's description", ...(summary.usedReadme ? ["README"] : []), ...(summary.usedCode ? ["code"] : [])];
+export function aiSummaryCaveat(summary: { sample?: boolean; usedReadme?: boolean; usedCode?: boolean; stale?: boolean; build?: unknown }) {
+  // A v3 summary read the code as it was at the deadline.
+  const code = summary.build ? ["code at the deadline"] : summary.usedCode ? ["code"] : [];
+  const sources = ["the team's description", ...(summary.usedReadme ? ["README"] : []), ...code];
   const read = sources.length > 1 ? `${sources.slice(0, -1).join(", ")} and ${sources.at(-1)}` : sources[0];
   const source = summary.sample
     ? "Sample (practice). The real model is off for this event."
@@ -50,16 +52,22 @@ function Fit({ label, tone, reason }: { label: string; tone: AiReadTone; reason:
  * The AI card on the judge page and the organiser's project panel: one
  * heading and one caveat in the top line, then the read (judges have a couple
  * of minutes a project, so the judgement comes first), then the summary lines.
- * `rows` is "pending" while the summary is being written.
+ * `rows` is "pending" while the summary is being written. `details` is what a
+ * v3 summary adds (build facts, built or stubbed, questions); older summaries
+ * have none and show as before.
  */
-export function AiPanel({ headingId, caveat, read, rows, organiser = false }: {
+export function AiPanel({ headingId, caveat, read, rows, details, organiser = false }: {
   headingId?: string;
   caveat: string;
   read: AiReadView | null | undefined;
   rows: AiSummaryRow[] | "pending";
+  details?: AiDetailsView | null;
   organiser?: boolean;
 }) {
   const pending = rows === "pending";
+  const parts = pending ? [] : details?.builtVsStubbed ?? [];
+  const questions = pending ? [] : details?.questions ?? [];
+  const build = pending ? null : details?.build ?? null;
   return <section aria-labelledby={headingId} aria-busy={pending || undefined} className={styles.panel}>
     <div className={styles.head}>
       <h2 className={styles.title} id={headingId}><SparklesIcon aria-hidden="true" /> AI</h2>
@@ -67,9 +75,24 @@ export function AiPanel({ headingId, caveat, read, rows, organiser = false }: {
     </div>
     <div className={styles.body}>
       {read ? <ReadLines read={read} organiser={organiser} /> : null}
+      {build ? <div className={styles.build}>
+        <p className={styles.buildFacts}><span className={styles.buildLabel}>Build</span>{buildFactsLine(build)}</p>
+        <p className={styles.note}>{buildReadLine(build)} Counted by the app, not the AI, from commit times the team&apos;s git recorded.</p>
+      </div> : null}
       {pending
         ? <div className={styles.pending}><Skeleton h={12} /><Skeleton w="86%" h={12} /><Skeleton w="72%" h={12} /></div>
         : rows.length > 0 ? <dl className={styles.rows}>{rows.map((row) => <div key={row.label}><dt>{row.label}</dt>{row.text ? <dd>{row.text}</dd> : <dd className={styles.missing}>Not described</dd>}</div>)}</dl> : null}
+      {parts.length > 0 ? <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Built or stubbed</h3>
+        <ul className={styles.parts}>{parts.map((part, index) => <li key={`${index}-${part.part}`} className={styles.part}>
+          <span className={styles.partHead}><span className={styles.partName}>{part.part}</span><span className={styles.level} data-tone={BUILT_STATUS_TONES[part.status]}>{BUILT_STATUS_LABELS[part.status]}</span></span>
+          {part.evidence ? <span className={styles.reason}>{part.evidence}</span> : null}
+        </li>)}</ul>
+      </div> : null}
+      {questions.length > 0 ? <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Ask the team</h3>
+        <ol className={styles.questions}>{questions.map((question, index) => <li key={index}>{question}</li>)}</ol>
+      </div> : null}
     </div>
   </section>;
 }

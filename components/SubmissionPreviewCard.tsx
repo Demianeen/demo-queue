@@ -6,7 +6,7 @@ import { ExternalLinkIcon } from "lucide-react";
 import { socialUrl, type SocialKind } from "@/lib/social";
 import { youtubeEmbedUrl } from "@/lib/video-embed";
 import { cn } from "@/lib/utils";
-import type { AiReadView } from "@/lib/ai-read";
+import type { AiDetailsView, AiReadView } from "@/lib/ai-read";
 import { AiPanel, aiSummaryCaveat } from "@/components/AiRead";
 
 export type PreviewPerson = {
@@ -24,7 +24,8 @@ export type SubmissionPreview = {
   githubUrl?: string | null;
   videoUrl?: string | null;
   people: PreviewPerson[];
-  aiSummary?: {
+  /** v3 summaries add build facts, built or stubbed, and questions (AiDetailsView). */
+  aiSummary?: ({
     whatItDoes: string;
     howItWorks: string;
     demoFocus: string;
@@ -32,7 +33,7 @@ export type SubmissionPreview = {
     usedCode?: boolean;
     sample?: boolean;
     stale: boolean;
-  } | null;
+  } & AiDetailsView) | null;
   /** The AI read: track fit and sponsor use. Organisers only see previews, so it says how to get a missing level. */
   aiRead?: AiReadView | null;
 };
@@ -140,7 +141,7 @@ export function SubmissionPreviewBody({ preview }: { preview: SubmissionPreview 
           { label: "What it does", text: preview.aiSummary.whatItDoes },
           { label: "How it works", text: preview.aiSummary.howItWorks },
           { label: "Look for in the demo", text: preview.aiSummary.demoFocus },
-        ]} />
+        ]} details={preview.aiSummary} />
       ) : preview.aiRead ? (
         <AiPanel caveat="The AI's read. Check it against the project." read={preview.aiRead} organiser rows={[]} />
       ) : null}

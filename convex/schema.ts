@@ -124,6 +124,8 @@ export default defineSchema({
     aiSummaryBudget: v.optional(v.object({ day: v.number(), used: v.number() })),
     // AI summary sections for this event; the defaults in lib/ai-summary.ts when unset.
     aiSummarySections: v.optional(v.array(summarySectionValidator)),
+    // The last "Regenerate AI summaries" for the whole event: when, how many projects, and how many today (UTC day number).
+    aiSummaryRegeneration: v.optional(v.object({ startedAt: v.number(), total: v.number(), day: v.number(), today: v.number() })),
     // A practice event: a real event with only test people, listed apart from real events.
     practice: v.optional(v.boolean()),
     practiceOwnerActor: v.optional(v.string()),
@@ -201,6 +203,30 @@ export default defineSchema({
           overall: v.string(),
           tracks: v.array(v.object({ trackId: v.id("eventTracks"), level: v.union(v.literal("strong"), v.literal("partial"), v.literal("weak")), reason: v.string() })),
           sponsors: v.array(v.object({ sponsorId: v.id("eventSponsors"), level: v.union(v.literal("core"), v.literal("used"), v.literal("light"), v.literal("none")), reason: v.string() })),
+        })),
+        // v3 only: each main feature the team claims, and whether the code read shows it built.
+        builtVsStubbed: v.optional(v.array(v.object({
+          part: v.string(),
+          status: v.union(v.literal("working"), v.literal("partial"), v.literal("stubbed"), v.literal("not_read")),
+          evidence: v.string(),
+        }))),
+        // v3 only: two or three questions a judge could ask after the demo.
+        questions: v.optional(v.array(v.string())),
+        // v3 only: counts from the repository's commits, computed by the app, and the commit read.
+        build: v.optional(v.object({
+          sha: v.string(),
+          readAt: v.number(),
+          deadline: v.number(),
+          deadlineKind: v.union(v.literal("closed"), v.literal("written")),
+          commits: v.number(),
+          people: v.number(),
+          firstAt: v.number(),
+          lastAt: v.number(),
+          afterDeadline: v.number(),
+          firstCommitLines: v.optional(v.number()),
+          firstCommitFiles: v.optional(v.number()),
+          truncated: v.boolean(),
+          filesRead: v.number(),
         })),
         // SUMMARY_PROMPT_VERSION it was written with; missing on the first version.
         promptVersion: v.optional(v.number()),

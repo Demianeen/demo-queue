@@ -21,6 +21,7 @@ import { CRITERIA, judgeInitials, parseReviewGroup, rankRows, type JudgeChip, ty
 import { ProgressView, RankingView } from "./ProjectRows";
 import { FinalistsView } from "./FinalistsView";
 import { ClockCard, DetailPanel } from "./JudgingSide";
+import { RegenerateSummaries } from "./RegenerateSummaries";
 import styles from "./judging.module.css";
 import { InPageLink } from "@/components/InPageLink";
 
@@ -204,12 +205,12 @@ function JudgingPageInner({ slug, admin, previews, onHide, onManageJudges, sheet
   }
 
   if (view === "finalists") return <>
-    <SheetControls sheet={sheet} />
+    <SheetControls slug={slug} sheet={sheet} />
     <FinalistsView slug={slug} closed={closed} rows={ranked} visibleRows={visible} loading={loading} toolbar={toolbar} filters={filters} filtered={filtered} onClearFilters={clearFilters} />
   </>;
 
   return <div className={styles.page}>
-    <SheetControls sheet={sheet} />
+    <SheetControls slug={slug} sheet={sheet} />
     <div className={styles.main}>
       {toolbar}
       {view === "progress" && <ProgressView rows={visible} loading={loading} group={group} assigned={(progress?.scoring ?? []).some((row) => row.assignedJudges.length > 0)} showTracks={showTracks}
@@ -265,10 +266,11 @@ function DisplayMenu({ view, sort, showTracks, onSort, onTracks }: { view: Judgi
   </DropdownMenu>;
 }
 
-/** Create or open the judging sheet, and sync it: at the right of the event tabs, as drawn. */
-function SheetControls({ sheet }: { sheet: { url?: string; busy: boolean; syncPending: boolean; status: string; message: string; onCreate: () => void; onSync: () => void } }) {
+/** Regenerate the AI summaries, and create or open the judging sheet and sync it: at the right of the event tabs, as drawn. */
+function SheetControls({ slug, sheet }: { slug: string; sheet: { url?: string; busy: boolean; syncPending: boolean; status: string; message: string; onCreate: () => void; onSync: () => void } }) {
   const slot = useContext(EventTabActionsContext);
   const controls = <span className={styles.sheet}>
+    <RegenerateSummaries slug={slug} />
     {(sheet.message || sheet.status) && <span className={styles.sheetStatus} role="status">{sheet.message || sheet.status}</span>}
     {sheet.url ? <>
       <Button variant="ghost" size="sm" onClick={sheet.onSync} disabled={sheet.busy || sheet.syncPending}><RotateCcw aria-hidden />{sheet.syncPending ? "Syncing…" : "Sync now"}</Button>

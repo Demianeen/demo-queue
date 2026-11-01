@@ -109,6 +109,19 @@ const statusOf = (t: Awaited<ReturnType<typeof setup>>["t"], id: Id<"submissions
     return aiSummaryStatus((await ctx.db.get(submission.eventId))!, submission);
   });
 const runAll = (t: Awaited<ReturnType<typeof setup>>["t"]) => t.finishAllScheduledFunctions(vi.runAllTimers);
+
+/*
+ * Most tests here cover the v2 summary. Their fake GitHub has no commits, so each run
+ * tries v3 first (a repository check, then a commit list) and falls back. These leave
+ * that attempt out; aiSummaryV3.test.ts covers v3 itself.
+ */
+const REPOSITORY_URL = "https://api.github.com/repos/example/guardrail";
+function v2Urls() {
+  const urls = fetchMock.mock.calls.map(([url]) => String(url));
+  return urls.filter((url, index) => !url.includes("/commits") && !(url === REPOSITORY_URL && (urls[index + 1] === REPOSITORY_URL || urls[index + 1]?.includes("/commits"))));
+}
+const summaryLines = (log: { mock: { calls: unknown[][] } }) =>
+  log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary") && !line.includes('"v3_fallback"'));
 const summaryOf = (t: Awaited<ReturnType<typeof setup>>["t"], id: Id<"submissions">) =>
   t.run(async (ctx) => (await ctx.db.get(id))?.aiSummary ?? null);
 
@@ -143,7 +156,7 @@ test("closing submissions writes one summary per submission in judging, from pro
   }
   // Only the README and dependency files of a GitHub repository are fetched, from the GitHub API.
   // The repository is checked first, so nothing private is ever read.
-  expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+  expect(v2Urls()).toEqual([
     "https://api.github.com/repos/example/guardrail",
     "https://api.github.com/repos/example/guardrail/readme",
     "https://api.github.com/repos/example/guardrail/contents/package.json",
@@ -209,6 +222,9 @@ test("judges see the summary, labelled fields only", async () => {
     sample: false,
     generatedAt: expect.any(Number),
     stale: false,
+    builtVsStubbed: null,
+    questions: null,
+    build: null,
   });
 });
 
@@ -235,6 +251,9 @@ test("organisers see the summary on the admin board; other organisations cannot 
     sample: false,
     generatedAt: expect.any(Number),
     stale: false,
+    builtVsStubbed: null,
+    questions: null,
+    build: null,
   });
   await expect(root.withIdentity({ subject: "outsider", org_id: "org_other" }).query(api.events.getAdmin, { slug: "hack" })).rejects.toThrow();
 });
@@ -306,7 +325,7 @@ test("a model failure is logged and leaves the submission alone", async () => {
   await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
   await runAll(t);
   expect(await summaryOf(t, id)).toBeNull();
-  const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary"));
+  const lines = summaryLines(log);
   expect(lines).toEqual([JSON.stringify({ event: "ai-summary", status: "failed", reason: "model_failed", error: "Error" })]);
   log.mockRestore();
 });
@@ -345,7 +364,7 @@ test("a refused model call logs its HTTP status and the API's error type and cod
   await add(1);
   await t.mutation(api.judging.closeSubmissions, { slug: "hack" });
   await runAll(t);
-  const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary"));
+  const lines = summaryLines(log);
   expect(lines.sort()).toEqual([
     JSON.stringify({ event: "ai-summary", status: "failed", reason: "model_failed", error: "AI_APICallError", statusCode: 400, errorType: "invalid_request_error", errorCode: "invalid_json_schema" }),
     JSON.stringify({ event: "ai-summary", status: "failed", reason: "model_failed", error: "AI_RetryError", statusCode: 400, errorType: "invalid_request_error", errorCode: "invalid_json_schema" }),
@@ -389,7 +408,7 @@ test("a README that tries to steer the summary cannot get praise saved", async (
 
   // Nothing is saved, and the rejection is logged without the text.
   expect(await summaryOf(t, id)).toBeNull();
-  const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary"));
+  const lines = summaryLines(log);
   // One stricter retry, then the rejection is final.
   expect(lines).toEqual([
     expect.stringMatching(/^{"event":"ai-summary","status":"retrying","reason":"evaluative_language:[a-z ]+"}$/),
@@ -537,7 +556,7 @@ test("a short code read goes into the prompt, the summary keeps its hash, and th
   expect(prompt).toContain("<<<BEGIN CODE FILES>>>\nsrc/index.ts\nsrc/policy.ts\n<<<END CODE FILES>>>");
   expect(prompt).toMatch(/<<<BEGIN CODE EXCERPTS>>>\n--- src\/index\.ts ---\nexport const proxy = startProxy\(\);\n\n--- src\/policy\.ts ---\n/);
   expect(`${system}\n${prompt}`).not.toMatch(/transcript|captions/i);
-  const urls = fetchMock.mock.calls.map(([url]) => String(url));
+  const urls = v2Urls();
   expect(urls.some((url) => /youtu/.test(url))).toBe(false);
   // One extra GitHub API call for the tree; the files come from raw.githubusercontent.com.
   expect(urls.filter((url) => url.startsWith("https://api.github.com/"))).toEqual([
@@ -572,7 +591,7 @@ test("a rate-limited code read still writes the summary at once, and is logged b
   expect(generateText.mock.calls[0][0].prompt).toContain("<<<BEGIN README>>>");
   expect(generateText.mock.calls[0][0].prompt).not.toMatch(/CODE/);
   expect(await summaryOf(t, id)).toMatchObject({ usedReadme: true, codeHash: "none" });
-  const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary"));
+  const lines = summaryLines(log);
   expect(lines).toContain(JSON.stringify({ event: "ai-summary", status: "without_code", reason: "code_rate_limited" }));
   expect(lines.join("\n")).not.toMatch(/youtu|github\.com|Bearer/);
   log.mockRestore();
@@ -722,8 +741,8 @@ test("a rate-limited README read writes the summary at once, without the README"
   const id = await add(0);
   await t.mutation(api.events.updateSubmission, { slug: "hack", submissionId: id, name: "Person 0", demoTitle: "Guardrail", description: "Policy checks", phone: "+440000000000" });
   await runAll(t);
-  // One repository check, no retries an hour later.
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  // One repository check for v3 and one for the v2 fallback, no retries an hour later.
+  expect(fetchMock).toHaveBeenCalledTimes(2);
   expect(generateText).toHaveBeenCalledTimes(1);
   expect(await summaryOf(t, id)).toMatchObject({ usedReadme: false });
   expect(await statusOf(t, id)).not.toBe("none");
@@ -766,7 +785,7 @@ test("a private repository's README is never read, even when the token could rea
     const id = await add(0);
     await t.mutation(api.events.updateSubmission, { slug: "hack", submissionId: id, name: "Person 0", demoTitle: "Guardrail", description: "Policy checks", phone: "+440000000000" });
     await runAll(t);
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["https://api.github.com/repos/example/guardrail"]);
+    expect(v2Urls()).toEqual(["https://api.github.com/repos/example/guardrail"]);
     expect(await summaryOf(t, id)).toMatchObject({ usedReadme: false });
   }
   expect(JSON.stringify(generateText.mock.calls)).not.toContain("Secret plans");
@@ -817,7 +836,7 @@ test("a summary the language check rejects is retried once with a stricter instr
   expect(generateText.mock.calls[1][0].system).toContain(STRICTER_SUMMARY_INSTRUCTION);
   expect(await summaryOf(t, id)).toBeNull();
   expect(await statusOf(t, id)).toBe("none");
-  const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ai-summary"));
+  const lines = summaryLines(log);
   expect(lines).toEqual([
     JSON.stringify({ event: "ai-summary", status: "retrying", reason: "evaluative_language:superlative" }),
     JSON.stringify({ event: "ai-summary", status: "rejected", reason: "evaluative_language:superlative" }),

@@ -66,7 +66,8 @@ Record only allowlisted failure phases and status codes.
   gate, not completed migration evidence.
 - Hosted `convex-provider-mismatch` was traced to mismatched Preview providers.
   Both PR branches now use canonical development and matching WorkOS credentials.
-  Preview builds only Next.js, without provisioning or deploying Convex.
+  Preview built only Next.js, without provisioning or deploying Convex, until
+  1 November 2026 ([Seeded Convex preview deployment](preview-deployments.md)).
   Production retains its existing command. Real hosted Google sign-in, Test
   workspace loading, event administration, and Outpost switching pass.
 

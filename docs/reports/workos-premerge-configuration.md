@@ -2,7 +2,14 @@
 
 Updated: October 26, 2026. PR: https://github.com/Demianeen/demo-queue/pull/41
 
-## Current review status, 27 October 2026
+## Preview setup since 1 November 2026
+
+Each Vercel Preview build now has its own seeded Convex preview deployment and
+signs in through the development WorkOS client. See
+[Seeded Convex preview deployment](../plans/preview-deployments.md). The
+27 October record below describes the previous shared-development setup.
+
+## Review status, 27 October 2026
 
 The October 26 record below is historical. WorkOS organization membership now
 authorizes all event administration; old capability links grant no access.

@@ -259,3 +259,4 @@ div.videoFallback { font-weight: 400; color: var(--dq-fg-3); text-decoration: no
 .helpNote { margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--dq-warning-line); border-radius: 8px; background: var(--dq-warning-bg); color: var(--dq-fg); font-size: 13px; line-height: 19px; }
 .helpNote[data-tone="done"] { border-color: var(--dq-success-line); background: var(--dq-success-bg); }
 .helpNote strong { font-weight: 600; }
+.aiBelowVideo { margin-top: 20px; }

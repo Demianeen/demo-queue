@@ -524,7 +524,6 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
                   {selected.tracks.length ? selected.tracks.map((track) => <span className={styles.trackPill} key={track}>{track}</span>) : <span className="dq-track-none">Main event</span>}
                   {note && <span className={styles.assignmentPill}>{note}</span>}
                 </div>
-                <AiSummarySlot summary={selected.aiSummary} status={selected.aiSummaryStatus} read={selected.aiRead} />
               </div>
               {embedUrl ? (
                 <div className={styles.videoFrame}>
@@ -541,6 +540,10 @@ function JudgeWorkspace({ data, slug, token, saveReview, onNotYou }: {
                   {selected.videoUrl ? <a href={selected.videoUrl} target="_blank" rel="noreferrer">Demo video</a> : null}
                 </span>
                 <span><a href="#project-description">Team&apos;s description</a><a href="#project-readme" onClick={() => captureEvent("readme_opened", { event_slug: slug })}>README</a></span>
+              </div>
+              {/* Below the video: a v3 summary is long, and the demo is what judges watch first. */}
+              <div className={styles.aiBelowVideo}>
+                <AiSummarySlot summary={selected.aiSummary} status={selected.aiSummaryStatus} read={selected.aiRead} />
               </div>
               <section id="project-description" className={styles.descriptionSection}>
                 <div className={styles.sectionLabel}>Team&apos;s description</div>

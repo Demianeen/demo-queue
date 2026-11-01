@@ -3,9 +3,12 @@
 import { v, type ObjectType } from "convex/values";
 import { generateText, Output } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { internal } from "./_generated/api";
 import { logAiUsage } from "./aiUsage";
+import { eventBatch, trackException, type EventBatch } from "./analytics";
+import { llmAnalytics } from "./llmAnalytics";
+import type { Id } from "./_generated/dataModel";
 import { env, internalAction, type ActionCtx } from "./_generated/server";
 import {
   buildSummaryPrompt,
@@ -91,10 +94,21 @@ async function fetchReadme(githubUrl: string | null): Promise<ReadmeResult> {
   }
 }
 
-// TODO(posthog): send these ai-summary events to PostHog too, with the same fields.
-function log(status: string, reason: string, extra: { error?: string; statusCode?: number; errorType?: string; errorCode?: string } = {}) {
-  // Never the project text, the README, a URL or the key.
-  console.log(JSON.stringify({ event: "ai-summary", status, reason, ...extra }));
+type LogFields = { error?: string; statusCode?: number; errorType?: string; errorCode?: string };
+type SummaryLog = ((status: string, reason: string, extra?: LogFields) => void) & { inEvent: (properties: Record<string, string | boolean>) => void };
+
+/**
+ * One run's ai-summary log: a console line, and the same fields as an
+ * `ai_summary` event once the event is known. Never the project text, the
+ * README, a URL or the key.
+ */
+function summaryLog(analytics: EventBatch, submissionId: Id<"submissions">): SummaryLog {
+  let event: Record<string, string | boolean> = {};
+  const log = (status: string, reason: string, extra: LogFields = {}) => {
+    console.log(JSON.stringify({ event: "ai-summary", status, reason, ...extra }));
+    analytics.add("ai_summary", { kind: "system" }, { ...event, status, reason, ...extra, submission_id: submissionId });
+  };
+  return Object.assign(log, { inEvent: (properties: Record<string, string | boolean>) => { event = properties; } });
 }
 
 /** A short code from the API, like "invalid_request_error": anything longer or freer could be text. */
@@ -123,8 +137,7 @@ function modelErrorFields(error: unknown) {
   };
 }
 
-// TODO(posthog): send these input failures to PostHog too; they are ai-summary events.
-function logInputFailure(status: string, reason: string | null) {
+function logInputFailure(log: SummaryLog, status: string, reason: string | null) {
   // A reason code only: never a repository path, file text or a token.
   if (reason) log(status, reason);
 }
@@ -136,14 +149,14 @@ const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
  * "none" when there is nothing to read, or null when it failed or was not
  * tried, so a failed read never counts as a change.
  */
-function codeInput(result: CodeResult | null) {
+function codeInput(result: CodeResult | null, log: SummaryLog) {
   if (result === null) return { code: null, hash: null };
   if (result.kind === "none") return { code: null, hash: "none" };
   if (result.kind === "failed") {
-    logInputFailure("without_code", result.reason);
+    logInputFailure(log, "without_code", result.reason);
     return { code: null, hash: null };
   }
-  if (result.fileFailures > 0) logInputFailure("partial_code", "code_file_failed");
+  if (result.fileFailures > 0) logInputFailure(log, "partial_code", "code_file_failed");
   const code = { files: result.files, total: result.total, excerpts: result.excerpts };
   return { code, hash: sha256(JSON.stringify(code)) };
 }
@@ -178,23 +191,29 @@ const summaryRunArgs = {
 export const generateSubmissionSummary = internalAction({
   args: summaryRunArgs,
   handler: async (ctx, args): Promise<{ saved: boolean }> => {
+    const analytics = eventBatch();
     try {
-      return await writeSummary(ctx, args);
+      return await writeSummary(ctx, args, summaryLog(analytics, args.submissionId));
+    } catch (error) {
+      await trackException(ctx, error, { kind: "system" }, "aiSummaryAction:generateSubmissionSummary", { submission_id: args.submissionId }, { withMessage: false });
+      throw error;
     } finally {
       // However the run ends, judges stop seeing the read as being checked.
       if (args.queuedFor !== undefined) {
         await ctx.runMutation(internal.aiSummaries.endSummaryRun, { submissionId: args.submissionId, queuedFor: args.queuedFor });
       }
+      await analytics.send(ctx);
     }
   },
 });
 
-async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunArgs>): Promise<{ saved: boolean }> {
+async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunArgs>, log: SummaryLog): Promise<{ saved: boolean }> {
   const input = await ctx.runQuery(internal.aiSummaries.summaryInput, { submissionId: args.submissionId, refreshReadme: args.refreshReadme, contextChanged: args.contextChanged });
   if (!input) {
     log("skipped", "not_needed");
     return { saved: false };
   }
+  log.inEvent(input.analytics);
   const apiKey = env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     log("skipped", "not_configured");
@@ -215,7 +234,7 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
   const manifests = fetched.kind === "ok" ? fetched.manifests : [];
   const read = summaryReadInput(input.tracks, input.sponsors);
   const readmeHash = readme === null ? undefined : sha256(readme);
-  const { code, hash: codeHash } = codeInput(codeRead);
+  const { code, hash: codeHash } = codeInput(codeRead, log);
   // The description and repository are unchanged: write again only when the README or code
   // changed. A summary from before the code read existed is not rewritten for it.
   const changed = (readmeHash ?? null) !== input.readmeHash || inputChanged(input.codeHash, codeHash);
@@ -230,6 +249,8 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
   // Every call is logged with its tokens, whatever happens to its output: OpenAI bills them all.
   const logCall = (usage: LoggedUsage, result: AiUsageResult) =>
     logAiUsage(ctx, { ...usage, eventId: input.eventId, submissionId: args.submissionId, feature: "summary", result });
+  // One trace per run, so the retry with the stricter instruction sits under it too.
+  const llm = llmAnalytics({ distinctId: "system", traceId: randomUUID(), properties: { ...input.analytics, feature: "summary", submission_id: args.submissionId } });
   for (const stricter of [false, true]) {
     const { system, prompt } = buildSummaryPrompt({ ...input, readme, manifests, code }, input.sections, { stricter });
     let usage: LoggedUsage | null = null;
@@ -238,7 +259,7 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
     try {
       // Exactly one capped string per section; anything else fails here and is logged.
       const response = await generateText({
-        model: createOpenAI({ apiKey })(model),
+        model: llm ? llm.trace(createOpenAI({ apiKey })(model)) : createOpenAI({ apiKey })(model),
         output: Output.object({ schema: summaryOutputSchemaFor(input.sections, read) }),
         system,
         prompt,

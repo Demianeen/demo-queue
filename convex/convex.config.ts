@@ -23,6 +23,11 @@ const app = defineApp({
     RESEND_API_KEY: v.optional(v.string()),
     RESEND_FROM_EMAIL: v.optional(v.string()),
     DEMO_QUEUE_SITE_URL: v.optional(v.string()),
+    // PostHog product events, errors and LLM analytics. Without the token, nothing is sent.
+    POSTHOG_PROJECT_TOKEN: v.optional(v.string()),
+    POSTHOG_HOST: v.optional(v.string()),
+    // "development", "preview" or "production": dev Convex serves local and Preview alike.
+    POSTHOG_ENVIRONMENT: v.optional(v.string()),
   },
 });
 

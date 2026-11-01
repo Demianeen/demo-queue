@@ -34,6 +34,7 @@ export const modules = {
   "./luma.ts": () => import("./luma"),
   "./practice.ts": () => import("./practice"),
   "./members.ts": () => import("./members"),
+  "./analytics.ts": () => import("./analytics"),
 };
 
 export const ORG = "org_live";

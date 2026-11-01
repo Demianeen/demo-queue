@@ -1,4 +1,4 @@
-import { type CallToolResult, McpServer } from "@modelcontextprotocol/server";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { createTool } from "@convex-dev/mcp";
 import { componentToolCall, toolFailure } from "./mcpRuntime";
 import type { Id } from "./_generated/dataModel";
@@ -8,6 +8,7 @@ import type { ActionCtx } from "./_generated/server";
 import type { OrganizationPrincipal } from "./organizationAuth";
 import type { ConnectUser } from "./mcpAuth";
 import { adminToolSchema } from "./mcpSchema";
+import { InvalidArguments, type RegisterTool } from "./mcpAnalytics";
 import * as operations from "./mcpAdmin";
 import { aiShuffleArgs, createJudgingSheetArgs } from "./adminActionArgs";
 
@@ -20,7 +21,7 @@ type RegisteredAdminTool = {
   browser: string;
   effect: Effect;
   component: ReturnType<typeof componentTool>;
-  register: (server: McpServer, ctx: ToolContext, user: ConnectUser, protect: Protect) => void;
+  register: (registerTool: RegisterTool, ctx: ToolContext, user: ConnectUser, protect: Protect) => void;
 };
 
 function defineAdminTool<Fields extends PropertyValidators>(definition: {
@@ -47,7 +48,7 @@ function defineAdminTool<Fields extends PropertyValidators>(definition: {
       handler: async (ctx, args, user) => {
         try {
           const parsed = await adminToolSchema(definition.input)["~standard"].validate(args);
-          if (parsed.issues) throw new Error("Invalid tool arguments");
+          if (parsed.issues) throw new InvalidArguments();
           const { organizationId, input } = parsed.value;
           return componentToolCall(ctx, user, organizationId,
             definition.effect === "read" ? "events:read" : "events:manage",
@@ -55,8 +56,8 @@ function defineAdminTool<Fields extends PropertyValidators>(definition: {
         } catch (error) { return toolFailure(error); }
       },
     }),
-    register(server: McpServer, ctx: ToolContext, user: ConnectUser, protect: Protect) {
-      server.registerTool(definition.name, {
+    register(registerTool: RegisterTool, ctx: ToolContext, user: ConnectUser, protect: Protect) {
+      registerTool(definition.name, {
         description: definition.description,
         inputSchema: adminToolSchema(definition.input),
         annotations: {
@@ -488,11 +489,11 @@ export const ADMIN_TOOLS: RegisteredAdminTool[] = [
   }),
 ];
 
-export function registerAdminTools(server: McpServer, ctx: ToolContext, user: ConnectUser, protect: Protect): void {
+export function registerAdminTools(registerTool: RegisterTool, ctx: ToolContext, user: ConnectUser, protect: Protect): void {
   const names = new Set<string>();
   for (const tool of ADMIN_TOOLS) {
     if (names.has(tool.name)) throw new Error("Duplicate admin tool name");
     names.add(tool.name);
-    tool.register(server, ctx, user, protect);
+    tool.register(registerTool, ctx, user, protect);
   }
 }

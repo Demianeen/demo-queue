@@ -18,6 +18,7 @@ import {
 } from "../lib/event-phase";
 import { finalistLineupPlan } from "../lib/finalist-lineup";
 import { isJudgedStatus } from "../lib/judged-status";
+import { eventProperties, organiser, track } from "./analytics";
 
 export const DEFAULT_JUDGING_TIMER_MS = 60 * 60 * 1000;
 export const MAX_JUDGING_TIMER_MS = 99 * 60 * 60 * 1000;
@@ -28,6 +29,20 @@ const ASSIGNED_STATUSES = new Set(["ready", "open", "closed"]);
 
 function isJudgingSubmission(submission: Doc<"submissions">) {
   return isJudgedStatus(submission.status);
+}
+
+/** Judges on the roster and projects in judging, for the judging analytics events. */
+export async function judgingCounts(ctx: MutationCtx, event: Doc<"events">) {
+  const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
+  return { judges: (event.roundOneJudges ?? []).length, projects: submissions.filter(isJudgingSubmission).length };
+}
+
+/** Sends phase_changed (and judging_closed when the move closed judging) once the move has run. */
+export async function trackPhaseChange(ctx: MutationCtx, eventId: Doc<"events">["_id"], from: EventPhase, to: EventPhase, principal: OrganizationPrincipal, { judgingClosed = false } = {}) {
+  const event = await ctx.db.get(eventId);
+  if (!event || from === to) return;
+  await track(ctx, "phase_changed", organiser(principal), { ...eventProperties(event), from, to });
+  if (judgingClosed) await track(ctx, "judging_closed", organiser(principal), { ...eventProperties(event), ...(await judgingCounts(ctx, event)) });
 }
 
 /** The judging timer's time left now: counting down when running, held when paused or idle. */
@@ -294,6 +309,7 @@ export async function setPhaseForOrganization(ctx: MutationCtx, args: Infer<type
     undoLabel: plan.effects.includes("submissions_close") || plan.effects.includes("judging_close") ? "Reopen" : "Undo",
     watch: { submissions: "all" },
   }, () => movePhase(ctx, event, args.phase));
+  await trackPhaseChange(ctx, event._id, plan.from, plan.to, principal, { judgingClosed: plan.effects.includes("judging_close") });
   return { phase: plan.to, effects: plan.effects };
 }
 

@@ -9,6 +9,8 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 import { aiShuffleArgs } from "./adminActionArgs";
 import { logAiUsage } from "./aiUsage";
+import { organiser, track, trackException } from "./analytics";
+import { llmAnalytics } from "./llmAnalytics";
 import { hasTokens, usageFromError, usageFromResult, type AiUsageResult, type LoggedUsage } from "../lib/ai-usage";
 import {
   organizationPrincipalValidator,
@@ -55,6 +57,12 @@ export async function aiShuffleForOrganization(
   }
   const openai = createOpenAI({ apiKey: openaiApiKey });
   const model = env.OPENAI_MODEL ?? "gpt-5.4";
+  const actor = organiser(principal);
+  const analytics = {
+    event_id: admin.event.id, event_slug: admin.event.slug, event_type: admin.event.eventType,
+    phase: admin.event.phase, practice: admin.event.practice !== null,
+  };
+  const llm = llmAnalytics({ distinctId: actor.kind === "organiser" ? actor.userId : "system", traceId: crypto.randomUUID(), properties: { ...analytics, feature: "shuffle", organization_id: principal.organizationId } });
   // Every call is logged with its tokens, whatever happens to its output: OpenAI bills them all.
   const logCall = (usage: LoggedUsage, result: AiUsageResult) =>
     logAiUsage(ctx, { ...usage, eventId: admin.event.id, feature: "shuffle", result });
@@ -64,7 +72,7 @@ export async function aiShuffleForOrganization(
   let orderedIds: Id<"submissions">[];
   try {
     const response = await generateText({
-      model: openai(model),
+      model: llm ? llm.trace(openai(model)) : openai(model),
       output: Output.object({
         schema: z.object({
           orderedIds: z
@@ -95,9 +103,11 @@ export async function aiShuffleForOrganization(
     const known = usage ?? usageFromError(error, model);
     const unusable = stage === "output" || (stage === "call" && hasTokens(known));
     await logCall(known, unusable ? "failed" : "error");
+    await trackException(ctx, error, actor, "ai:aiShuffle", { ...analytics, stage }, { withMessage: false });
     throw error;
   }
   await logCall(usage ?? { model }, "saved");
+  await track(ctx, "lineup_shuffled", actor, { ...analytics, method: "ai" });
 
   return { count: orderedIds.length };
 }

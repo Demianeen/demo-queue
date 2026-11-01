@@ -10,6 +10,7 @@ import {
   PRACTICE_TIDY_AFTER_MS,
   blankEventState,
   createOrganizationEvent,
+  trackEventCreated,
   deleteSubmissionData,
   saveRoundOneJudgesForOrganization,
   submitDemoForEvent,
@@ -243,7 +244,7 @@ export const createPracticeEventForOwner = internalMutation({
       eventType,
       visualStyle: source?.visualStyle ?? undefined,
       meetUrl: source?.meetUrl || DEFAULT_MEET_URL,
-    }, principal, tracks, sponsors);
+    }, principal, tracks, sponsors, { trackCreated: false });
     await ctx.db.patch(eventId, {
       practice: true,
       practiceOwnerActor: principal.actor,
@@ -280,6 +281,7 @@ export const createPracticeEventForOwner = internalMutation({
       event, principal, kind: "practice_created", undo: "none",
       summary: source ? `made this practice event from ${source.name}` : "made this practice event",
     }, []);
+    await trackEventCreated(ctx, eventId, principal);
     return { eventId, slug, judges, submissionCount: submissionIds.length };
   },
 });

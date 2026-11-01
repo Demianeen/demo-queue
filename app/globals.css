@@ -1880,10 +1880,39 @@ h3 {
   font-size: 13px;
   gap: 12px;
   max-height: min(560px, calc(100vh - 32px));
+  overflow-wrap: anywhere;
   overflow-y: auto;
   padding: 14px;
   width: min(460px, calc(100vw - 32px));
   z-index: 50;
+}
+
+/*
+ * The hover card is rendered inside a row's title, so it undoes what the row
+ * sets (no wrapping, a pointer), fits the space the positioner leaves, and
+ * keeps its head in view while the summary and team scroll.
+ */
+.submission-preview-card {
+  cursor: auto;
+  display: flex;
+  flex-direction: column;
+  max-height: min(560px, var(--available-height, calc(100vh - 32px)));
+  overflow: hidden;
+  white-space: normal;
+}
+
+.submission-preview-card > .submission-preview-top {
+  flex: none;
+}
+
+.submission-preview-scroll {
+  display: grid;
+  gap: 12px;
+  margin: 0 -14px -14px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 14px 14px;
 }
 
 .submission-preview-top {

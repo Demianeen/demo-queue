@@ -3,6 +3,7 @@ import { withAuth } from "@workos-inc/authkit-nextjs";
 import { fetchQuery } from "convex/nextjs";
 import { unstable_rethrow } from "next/navigation";
 import { api } from "@/convex/_generated/api";
+import { reportCaughtServerError } from "@/lib/posthog-server";
 import { getWorkspaceMemberships } from "@/lib/workos-memberships";
 import { WorkspaceEventDetails } from "@/components/WorkspaceEventDetails";
 
@@ -18,6 +19,7 @@ export default async function EventDetailsPage({ params }: { params: Promise<{ s
     return <WorkspaceEventDetails key={`${auth.organizationId}:${slug}`} slug={slug} organizationId={auth.organizationId} initial={initial} />;
   } catch (error) {
     unstable_rethrow(error);
+    await reportCaughtServerError(error, "event-overview");
     return <section className="workspace-heading"><title>Event unavailable | Demo Queue</title><h1>Could not load this event</h1><p>Please reload to try again, or return to your events.</p><Link href="/events">Back to events</Link></section>;
   }
 }

@@ -3,6 +3,7 @@ import posthog, { type CaptureResult, type PostHogConfig } from "posthog-js";
 import { useEffect } from "react";
 import { analyticsSurface, scrubSecretPaths, scrubUrl } from "./analytics-url";
 import { redactExceptionList, redactText } from "./analytics-redact";
+import { formId } from "./form-id";
 
 /** Properties that hold a URL or a path, wherever they appear in an event. */
 const URL_PROPERTY = /url|href|pathname|referrer/i;
@@ -104,6 +105,21 @@ export type ClientEvents = {
   judge_link_failed: None;
   getting_started_step_completed: { step: string };
 };
+
+/**
+ * Adds the submit form's `form_id` to every event the page sends from now
+ * on, errors included. Returns the cleanup that takes it off again.
+ */
+export function registerFormId(clientId: string) {
+  let active = true;
+  void formId(clientId).then((id) => {
+    if (active && posthog.__loaded) posthog.register({ form_id: id });
+  });
+  return () => {
+    active = false;
+    if (posthog.__loaded) posthog.unregister("form_id");
+  };
+}
 
 /** Sends a product event; a no-op when PostHog is not configured. */
 export function captureEvent<Name extends keyof ClientEvents>(name: Name, properties: ClientEvents[Name] & { event_slug?: string }) {

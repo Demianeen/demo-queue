@@ -3,6 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import { getEnv } from "./env";
 import { convexErrorText } from "@/lib/convex-error";
+import { reportCaughtServerError } from "@/lib/posthog-server";
 
 const client = new ConvexHttpClient(getEnv().NEXT_PUBLIC_CONVEX_URL);
 
@@ -15,6 +16,7 @@ export async function eventTitle(slug: string) {
     return event.name;
   } catch (error) {
     if (isNotFound(error)) return null;
+    await reportCaughtServerError(error, "event-title");
     throw error;
   }
 }
@@ -24,7 +26,8 @@ export async function eventLook(slug: string) {
   try {
     const { name, eventType, visualStyle, theme } = await eventMeta(slug);
     return { name, eventType, visualStyle, theme };
-  } catch {
+  } catch (error) {
+    await reportCaughtServerError(error, "event-look");
     return null;
   }
 }
@@ -38,6 +41,7 @@ export async function participantTitle(slug: string, participantToken: string) {
     };
   } catch (error) {
     if (isNotFound(error) || isSubmissionNotFound(error)) return null;
+    await reportCaughtServerError(error, "status-title");
     throw error;
   }
 }

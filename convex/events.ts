@@ -41,6 +41,7 @@ import {
 import { judgeKeyOf, judgeNameKey, parseRoundOneJudges } from "../lib/judging-assignment";
 import { participantLineupStatus } from "../lib/event-state";
 import { eventPhase } from "../lib/event-phase";
+import { formId } from "../lib/form-id";
 import { DEFAULT_EVENT_THEME } from "../lib/event-theme";
 import { MAX_ORGANIZATION_STYLES, normalizeVisualStyle } from "../lib/visual-style";
 import {
@@ -1414,7 +1415,7 @@ export async function submitDemoForEvent(ctx: MutationCtx, event: Doc<"events">,
     if (!options.practiceTest) await queueLumaImport(ctx, event, submissionId);
     if (!options.practiceTest) {
       await track(ctx, "submission_submitted", TEAM, {
-        ...eventProperties(event), tracks: tracks.trackIds?.length ?? 0, has_video: false, has_repository: false, team_size: 1,
+        ...eventProperties(event), tracks: tracks.trackIds?.length ?? 0, has_video: false, has_repository: false, team_size: 1, form_id: await formId(args.clientId),
       });
     }
     return { submissionId };
@@ -1559,7 +1560,7 @@ export async function submitHackathonForEvent(ctx: MutationCtx, event: Doc<"even
     if (submitted) await queueAiSummaryIfStale(ctx, event, submitted, 0, { source: "participant" });
     if (!options.practiceTest) {
       await track(ctx, "submission_submitted", TEAM, {
-        ...eventProperties(event), tracks: tracks.trackIds?.length ?? 0, has_video: Boolean(videoUrl), has_repository: Boolean(githubUrl), team_size: 1 + teamMembers.length,
+        ...eventProperties(event), tracks: tracks.trackIds?.length ?? 0, has_video: Boolean(videoUrl), has_repository: Boolean(githubUrl), team_size: 1 + teamMembers.length, form_id: await formId(args.clientId),
       });
     }
     return { submissionId };

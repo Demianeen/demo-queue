@@ -223,8 +223,11 @@ commits. To reproduce a fix locally, use the `verify-demo-queue` skill.
    - Browser events from the submit page carry `form_id`, and Convex's
      `submission_submitted` carries the same `form_id`, so a failed attempt
      (`submission_failed`, `$exception`) joins to the submission that followed.
-   - Once PR #77 is merged, PostHog Logs also holds the Next.js server logs and
-     the Convex function logs.
+   - PostHog Logs (`query-logs`) holds the server logs. `demo-queue-convex` is
+     the Convex prod log stream (console, every function call, audit log); its
+     `request_id` is the `convex_request_id` above. `demo-queue-web` is the
+     Next.js server console (from `lib/posthog-logs.ts`), with Next.js's own
+     error lines carrying `digest` as an attribute.
 2. **Then Vercel logs**, from a checkout linked to the Vercel project (has
    `.vercel/project.json`, as the main checkout does):
 
@@ -253,5 +256,6 @@ Two traps:
   real error by its request id in `convex logs`.
 - In a production build, Next.js's `onRequestError` (`instrumentation.ts`)
   receives only a stand-in, "An error occurred in the Server Components
-  render…", plus a `digest`. Find the real error by that digest in the Vercel
-  logs, or in the `where` report the same request sent.
+  render…", plus a `digest`. Find the real error by that digest in PostHog
+  Logs (`demo-queue-web`) or the Vercel logs, or in the `where` report the same
+  request sent.

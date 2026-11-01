@@ -2,84 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  captionText,
   capExcerpts,
-  chooseCaptionTrack,
   entryRank,
   fetchCode,
-  fetchTranscript,
   inputChanged,
   keepTreePath,
   planCodeRead,
   SUMMARY_CODE_FILE_LIMIT,
   SUMMARY_CODE_LIST_LIMIT,
   SUMMARY_CODE_TOTAL_LIMIT,
-  SUMMARY_TRANSCRIPT_LIMIT,
-  youtubeVideoId,
 } from "../lib/ai-summary-inputs.ts";
-
-const ID = "abcDEF12_-3";
-
-test("YouTube watch, share, Shorts, live and embed links give the video id", () => {
-  for (const url of [
-    `https://www.youtube.com/watch?v=${ID}`,
-    `https://youtube.com/watch?v=${ID}&t=42s&list=PL123`,
-    `https://m.youtube.com/watch?feature=share&v=${ID}`,
-    `https://music.youtube.com/watch?v=${ID}`,
-    `https://youtu.be/${ID}?si=abc`,
-    `https://www.youtube.com/shorts/${ID}?feature=share`,
-    `https://www.youtube.com/live/${ID}?si=xyz`,
-    `https://www.youtube.com/embed/${ID}`,
-    `https://www.youtube-nocookie.com/embed/${ID}`,
-    `  https://WWW.YouTube.com/watch?v=${ID}  `,
-  ]) assert.equal(youtubeVideoId(url), ID, url);
-});
-
-test("anything else has no video id, so nothing is fetched for it", () => {
-  for (const url of [
-    "https://vimeo.com/123456789",
-    "https://www.loom.com/share/0123456789abcdef",
-    `https://evil.example/youtube.com/watch?v=${ID}`,
-    `https://notyoutube.com/watch?v=${ID}`,
-    `https://youtube.com.evil.example/watch?v=${ID}`,
-    "https://www.youtube.com/watch?v=short",
-    "https://www.youtube.com/@channel",
-    "https://www.youtube.com/playlist?list=PL123",
-    `ftp://youtube.com/watch?v=${ID}`,
-    "not a link",
-    "",
-    null,
-    undefined,
-  ]) assert.equal(youtubeVideoId(url), null, String(url));
-});
-
-test("an English track the uploader added is read before YouTube's automatic one", () => {
-  const asr = { baseUrl: "https://www.youtube.com/api/timedtext?lang=en&kind=asr", languageCode: "en", kind: "asr" };
-  const manual = { baseUrl: "https://www.youtube.com/api/timedtext?lang=en", languageCode: "en" };
-  const british = { baseUrl: "https://www.youtube.com/api/timedtext?lang=en-GB", languageCode: "en-GB" };
-  const german = { baseUrl: "https://www.youtube.com/api/timedtext?lang=de", languageCode: "de" };
-  assert.deepEqual(chooseCaptionTrack([german, asr, british, manual]), { baseUrl: manual.baseUrl, captionKind: "manual" });
-  assert.deepEqual(chooseCaptionTrack([german, asr, british]), { baseUrl: british.baseUrl, captionKind: "manual" });
-  assert.deepEqual(chooseCaptionTrack([german, asr]), { baseUrl: asr.baseUrl, captionKind: "asr" });
-  assert.equal(chooseCaptionTrack([german, { languageCode: "enx", baseUrl: "x" }, { languageCode: "en" }]), null);
-  assert.equal(chooseCaptionTrack([]), null);
-});
-
-test("json3 captions are joined into one line and capped", () => {
-  const json = {
-    events: [
-      { tStartMs: 0, dDurationMs: 100 },
-      { tStartMs: 0, segs: [{ utf8: "Hi," }, { utf8: " this is" }] },
-      { tStartMs: 1, segs: [{ utf8: "\n" }] },
-      { tStartMs: 2, segs: [{ utf8: "our  demo" }, { notText: true }] },
-    ],
-  };
-  assert.equal(captionText(json), "Hi, this is our demo");
-  assert.equal(captionText({ events: [{ segs: [{ utf8: "word ".repeat(5_000) }] }] }).length <= SUMMARY_TRANSCRIPT_LIMIT, true);
-  assert.equal(captionText({ events: [{ segs: [{ utf8: "abcdef" }] }] }, 3), "abc");
-  assert.equal(captionText({}), "");
-  assert.equal(captionText(null), "");
-});
 
 /** A fetch that answers by URL, recording each call. */
 function fakeFetch(routes) {
@@ -102,82 +34,6 @@ const hang = (url, init) => new Promise((_, reject) => {
     clearTimeout(alive);
     reject(init.signal.reason);
   });
-});
-
-const player = (body, status = 200) => new Response(typeof body === "string" ? body : JSON.stringify(body), { status });
-const playable = (tracks) => player({ playabilityStatus: { status: "OK" }, captions: { playerCaptionsTracklistRenderer: { captionTracks: tracks } } });
-const englishTrack = [{ baseUrl: "https://www.youtube.com/api/timedtext?v=x&lang=en&fmt=srv3", languageCode: "en", kind: "asr" }];
-const captions = new Response(JSON.stringify({ events: [{ segs: [{ utf8: "We built" }, { utf8: " a queue." }] }] }));
-
-test("a YouTube video's English captions are read through the player endpoint, as json3", async () => {
-  const fetch = fakeFetch([["/youtubei/v1/player", playable(englishTrack)], ["/api/timedtext", captions]]);
-  const result = await fetchTranscript(`https://youtu.be/${ID}`, { fetch });
-  assert.deepEqual(result, { kind: "ok", text: "We built a queue.", captionKind: "asr" });
-  assert.equal(fetch.calls.length, 2);
-  assert.equal(JSON.parse(fetch.calls[0].init.body).videoId, ID);
-  assert.equal(JSON.parse(fetch.calls[0].init.body).context.client.clientName, "ANDROID");
-  assert.equal(new URL(fetch.calls[1].url).searchParams.get("fmt"), "json3");
-});
-
-test("no YouTube link means no transcript and no fetch", async () => {
-  const fetch = fakeFetch([]);
-  assert.deepEqual(await fetchTranscript("https://vimeo.com/123456789", { fetch }), { kind: "none", reason: null });
-  assert.deepEqual(await fetchTranscript(null, { fetch }), { kind: "none", reason: null });
-  assert.equal(fetch.calls.length, 0);
-});
-
-test("no captions, or a private or removed video, is no transcript", async () => {
-  const cases = [
-    playable([]),
-    playable([{ baseUrl: "https://www.youtube.com/api/timedtext?lang=de", languageCode: "de" }]),
-    player({ playabilityStatus: { status: "OK" } }),
-    player({ playabilityStatus: { status: "ERROR", reason: "Video unavailable" } }),
-    player({ playabilityStatus: { status: "UNPLAYABLE", reason: "This video is unavailable" } }),
-    player({ playabilityStatus: { status: "LOGIN_REQUIRED", reason: "This video is private" } }),
-  ];
-  for (const answer of cases) {
-    const result = await fetchTranscript(`https://youtu.be/${ID}`, { fetch: fakeFetch([["/youtubei/v1/player", answer]]) });
-    assert.deepEqual(result, { kind: "none", reason: "transcript_none" });
-  }
-  const empty = fakeFetch([["/youtubei/v1/player", playable(englishTrack)], ["/api/timedtext", new Response(JSON.stringify({ events: [] }))]]);
-  assert.deepEqual(await fetchTranscript(`https://youtu.be/${ID}`, { fetch: empty }), { kind: "none", reason: "transcript_none" });
-});
-
-test("a sign-in or bot check is blocked, not a missing transcript", async () => {
-  const cases = [
-    [["/youtubei/v1/player", player({ playabilityStatus: { status: "LOGIN_REQUIRED", reason: "Sign in to confirm you're not a bot" } })]],
-    [["/youtubei/v1/player", player({ playabilityStatus: { status: "LOGIN_REQUIRED", reason: "Sign in to confirm your age" } })]],
-    [["/youtubei/v1/player", player({ playabilityStatus: { status: "ERROR", reason: "Please confirm you're not a bot" } })]],
-    [["/youtubei/v1/player", player("rate limited", 429)]],
-    [["/youtubei/v1/player", player("<html>Our systems have detected unusual traffic</html>")]],
-    [["/youtubei/v1/player", playable(englishTrack)], ["/api/timedtext", new Response("", { status: 200 })]],
-    [["/youtubei/v1/player", playable(englishTrack)], ["/api/timedtext", new Response("slow down", { status: 429 })]],
-  ];
-  for (const routes of cases) {
-    assert.deepEqual(await fetchTranscript(`https://youtu.be/${ID}`, { fetch: fakeFetch(routes) }), { kind: "failed", reason: "transcript_blocked" });
-  }
-});
-
-test("a slow YouTube is a timeout within the one budget, and any other error a failure", async () => {
-  const slowPlayer = fakeFetch([["/youtubei/v1/player", hang]]);
-  assert.deepEqual(await fetchTranscript(`https://youtu.be/${ID}`, { fetch: slowPlayer, timeoutMs: 20 }), { kind: "failed", reason: "transcript_timeout" });
-  const slowCaptions = fakeFetch([["/youtubei/v1/player", playable(englishTrack)], ["/api/timedtext", hang]]);
-  assert.deepEqual(await fetchTranscript(`https://youtu.be/${ID}`, { fetch: slowCaptions, timeoutMs: 20 }), { kind: "failed", reason: "transcript_timeout" });
-
-  const failures = [
-    [["/youtubei/v1/player", player("server error", 500)]],
-    [["/youtubei/v1/player", player("not json")]],
-    [["/youtubei/v1/player", () => { throw new TypeError("fetch failed"); }]],
-    [["/youtubei/v1/player", playable(englishTrack)], ["/api/timedtext", new Response("gone", { status: 410 })]],
-    [["/youtubei/v1/player", playable(englishTrack)], ["/api/timedtext", new Response("<xml/>")]],
-    // A caption address anywhere but YouTube is never fetched.
-    [["/youtubei/v1/player", playable([{ baseUrl: "https://169.254.169.254/latest", languageCode: "en" }])]],
-  ];
-  for (const routes of failures) {
-    const fetch = fakeFetch(routes);
-    assert.deepEqual(await fetchTranscript(`https://youtu.be/${ID}`, { fetch }), { kind: "failed", reason: "transcript_failed" });
-    assert.ok(fetch.calls.every((call) => new URL(call.url).hostname === "www.youtube.com"));
-  }
 });
 
 test("vendored, generated, binary, lock and test files are left out of the tree", () => {

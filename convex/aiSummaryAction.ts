@@ -20,7 +20,7 @@ import {
   type SummaryManifest,
 } from "../lib/ai-summary";
 import { hasTokens, usageFromError, usageFromResult, type AiUsageResult, type LoggedUsage } from "../lib/ai-usage";
-import { fetchCode, fetchTranscript, inputChanged, type CodeResult, type TranscriptResult } from "../lib/ai-summary-inputs";
+import { fetchCode, inputChanged, type CodeResult } from "../lib/ai-summary-inputs";
 
 const README_TIMEOUT_MS = 8_000;
 /** A public repository's coordinates, for the code read. */
@@ -125,24 +125,17 @@ function modelErrorFields(error: unknown) {
 
 // TODO(posthog): send these input failures to PostHog too; they are ai-summary events.
 function logInputFailure(status: string, reason: string | null) {
-  // A reason code only: never the video link, a repository path, file text or a token.
+  // A reason code only: never a repository path, file text or a token.
   if (reason) log(status, reason);
 }
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
 /**
- * The captions for the prompt, and the hash the summary keeps: of the text,
- * "none" when the video has none, or null when they could not be read now,
- * so a failed read never counts as a change.
+ * The code read for the prompt, and the hash the summary keeps: of the read,
+ * "none" when there is nothing to read, or null when it failed or was not
+ * tried, so a failed read never counts as a change.
  */
-function transcriptInput(result: TranscriptResult) {
-  if (result.kind === "ok") return { transcript: result.text, hash: sha256(result.text) };
-  logInputFailure("without_transcript", result.reason);
-  return { transcript: null, hash: result.kind === "none" ? "none" : null };
-}
-
-/** The code read for the prompt, and its hash, as for the captions. null when it was not tried. */
 function codeInput(result: CodeResult | null) {
   if (result === null) return { code: null, hash: null };
   if (result.kind === "none") return { code: null, hash: "none" };
@@ -207,11 +200,9 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
     log("skipped", "not_configured");
     return { saved: false };
   }
-  // The captions are read alongside GitHub, the code after the README. None of these throw.
-  const [{ fetched, codeRead }, transcriptRead] = await Promise.all([
-    fetchReadme(input.githubUrl).then(async (fetched) => ({ fetched, codeRead: await readCode(fetched) })),
-    fetchTranscript(input.videoUrl),
-  ]);
+  // The code is read after the README. Neither throws.
+  const fetched = await fetchReadme(input.githubUrl);
+  const codeRead = await readCode(fetched);
   // GitHub rate limited the README read. A summary that only waited on a README
   // check stays as it is; a new one is written now without the README, so judges
   // are not left waiting. The next close reads the README again.
@@ -224,13 +215,10 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
   const manifests = fetched.kind === "ok" ? fetched.manifests : [];
   const read = summaryReadInput(input.tracks, input.sponsors);
   const readmeHash = readme === null ? undefined : sha256(readme);
-  const { transcript, hash: transcriptHash } = transcriptInput(transcriptRead);
   const { code, hash: codeHash } = codeInput(codeRead);
-  // The description and repository are unchanged: write again only when the README, captions or
-  // code changed. A summary from before the captions and code existed is not rewritten for them.
-  const changed = (readmeHash ?? null) !== input.readmeHash
-    || inputChanged(input.transcriptHash, transcriptHash)
-    || inputChanged(input.codeHash, codeHash);
+  // The description and repository are unchanged: write again only when the README or code
+  // changed. A summary from before the code read existed is not rewritten for it.
+  const changed = (readmeHash ?? null) !== input.readmeHash || inputChanged(input.codeHash, codeHash);
   if (input.readmeCheckOnly && !changed) {
     log("skipped", "readme_unchanged");
     return { saved: false };
@@ -243,7 +231,7 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
   const logCall = (usage: LoggedUsage, result: AiUsageResult) =>
     logAiUsage(ctx, { ...usage, eventId: input.eventId, submissionId: args.submissionId, feature: "summary", result });
   for (const stricter of [false, true]) {
-    const { system, prompt } = buildSummaryPrompt({ ...input, readme, manifests, transcript, code }, input.sections, { stricter });
+    const { system, prompt } = buildSummaryPrompt({ ...input, readme, manifests, code }, input.sections, { stricter });
     let usage: LoggedUsage | null = null;
     let stage: "call" | "output" | "save" = "call";
     let result: { saved: boolean; reason: string };
@@ -268,8 +256,7 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
         model,
         usedReadme: readme !== null,
         readmeHash,
-        // What the model saw: a hash, or "none" when it had nothing for that input.
-        transcriptHash: transcriptHash ?? "none",
+        // What the model saw: a hash, or "none" when it had no code.
         codeHash: codeHash ?? "none",
       });
     } catch (error) {

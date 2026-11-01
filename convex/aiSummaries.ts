@@ -304,17 +304,14 @@ async function summaryInputFor(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, 
     demoTitle: submission.demoTitle,
     description: submission.description,
     githubUrl: submission.githubUrl ?? null,
-    // Only for the captions of a YouTube demo video.
-    videoUrl: submission.videoUrl ?? null,
     tracks,
     sponsors: sponsors.map((sponsor) => ({ name: sponsor.name, usage: sponsor.usage })),
     tracksKey,
     sourceKey,
     sections: summarySections(event),
-    // Only the README, transcript or code can have changed: skip the model when their hashes are the same.
+    // Only the README or code can have changed: skip the model when their hashes are the same.
     readmeCheckOnly: !tracksStale && submission.aiSummary?.sourceKey === sourceKey && submission.aiSummary?.promptVersion === SUMMARY_PROMPT_VERSION && submission.aiSummary?.sample !== true,
     readmeHash: submission.aiSummary?.readmeHash ?? null,
-    transcriptHash: submission.aiSummary?.transcriptHash ?? null,
     codeHash: submission.aiSummary?.codeHash ?? null,
   };
 }
@@ -345,7 +342,6 @@ const saveSummaryArgs = {
     model: v.string(),
     usedReadme: v.boolean(),
     readmeHash: v.optional(v.string()),
-    transcriptHash: v.optional(v.string()),
     codeHash: v.optional(v.string()),
 };
 
@@ -391,7 +387,6 @@ async function storeSummary(ctx: MutationCtx, args: ObjectType<typeof saveSummar
       model: args.model,
       usedReadme: args.usedReadme,
       readmeHash: args.readmeHash,
-      ...(args.transcriptHash !== undefined ? { transcriptHash: args.transcriptHash } : {}),
       ...(args.codeHash !== undefined ? { codeHash: args.codeHash } : {}),
       promptVersion: SUMMARY_PROMPT_VERSION,
       ...(sample ? { sample: true } : {}),

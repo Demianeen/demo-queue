@@ -1,11 +1,9 @@
 /**
- * The two optional inputs of a summary next to the README: the demo video's
- * captions and a short read of the repository's code. Both are best effort.
- * Any failure means the summary is written without that input, never later.
+ * The optional input of a summary next to the README: a short read of the
+ * repository's code. It is best effort: any failure means the summary is
+ * written without it, never later.
  */
 
-/** How much transcript text is sent to the model. */
-export const SUMMARY_TRANSCRIPT_LIMIT = 8_000;
 /** How many source files are excerpted, how much of each, and how much in all. */
 export const SUMMARY_CODE_FILE_COUNT = 5;
 export const SUMMARY_CODE_ENTRY_COUNT = 3;
@@ -13,7 +11,7 @@ export const SUMMARY_CODE_FILE_LIMIT = 4_000;
 export const SUMMARY_CODE_TOTAL_LIMIT = 15_000;
 /** How many repository paths the model sees. */
 export const SUMMARY_CODE_LIST_LIMIT = 100;
-/** One budget for each input: the transcript, and the tree plus its files. */
+/** One budget for the code read: the tree plus its files. */
 export const SUMMARY_INPUT_TIMEOUT_MS = 8_000;
 /** Bigger files are likely bundled or generated, so they are listed but never excerpted. */
 const CODE_FILE_MAX_BYTES = 200_000;
@@ -22,131 +20,6 @@ type Fetch = typeof fetch;
 export type InputOptions = { fetch?: Fetch; timeoutMs?: number };
 
 const isTimeout = (error: unknown) => error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-
-// Transcript
-
-export type TranscriptReason = "transcript_none" | "transcript_blocked" | "transcript_timeout" | "transcript_failed";
-export type TranscriptResult =
-  | { kind: "ok"; text: string; captionKind: "manual" | "asr" }
-  // reason is null when there is nothing to look for (no YouTube link): no fetch, nothing to log.
-  | { kind: "none"; reason: "transcript_none" | null }
-  | { kind: "failed"; reason: Exclude<TranscriptReason, "transcript_none"> };
-
-const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
-
-/** The video id of a YouTube watch, share, Shorts, live or embed link, or null for anything else. */
-export function youtubeVideoId(value: string | null | undefined) {
-  if (!value) return null;
-  let url: URL;
-  try {
-    url = new URL(value.trim());
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-  const host = url.hostname.toLowerCase().replace(/^(www|m|music)\./, "");
-  const parts = url.pathname.split("/").filter(Boolean);
-  let id = "";
-  if (host === "youtu.be") id = parts[0] ?? "";
-  else if (host === "youtube.com" || host === "youtube-nocookie.com") {
-    if (parts[0] === "watch") id = url.searchParams.get("v") ?? "";
-    else if (["shorts", "live", "embed", "v"].includes(parts[0] ?? "")) id = parts[1] ?? "";
-  }
-  return YOUTUBE_ID.test(id) ? id : null;
-}
-
-export type CaptionTrack = { baseUrl?: unknown; languageCode?: unknown; kind?: unknown };
-
-/** The English track to read: one the uploader added first, then YouTube's automatic one. */
-export function chooseCaptionTrack(tracks: CaptionTrack[]) {
-  const english = tracks.filter((track) => typeof track.baseUrl === "string" && typeof track.languageCode === "string" && /^en(-|$)/i.test(track.languageCode));
-  const rank = (track: CaptionTrack) => (track.kind === "asr" ? 2 : 0) + (String(track.languageCode).toLowerCase() === "en" ? 0 : 1);
-  const track = [...english].sort((a, b) => rank(a) - rank(b))[0];
-  return track ? { baseUrl: track.baseUrl as string, captionKind: track.kind === "asr" ? "asr" as const : "manual" as const } : null;
-}
-
-/** The caption text of a json3 timed-text response, as one capped line. */
-export function captionText(json: unknown, limit = SUMMARY_TRANSCRIPT_LIMIT) {
-  const events = (json as { events?: unknown })?.events;
-  if (!Array.isArray(events)) return "";
-  const text = events
-    .map((event) => {
-      const segs = (event as { segs?: unknown })?.segs;
-      return Array.isArray(segs) ? segs.map((seg) => (typeof seg?.utf8 === "string" ? seg.utf8 : "")).join("") : "";
-    })
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return text.slice(0, limit).trim();
-}
-
-/** The caption file address, only on YouTube, asking for json3. Anything else is refused. */
-function captionUrl(baseUrl: string) {
-  try {
-    const url = new URL(baseUrl);
-    if (url.protocol !== "https:" || !/^(www\.)?youtube\.com$/i.test(url.hostname)) return null;
-    url.searchParams.set("fmt", "json3");
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
-// The Android app's client returns caption tracks without signing in; the web client does not.
-const INNERTUBE_CLIENT = { clientName: "ANDROID", clientVersion: "20.10.38", androidSdkVersion: 30, hl: "en", gl: "US" };
-const INNERTUBE_USER_AGENT = "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip";
-
-const looksBlocked = (text: string) => /not a bot|sign in to confirm|unusual traffic|captcha/i.test(text);
-
-/**
- * The English captions of a YouTube demo video, through YouTube's unofficial
- * player endpoint. No captions, or a private or removed video, is "none". A
- * sign-in or bot check, a timeout or any other error is "failed": the
- * summary is written without a transcript either way.
- */
-export async function fetchTranscript(videoUrl: string | null | undefined, options: InputOptions = {}): Promise<TranscriptResult> {
-  const videoId = youtubeVideoId(videoUrl);
-  if (!videoId) return { kind: "none", reason: null };
-  const request = options.fetch ?? fetch;
-  const signal = AbortSignal.timeout(options.timeoutMs ?? SUMMARY_INPUT_TIMEOUT_MS);
-  try {
-    const player = await request("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": INNERTUBE_USER_AGENT },
-      body: JSON.stringify({ context: { client: INNERTUBE_CLIENT }, videoId }),
-      signal,
-    });
-    if (player.status === 429) return { kind: "failed", reason: "transcript_blocked" };
-    const body = await player.text();
-    if (!player.ok) return { kind: "failed", reason: looksBlocked(body) ? "transcript_blocked" : "transcript_failed" };
-    let details: { playabilityStatus?: { status?: unknown; reason?: unknown }; captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: unknown } } };
-    try {
-      details = JSON.parse(body);
-    } catch {
-      return { kind: "failed", reason: looksBlocked(body) ? "transcript_blocked" : "transcript_failed" };
-    }
-    const status = String(details.playabilityStatus?.status ?? "");
-    const reason = String(details.playabilityStatus?.reason ?? "");
-    if (looksBlocked(reason)) return { kind: "failed", reason: "transcript_blocked" };
-    if (status === "LOGIN_REQUIRED") return /private/i.test(reason) ? { kind: "none", reason: "transcript_none" } : { kind: "failed", reason: "transcript_blocked" };
-    if (status !== "OK") return { kind: "none", reason: "transcript_none" };
-    const tracks = details.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    const track = chooseCaptionTrack(Array.isArray(tracks) ? tracks : []);
-    if (!track) return { kind: "none", reason: "transcript_none" };
-    const url = captionUrl(track.baseUrl);
-    if (!url) return { kind: "failed", reason: "transcript_failed" };
-    const captions = await request(url, { headers: { "User-Agent": INNERTUBE_USER_AGENT }, signal });
-    if (captions.status === 429) return { kind: "failed", reason: "transcript_blocked" };
-    if (!captions.ok) return { kind: "failed", reason: "transcript_failed" };
-    const raw = await captions.text();
-    // An empty answer is what YouTube sends when it wants proof of a real player.
-    if (!raw.trim()) return { kind: "failed", reason: "transcript_blocked" };
-    const text = captionText(JSON.parse(raw));
-    return text ? { kind: "ok", text, captionKind: track.captionKind } : { kind: "none", reason: "transcript_none" };
-  } catch (error) {
-    return { kind: "failed", reason: isTimeout(error) ? "transcript_timeout" : "transcript_failed" };
-  }
-}
 
 // Code read
 

@@ -188,9 +188,11 @@ export default defineSchema({
         usedReadme: v.boolean(),
         // SHA-256 of the README text the summary was written from, when there was one.
         readmeHash: v.optional(v.string()),
-        // SHA-256 of the video transcript and of the code read it was written from, or "none" when
-        // the model had none. Missing on summaries from before these inputs: they are not rewritten for them.
+        // No longer written: the video captions read was removed. Summaries written while it was
+        // in still carry it.
         transcriptHash: v.optional(v.string()),
+        // SHA-256 of the code read it was written from, or "none" when the model had none. Missing on
+        // summaries from before the code read: they are not rewritten for it.
         codeHash: v.optional(v.string()),
         // summaryTracksKey of the track descriptions and sponsors it was written from; missing before track descriptions went in.
         tracksKey: v.optional(v.string()),

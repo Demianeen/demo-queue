@@ -7,6 +7,7 @@ import { aiUsageFeatureValidator, aiUsageResultValidator } from "./schema";
 import { requireOrganization } from "./organizationAuth";
 import { SUMMARY_DAILY_FLOOR, SUMMARY_DAILY_RUNS_PER_SUBMISSION, summaryDailyCap, summaryMode } from "./aiSummaries";
 import { callCost, priceFor, priceModelKey } from "../lib/ai-prices";
+import { SUMMARY_V3_MODEL } from "../lib/ai-summary-v3";
 import {
   parseUsageMonth,
   usageMonthDays,
@@ -183,8 +184,10 @@ export const monthSummary = query({
     }
     events.sort((a, b) => b.lastAt - a.lastAt);
 
-    const configuredModel = env.OPENAI_MODEL?.trim() || "gpt-5.4";
-    if (!models.has(priceModelKey(configuredModel))) models.set(priceModelKey(configuredModel), 0);
+    // Summaries call the v3 model, and the v2 model when they fall back.
+    for (const configuredModel of [env.OPENAI_MODEL?.trim() || SUMMARY_V3_MODEL, "gpt-5.4"]) {
+      if (!models.has(priceModelKey(configuredModel))) models.set(priceModelKey(configuredModel), 0);
+    }
     const prices = [...models.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([model, calls]) => {

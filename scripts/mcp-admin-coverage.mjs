@@ -29,6 +29,7 @@ export const UI_EXCLUSIONS = [
   { file: "components/live/StageTab.tsx", browser: "judging.submitFinalists", reason: "Proposed: lining up the submitted finalists follows the Finalists view's submit; MCP tools can follow." },
   { file: "components/live/PhaseTabs.tsx", browser: "judging.getFinalistDecision", reason: "Proposed: the Stage and Results tabs read the finalists and winners as the Finalists view does; MCP tools can follow." },
   { file: "app/(workspace)/events/[slug]/admin/ClientPage.tsx", browser: "events.updateEvent", reason: "Proposed: editing the meet link stays in the admin page for now; an MCP tool can follow." },
+  ...["eventSummaryRegeneration", "regenerateEventSummaries"].map((name) => ({ file: "components/judging/RegenerateSummaries.tsx", browser: `aiSummaries.${name}`, reason: "Proposed: regenerating every AI summary spends OpenAI budget after a person confirms the cost, so it stays in the admin page for now." })),
 ];
 
 /**

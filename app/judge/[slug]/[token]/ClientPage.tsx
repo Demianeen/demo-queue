@@ -139,7 +139,7 @@ type AiSummary = NonNullable<Project["aiSummary"]>;
 /** One AI card: the read, then the summary. While it is being written, or when none is coming, the judge is told so. */
 function AiSummarySlot({ summary, status, read }: { summary: AiSummary | null; status: Project["aiSummaryStatus"]; read: Project["aiRead"] }) {
   // The event's own sections, in order; the stored list already covers older three-line summaries.
-  if (summary) return <AiPanel headingId="ai-summary-heading" caveat={aiSummaryCaveat(summary)} read={read} rows={summary.sections.map((section) => ({ label: section.label, text: section.text }))} />;
+  if (summary) return <AiPanel headingId="ai-summary-heading" caveat={aiSummaryCaveat(summary)} read={read} rows={summary.sections.map((section) => ({ label: section.label, text: section.text }))} details={summary} />;
   if (status === "writing") return <AiPanel headingId="ai-summary-heading" caveat="Being written. It appears here on its own." read={read} rows="pending" />;
   return (
     <section aria-labelledby="ai-summary-heading" className={styles.aiSummaryNone}>

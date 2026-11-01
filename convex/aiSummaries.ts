@@ -1,7 +1,8 @@
-import { v, type ObjectType } from "convex/values";
+import { ConvexError, v, type ObjectType } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { env, internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { env, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { requireEventOrganization } from "./organizationAuth";
 import { listEventTracks, trackNamesFor, tracksById } from "./tracks";
 import { listEventSponsors } from "./sponsors";
 import { eventProperties } from "./analytics";
@@ -31,9 +32,13 @@ import {
   type SummarySection,
   type SummaryTrack,
 } from "../lib/ai-summary";
+import { BUILT_STATUSES, V3_EVIDENCE_LIMIT, V3_LINE_LIMIT, V3_PART_LIMIT, V3_QUESTION_LIMIT, type BuiltStatus } from "../lib/ai-summary-v3";
 
-/** Gap between summaries when a whole event is queued, so the model is not hit all at once. */
-export const SUMMARY_STAGGER_MS = 1_000;
+/**
+ * Gap between summaries when a whole event is queued, so the model is not hit
+ * all at once: a v3 summary sends up to about 100k tokens.
+ */
+export const SUMMARY_STAGGER_MS = 5_000;
 
 /** Summaries use the deployment's existing OpenAI key. Without it, nothing is queued. */
 export function aiSummariesConfigured() {
@@ -115,8 +120,8 @@ function needsSummary(event: Doc<"events">, submission: Doc<"submissions">, refr
  * (no OpenAI or GitHub call, no budget), saved by the same code as the
  * model's, so practice shows everything a real summary does.
  */
-async function writeSampleSummary(ctx: MutationCtx, event: Doc<"events">, submission: Doc<"submissions">, contextChanged: boolean) {
-  const input = await summaryInputFor(ctx, event, submission, { contextChanged });
+async function writeSampleSummary(ctx: MutationCtx, event: Doc<"events">, submission: Doc<"submissions">, contextChanged: boolean, force = false) {
+  const input = await summaryInputFor(ctx, event, submission, { contextChanged, force });
   if (!input) return false;
   const output = sampleSummaryOutput(input, input.sections, summaryReadInput(input.tracks, input.sponsors), String(submission._id));
   const result = await storeSummary(ctx, {
@@ -279,7 +284,7 @@ export const queueJudgingEventSummaries = internalMutation({
 
 /** What the model is given: project fields only, never names or contact details. */
 export const summaryInput = internalQuery({
-  args: { submissionId: v.id("submissions"), refreshReadme: v.optional(v.boolean()), contextChanged: v.optional(v.boolean()) },
+  args: { submissionId: v.id("submissions"), refreshReadme: v.optional(v.boolean()), contextChanged: v.optional(v.boolean()), force: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const submission = await ctx.db.get(args.submissionId);
     if (!submission) return null;
@@ -291,13 +296,15 @@ export const summaryInput = internalQuery({
 });
 
 /** The summary's input, for the model or a sample; null when nothing needs writing. */
-async function summaryInputFor(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, submission: Doc<"submissions">, args: { refreshReadme?: boolean; contextChanged?: boolean }) {
+async function summaryInputFor(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, submission: Doc<"submissions">, args: { refreshReadme?: boolean; contextChanged?: boolean; force?: boolean }) {
   const byId = tracksById(await listEventTracks(ctx, event._id));
   const sponsors = event.eventType === "hackathon" ? await listEventSponsors(ctx, event._id) : [];
   const { tracks, tracksKey } = summaryTracks(submission, byId, sponsors);
   // A track description or sponsor edit rewrites only summaries written from something else.
   const tracksStale = args.contextChanged === true && inJudging(event, submission) && Boolean(submission.aiSummary) && submission.aiSummary?.tracksKey !== tracksKey;
-  if (!tracksStale && !needsSummary(event, submission, args.refreshReadme)) return null;
+  // An organiser's "Regenerate AI summaries" rewrites every summary in judging, current or not.
+  const forced = args.force === true && inJudging(event, submission);
+  if (!forced && !tracksStale && !needsSummary(event, submission, args.refreshReadme)) return null;
   const sourceKey = summarySourceKey(submission);
   return {
     // For the usage log and analytics only; the prompt takes the project fields below.
@@ -312,9 +319,11 @@ async function summaryInputFor(ctx: Pick<QueryCtx, "db">, event: Doc<"events">, 
     sourceKey,
     sections: summarySections(event),
     // Only the README or code can have changed: skip the model when their hashes are the same.
-    readmeCheckOnly: !tracksStale && submission.aiSummary?.sourceKey === sourceKey && submission.aiSummary?.promptVersion === SUMMARY_PROMPT_VERSION && submission.aiSummary?.sample !== true,
+    readmeCheckOnly: !forced && !tracksStale && submission.aiSummary?.sourceKey === sourceKey && submission.aiSummary?.promptVersion === SUMMARY_PROMPT_VERSION && submission.aiSummary?.sample !== true,
     readmeHash: submission.aiSummary?.readmeHash ?? null,
     codeHash: submission.aiSummary?.codeHash ?? null,
+    // The v3 read cuts the code at this time: when submissions closed, or the run's own time while they are open.
+    submissionsClosedAt: event.submissionsClosedAt ?? null,
   };
 }
 
@@ -345,6 +354,16 @@ const saveSummaryArgs = {
     usedReadme: v.boolean(),
     readmeHash: v.optional(v.string()),
     codeHash: v.optional(v.string()),
+    // v3 only: the parts built or stubbed, the judge questions, and the build facts the app computed.
+    details: v.optional(v.object({
+      builtVsStubbed: v.array(v.object({ part: v.string(), status: v.string(), evidence: v.string() })),
+      questions: v.array(v.string()),
+      build: v.object({
+        sha: v.string(), readAt: v.number(), deadline: v.number(), deadlineKind: v.union(v.literal("closed"), v.literal("written")),
+        commits: v.number(), people: v.number(), firstAt: v.number(), lastAt: v.number(), afterDeadline: v.number(),
+        firstCommitLines: v.optional(v.number()), firstCommitFiles: v.optional(v.number()), truncated: v.boolean(), filesRead: v.number(),
+      }),
+    })),
 };
 
 async function storeSummary(ctx: MutationCtx, args: ObjectType<typeof saveSummaryArgs>, sample: boolean): Promise<{ saved: boolean; reason: string }> {
@@ -367,13 +386,20 @@ async function storeSummary(ctx: MutationCtx, args: ObjectType<typeof saveSummar
   }
   // The model sometimes repeats the field name first ("whatItDoes: ..."): drop it.
   const sectionFor = (key: string) => sections.find((section) => section.key === key) ?? { key, label: key };
-  const cleaned = Object.fromEntries(Object.entries(given).map(([key, text]) => [key, cleanSummaryLine(stripSectionPrefix(normalizeSummaryText(text), sectionFor(key)))]));
+  // A v3 summary's lines are longer: two sentences, naming files.
+  const lineLimit = args.details ? V3_LINE_LIMIT : undefined;
+  const cleaned = Object.fromEntries(Object.entries(given).map(([key, text]) => [key, cleanSummaryLine(stripSectionPrefix(normalizeSummaryText(text), sectionFor(key)), lineLimit)]));
   const output = summaryOutputSchemaFor(sections).safeParse(cleaned);
   if (!output.success) return { saved: false, reason: "invalid_output" };
   const lines = output.data as Record<string, string>;
   // A section may be empty ("Not described"), but not all of them.
   if (sections.every((section) => !lines[section.key])) return { saved: false, reason: "invalid_output" };
-  const evaluative = findEvaluativeLanguage(sections.map((section) => lines[section.key]), adminTracks);
+  const details = args.details ? cleanDetails(args.details) : undefined;
+  if (details === null) return { saved: false, reason: "invalid_output" };
+  const evaluative = findEvaluativeLanguage([
+    ...sections.map((section) => lines[section.key]),
+    ...(details ? [...details.builtVsStubbed.flatMap((entry) => [entry.part, entry.evidence]), ...details.questions] : []),
+  ], adminTracks);
   if (evaluative) return { saved: false, reason: `evaluative_language:${evaluative}` };
   // A read that scores or awards is left out; the description lines are still saved.
   const read = args.read ? cleanRead(args.read, picked, sponsors) : undefined;
@@ -390,6 +416,7 @@ async function storeSummary(ctx: MutationCtx, args: ObjectType<typeof saveSummar
       usedReadme: args.usedReadme,
       readmeHash: args.readmeHash,
       ...(args.codeHash !== undefined ? { codeHash: args.codeHash } : {}),
+      ...(details ?? {}),
       promptVersion: SUMMARY_PROMPT_VERSION,
       ...(sample ? { sample: true } : {}),
       generatedAt: Date.now(),
@@ -403,6 +430,22 @@ export const saveSummary = internalMutation({
   args: saveSummaryArgs,
   handler: (ctx, args) => storeSummary(ctx, args, false),
 });
+
+/**
+ * The v3 details, cleaned and capped: known statuses only, at most four parts
+ * and three questions, empty entries left out. Null when no question is left,
+ * as every v3 summary has some.
+ */
+function cleanDetails(details: NonNullable<ObjectType<typeof saveSummaryArgs>["details"]>) {
+  const builtVsStubbed = details.builtVsStubbed.flatMap((entry) => {
+    const status = (BUILT_STATUSES as readonly string[]).includes(entry.status) ? entry.status as BuiltStatus : null;
+    const part = cleanSummaryLine(entry.part, V3_PART_LIMIT);
+    return status && part ? [{ part, status, evidence: cleanSummaryLine(entry.evidence, V3_EVIDENCE_LIMIT) }] : [];
+  }).slice(0, 4);
+  const questions = details.questions.map((question) => cleanSummaryLine(question, V3_QUESTION_LIMIT)).filter(Boolean).slice(0, 3);
+  if (questions.length === 0) return null;
+  return { builtVsStubbed, questions, build: details.build };
+}
 
 type StoredRead = NonNullable<NonNullable<Doc<"submissions">["aiSummary"]>["read"]>;
 
@@ -563,5 +606,109 @@ export function publicAiSummary(submission: Doc<"submissions">) {
     generatedAt: summary.generatedAt,
     // True when the description or repository changed and a new summary is on its way.
     stale: summary.sourceKey !== summarySourceKey(submission),
+    // v3 only; older summaries have none of these.
+    builtVsStubbed: summary.builtVsStubbed ?? null,
+    questions: summary.questions ?? null,
+    build: summary.build ?? null,
   };
 }
+
+/**
+ * "Regenerate AI summaries" for a whole event is not charged to the daily cap
+ * (edits may have spent it by the time an organiser needs it); it has its own
+ * limit instead: this many per event per UTC day, one at a time.
+ */
+export const REGENERATE_DAILY_LIMIT = 3;
+/** Gap between a regenerate's runs: with a run taking about 30 s, three or four are in flight at once. */
+export const REGENERATE_STAGGER_MS = 10_000;
+/** A regenerate older than this no longer counts as running, even if a run never reported back. */
+const REGENERATE_RUNNING_MS = 30 * 60_000;
+/** The estimate the organiser confirms, per project, in USD (v3 measured $0.14 to $0.21 uncached). */
+export const REGENERATE_ESTIMATE_USD = 0.17;
+
+async function judgedSubmissions(ctx: Pick<QueryCtx, "db">, event: Doc<"events">) {
+  const submissions = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", event._id)).take(1000);
+  return submissions.filter((submission) => inJudging(event, submission));
+}
+
+/**
+ * How the last regenerate is going, from the submissions it covered: done
+ * when a summary was saved since it started, pending while a run is queued
+ * or running, failed when the run ended without a new summary.
+ */
+function regenerationProgress(event: Doc<"events">, submissions: Doc<"submissions">[], now: number) {
+  const last = event.aiSummaryRegeneration;
+  if (!last) return null;
+  const isDone = (submission: Doc<"submissions">) => (submission.aiSummary?.generatedAt ?? 0) >= last.startedAt;
+  // Every project it queued (a sample one is written at once, so it is done).
+  const covered = submissions.filter((submission) => isDone(submission) || (submission.summaryQueuedFor ?? 0) >= last.startedAt);
+  const done = covered.filter(isDone).length;
+  const pending = covered.filter((submission) => !isDone(submission) && submission.summaryRunPending !== undefined).length;
+  return {
+    startedAt: last.startedAt,
+    total: covered.length,
+    done,
+    pending,
+    failed: covered.length - done - pending,
+    running: pending > 0 && now - last.startedAt < REGENERATE_RUNNING_MS,
+  };
+}
+
+/** What the event's "Regenerate AI summaries" button shows: how many projects, the estimate, and the last run's progress. */
+export const eventSummaryRegeneration = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const { event } = await requireEventOrganization(ctx, args.slug);
+    if (event.eventType !== "hackathon") return null;
+    const now = Date.now();
+    const submissions = await judgedSubmissions(ctx, event);
+    const sample = summaryMode(event) === "sample";
+    const last = event.aiSummaryRegeneration;
+    const usedToday = last?.day === Math.floor(now / DAY_MS) ? last.today : 0;
+    return {
+      projects: submissions.length,
+      configured: sample || aiSummariesConfigured(),
+      sample,
+      estimateUsd: sample ? 0 : REGENERATE_ESTIMATE_USD * submissions.length,
+      leftToday: Math.max(0, REGENERATE_DAILY_LIMIT - usedToday),
+      progress: regenerationProgress(event, submissions, now),
+    };
+  },
+});
+
+/**
+ * Rewrites the AI summary of every submission in judging with the current
+ * prompt, whether or not it is current. Runs are staggered so GitHub and
+ * OpenAI see a few at a time; each one falls back to the v2 summary on its own.
+ */
+export const regenerateEventSummaries = mutation({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const { event, actor } = await requireEventOrganization(ctx, args.slug);
+    if (event.eventType !== "hackathon") throw new ConvexError("AI summaries are written for hackathons only.");
+    const sample = summaryMode(event) === "sample";
+    if (!sample && !aiSummariesConfigured()) throw new ConvexError("AI summaries are not set up for this app.");
+    const now = Date.now();
+    const day = Math.floor(now / DAY_MS);
+    const submissions = await judgedSubmissions(ctx, event);
+    if (regenerationProgress(event, submissions, now)?.running) throw new ConvexError("AI summaries are already being regenerated. Wait for this run to finish.");
+    const last = event.aiSummaryRegeneration;
+    const today = last?.day === day ? last.today : 0;
+    if (today >= REGENERATE_DAILY_LIMIT) throw new ConvexError(`AI summaries can be regenerated ${REGENERATE_DAILY_LIMIT} times a day for each event. Try again tomorrow.`);
+    if (submissions.length === 0) throw new ConvexError("No projects are in judging yet.");
+    await ctx.db.patch(event._id, { aiSummaryRegeneration: { startedAt: now, total: submissions.length, day, today: today + 1 } });
+    let queued = 0;
+    for (const submission of submissions) {
+      if (sample) {
+        if (await writeSampleSummary(ctx, event, submission, false, true)) queued += 1;
+        continue;
+      }
+      const runAt = now + queued * REGENERATE_STAGGER_MS;
+      await ctx.scheduler.runAfter(runAt - now, internal.aiSummaryAction.generateSubmissionSummary, { submissionId: submission._id, force: true, queuedFor: runAt });
+      await ctx.db.patch(submission._id, { summaryQueuedFor: runAt, summaryRunPending: runAt });
+      queued += 1;
+    }
+    await ctx.db.insert("auditLog", { eventId: event._id, action: "ai_summaries_regenerated", actor, details: `${queued} projects`, createdAt: now });
+    return { queued };
+  },
+});

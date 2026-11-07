@@ -52,7 +52,7 @@ const ALLOWED: Record<string, string[]> = {
   stage_mode_changed: ["mode"],
   judges_added: ["count"],
   judge_link_replaced: [],
-  submission_submitted: ["tracks", "has_video", "has_repository", "team_size"],
+  submission_submitted: ["tracks", "has_video", "has_repository", "team_size", "form_id"],
   status_link_requested: [],
   submission_withdrawn: [],
   email_sent: ["kind", "submission_id"],
@@ -137,6 +137,9 @@ test("a team's submission, status link request and withdrawal send counts only, 
   const [submitted] = named(events, "submission_submitted");
   expect(submitted.properties).toMatchObject({ surface: "team", tracks: 0, has_video: true, has_repository: true, team_size: 2, $process_person_profile: false });
   expect(submitted.distinct_id).not.toBe(ACTOR_SUBJECT);
+  // The browser's events from the same page load carry this id too; the raw client id never leaves.
+  expect(submitted.properties.form_id).toMatch(/^[0-9a-f]{16}$/);
+  expect(JSON.stringify(submitted)).not.toContain("test-browser-analytics-0001");
   expect(named(events, "status_link_requested")).toHaveLength(1);
   expect(named(events, "submission_withdrawn")).toHaveLength(1);
   // No Resend key in tests, so the submitted email is skipped as not configured (the resend waits two minutes).

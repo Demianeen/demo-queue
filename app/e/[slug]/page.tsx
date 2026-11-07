@@ -8,10 +8,9 @@ type PageProps = {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const title = await eventTitle(slug);
 
   return {
-    title: title ? `Submit - ${title}` : "Submit",
+    title: `Submit - ${await eventTitle(slug)}`,
   };
 }
 

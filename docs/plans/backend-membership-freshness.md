@@ -7,8 +7,10 @@ updated: 2026-10-26
 ---
 
 The environment and legacy-admin scope below is historical and superseded by
-[WorkOS-only event administration](workos-only-administration.md). Preview now
-shares canonical development; all event administration requires WorkOS.
+[WorkOS-only event administration](workos-only-administration.md). All event
+administration requires WorkOS. Previews sign in through the Development WorkOS
+client and, since 1 November 2026, have their own seeded Convex deployment
+([Seeded Convex preview deployment](preview-deployments.md)).
 
 The original target was membership revocation bounded to 60 seconds. Hosted
 verification found a five-second platform tolerance. The corrected HTTP bound

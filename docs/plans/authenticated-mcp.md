@@ -163,8 +163,10 @@ deny Outpost access. The safe receipt is
 `docs/reports/auth-review-assets/mcp-final-receipt.json`. The same event appears
 in the verified hosted organization workspace. The final frontend source is
 identical between the two PRs; MCP adds only backend functions and documentation.
-Both branch builds use canonical development credentials and only build Next.js.
-They never provision or deploy a separate Convex Preview backend.
+Both branch builds used canonical development credentials and only built Next.js,
+without a separate Convex Preview backend. Since 1 November 2026 previews have
+their own seeded deployment and serve no MCP ([Seeded Convex preview
+deployment](preview-deployments.md)).
 
 All 118 Node tests and 52 Convex tests pass, with TypeScript and full lint.
 Independent final reviews found no outstanding blocking issue after the

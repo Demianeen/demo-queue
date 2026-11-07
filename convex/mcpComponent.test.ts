@@ -691,7 +691,7 @@ test("device codes are client bound and expire before consent or token exchange"
 
 test("component lint allows only the five explicit sensitive reads requiring manage access", async () => {
   const { mcp } = await import("./mcp");
-  expect(mcp.lint()).toEqual([
+  expect(mcp?.lint()).toEqual([
     'Tool "list_members" is read-only but requires the write-like scope "events:manage"; read-only connections can\'t use it.',
     'Tool "list_invitations" is read-only but requires the write-like scope "events:manage"; read-only connections can\'t use it.',
     'Tool "get_submission_contacts" is read-only but requires the write-like scope "events:manage"; read-only connections can\'t use it.',

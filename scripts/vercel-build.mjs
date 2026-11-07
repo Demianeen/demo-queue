@@ -1,9 +1,13 @@
 import { spawnSync } from "node:child_process";
 
+// Runs once, when `convex deploy` creates the branch's preview deployment.
+const PREVIEW_SEED = "previewSeed:seed";
+
 function previewEnvironment(env) {
-  if (env.NEXT_PUBLIC_CONVEX_URL !== "https://precious-elk-564.convex.cloud") {
-    throw new Error("preview_convex_url_mismatch");
-  }
+  // Only a preview deploy key makes `convex deploy` create this branch's own
+  // deployment. Any other key would be one Preview inherited, such as Production's.
+  if (!env.CONVEX_DEPLOY_KEY?.trim()) throw new Error("preview_deploy_key_missing");
+  if (!/^preview:[^:|]+:[^:|]+\|./.test(env.CONVEX_DEPLOY_KEY)) throw new Error("preview_deploy_key_not_preview");
   if (env.WORKOS_CLIENT_ID !== "client_01M1RPKQD8S6KM3Q61N0N2FE4D") {
     throw new Error("preview_workos_client_mismatch");
   }
@@ -20,10 +24,10 @@ function previewEnvironment(env) {
   if (env.NEXT_PUBLIC_WORKOS_REDIRECT_URI && env.NEXT_PUBLIC_WORKOS_REDIRECT_URI !== callback) {
     throw new Error("preview_callback_mismatch");
   }
+  // `convex deploy` sets the preview's URLs for the build, so inherited ones are dropped.
   return {
     ...Object.fromEntries(Object.entries(env).filter(([key]) =>
-      !key.startsWith("CONVEX_") &&
-      (!key.startsWith("NEXT_PUBLIC_CONVEX_") || key === "NEXT_PUBLIC_CONVEX_URL"),
+      key === "CONVEX_DEPLOY_KEY" || (!key.startsWith("CONVEX_") && !key.startsWith("NEXT_PUBLIC_CONVEX_")),
     )),
     NEXT_PUBLIC_WORKOS_REDIRECT_URI: callback,
   };
@@ -37,7 +41,7 @@ function main() {
       args = ["exec", "convex", "deploy", "--cmd-url-env-var-name", "NEXT_PUBLIC_CONVEX_URL", "--cmd", "pnpm run build"];
       env = process.env;
     } else if (process.env.VERCEL_ENV === "preview") {
-      args = ["run", "build"];
+      args = ["exec", "convex", "deploy", "--cmd-url-env-var-name", "NEXT_PUBLIC_CONVEX_URL", "--cmd", "pnpm run build", "--preview-run", PREVIEW_SEED];
       env = previewEnvironment(process.env);
     } else {
       throw new Error("unsupported_vercel_environment");

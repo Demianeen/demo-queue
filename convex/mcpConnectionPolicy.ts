@@ -50,6 +50,12 @@ export function componentConfiguration() {
   return { siteUrl, consentUrl, allowedOrigins: [...new Set(["http://localhost:3002", url.origin])] };
 }
 
+/** Null on any other deployment, such as a Vercel preview's own, which serves no MCP. */
+export function canonicalComponentConfiguration() {
+  try { componentSiteUrl(); } catch { return null; }
+  return componentConfiguration();
+}
+
 const membershipPage = z.object({
   data: z.array(z.object({ user_id: z.string(), organization_id: z.string(), organization_name: z.string(), status: z.enum(["active", "inactive", "pending"]) })).max(100),
   list_metadata: z.object({ after: z.string().min(1).max(4096).nullable() }),

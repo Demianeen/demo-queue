@@ -3,7 +3,7 @@ import component from "@convex-dev/mcp/test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import { api } from "./_generated/api";
-import { componentConfiguration, componentSiteUrl } from "./mcpConnectionPolicy";
+import { canonicalComponentConfiguration, componentConfiguration, componentSiteUrl } from "./mcpConnectionPolicy";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts", "!./convex.config.ts"]);
@@ -50,6 +50,22 @@ test("component configuration rejects noncanonical deployments and URL normaliza
     expect(() => componentSiteUrl()).toThrow("canonical");
     expect(() => componentConfiguration()).toThrow("canonical");
   }
+});
+
+test("a preview deployment serves no MCP, so its HTTP routes still load", async () => {
+  vi.stubEnv("CONVEX_SITE_URL", "https://happy-otter-123.convex.site");
+  expect(canonicalComponentConfiguration()).toBeNull();
+  expect((await import("./mcp")).mcp).toBeNull();
+  const { default: http } = await import("./http");
+  for (const path of ["/mcp", "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-authorization-server"]) {
+    expect(http.lookup(path, "GET")).toBeNull();
+    expect(http.lookup(path, "POST")).toBeNull();
+  }
+  // A canonical deployment still refuses a bad consent URL rather than going quiet.
+  vi.stubEnv("CONVEX_SITE_URL", development);
+  expect(canonicalComponentConfiguration()).toEqual(componentConfiguration());
+  vi.stubEnv("MCP_CONSENT_URL", "https://preview.example/elsewhere");
+  expect(() => canonicalComponentConfiguration()).toThrow("Invalid MCP consent URL");
 });
 
 test("development consent rejects credentials, insecure remote origins and alternate paths", () => {

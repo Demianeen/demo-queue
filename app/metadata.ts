@@ -2,6 +2,7 @@ import { cache } from "react";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import { getEnv } from "./env";
+import { convexErrorText } from "@/lib/convex-error";
 
 const client = new ConvexHttpClient(getEnv().NEXT_PUBLIC_CONVEX_URL);
 
@@ -42,13 +43,9 @@ export async function participantTitle(slug: string, participantToken: string) {
 }
 
 function isNotFound(error: unknown) {
-  return errorMessage(error).includes("Event not found");
+  return convexErrorText(error) === "Event not found";
 }
 
 function isSubmissionNotFound(error: unknown) {
-  return errorMessage(error).includes("Submission not found");
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+  return convexErrorText(error) === "Submission not found";
 }

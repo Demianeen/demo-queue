@@ -17,7 +17,7 @@ export type SummaryManifest = { file: (typeof SUMMARY_MANIFEST_FILES)[number]; t
  * Which prompt a summary was written with. An explicit refresh (the close
  * pass) rewrites summaries from an older version even when nothing changed.
  */
-export const SUMMARY_PROMPT_VERSION = 3;
+export const SUMMARY_PROMPT_VERSION = 4;
 /** The longest line kept from the model, in characters. */
 export const SUMMARY_LINE_LIMIT = 220;
 /** Model output longer than this is rejected rather than cut. */
@@ -208,9 +208,9 @@ export function stripSectionPrefix(value: string, section: Pick<SummarySection, 
   return line;
 }
 
-export function cleanSummaryLine(value: string) {
+export function cleanSummaryLine(value: string, limit = SUMMARY_LINE_LIMIT) {
   const line = normalizeSummaryText(value).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
-  return line.length > SUMMARY_LINE_LIMIT ? `${line.slice(0, SUMMARY_LINE_LIMIT - 1).trimEnd()}…` : line;
+  return line.length > limit ? `${line.slice(0, limit - 1).trimEnd()}…` : line;
 }
 
 export type PracticeAiSummaries = "sample" | "model";
@@ -230,7 +230,7 @@ export function buildSampleSummary(input: { demoTitle: string; description: stri
   }));
 }
 
-type BlockName = "TITLE" | "TRACKS" | "SPONSORS" | "DESCRIPTION" | "README" | `DEPENDENCIES ${SummaryManifest["file"]}` | "CODE FILES" | "CODE EXCERPTS";
+type BlockName = "TITLE" | "TRACKS" | "SPONSORS" | "DESCRIPTION" | "README" | `DEPENDENCIES ${SummaryManifest["file"]}` | "DEPENDENCIES" | "CODE FILES" | "CODE EXCERPTS" | "BUILD" | "COMMIT MESSAGES";
 
 /** The code read as the prompt takes it: some of the repository's paths, and excerpts of a few files. */
 export type SummaryCode = { files: string[]; total: number; excerpts: { path: string; text: string }[] };
@@ -249,7 +249,7 @@ function neutralizeMarkers(value: string) {
   return normalizeSummaryText(value).replace(/<{2,}\s*\/?\s*(BEGIN|END)[^>]*>{2,}/gi, "[removed marker]");
 }
 
-function dataBlock(name: BlockName, value: string) {
+export function dataBlock(name: BlockName, value: string) {
   return `<<<BEGIN ${name}>>>\n${neutralizeMarkers(wellFormed(value))}\n<<<END ${name}>>>`;
 }
 

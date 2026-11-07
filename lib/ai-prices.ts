@@ -26,6 +26,11 @@ export const AI_PRICES: Record<string, ModelPrice[]> = {
     from: "2026-03-05", input: 2.5, cachedInput: 0.25, output: 15,
     longContext: { aboveInputTokens: 272_000, input: 5, cachedInput: 0.5, output: 22.5 },
   }],
+  // The v3 summary model. Checked on OpenAI's pricing page on 1 Nov 2026. Cache writes ($2.50 per 1M for 30 minutes) are not priced here.
+  "gpt-6.1-sol": [{
+    from: "2026-10-01", input: 2, cachedInput: 0.1, output: 10,
+    longContext: { aboveInputTokens: 272_000, input: 4, cachedInput: 0.2, output: 15 },
+  }],
 };
 
 /** "gpt-5.4-2026-03-05" is priced as "gpt-5.4"; "gpt-5.4-mini" stays itself. */

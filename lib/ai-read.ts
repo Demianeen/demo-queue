@@ -54,6 +54,61 @@ export function aiReadChips(read: AiReadView | null | undefined): AiReadChip[] {
   return [...tracks, ...sponsors];
 }
 
+/** Whether a claimed feature looks built in the code read (v3 summaries). */
+export type BuiltStatusView = "working" | "partial" | "stubbed" | "not_read";
+export const BUILT_STATUS_LABELS: Record<BuiltStatusView, string> = { working: "Working", partial: "Partial", stubbed: "Stubbed", not_read: "Not read" };
+export const BUILT_STATUS_TONES: Record<BuiltStatusView, AiReadTone> = { working: "good", partial: "some", stubbed: "some", not_read: "none" };
+
+/** Counts from the repository's commits, computed by the app (v3 summaries). */
+export type AiBuildView = {
+  sha: string;
+  readAt: number;
+  deadline: number;
+  deadlineKind: "closed" | "written";
+  commits: number;
+  people: number;
+  firstAt: number;
+  lastAt: number;
+  afterDeadline: number;
+  firstCommitLines?: number;
+  firstCommitFiles?: number;
+  truncated: boolean;
+  filesRead: number;
+};
+
+/** What a v3 summary adds; every field is null on older summaries. */
+export type AiDetailsView = {
+  builtVsStubbed?: { part: string; status: BuiltStatusView; evidence: string }[] | null;
+  questions?: string[] | null;
+  build?: AiBuildView | null;
+};
+
+const shortTime = (at: number) => new Date(at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const datedTime = (at: number) => new Date(at).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+/**
+ * The build facts as one line: "12 commits by 2 people, 1 Nov, 10:42 to 1 Nov,
+ * 18:03. The first commit had no code. 1 commit after the deadline left out."
+ * Times are in the viewer's time zone.
+ */
+export function buildFactsLine(build: AiBuildView, time?: (at: number) => string) {
+  // History from an earlier year shows dates with years, so "17 Nov to 26 Aug" never reads as one event.
+  const spansYears = new Date(build.firstAt).getFullYear() !== new Date(build.deadline).getFullYear();
+  time ??= spansYears ? datedTime : shortTime;
+  const plural = (count: number, one: string, many: string) => `${count.toLocaleString("en-GB")} ${count === 1 ? one : many}`;
+  return [
+    `${plural(build.commits, "commit", "commits")} by ${plural(build.people, "person", "people")}, ${time(build.firstAt)} to ${time(build.lastAt)}${build.truncated ? " (latest 300 only)" : ""}.`,
+    build.firstCommitLines === undefined ? "" : build.firstCommitLines === 0 ? "The first commit had no code." : `The first commit added ${plural(build.firstCommitLines, "line", "lines")} of code in ${plural(build.firstCommitFiles ?? 0, "file", "files")}.`,
+    build.afterDeadline > 0 ? `${plural(build.afterDeadline, "commit", "commits")} after the deadline left out.` : "",
+  ].filter(Boolean).join(" ");
+}
+
+/** Which commit the code was read at, and why that one. */
+export function buildReadLine(build: AiBuildView, time: (at: number) => string = shortTime) {
+  const deadline = build.deadlineKind === "closed" ? `when submissions closed (${time(build.deadline)})` : `when this was written (${time(build.deadline)})`;
+  return `Code read at ${build.sha.slice(0, 7)}, the last commit before ${deadline}: ${build.filesRead} file${build.filesRead === 1 ? "" : "s"} read.`;
+}
+
 /** Rows show up to this many AI chips; past it, one fewer and then "+N". */
 export const ROW_AI_CHIP_LIMIT = 3;
 

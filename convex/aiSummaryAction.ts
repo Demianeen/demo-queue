@@ -24,8 +24,14 @@ import {
 } from "../lib/ai-summary";
 import { hasTokens, usageFromError, usageFromResult, type AiUsageResult, type LoggedUsage } from "../lib/ai-usage";
 import { fetchCode, inputChanged, type CodeResult } from "../lib/ai-summary-inputs";
+import { buildSummaryV3Prompt, fetchDeadlineRead, SUMMARY_V3_MODEL, summaryV3OutputSchema, type SummaryV3Output } from "../lib/ai-summary-v3";
+import type { FunctionReturnType } from "convex/server";
 
 const README_TIMEOUT_MS = 8_000;
+/** The v2 summary's model, as before v3: it is the fallback, so it stays the one known to work. */
+const FALLBACK_SUMMARY_MODEL = "gpt-5.4";
+/** A v3 call took about 16 s in testing; past this the run falls back to v2. */
+const V3_MODEL_TIMEOUT_MS = 150_000;
 /** A public repository's coordinates, for the code read. */
 type PublicRepository = { owner: string; name: string; defaultBranch: string };
 /**
@@ -181,7 +187,135 @@ const summaryRunArgs = {
   readmeAttempt: v.optional(v.number()),
   // When this run was queued to start; it clears the submission's pending marker when it ends.
   queuedFor: v.optional(v.number()),
+  // An organiser regenerated every summary in the event: rewrite this one even if it is current.
+  force: v.optional(v.boolean()),
 };
+
+type SummaryInput = NonNullable<FunctionReturnType<typeof internal.aiSummaries.summaryInput>>;
+
+/**
+ * A public repository's owner and name, checked first: a token may be able to
+ * read private repositories, and nothing private may reach a summary.
+ */
+async function fetchPublicRepository(githubUrl: string): Promise<{ kind: "ok"; owner: string; name: string } | { kind: "none" | "limited" }> {
+  const url = githubReadmeApiUrl(githubUrl);
+  if (!url) return { kind: "none" };
+  try {
+    const response = await fetch(url.replace(/\/readme$/, ""), {
+      headers: githubHeaders("application/vnd.github+json"),
+      signal: AbortSignal.timeout(README_TIMEOUT_MS),
+    });
+    if (isRateLimited(response)) return { kind: "limited" };
+    if (!response.ok) return { kind: "none" };
+    const details = (await response.json()) as { private?: unknown; visibility?: unknown };
+    if (details.private !== false || details.visibility !== "public") return { kind: "none" };
+    const [owner, name] = new URL(url).pathname.split("/").slice(2, 4).map(decodeURIComponent);
+    return { kind: "ok", owner, name };
+  } catch {
+    return { kind: "none" };
+  }
+}
+
+const DEFAULT_KEYS = ["whatItDoes", "howItWorks", "demoFocus"];
+
+/**
+ * The v3 summary: the code at the deadline, build facts and the longer brief.
+ * "fallback" when it could not be written, so the caller writes the v2 summary
+ * instead of nothing. An event with its own sections keeps v2, whose fields they are.
+ */
+async function writeSummaryV3(ctx: ActionCtx, args: ObjectType<typeof summaryRunArgs>, input: SummaryInput, log: SummaryLog, apiKey: string): Promise<{ saved: boolean } | "fallback"> {
+  if (!input.githubUrl || input.sections.map((section) => section.key).join() !== DEFAULT_KEYS.join()) return "fallback";
+  const repository = await fetchPublicRepository(input.githubUrl);
+  if (repository.kind !== "ok") {
+    if (repository.kind === "limited") log("v3_fallback", "rate_limited");
+    return "fallback";
+  }
+  // A check of a current v3 summary stops as soon as it sees the same commit at the deadline.
+  const knownSha = input.readmeCheckOnly && input.codeHash?.startsWith("v3:") ? input.codeHash.slice(3) : null;
+  const deadline = input.submissionsClosedAt !== null ? { at: input.submissionsClosedAt, kind: "closed" as const } : { at: Date.now(), kind: "written" as const };
+  const token = env.GITHUB_TOKEN?.trim();
+  const result = await fetchDeadlineRead(repository, deadline, {
+    headers: { "User-Agent": "demo-queue-ai-summary", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    knownSha,
+  });
+  if (result.kind === "unchanged") {
+    log("skipped", "code_unchanged");
+    return { saved: false };
+  }
+  if (result.kind === "failed") {
+    // A reason code only: never a repository path, file text or a token.
+    log("v3_fallback", result.reason);
+    // A current v3 summary is kept rather than replaced by an older kind.
+    return knownSha ? { saved: false } : "fallback";
+  }
+  const model = env.OPENAI_MODEL?.trim() || SUMMARY_V3_MODEL;
+  const read = summaryReadInput(input.tracks, input.sponsors);
+  const hasRead = read.tracks.length > 0 || read.sponsors.length > 0;
+  const { facts, readme, excerpts } = result.read;
+  const logCall = (usage: LoggedUsage, outcome: AiUsageResult) =>
+    logAiUsage(ctx, { ...usage, eventId: input.eventId, submissionId: args.submissionId, feature: "summary", result: outcome });
+  const llm = llmAnalytics({ distinctId: "system", traceId: randomUUID(), properties: { ...input.analytics, feature: "summary", submission_id: args.submissionId } });
+  for (const stricter of [false, true]) {
+    const { system, prompt } = buildSummaryV3Prompt({ demoTitle: input.demoTitle, description: input.description, tracks: input.tracks, sponsors: input.sponsors, read: result.read }, read, { stricter });
+    let usage: LoggedUsage | null = null;
+    let stage: "call" | "output" | "save" = "call";
+    let saved: { saved: boolean; reason: string };
+    try {
+      const response = await generateText({
+        model: llm ? llm.trace(createOpenAI({ apiKey })(model)) : createOpenAI({ apiKey })(model),
+        output: Output.object({ schema: summaryV3OutputSchema(read) }),
+        // The AI SDK does not know gpt-6.1-sol as a reasoning model and drops the effort without forceReasoning.
+        providerOptions: { openai: { reasoningEffort: "medium", forceReasoning: true } },
+        abortSignal: AbortSignal.timeout(V3_MODEL_TIMEOUT_MS),
+        system,
+        prompt,
+      });
+      usage = usageFromResult(response, model);
+      stage = "output";
+      const output = response.output as SummaryV3Output;
+      stage = "save";
+      saved = await ctx.runMutation(internal.aiSummaries.saveSummary, {
+        submissionId: args.submissionId,
+        sourceKey: input.sourceKey,
+        lines: DEFAULT_KEYS.map((key) => ({ key, text: String((output as Record<string, unknown>)[key] ?? "") })),
+        tracksKey: input.tracksKey,
+        // v3 has no overall sentence: the parts and questions take its place.
+        read: hasRead ? { overall: "", tracks: output.trackFit ?? [], sponsors: output.sponsorUse ?? [] } : undefined,
+        model,
+        usedReadme: readme !== null,
+        readmeHash: readme === null ? undefined : sha256(readme),
+        codeHash: `v3:${facts.sha}`,
+        details: { builtVsStubbed: output.builtVsStubbed, questions: output.questions, build: { ...facts, filesRead: excerpts.length } },
+      });
+    } catch (error) {
+      log("v3_fallback", "model_failed", modelErrorFields(error));
+      const known = usage ?? usageFromError(error, model);
+      const unusable = stage === "output" || (stage === "call" && hasTokens(known));
+      await logCall(known, unusable ? "failed" : "error");
+      return "fallback";
+    }
+    const logged: LoggedUsage = usage ?? { model };
+    if (saved.saved) {
+      log("saved", saved.reason);
+      await logCall(logged, "saved");
+      return { saved: true };
+    }
+    if (!stricter && saved.reason.startsWith("evaluative_language")) {
+      log("retrying", saved.reason);
+      await logCall(logged, "retried");
+      continue;
+    }
+    const superseded = saved.reason === "source_changed" || saved.reason === "sample_mode";
+    await logCall(logged, superseded ? "discarded" : "rejected");
+    if (superseded) {
+      log("rejected", saved.reason);
+      return { saved: false };
+    }
+    log("v3_fallback", saved.reason);
+    return "fallback";
+  }
+  return "fallback";
+}
 
 /**
  * Writes the summary, one line per section, for one submission with the deployment's
@@ -208,7 +342,7 @@ export const generateSubmissionSummary = internalAction({
 });
 
 async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunArgs>, log: SummaryLog): Promise<{ saved: boolean }> {
-  const input = await ctx.runQuery(internal.aiSummaries.summaryInput, { submissionId: args.submissionId, refreshReadme: args.refreshReadme, contextChanged: args.contextChanged });
+  const input = await ctx.runQuery(internal.aiSummaries.summaryInput, { submissionId: args.submissionId, refreshReadme: args.refreshReadme, contextChanged: args.contextChanged, force: args.force });
   if (!input) {
     log("skipped", "not_needed");
     return { saved: false };
@@ -219,6 +353,9 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
     log("skipped", "not_configured");
     return { saved: false };
   }
+  // v3 first; anything it cannot do falls back to the v2 summary below, as before v3.
+  const v3 = await writeSummaryV3(ctx, args, input, log, apiKey);
+  if (v3 !== "fallback") return v3;
   // The code is read after the README. Neither throws.
   const fetched = await fetchReadme(input.githubUrl);
   const codeRead = await readCode(fetched);
@@ -242,7 +379,7 @@ async function writeSummary(ctx: ActionCtx, args: ObjectType<typeof summaryRunAr
     log("skipped", "readme_unchanged");
     return { saved: false };
   }
-  const model = env.OPENAI_MODEL ?? "gpt-5.4";
+  const model = FALLBACK_SUMMARY_MODEL;
   const giveUp = (reason: string) =>
     ctx.runMutation(internal.aiSummaries.markSummaryGaveUp, { submissionId: args.submissionId, sourceKey: input.sourceKey, reason });
   // Proposed: when the language check rejects a summary, try once more with a stricter instruction.

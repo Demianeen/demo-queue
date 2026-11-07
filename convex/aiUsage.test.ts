@@ -183,6 +183,8 @@ test("the month summary works out cost from tokens and prices, by day, feature a
   expect(summary.prices).toEqual([
     { model: "gpt-5.4", calls: 4, price: { input: 2.5, cachedInput: 0.25, output: 15, from: "2026-03-05" } },
     { model: "gpt-unknown", calls: 1, price: null },
+    // The v3 summary model is listed with its price before its first call.
+    { model: "gpt-6.1-sol", calls: 0, price: { input: 2, cachedInput: 0.1, output: 10, from: "2026-10-01" } },
   ]);
   expect(summary.budget).toEqual({ perProject: 3, floor: 20 });
 

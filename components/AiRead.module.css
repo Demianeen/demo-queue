@@ -18,6 +18,19 @@
 .rows dd { margin: 0; color: var(--dq-fg); }
 .missing { color: var(--dq-fg-3); font-style: italic; }
 .pending { display: grid; gap: 6px; }
+/* v3 summaries: the build facts the app counted, then what looks built, then questions for the team. */
+.build { display: grid; gap: 2px; }
+.buildFacts { margin: 0; font-size: 13px; line-height: 19px; color: var(--dq-fg-2); }
+.buildLabel { margin-right: 8px; color: var(--dq-fg-3); }
+.build .note { margin: 0; }
+.verdict ~ .build, .fit ~ .build, .build ~ .rows, .rows ~ .section, .section ~ .section { padding-top: 12px; border-top: 1px solid var(--dq-divider-soft); }
+.section { display: grid; gap: 6px; }
+.sectionTitle { margin: 0; font-size: 12px; line-height: 18px; font-weight: 400; color: var(--dq-fg-3); }
+.parts { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.part { display: grid; gap: 2px; }
+.partHead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.partName { font-size: 13px; line-height: 19px; color: var(--dq-fg); }
+.questions { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: 13px; line-height: 19px; color: var(--dq-fg); }
 .note { font-size: 11px; color: var(--dq-fg-3); }
 /* A narrow card (the organiser's project panel) puts each reason under its level, and each label over its line. */
 @container (max-width: 460px) {

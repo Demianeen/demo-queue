@@ -9,3 +9,6 @@ dist
 .gstack/
 .vercel
 /public/mascot-raw.png
+
+# Evidence from the verify-demo-queue skill
+/.verify-evidence/

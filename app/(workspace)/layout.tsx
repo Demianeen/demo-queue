@@ -9,6 +9,7 @@ import { fetchQuery } from "convex/nextjs";
 import { unstable_rethrow } from "next/navigation";
 import { isAuthConfigured } from "@/lib/auth-config";
 import { getWorkspaceMemberships } from "@/lib/workos-memberships";
+import { reportCaughtServerError } from "@/lib/posthog-server";
 import { api } from "@/convex/_generated/api";
 import { EventsAuthProvider } from "@/app/events/AuthProvider";
 import { EventsWorkspace } from "@/app/events/EventsWorkspace";
@@ -52,6 +53,7 @@ async function WorkspaceContent({ children }: { children: React.ReactNode }) {
   } catch (error) {
     unstable_rethrow(error);
     console.error("workspace-load-failed", workspaceFailureDiagnostic(phase, error));
+    await reportCaughtServerError(error, "workspace-load", { phase });
     return <WorkspaceMessage title="Could not load your workspace"><p>We couldn’t verify your access or load your events and styles. Please try again.</p><div className="dq-message-actions"><a className={buttonVariants()} data-slot="button" data-variant="default" href="">Try again</a><WorkspaceSignInLink>Sign in again</WorkspaceSignInLink></div></WorkspaceMessage>;
   }
 }

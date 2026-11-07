@@ -4,7 +4,7 @@ import { eventRootProps } from "@/lib/event-theme-contract";
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { CheckIcon } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
+import { convexErrorText } from "@/lib/convex-error";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
@@ -120,9 +120,7 @@ export type ParticipantPageProps = {
 };
 
 function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof ConvexError && typeof error.data === "string") return error.data;
-  const message = error instanceof Error ? error.message : "";
-  return message.includes("ConvexError: ") ? message.split("ConvexError: ").pop()!.split("\n")[0] : fallback;
+  return convexErrorText(error) ?? fallback;
 }
 
 /**

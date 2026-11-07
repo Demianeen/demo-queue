@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { ACTOR_SUBJECT, ORG, addProject, createEvent, setupTest, type TestClient } from "./behaviour.testing";
-import { PRACTICE_PROJECTS, PRACTICE_VIDEOS, plusAddress } from "./practice";
+import { PRACTICE_PROJECTS, plusAddress } from "./practice";
 import { videoEmbedUrl } from "../lib/video-embed";
+import { SUBMISSION_FIELD_LIMITS } from "../lib/validation";
 
 const OWNER_EMAIL = "Demian@Example.com";
 
@@ -220,20 +222,78 @@ test("old practice events are tidied away, and real events never are", async () 
   expect(rows.fresh).not.toBeNull();
 });
 
-test("test projects use real public repositories and embeddable open-movie videos", async () => {
+const submissionRows = (t: TestClient, eventId: Id<"events">) => t.run(async (ctx) => {
+  const tracks = new Map((await ctx.db.query("eventTracks").withIndex("by_event_and_order", (q) => q.eq("eventId", eventId)).collect()).map((track) => [track._id, track.name]));
+  const rows = await ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", eventId)).collect();
+  return rows.sort((a, b) => a._creationTime - b._creationTime).map((row) => ({ ...row, trackNames: (row.trackIds ?? []).map((id) => tracks.get(id)!) }));
+});
+const projectOf = (title: string) => PRACTICE_PROJECTS.find((project) => project.title === title.replace(/ \d+$/, ""))!;
+
+test("each test submission is one whole real project, and repeats are numbered", async () => {
   const { t } = setupTest();
-  await liveHackathon(t);
-  const { eventId } = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "copy", slug: "devday" }, testSubmissions: 6, testJudges: 0 });
-  const rows = await t.run((ctx) => ctx.db.query("submissions").withIndex("by_event", (q) => q.eq("eventId", eventId)).collect());
-  expect(rows).toHaveLength(6);
-  const repos = new Map(PRACTICE_PROJECTS.map((project) => [project.githubUrl, project.description]));
+  const { slug, eventId } = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "hackathon" }, testSubmissions: PRACTICE_PROJECTS.length, testJudges: 0 });
+  await t.mutation(api.practice.addPracticeSubmissions, { slug, count: 3 });
+  const rows = await submissionRows(t, eventId);
+  expect(rows).toHaveLength(PRACTICE_PROJECTS.length + 3);
   for (const row of rows) {
-    // The description matches its repository, so the summary and the README agree.
-    expect(repos.get(row.githubUrl!)).toBe(row.description);
-    expect(PRACTICE_VIDEOS).toContain(row.videoUrl);
+    // Title, description, repository and video all come from the same project, so the summary, the README and the video agree.
+    const project = projectOf(row.demoTitle);
+    expect(row).toMatchObject({ description: project.description, githubUrl: project.githubUrl, videoUrl: project.videoUrl });
     expect(videoEmbedUrl(row.videoUrl)).toMatch(/^https:\/\/www\.youtube-nocookie\.com\/embed\//);
+    expect(row.demoTitle.length).toBeLessThanOrEqual(SUBMISSION_FIELD_LIMITS.demoTitle);
+    expect(row.description.length).toBeLessThanOrEqual(SUBMISSION_FIELD_LIMITS.description);
+    // The blank event has the sample tracks, so tracks follow the project.
+    expect(row.trackNames).toEqual(project.tracks);
   }
-  expect(new Set(rows.map((row) => row.videoUrl)).size).toBe(PRACTICE_VIDEOS.length);
+  // Every project once before any repeats, then the repeats are numbered.
+  const titles = rows.map((row) => row.demoTitle);
+  expect(new Set(titles.slice(0, PRACTICE_PROJECTS.length))).toEqual(new Set(PRACTICE_PROJECTS.map((project) => project.title)));
+  const repeats = titles.slice(PRACTICE_PROJECTS.length);
+  expect(repeats.every((title) => title.endsWith(" 2"))).toBe(true);
+  expect(new Set(repeats).size).toBe(3);
+
+  // A demo night takes the title and description.
+  const demo = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "demo" }, testSubmissions: 2, testJudges: 0 });
+  for (const row of await submissionRows(t, demo.eventId)) expect(row.description).toBe(projectOf(row.demoTitle).description);
+});
+
+test("a repeat is numbered past the titles the event already has", async () => {
+  const { t } = setupTest();
+  const { slug, eventId } = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "blank", eventType: "demo" }, testSubmissions: 0, testJudges: 0 });
+  // Every project is taken once, and PizzaGPT 3 is there without a PizzaGPT 2.
+  for (const [index, title] of [...PRACTICE_PROJECTS.map((project) => project.title), "PizzaGPT 3"].entries()) {
+    await addProject(t, eventId, index, { demoTitle: title, description: "Taken" });
+  }
+  // Enough to bring every project up to 4: three more of each other project, one more PizzaGPT.
+  const count = (PRACTICE_PROJECTS.length - 1) * 3 + 1;
+  await t.mutation(api.practice.addPracticeSubmissions, { slug, count });
+  const rows = await submissionRows(t, eventId);
+  const added = rows.filter((row) => row.description !== "Taken").map((row) => row.demoTitle);
+  expect(added).toHaveLength(count);
+  expect(added.filter((title) => title.startsWith("PizzaGPT"))).toEqual(["PizzaGPT 4"]);
+  expect(new Set(rows.map((row) => row.demoTitle)).size).toBe(rows.length);
+});
+
+test("in a copy of an event with other track names, test tracks stay random", async () => {
+  const { t } = setupTest();
+  const { eventId: liveId } = await createEvent(t, { slug: "fintech", extra: { name: "Fintech Night" } });
+  await t.run(async (ctx) => {
+    for (const [order, name] of ["Payments", "Lending", "Fraud"].entries()) await ctx.db.insert("eventTracks", { eventId: liveId, name, order, createdAt: 1, updatedAt: 1 });
+  });
+  const { eventId } = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "copy", slug: "fintech" }, testSubmissions: 20, testJudges: 0 });
+  const rows = await submissionRows(t, eventId);
+  for (const row of rows) for (const name of row.trackNames) expect(["Payments", "Lending", "Fraud"]).toContain(name);
+  // Random: some with none, and different picks across projects.
+  expect(rows.some((row) => row.trackNames.length === 0)).toBe(true);
+  expect(new Set(rows.map((row) => row.trackNames.join(","))).size).toBeGreaterThan(2);
+
+  // A copy of an event that shares some names follows the project where it can.
+  await liveHackathon(t);
+  const shared = await t.action(api.practice.createPracticeEvent, { expectedOrganizationId: ORG, start: { kind: "copy", slug: "devday" }, testSubmissions: PRACTICE_PROJECTS.length, testJudges: 0 });
+  for (const row of await submissionRows(t, shared.eventId)) {
+    const fitting = projectOf(row.demoTitle).tracks.filter((name) => ["Developer tools", "AI agents"].includes(name));
+    if (fitting.length > 0) expect(row.trackNames).toEqual(fitting);
+  }
 });
 
 test("a blank practice hackathon starts with sample tracks and sponsors, and a copy brings the real ones", async () => {
